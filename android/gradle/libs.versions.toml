@@ -13,7 +13,7 @@ activityCompose = "1.8.2"
 composeBom = "2025.02.00"
 appcompat = "1.7.0"
 material = "1.12.0"
-mmkv = "2.1.0"
+mmkv = "2.2.2"
 okhttp = "4.12.0"
 uiTooling = "1.7.8"
 
