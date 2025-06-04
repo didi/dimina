@@ -176,7 +176,7 @@ function storeComponentConfig(pageJsonContent, pageFilePath) {
 		const cUsing = cContent.usingComponents || {}
 		const isComponent = cContent.component || false
 		const cComponents = Object.keys(cUsing).reduce((acc, key) => {
-			acc[key] = getModuleId(cUsing[key], pageFilePath)
+			acc[key] = getModuleId(cUsing[key], componentFilePath)
 			return acc
 		}, {})
 
@@ -187,7 +187,7 @@ function storeComponentConfig(pageJsonContent, pageFilePath) {
 			usingComponents: cComponents,
 		}
 
-		storeComponentConfig(configInfo.componentInfo[moduleId], pageFilePath)
+		storeComponentConfig(configInfo.componentInfo[moduleId], componentFilePath)
 	}
 }
 
