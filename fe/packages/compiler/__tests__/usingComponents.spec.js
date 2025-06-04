@@ -22,7 +22,7 @@ vi.mock('node:fs', async (importOriginal) => {
 })
 
 describe('child component\'s usingComponents', () => {
-  const mockWorkPath = path.join(os.tmpdir(), 'dimina-test-project')
+	const mockWorkPath = path.join(os.tmpdir(), 'dimina-test-project')
 	const originalEnv = { ...process.env }
 
 	beforeEach(() => {
@@ -30,46 +30,46 @@ describe('child component\'s usingComponents', () => {
 
 		const { existsSync, readFileSync } = fs.default || fs
 
-    const mockFiles = [
-      {
-        name: 'app.json',
-        content: JSON.stringify({
-          pages: ['pages/index/index'],
-        })
-      },
-      {
-        name: 'pages/index/index.json',
-        content: JSON.stringify({
-          usingComponents: {
-            'custom-button': '../../components/custom-button/index',
-          }
-        })
-      },
-      {
-        name: 'components/custom-button/index.json',
-        content: JSON.stringify({
-          component: true,
-          usingComponents: {
-            'custom-icon': '../custom-icon/index',
-          }
-        })
-      },
-      {
-        name: 'components/custom-icon/index.json',
-        content: JSON.stringify({
-          component: true,
-        })
-      }
-    ]
+		const mockFiles = [
+			{
+				name: 'app.json',
+				content: JSON.stringify({
+					pages: ['pages/index/index'],
+				}),
+			},
+			{
+				name: 'pages/index/index.json',
+				content: JSON.stringify({
+					usingComponents: {
+						'custom-button': '../../components/custom-button/index',
+					},
+				}),
+			},
+			{
+				name: 'components/custom-button/index.json',
+				content: JSON.stringify({
+					component: true,
+					usingComponents: {
+						'custom-icon': '../custom-icon/index',
+					},
+				}),
+			},
+			{
+				name: 'components/custom-icon/index.json',
+				content: JSON.stringify({
+					component: true,
+				}),
+			},
+		]
 
-    existsSync.mockImplementation((filePath) => {
-      return mockFiles.some(file => filePath.endsWith(file.name))
-    })
+		existsSync.mockImplementation((filePath) => {
+			return mockFiles.some(file => filePath.endsWith(file.name))
+		})
 
-    readFileSync.mockImplementation((filePath) => {
-      const file = mockFiles.find(file => filePath.endsWith(file.name))
-      return file ? file.content : '{}'
-    })
+		readFileSync.mockImplementation((filePath) => {
+			const file = mockFiles.find(file => filePath.endsWith(file.name))
+			return file ? file.content : '{}'
+		})
 	})
 
 	afterEach(() => {
@@ -77,15 +77,15 @@ describe('child component\'s usingComponents', () => {
 	})
 
 	it('should collect usingComponents from child components', () => {
-    const { configInfo } = storeInfo(mockWorkPath)
-    
-    Object.keys(configInfo.componentInfo).forEach(id => {
-      const { usingComponents } = configInfo.componentInfo[id]
+		const { configInfo } = storeInfo(mockWorkPath)
 
-      Object.keys(usingComponents).forEach(name => {
-        const path= usingComponents[name]
-        expect(path).toMatch(/^\/components\//)
-      })
-    })
+		Object.keys(configInfo.componentInfo).forEach((id) => {
+			const { usingComponents } = configInfo.componentInfo[id]
+
+			Object.keys(usingComponents).forEach((name) => {
+				const path = usingComponents[name]
+				expect(path).toMatch(/^\/components\//)
+			})
+		})
 	})
 })
