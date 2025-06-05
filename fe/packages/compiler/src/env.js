@@ -162,11 +162,11 @@ function storeComponentConfig(pageJsonContent, pageFilePath) {
 	// 解析当前页面的自定义组件信息
 	for (const [componentName, componentPath] of Object.entries(pageJsonContent.usingComponents)) {
 		const moduleId = getModuleId(componentPath, pageFilePath)
+		pageJsonContent.usingComponents[componentName] = moduleId
 
 		if (configInfo.componentInfo[moduleId]) {
 			continue
 		}
-		pageJsonContent.usingComponents[componentName] = moduleId
 
 		const componentFilePath = path.resolve(getWorkPath(), `./${moduleId}.json`)
 		if (!fs.existsSync(componentFilePath)) {

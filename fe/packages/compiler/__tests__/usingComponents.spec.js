@@ -34,11 +34,22 @@ describe('child component\'s usingComponents', () => {
 			{
 				name: 'app.json',
 				content: JSON.stringify({
-					pages: ['pages/index/index'],
+					pages: [
+						'pages/index/index',
+						'pages/other/other',
+					],
 				}),
 			},
 			{
 				name: 'pages/index/index.json',
+				content: JSON.stringify({
+					usingComponents: {
+						'custom-button': '../../components/custom-button/index',
+					},
+				}),
+			},
+			{
+				name: 'pages/other/other.json',
 				content: JSON.stringify({
 					usingComponents: {
 						'custom-button': '../../components/custom-button/index',
@@ -79,13 +90,12 @@ describe('child component\'s usingComponents', () => {
 	it('should collect usingComponents from child components', () => {
 		const { configInfo } = storeInfo(mockWorkPath)
 
-		Object.keys(configInfo.componentInfo).forEach((id) => {
-			const { usingComponents } = configInfo.componentInfo[id]
+		for (const [, options] of Object.entries({ ...configInfo.pageInfo, ...configInfo.componentInfo })) {
+			const { usingComponents } = options
 
-			Object.keys(usingComponents).forEach((name) => {
-				const path = usingComponents[name]
-				expect(path).toMatch(/^\/components\//)
-			})
-		})
+			for (const [, componentPath] of Object.entries(usingComponents)) {
+				expect(componentPath).toMatch(/^\/components\//)
+			}
+		}
 	})
 })
