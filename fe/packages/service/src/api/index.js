@@ -1,5 +1,3 @@
-import { invokeAPI } from '@/api/common'
-
 const apiInfo = import.meta.glob('./core/**/index.js', { eager: true })
 const api = {}
 for (const f of Object.values(apiInfo)) {
@@ -11,18 +9,7 @@ const handler = {
 	get(target, prop, receiver) {
 		const origMethod = Reflect.get(target, prop, receiver)
 
-		return origMethod;
-
-		return (...args) => {
-			// API存在则直接调用，API 已具体实现
-			if (typeof origMethod === 'function') {
-				return origMethod(...args)
-			}
-			else {
-				// API 不存在则走消息通道
-				return invokeAPI(prop, ...args)
-			}
-		}
+		return origMethod
 	},
 }
 /**

@@ -944,7 +944,7 @@ function insertWxsAssignToRenderAst(ast, scriptModule, scriptRes) {
 
 		// 将这个赋值表达式包装在一个表达式语句中
 		const expressionStatement = types.expressionStatement(assignmentExpression)
-		
+
 		ast.program.body[0].expression.body.body.unshift(expressionStatement)
 	}
 }

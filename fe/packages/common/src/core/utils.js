@@ -1,5 +1,5 @@
-import _set from 'lodash/set'
 import _get from 'lodash/get'
+import _set from 'lodash/set'
 
 export function isFunction(value) {
 	return typeof value === 'function'
