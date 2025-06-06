@@ -12,7 +12,7 @@ const props = defineProps({
 })
 
 const tplCom = computed(() => {
-	return `tpl-${props.is}`
+	return `dd-tpl-${props.is}`
 })
 </script>
 

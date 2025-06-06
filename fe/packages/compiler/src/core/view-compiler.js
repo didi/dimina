@@ -97,6 +97,14 @@ async function compileML(pages, root, progress) {
 function buildCompileView(module, isComponent = false, scriptRes, depthChain = []) {
 	const currentPath = module.path
 
+	if (processedModules.has(currentPath)) {
+		// 如果当前模块已经处理过，则跳过
+		return
+	}
+
+	// 将当前模块标记为已处理, 提前标记
+	processedModules.add(currentPath)
+
 	// Circular dependency detected
 	if (depthChain.includes(currentPath)) {
 		console.warn('[view]', `检测到循环依赖: ${[...depthChain, currentPath].join(' -> ')}`)
@@ -117,8 +125,6 @@ function buildCompileView(module, isComponent = false, scriptRes, depthChain = [
 			buildCompileView(componentModule, true, scriptRes, depthChain)
 		}
 	}
-	// 将当前模块标记为已处理
-	processedModules.add(currentPath)
 }
 
 /**
@@ -166,53 +172,34 @@ function compileModule(module, isComponent, scriptRes) {
 
 	let tplComponents = '{'
 	for (const tm of instruction.templateModule) {
+		let { code } = compileTemplate({
+			source: tm.tpl,
+			filename: tm.path,
+			id: `data-v-${module.id}`,
+			scoped: true,
+			compilerOptions: {
+				prefixIdentifiers: true,
+				hoistStatic: false,
+				cacheHandlers: true,
+				scopeId: `data-v-${module.id}`,
+				mode: 'function',
+				inline: true,
+			},
+		})
+
+		const ast = babel.parseSync(code)
+		insertWxsAssignToRenderAst(ast, instruction.scriptModule, scriptRes)
+		code = babel.transformFromAstSync(ast, '', {
+			comments: false,
+		}).code
+
 		tplComponents
-			+= `'${tm.path}':${compileTemplate({
-				source: tm.tpl,
-				filename: tm.path,
-				id: `data-v-${module.id}`,
-				scoped: true,
-				compilerOptions: {
-					prefixIdentifiers: true,
-					hoistStatic: false,
-					cacheHandlers: true,
-					scopeId: `data-v-${module.id}`,
-					mode: 'function',
-					inline: true,
-				},
-			}).code
-			},`
+			+= `'${tm.path}':${code.replace(/;$/, '').replace(/^"use strict";\s*/, '')},`
 	}
 	tplComponents += '}'
 
 	const tplAst = babel.parseSync(tplCode.code)
-	for (const sm of instruction.scriptModule) {
-		if (!scriptRes.has(sm.path)) {
-			scriptRes.set(sm.path, sm.code)
-		}
-		const assignmentExpression = types.assignmentExpression(
-			'=',
-			// 创建赋值表达式
-			types.memberExpression(
-				types.identifier('_ctx'), // 对象标识符
-				types.identifier(sm.path), // 属性标识符
-				false, // 是否是计算属性
-			),
-
-			// 创建require调用表达式
-			types.callExpression(
-				types.identifier('require'), // 函数标识符
-				[types.stringLiteral(sm.path)], // 参数列表，这里传入字符串字面量'foo'
-			),
-		)
-
-		// 将这个赋值表达式包装在一个表达式语句中
-		const expressionStatement = types.expressionStatement(assignmentExpression)
-
-		tplAst.program.body[0].expression.body.body.splice(0, 0, expressionStatement)
-	}
-	// 创建成员表达式，用于访问_ctx对象的foo属性
-
+	insertWxsAssignToRenderAst(tplAst, instruction.scriptModule, scriptRes)
 	const { code: transCode } = babel.transformFromAstSync(tplAst, '', {
 		comments: false,
 	})
@@ -275,6 +262,7 @@ function toCompileTemplate(isComponent, path, components, componentPlaceholder) 
 	}
 
 	const templateModule = []
+	const scriptModule = []
 	const $ = cheerio.load(content, {
 		xmlMode: true,
 		decodeEntities: false,
@@ -305,85 +293,44 @@ function toCompileTemplate(isComponent, path, components, componentPlaceholder) 
 	// https://developers.weixin.qq.com/miniprogram/dev/reference/wxml/template.html
 	transTagTemplate($, templateModule, path, components, componentPlaceholder)
 
+	// 处理 wxs 节点
+	// https://developers.weixin.qq.com/miniprogram/dev/reference/wxs/01wxs-module.html
+	transTagWxs($, scriptModule, path, workPath)
+
 	// 处理 import 节点
 	// https://developers.weixin.qq.com/miniprogram/dev/reference/wxml/import.html
 	const importNodes = $('import')
 	importNodes.each((_, elem) => {
 		const src = $(elem).attr('src')
 		if (src) {
-			const importContent = getContentByPath(getAbsolutePath(workPath, path, src)).trim()
+			const importFullPath = getAbsolutePath(workPath, path, src)
+			const importPath = importFullPath.replace(workPath).split('/').slice(0, -1).join('/')
+			const importContent = getContentByPath(importFullPath).trim()
 			if (importContent) {
+				const $$ = cheerio.load(importContent, {
+					xmlMode: true,
+					decodeEntities: false,
+				})
 				// 提取其中的 template 节点
 				transTagTemplate(
-					cheerio.load(importContent, {
-						xmlMode: true,
-						decodeEntities: false,
-					}),
+					$$,
 					templateModule,
 					path,
 					components,
 					componentPlaceholder,
 				)
+
+				// 提取其中的 wxs 节点
+				transTagWxs(
+					$$,
+					scriptModule,
+					importPath,
+					workPath,
+				)
 			}
 		}
 	})
 	importNodes.remove()
-
-	// 处理 wxs 节点
-	// https://developers.weixin.qq.com/miniprogram/dev/reference/wxs/01wxs-module.html
-	const scriptModule = []
-	let wxsNodes = $('wxs')
-	if (wxsNodes.length === 0) {
-		wxsNodes = $('dds')
-	}
-	wxsNodes.each((_, elem) => {
-		const smName = $(elem).attr('module')
-		if (smName) {
-			let wxsContent
-			if (compileResCache.has(smName)) {
-				wxsContent = compileResCache.get(smName)
-			}
-			else {
-				const src = $(elem).attr('src')
-
-				if (src) {
-					wxsContent = getContentByPath(getAbsolutePath(workPath, path, src)).trim()
-				}
-				else {
-					wxsContent = $(elem).html()
-				}
-
-				const wxsAst = babel.parseSync(wxsContent)
-				traverse(wxsAst, {
-					CallExpression(path) {
-						// getRegExp -> new RegExp, getDate -> new Date
-						if (path.node.callee.name === 'getRegExp' || path.node.callee.name === 'getDate') {
-							const args = []
-							for (let i = 0; i < path.node.arguments.length; i++) {
-								args.push(path.node.arguments[i])
-							}
-							// 创建新的 NewExpression 节点
-							const newExpr = types.newExpression(types.identifier(path.node.callee.name.substring(3)), args)
-							// 替换原来的 CallExpression 节点
-							path.replaceWith(newExpr)
-						}
-					},
-				})
-				wxsContent = babel.transformFromAstSync(wxsAst, '', {
-					comments: false,
-				}).code
-
-				compileResCache.set(smName, wxsContent)
-			}
-			if (wxsContent) {
-				scriptModule.push({
-					path: smName,
-					code: wxsContent,
-				})
-			}
-		}
-	})
-	wxsNodes.remove()
 
 	transAsses($, $('image'), path)
 
@@ -406,7 +353,6 @@ function transTagTemplate($, templateModule, path, components, componentPlacehol
 		const name = $(elem).attr('name')
 		const templateContent = $(elem)
 		// 转化模板内代码
-		templateContent.find('template').remove()
 		templateContent.find('import').remove()
 		templateContent.find('include').remove()
 		templateContent.find('wxs').remove()
@@ -918,6 +864,89 @@ function parseBraceExp(exp) {
 	}
 	// 去掉字符串首尾的加号，返回转换后的字符串
 	return group.join('').replace(/^\+|\+$/g, '')
+}
+
+function transTagWxs($, scriptModule, path, workPath) {
+	let wxsNodes = $('wxs')
+	if (wxsNodes.length === 0) {
+		wxsNodes = $('dds')
+	}
+	wxsNodes.each((_, elem) => {
+		const smName = $(elem).attr('module')
+		if (smName) {
+			let wxsContent
+			if (compileResCache.has(smName)) {
+				wxsContent = compileResCache.get(smName)
+			}
+			else {
+				const src = $(elem).attr('src')
+
+				if (src) {
+					wxsContent = getContentByPath(getAbsolutePath(workPath, path, src)).trim()
+				}
+				else {
+					wxsContent = $(elem).html()
+				}
+
+				const wxsAst = babel.parseSync(wxsContent)
+				traverse(wxsAst, {
+					CallExpression(path) {
+						// getRegExp -> new RegExp, getDate -> new Date
+						if (path.node.callee.name === 'getRegExp' || path.node.callee.name === 'getDate') {
+							const args = []
+							for (let i = 0; i < path.node.arguments.length; i++) {
+								args.push(path.node.arguments[i])
+							}
+							// 创建新的 NewExpression 节点
+							const newExpr = types.newExpression(types.identifier(path.node.callee.name.substring(3)), args)
+							// 替换原来的 CallExpression 节点
+							path.replaceWith(newExpr)
+						}
+					},
+				})
+				wxsContent = babel.transformFromAstSync(wxsAst, '', {
+					comments: false,
+				}).code
+
+				compileResCache.set(smName, wxsContent)
+			}
+			if (wxsContent) {
+				scriptModule.push({
+					path: smName,
+					code: wxsContent,
+				})
+			}
+		}
+	})
+	wxsNodes.remove()
+}
+
+function insertWxsAssignToRenderAst(ast, scriptModule, scriptRes) {
+	for (const sm of scriptModule) {
+		if (!scriptRes.has(sm.path)) {
+			scriptRes.set(sm.path, sm.code)
+		}
+		const assignmentExpression = types.assignmentExpression(
+			'=',
+			// 创建赋值表达式
+			types.memberExpression(
+				types.identifier('_ctx'), // 对象标识符
+				types.identifier(sm.path), // 属性标识符
+				false, // 是否是计算属性
+			),
+
+			// 创建require调用表达式
+			types.callExpression(
+				types.identifier('require'), // 函数标识符
+				[types.stringLiteral(sm.path)], // 参数列表，这里传入字符串字面量'foo'
+			),
+		)
+
+		// 将这个赋值表达式包装在一个表达式语句中
+		const expressionStatement = types.expressionStatement(assignmentExpression)
+		
+		ast.program.body[0].expression.body.body.unshift(expressionStatement)
+	}
 }
 
 export {

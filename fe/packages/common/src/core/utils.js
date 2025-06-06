@@ -1,4 +1,5 @@
-import { getProperty, setProperty } from 'dot-prop'
+import _set from 'lodash/set'
+import _get from 'lodash/get'
 
 export function isFunction(value) {
 	return typeof value === 'function'
@@ -13,11 +14,11 @@ export function isNil(value) {
 }
 
 export function get(data, path) {
-	return getProperty(data, path)
+	return _get(data, path)
 }
 
 export function set(data, path, value) {
-	setProperty(data, path, value)
+	_set(data, path, value)
 }
 
 export function uuid() {

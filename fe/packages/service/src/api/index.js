@@ -10,6 +10,9 @@ for (const f of Object.values(apiInfo)) {
 const handler = {
 	get(target, prop, receiver) {
 		const origMethod = Reflect.get(target, prop, receiver)
+
+		return origMethod;
+
 		return (...args) => {
 			// API存在则直接调用，API 已具体实现
 			if (typeof origMethod === 'function') {

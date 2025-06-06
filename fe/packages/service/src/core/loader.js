@@ -90,9 +90,10 @@ class Loader {
 		if (!usingComponents) {
 			return
 		}
+
 		for (const componentPath of Object.values(usingComponents)) {
 			const component = this.staticModules[componentPath]
-			if (!component) {
+			if (!component || res[componentPath]) {
 				continue
 			}
 			res[componentPath] = component.getProps()

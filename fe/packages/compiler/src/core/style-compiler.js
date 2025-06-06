@@ -77,6 +77,13 @@ async function compileSS(pages, root, progress) {
 async function buildCompileCss(module, depthChain = []) {
 	const currentPath = module.path
 
+	if (processedModules.has(currentPath)) {
+		return
+	}
+
+	// 将当前模块标记为已处理
+	processedModules.add(currentPath)
+
 	// Circular dependency detected
 	if (depthChain.includes(currentPath)) {
 		console.warn('[style]', `检测到循环依赖: ${[...depthChain, currentPath].join(' -> ')}`)
@@ -101,8 +108,6 @@ async function buildCompileCss(module, depthChain = []) {
 		}
 	}
 
-	// 将当前模块标记为已处理
-	processedModules.add(currentPath)
 	return result
 }
 

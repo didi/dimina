@@ -21,6 +21,6 @@
 		"coverage": "vitest run --coverage"
 	},
 	"dependencies": {
-		"dot-prop": "^9.0.0"
+		"lodash": "^4.17.21"
 	}
 }
