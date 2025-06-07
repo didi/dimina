@@ -116,12 +116,12 @@ function buildJSByPath(packageName, module, compileRes, mainCompileRes, addExtra
 	// Track dependency chain to detect potential circular dependencies
 	const currentPath = module.path
 
-	if (processedModules.has(currentPath)) {
+	if (processedModules.has(packageName + currentPath)) {
 		return
 	}
 
 	// 将当前模块标记为已处理
-	processedModules.add(currentPath)
+	processedModules.add(packageName + currentPath)
 
 	// Circular dependency detected
 	if (depthChain.includes(currentPath)) {
@@ -220,7 +220,7 @@ function buildJSByPath(packageName, module, compileRes, mainCompileRes, addExtra
 					// 依赖的模块相对路径转换为绝对路径
 					const id = requireFullPath.split(`${getWorkPath()}/`)[1].split('.js')[0]
 					ap.node.arguments[0] = types.stringLiteral(id)
-					if (!processedModules.has(id)) {
+					if (!processedModules.has(packageName + id)) {
 						buildJSByPath(packageName, { path: id }, compileRes, mainCompileRes, false, depthChain)
 					}
 				}
@@ -252,4 +252,5 @@ function getExtraInfoStatement(type, addedArgs) {
 	return propertyAssignmentStatement
 }
 
+export { buildJSByPath }
 export default compileJS

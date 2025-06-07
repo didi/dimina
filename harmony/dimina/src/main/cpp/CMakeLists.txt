@@ -43,7 +43,7 @@ add_compile_options(
     -DCONFIG_BIGNUM
     -DCONFIG_VERSION="${CONFIG_VERSION}"
     -O3              # 使用较高的优化级别
-    -march=native    # 针对本地CPU架构优化
+    -march=armv8-a    # 针对本地CPU架构优化
     -flto            # 启用链接时优化
 )
 
