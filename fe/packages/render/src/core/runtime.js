@@ -42,6 +42,7 @@ class Runtime {
 		this.pageId = null
 		this.instance = new Map()
 		this.intersectionObservers = new Map()
+		this.processedModules = new Set()
 
 		window._Fragment = Fragment
 		window._createTextVNode = createTextVNode
@@ -224,6 +225,11 @@ class Runtime {
 		if (!usingComponents || Object.keys(usingComponents).length === 0) {
 			return
 		}
+
+		if (this.processedModules.has(path)) {
+			return
+		}
+		this.processedModules.add(path)
 
 		const components = {}
 		const self = this

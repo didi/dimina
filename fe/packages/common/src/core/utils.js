@@ -1,4 +1,4 @@
-import { getProperty, setProperty } from 'dot-prop'
+import { get as _get, set as _set } from 'es-toolkit/compat'
 
 export function isFunction(value) {
 	return typeof value === 'function'
@@ -13,11 +13,11 @@ export function isNil(value) {
 }
 
 export function get(data, path) {
-	return getProperty(data, path)
+	return _get(data, path)
 }
 
 export function set(data, path, value) {
-	setProperty(data, path, value)
+	_set(data, path, value)
 }
 
 export function uuid() {

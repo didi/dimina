@@ -1,5 +1,3 @@
-import { invokeAPI } from '@/api/common'
-
 const apiInfo = import.meta.glob('./core/**/index.js', { eager: true })
 const api = {}
 for (const f of Object.values(apiInfo)) {
@@ -16,8 +14,8 @@ const handler = {
 				return origMethod(...args)
 			}
 			else {
-				// API 不存在则走消息通道
-				return invokeAPI(prop, ...args)
+				// API 不存在
+				console.warn(`[service] api ${prop} not exist`)
 			}
 		}
 	},
