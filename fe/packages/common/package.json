@@ -21,6 +21,6 @@
 		"coverage": "vitest run --coverage"
 	},
 	"dependencies": {
-		"lodash": "^4.17.21"
+		"es-toolkit": "^1.39.3"
 	}
 }

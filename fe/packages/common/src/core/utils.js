@@ -1,5 +1,4 @@
-import _get from 'lodash/get'
-import _set from 'lodash/set'
+import { get as _get, set as _set } from 'es-toolkit/compat'
 
 export function isFunction(value) {
 	return typeof value === 'function'
