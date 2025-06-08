@@ -188,7 +188,7 @@ function compileModule(module, isComponent, scriptRes) {
 		})
 
 		const ast = babel.parseSync(code)
-		insertWxsAssignToRenderAst(ast, instruction.scriptModule, scriptRes)
+		insertWxsToRenderAst(ast, instruction.scriptModule, scriptRes)
 		code = babel.transformFromAstSync(ast, '', {
 			comments: false,
 		}).code
@@ -199,7 +199,7 @@ function compileModule(module, isComponent, scriptRes) {
 	tplComponents += '}'
 
 	const tplAst = babel.parseSync(tplCode.code)
-	insertWxsAssignToRenderAst(tplAst, instruction.scriptModule, scriptRes)
+	insertWxsToRenderAst(tplAst, instruction.scriptModule, scriptRes)
 	const { code: transCode } = babel.transformFromAstSync(tplAst, '', {
 		comments: false,
 	})
@@ -921,7 +921,7 @@ function transTagWxs($, scriptModule, path, workPath) {
 	wxsNodes.remove()
 }
 
-function insertWxsAssignToRenderAst(ast, scriptModule, scriptRes) {
+function insertWxsToRenderAst(ast, scriptModule, scriptRes) {
 	for (const sm of scriptModule) {
 		if (!scriptRes.has(sm.path)) {
 			scriptRes.set(sm.path, sm.code)
