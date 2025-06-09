@@ -48,12 +48,8 @@ else {
 	selectValue?.(undefined)
 }
 
-const isOn = computed(() => {
-	return selected.value.includes(props.value)
-})
-
 const computedStyle = computed(() => {
-	if (props.color && isOn.value) {
+	if (props.color && props.checked) {
 		return {
 			color: props.color,
 		}
@@ -62,6 +58,8 @@ const computedStyle = computed(() => {
 		return undefined
 	}
 })
+
+const emit = defineEmits(['update:checked'])
 
 const handleValueChange = inject('handleValueChange', undefined)
 function handleClicked(event) {
@@ -77,7 +75,7 @@ function handleClicked(event) {
 				selected.value.push(props.value)
 			}
 		}
-
+		emit('update:checked', !props.checked)
 		handleValueChange?.(event)
 	}
 }
@@ -88,7 +86,7 @@ function handleClicked(event) {
 		<div class="dd-checkbox-wrapper">
 			<div
 				class="dd-checkbox-input"
-				:class="{ 'dd-checkbox-input-checked': isOn, 'dd-checkbox-input-disabled': disabled }"
+				:class="{ 'dd-checkbox-input-checked': props.checked, 'dd-checkbox-input-disabled': disabled }"
 				:style="computedStyle"
 			/>
 		</div>
