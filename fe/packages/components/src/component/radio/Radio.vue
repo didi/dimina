@@ -89,11 +89,11 @@ function handleClicked(event) {
 </script>
 
 <template>
-	<div v-bind="$attrs" class="dd-radio">
+	<div v-bind="$attrs" class="dd-radio" @click="handleClicked">
 		<div class="dd-radio-wrapper">
 			<div
 				class="dd-radio-input" :class="{ 'dd-radio-input-checked': isOn, 'dd-radio-input-disabled': disabled }"
-				:style="computedStyle" @click="handleClicked"
+				:style="computedStyle"
 			/>
 			<slot />
 		</div>

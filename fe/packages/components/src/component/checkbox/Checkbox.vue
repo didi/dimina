@@ -84,12 +84,12 @@ function handleClicked(event) {
 </script>
 
 <template>
-	<div v-bind="$attrs" class="dd-checkbox">
+	<div v-bind="$attrs" class="dd-checkbox" @click="handleClicked">
 		<div class="dd-checkbox-wrapper">
 			<div
 				class="dd-checkbox-input"
 				:class="{ 'dd-checkbox-input-checked': isOn, 'dd-checkbox-input-disabled': disabled }"
-				:style="computedStyle" @click="handleClicked"
+				:style="computedStyle"
 			/>
 		</div>
 	</div>
