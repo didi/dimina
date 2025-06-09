@@ -1,4 +1,5 @@
 import runtime from '@/core/runtime'
+
 /**
  * 获取小程序启动时的参数。与 App.onLaunch 的回调参数一致
  * https://developers.weixin.qq.com/miniprogram/dev/api/base/app/life-cycle/wx.getLaunchOptionsSync.html

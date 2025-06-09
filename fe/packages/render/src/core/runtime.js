@@ -226,7 +226,7 @@ class Runtime {
 			console.warn('[render]', `检测到循环依赖: ${[...depthChain, path].join(' -> ')}`)
 			return {}
 		}
-		
+
 		if (!usingComponents || Object.keys(usingComponents).length === 0) {
 			return
 		}
@@ -234,7 +234,7 @@ class Runtime {
 		const components = {}
 		const self = this
 		const newDepthChain = [...depthChain, path]
-		
+
 		for (const [componentName, componentPath] of Object.entries(usingComponents)) {
 			const module = loader.getModuleByPath(componentPath)
 			const { id, usingComponents: subUsing } = module.moduleInfo

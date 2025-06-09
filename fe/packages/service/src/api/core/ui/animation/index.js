@@ -1,4 +1,5 @@
 import { suffixPixel } from '@dimina/common'
+
 /**
  * https://developers.weixin.qq.com/miniprogram/dev/api/ui/animation/wx.createAnimation.html
  * @returns { Animation } 动画对象
