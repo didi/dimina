@@ -304,7 +304,7 @@ function toCompileTemplate(isComponent, path, components, componentPlaceholder) 
 		const src = $(elem).attr('src')
 		if (src) {
 			const importFullPath = getAbsolutePath(workPath, path, src)
-			const importPath = importFullPath.replace(workPath).split('/').slice(0, -1).join('/')
+			const importPath = importFullPath.replace(workPath, '').split('/').slice(0, -1).join('/')
 			const importContent = getContentByPath(importFullPath).trim()
 			if (importContent) {
 				const $$ = cheerio.load(importContent, {
