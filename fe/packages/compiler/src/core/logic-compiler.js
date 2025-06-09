@@ -116,22 +116,15 @@ function buildJSByPath(packageName, module, compileRes, mainCompileRes, addExtra
 	// Track dependency chain to detect potential circular dependencies
 	const currentPath = module.path
 
-	if (processedModules.has(packageName + currentPath)) {
-		return
-	}
-
-	// 将当前模块标记为已处理
-	processedModules.add(packageName + currentPath)
-
 	// Circular dependency detected
 	if (depthChain.includes(currentPath)) {
 		console.warn('[logic]', `检测到循环依赖: ${[...depthChain, currentPath].join(' -> ')}`)
-		// Continue compilation despite circular dependency
+		return
 	}
 	// Deep dependency chain detected
-	if (depthChain.length > 100) {
+	if (depthChain.length > 20) {
 		console.warn('[logic]', `检测到深度依赖: ${[...depthChain, currentPath].join(' -> ')}`)
-		// Continue compilation despite deep dependency chain
+		return
 	}
 	depthChain = [...depthChain, currentPath]
 	if (!module.path) {
@@ -232,6 +225,8 @@ function buildJSByPath(packageName, module, compileRes, mainCompileRes, addExtra
 		comments: false,
 	})
 	compileInfo.code = code
+	// 将当前模块标记为已处理
+	processedModules.add(packageName + currentPath)
 }
 
 /**

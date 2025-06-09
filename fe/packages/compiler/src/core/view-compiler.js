@@ -17,9 +17,6 @@ const fileType = ['.wxml', '.ddml']
 // 页面文件编译内容缓存
 const compileResCache = new Map()
 
-// 用于缓存已处理的模块
-const processedModules = new Set()
-
 if (!isMainThread) {
 	parentPort.on('message', async ({ pages, storeInfo }) => {
 		try {
@@ -97,21 +94,15 @@ async function compileML(pages, root, progress) {
 function buildCompileView(module, isComponent = false, scriptRes, depthChain = []) {
 	const currentPath = module.path
 
-	if (processedModules.has(currentPath)) {
-		// 如果当前模块已经处理过，则跳过
-		return
-	}
-
-	// 将当前模块标记为已处理, 提前标记
-	processedModules.add(currentPath)
-
 	// Circular dependency detected
 	if (depthChain.includes(currentPath)) {
 		console.warn('[view]', `检测到循环依赖: ${[...depthChain, currentPath].join(' -> ')}`)
+		return
 	}
 	// Deep dependency chain detected
-	if (depthChain.length > 100) {
+	if (depthChain.length > 20) {
 		console.warn('[view]', `检测到深度依赖: ${[...depthChain, currentPath].join(' -> ')}`)
+		return
 	}
 	depthChain = [...depthChain, currentPath]
 	compileModule(module, isComponent, scriptRes)

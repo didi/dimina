@@ -11,8 +11,6 @@ import { getAppId, getComponent, getContentByPath, getTargetPath, getWorkPath, r
 
 const fileType = ['.wxss', '.ddss']
 const compileRes = new Map()
-// 用于缓存已处理的模块
-const processedModules = new Set()
 
 if (!isMainThread) {
 	parentPort.on('message', async ({ pages, storeInfo }) => {
@@ -77,20 +75,15 @@ async function compileSS(pages, root, progress) {
 async function buildCompileCss(module, depthChain = []) {
 	const currentPath = module.path
 
-	if (processedModules.has(currentPath)) {
-		return
-	}
-
-	// 将当前模块标记为已处理
-	processedModules.add(currentPath)
-
 	// Circular dependency detected
 	if (depthChain.includes(currentPath)) {
 		console.warn('[style]', `检测到循环依赖: ${[...depthChain, currentPath].join(' -> ')}`)
+		return
 	}
 	// Deep dependency chain detected
-	if (depthChain.length > 100) {
+	if (depthChain.length > 20) {
 		console.warn('[style]', `检测到深度依赖: ${[...depthChain, currentPath].join(' -> ')}`)
+		return
 	}
 	depthChain = [...depthChain, currentPath]
 	let result = await enhanceCSS(module) || ''
