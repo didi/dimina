@@ -286,7 +286,7 @@ function toCompileTemplate(isComponent, path, components, componentPlaceholder) 
 
 	// 处理 wxs 节点
 	// https://developers.weixin.qq.com/miniprogram/dev/reference/wxs/01wxs-module.html
-	transTagWxs($, scriptModule, path, workPath)
+	transTagWxs($, scriptModule, path)
 
 	// 处理 import 节点
 	// https://developers.weixin.qq.com/miniprogram/dev/reference/wxml/import.html
@@ -316,7 +316,6 @@ function toCompileTemplate(isComponent, path, components, componentPlaceholder) 
 					$$,
 					scriptModule,
 					importPath,
-					workPath,
 				)
 			}
 		}
@@ -857,7 +856,7 @@ function parseBraceExp(exp) {
 	return group.join('').replace(/^\+|\+$/g, '')
 }
 
-function transTagWxs($, scriptModule, path, workPath) {
+function transTagWxs($, scriptModule, path) {
 	let wxsNodes = $('wxs')
 	if (wxsNodes.length === 0) {
 		wxsNodes = $('dds')
@@ -873,7 +872,7 @@ function transTagWxs($, scriptModule, path, workPath) {
 				const src = $(elem).attr('src')
 
 				if (src) {
-					wxsContent = getContentByPath(getAbsolutePath(workPath, path, src)).trim()
+					wxsContent = getContentByPath(getAbsolutePath(getWorkPath(), path, src)).trim()
 				}
 				else {
 					wxsContent = $(elem).html()
