@@ -38,6 +38,7 @@ const props = defineProps({
 	},
 })
 
+const emit = defineEmits(['update:checked'])
 const selectValue = inject('selectValue', undefined)
 const selected = inject('selected', ref(props.checked ? [props.value] : []))
 
@@ -58,8 +59,6 @@ const computedStyle = computed(() => {
 		return undefined
 	}
 })
-
-const emit = defineEmits(['update:checked'])
 
 const handleValueChange = inject('handleValueChange', undefined)
 function handleClicked(event) {
