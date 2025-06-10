@@ -36,7 +36,7 @@ function selectValue(value) {
 }
 
 const info = useInfo()
-function handleValueChange(event) {
+function handleClicked(event) {
 	const v = toRaw(selected.value)
 	collectFormValue?.(props.name, v)
 	triggerEvent('change', {
@@ -50,11 +50,10 @@ function handleValueChange(event) {
 
 provide('selected', selected)
 provide('selectValue', selectValue)
-provide('handleValueChange', handleValueChange)
 </script>
 
 <template>
-	<div :id="id" v-bind="$attrs" class="dd-checkbox-group">
+	<div :id="id" v-bind="$attrs" class="dd-checkbox-group" @click="handleClicked">
 		<slot />
 	</div>
 </template>

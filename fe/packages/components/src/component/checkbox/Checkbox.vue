@@ -60,7 +60,6 @@ const computedStyle = computed(() => {
 	}
 })
 
-const handleValueChange = inject('handleValueChange', undefined)
 function handleClicked(event) {
 	if (!props.disabled) {
 		if (typeof selectValue === 'function') {
@@ -75,7 +74,6 @@ function handleClicked(event) {
 			}
 		}
 		emit('update:checked', !props.checked)
-		handleValueChange?.(event)
 	}
 }
 </script>
