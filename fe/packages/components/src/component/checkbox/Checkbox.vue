@@ -38,9 +38,9 @@ const props = defineProps({
 	},
 })
 
-const emit = defineEmits(['update:checked'])
 const selectValue = inject('selectValue', undefined)
 const selected = inject('selected', ref(props.checked ? [props.value] : []))
+const isOn = ref(props.checked)
 
 if (props.checked) {
 	selectValue?.(props.value)
@@ -50,7 +50,7 @@ else {
 }
 
 const computedStyle = computed(() => {
-	if (props.color && props.checked) {
+	if (props.color) {
 		return {
 			color: props.color,
 		}
@@ -73,7 +73,7 @@ function handleClicked(event) {
 				selected.value.push(props.value)
 			}
 		}
-		emit('update:checked', !props.checked)
+		isOn.value = !isOn.value
 	}
 }
 </script>
@@ -83,7 +83,7 @@ function handleClicked(event) {
 		<div class="dd-checkbox-wrapper">
 			<div
 				class="dd-checkbox-input"
-				:class="{ 'dd-checkbox-input-checked': props.checked, 'dd-checkbox-input-disabled': disabled }"
+				:class="{ 'dd-checkbox-input-checked': isOn, 'dd-checkbox-input-disabled': disabled }"
 				:style="computedStyle"
 			/>
 		</div>

@@ -553,7 +553,6 @@ function getProps(attrs, tag) {
 		}
 		else if ((name === 'value' && (tag === 'input' || tag === 'textarea'))
 			|| ((name === 'x' || name === 'y') && tag === 'movable-view')
-			|| (name === 'checked' && tag === 'checkbox')
 		) {
 			const parsedValue = parseBraceExp(value)
 			const conditionExp = generateVModelTemplate(parsedValue)
