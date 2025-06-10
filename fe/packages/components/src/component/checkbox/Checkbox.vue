@@ -60,7 +60,7 @@ const computedStyle = computed(() => {
 	}
 })
 
-function handleClicked(event) {
+function handleClicked() {
 	if (!props.disabled) {
 		if (typeof selectValue === 'function') {
 			selectValue(props.value)
