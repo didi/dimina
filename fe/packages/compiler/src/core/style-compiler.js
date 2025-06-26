@@ -4,12 +4,14 @@ import { isMainThread, parentPort } from 'node:worker_threads'
 import { compileStyle } from '@vue/compiler-sfc'
 import autoprefixer from 'autoprefixer'
 import cssnano from 'cssnano'
+import less from 'less'
 import postcss from 'postcss'
 import selectorParser from 'postcss-selector-parser'
+import * as sass from 'sass'
 import { collectAssets, tagWhiteList, transformRpx } from '../common/utils.js'
 import { getAppId, getComponent, getContentByPath, getTargetPath, getWorkPath, resetStoreInfo } from '../env.js'
 
-const fileType = ['.wxss', '.ddss']
+const fileType = ['.wxss', '.ddss', '.less', '.scss', '.sass']
 const compileRes = new Map()
 
 if (!isMainThread) {
@@ -119,9 +121,41 @@ async function enhanceCSS(module) {
 	if (compileRes.has(absolutePath)) {
 		return compileRes.get(absolutePath)
 	}
-	const fixedCSS = ensureImportSemicolons(inputCSS)
 
-	const ast = postcss.parse(fixedCSS)
+	// 预处理器编译
+	let processedCSS = inputCSS
+	const ext = path.extname(absolutePath).toLowerCase()
+	
+	try {
+		if (ext === '.less') {
+			const result = await less.render(inputCSS, {
+				filename: absolutePath,
+				paths: [path.dirname(absolutePath)],
+			})
+			processedCSS = result.css
+		} else if (ext === '.scss' || ext === '.sass') {
+			const result = sass.compileString(inputCSS, {
+				loadPaths: [path.dirname(absolutePath)],
+				syntax: ext === '.sass' ? 'indented' : 'scss',
+			})
+			processedCSS = result.css
+		}
+	} catch (error) {
+		console.error(`[style] 预处理器编译失败 ${absolutePath}:`, error.message)
+		// 如果预处理器编译失败，使用原始内容继续处理
+		processedCSS = inputCSS
+	}
+
+	const fixedCSS = ensureImportSemicolons(processedCSS)
+
+	let ast
+	try {
+		ast = postcss.parse(fixedCSS)
+	} catch (error) {
+		console.error(`[style] PostCSS 解析失败 ${absolutePath}:`, error.message)
+		// 如果 PostCSS 解析失败，返回空字符串
+		return ''
+	}
 	const promises = []
 	ast.walk(async (node) => {
 		if (node.type === 'atrule' && node.name === 'import') {
@@ -176,10 +210,11 @@ async function enhanceCSS(module) {
 	const cssCode = ast.toResult().css
 
 	// 样式隔离
+	const moduleId = module.id || module.path || 'default'
 	const code = compileStyle({
 		source: cssCode,
-		id: module.id,
-		scoped: !!module.id,
+		id: moduleId,
+		scoped: !!moduleId,
 	}).code
 
 	const res = await postcss([autoprefixer({ overrideBrowserslist: ['cover 99.5%'] }), cssnano()]).process(code, {
