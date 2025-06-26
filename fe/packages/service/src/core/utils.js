@@ -94,7 +94,7 @@ export function serializeProps(properties) {
 
 			// 处理 type 字段
 			// 兼容 items: Array 和 item: { type: String, value: '' } 两种形式
-			const transType = Object.hasOwn(item, 'type') ? convertToStringType(item.type) : convertToStringType(item)
+			const transType = item && typeof item === 'object' && Object.hasOwn(item, 'type') ? convertToStringType(item.type) : convertToStringType(item)
 			let array = null
 			if (Array.isArray(transType)) {
 				array = [...transType]
@@ -104,7 +104,7 @@ export function serializeProps(properties) {
 			}
 
 			// 处理 optionalTypes 字段
-			if (item.optionalTypes) {
+			if (item && item.optionalTypes) {
 				const oTransType = convertToStringType(item.optionalTypes)
 				if (Array.isArray(oTransType)) {
 					array = [...oTransType]
@@ -115,10 +115,10 @@ export function serializeProps(properties) {
 			}
 			props[key].type = array
 			if (props[key].type.length > 0) {
-				if (isFunction(item.value)) {
+				if (item && isFunction(item.value)) {
 					props[key].default = item.value()
 				}
-				else if (item.type) {
+				else if (item && item.type) {
 					props[key].default = item.value
 				}
 			}
