@@ -3,10 +3,6 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import * as cheerio from 'cheerio'
-import { resetStoreInfo } from '../src/env.js'
-
-// 直接导入 transTagWxs 函数
-import { compileML } from '../src/core/view-compiler.js'
 
 // 模拟 transTagWxs 函数
 function testTransTagWxs(htmlContent, filePath, tempDir) {
@@ -23,7 +19,6 @@ function testTransTagWxs(htmlContent, filePath, tempDir) {
 		const smName = $(elem).attr('module')
 		if (smName) {
 			let uniqueModuleName = smName
-			let cacheKey = smName
 			
 			const src = $(elem).attr('src')
 			let wxsFilePath = null
@@ -48,7 +43,6 @@ function testTransTagWxs(htmlContent, filePath, tempDir) {
 					// 为外部 wxs 文件生成唯一的模块名和缓存键
 					const relativePath = wxsFilePath.replace(workPath, '').replace(/\.wxs$/, '')
 					uniqueModuleName = relativePath.replace(/[\/\\@\-]/g, '_').replace(/^_+/, '')
-					cacheKey = wxsFilePath // 使用文件路径作为缓存键确保唯一性
 				}
 			}
 

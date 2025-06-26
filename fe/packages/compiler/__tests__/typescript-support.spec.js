@@ -68,7 +68,7 @@ Page<PageData>({
 `)
 
 		// 执行配置收集
-		const storeResult = storeInfo(tempDir)
+		storeInfo(tempDir)
 		
 		// 模拟编译过程
 		const pages = {
@@ -164,7 +164,7 @@ Component<ComponentData, {}, ComponentMethods>({
 		process.env.WORK_PATH = tempDir
 		
 		// 执行配置收集
-		const storeResult = storeInfo(tempDir)
+		storeInfo(tempDir)
 		
 		// 从 env 模块获取页面信息，这样组件依赖会被正确处理
 		const { getPages } = await import('../src/env.js')
@@ -234,9 +234,9 @@ Page({
 `)
 
 		// 执行配置收集
-		const storeResult = storeInfo(tempDir)
+		storeInfo(tempDir)
 		
-		// 模拟编译过程 - 应该不会抛出异常
+		// 模拟编译过程
 		const pages = {
 			mainPages: [{ path: 'pages/index/index' }]
 		}

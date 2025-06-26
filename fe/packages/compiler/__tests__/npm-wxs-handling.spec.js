@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
-import { storeInfo } from '../src/env.js'
 
 // 模拟 transTagWxs 函数的核心逻辑
 function mockTransTagWxs(componentPath, wxsSrc, workPath) {
