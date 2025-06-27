@@ -210,7 +210,7 @@ async function enhanceCSS(module) {
 	const cssCode = ast.toResult().css
 
 	// 样式隔离
-	const moduleId = module.id || module.path || 'default'
+	const moduleId = module.id
 	const code = compileStyle({
 		source: cssCode,
 		id: moduleId,
