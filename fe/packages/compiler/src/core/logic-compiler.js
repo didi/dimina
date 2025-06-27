@@ -5,6 +5,7 @@ import babel from '@babel/core'
 import _traverse from '@babel/traverse'
 import types from '@babel/types'
 import { transform } from 'esbuild'
+import ts from 'typescript'
 import { hasCompileInfo } from '../common/utils.js'
 import { getAppConfigInfo, getComponent, getContentByPath, getTargetPath, getWorkPath, resetStoreInfo } from '../env.js'
 
@@ -141,9 +142,40 @@ function buildJSByPath(packageName, module, compileRes, mainCompileRes, addExtra
 	}
 
 	const src = module.path.startsWith('/') ? module.path : `/${module.path}`
-	const modulePath = `${getWorkPath()}${src}.js`
-	const js = getContentByPath(modulePath)
-	const ast = babel.parseSync(js)
+	const modulePath = getJSAbsolutePath(src)
+	if (!modulePath) {
+		console.warn('[logic]', `找不到模块文件: ${src}`)
+		return
+	}
+	
+	const sourceCode = getContentByPath(modulePath)
+	if (!sourceCode) {
+		console.warn('[logic]', `无法读取模块文件: ${modulePath}`)
+		return
+	}
+	
+	// 如果是 TypeScript 文件，先编译为 JavaScript
+	let jsCode = sourceCode
+	if (modulePath.endsWith('.ts')) {
+		try {
+			const result = ts.transpileModule(sourceCode, {
+				compilerOptions: {
+					target: ts.ScriptTarget.ES2020,
+					module: ts.ModuleKind.CommonJS,
+					strict: false,
+					esModuleInterop: true,
+					skipLibCheck: true,
+				},
+			})
+			jsCode = result.outputText
+		} catch (error) {
+			console.error(`[logic] TypeScript 编译失败 ${modulePath}:`, error.message)
+			// 如果 TypeScript 编译失败，尝试使用原始代码
+			jsCode = sourceCode
+		}
+	}
+	
+	const ast = babel.parseSync(jsCode)
 
 	const addedArgs = types.objectExpression([
 		types.objectProperty(types.identifier('path'), types.stringLiteral(module.path)),
@@ -211,7 +243,13 @@ function buildJSByPath(packageName, module, compileRes, mainCompileRes, addExtra
 				if (requirePath) {
 					const requireFullPath = resolve(modulePath, `../${requirePath}`)
 					// 依赖的模块相对路径转换为绝对路径
-					const id = requireFullPath.split(`${getWorkPath()}${sep}`)[1].split('.js')[0].replace(/\\/g, '/')
+					let id = requireFullPath.split(`${getWorkPath()}${sep}`)[1]
+					// 移除文件扩展名（.js 或 .ts）
+					id = id.replace(/\.(js|ts)$/, '').replace(/\\/g, '/')
+					// 确保路径以 '/' 开头，保持一致性
+					if (!id.startsWith('/')) {
+						id = '/' + id
+					}
 					ap.node.arguments[0] = types.stringLiteral(id)
 					if (!processedModules.has(packageName + id)) {
 						buildJSByPath(packageName, { path: id }, compileRes, mainCompileRes, false, depthChain)
@@ -236,15 +274,35 @@ function buildJSByPath(packageName, module, compileRes, mainCompileRes, addExtra
  */
 function getExtraInfoStatement(type, addedArgs) {
 	const propertyAssignment = types.objectProperty(types.identifier('__extraInfo'), addedArgs)
-	const propertyAssignmentStatement = types.expressionStatement(
-		types.assignmentExpression(
-			'=',
-			types.memberExpression(types.identifier(type), propertyAssignment.key),
-			propertyAssignment.value,
-		),
+	
+	// 创建安全的赋值语句，确保 __extraInfo 被设置到 globalThis 上
+	// globalThis.__extraInfo = {...}
+	const assignmentExpression = types.assignmentExpression(
+		'=',
+		types.memberExpression(types.identifier('globalThis'), propertyAssignment.key),
+		propertyAssignment.value,
 	)
 
-	return propertyAssignmentStatement
+	return types.expressionStatement(assignmentExpression)
+}
+
+/**
+ * 获取 JavaScript 或 TypeScript 文件的绝对路径
+ * @param {string} modulePath - 模块路径
+ * @returns {string|null} - 文件的绝对路径，如果找不到则返回 null
+ */
+function getJSAbsolutePath(modulePath) {
+	const workPath = getWorkPath()
+	const fileTypes = ['.js', '.ts']
+	
+	for (const ext of fileTypes) {
+		const fullPath = `${workPath}${modulePath}${ext}`
+		if (fs.existsSync(fullPath)) {
+			return fullPath
+		}
+	}
+	
+	return null
 }
 
 export { compileJS, buildJSByPath }

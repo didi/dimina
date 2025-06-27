@@ -56,9 +56,12 @@
 		"cssnano": "^7.0.7",
 		"esbuild": "^0.25.5",
 		"htmlparser2": "^10.0.0",
+		"less": "^4.2.1",
 		"listr2": "^8.3.3",
 		"postcss": "^8.5.5",
-		"postcss-selector-parser": "^7.1.0"
+		"postcss-selector-parser": "^7.1.0",
+		"sass": "^1.81.0",
+		"typescript": "^5.7.2"
 	},
 	"publishConfig": {
 		"registry": "https://registry.npmjs.org/"
