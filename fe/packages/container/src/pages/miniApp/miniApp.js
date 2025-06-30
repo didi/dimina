@@ -562,6 +562,16 @@ export class MiniApp {
 		return this.el.querySelector('.dimina-mini-app-navigation__actions').getBoundingClientRect()
 	}
 
+	getSystemInfoSync() {
+		return {
+			brand: 'devtools',
+			model: 'web',
+			platform: 'devtools',
+			system: 'web',
+			SDKVersion: '1.0.0',
+		}
+	}
+
 	showToast(opts) {
 		const { title = '', duration = 1500, icon = 'success', success, complete } = opts
 

@@ -37,6 +37,9 @@ export function getSystemInfo(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/base/system/wx.getSystemInfoSync.html
  */
 export function getSystemInfoSync() {
+	if (globalThis.injectInfo) {
+		return globalThis.injectInfo.systemInfo
+	}
 	return invokeAPI('getSystemInfoSync')
 }
 
