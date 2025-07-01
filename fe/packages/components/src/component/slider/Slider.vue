@@ -171,7 +171,7 @@ function drag(event) {
 	updateValue(event)
 }
 
-function updateValue(event, eventType='changing') {
+function updateValue(event, eventType = 'changing') {
 	const clientX = event.touches ? event.touches[0].clientX : event.clientX
 	const delta = clientX - sliderHandle.value.offsetLeft
 	const position = (delta / sliderHandle.value.offsetWidth) * range.value + Number(props.min)
