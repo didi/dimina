@@ -118,7 +118,7 @@ export function serializeProps(properties) {
 				if (item && isFunction(item.value)) {
 					props[key].default = item.value()
 				}
-				else if (item && item.type) {
+				else if (item) {
 					props[key].default = item.value
 				}
 			}
