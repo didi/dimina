@@ -31,14 +31,46 @@ function processWxsContent(wxsContent, wxsFilePath, scriptModule, workPath, file
 	// 遍历并处理各种转换
 	traverse(wxsAst, {
 		CallExpression(astPath) {
-			// getRegExp -> new RegExp, getDate -> new Date
-			if (astPath.node.callee.name === 'getRegExp' || astPath.node.callee.name === 'getDate') {
+			// https://developers.weixin.qq.com/miniprogram/dev/reference/wxs/06datatype.html#regexp
+			// getRegExp -> 正则表达式字面量
+			if (astPath.node.callee.name === 'getRegExp') {
+				const args = astPath.node.arguments
+				
+				// 获取正则表达式的模式和标志
+				let pattern = ''
+				let flags = ''
+				
+				if (args.length > 0) {
+					// 第一个参数是模式（字符串字面量）
+					// 获取字符串的原始值，保留其中的转义字符
+					// 使用 raw 属性或者直接从 extra.raw 获取原始字符串
+					if (args[0].extra && args[0].extra.raw) {
+						// 去掉首尾的引号，但保留内部的转义字符
+						pattern = args[0].extra.raw.slice(1, -1)
+					} else {
+						pattern = args[0].value
+					}
+				}
+				
+				if (args.length > 1) {
+					// 第二个参数是标志（字符串字面量）
+					flags = args[1].value
+				}
+				
+				// 直接创建正则表达式字面量，将 getRegExp("pattern", "flags") 转换为 /pattern/flags
+				const regexLiteral = types.regExpLiteral(pattern, flags)
+				
+				// 直接替换为正则表达式字面量
+				astPath.replaceWith(regexLiteral)
+			}
+			else if (astPath.node.callee.name === 'getDate') {
+				// getDate -> new Date
 				const args = []
 				for (let i = 0; i < astPath.node.arguments.length; i++) {
 					args.push(astPath.node.arguments[i])
 				}
 				// 创建新的 NewExpression 节点
-				const newExpr = types.newExpression(types.identifier(astPath.node.callee.name.substring(3)), args)
+				const newExpr = types.newExpression(types.identifier('Date'), args)
 				// 替换原来的 CallExpression 节点
 				astPath.replaceWith(newExpr)
 			}
