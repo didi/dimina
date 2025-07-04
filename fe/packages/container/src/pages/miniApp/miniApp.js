@@ -543,7 +543,7 @@ export class MiniApp {
 			platform: 'devtools',
 			system: 'web',
 			deviceOrientation: 'portrait',
-			SDKVersion: '1.0.0',
+			SDKVersion: '3.0.0',
 			language: 'zh_CN',
 			wifiEnabled: true,
 			safeArea: {
@@ -568,7 +568,7 @@ export class MiniApp {
 			model: 'web',
 			platform: 'devtools',
 			system: 'web',
-			SDKVersion: '1.0.0',
+			SDKVersion: '3.0.0', // vant组件库 判断  canIUseModel version 需要大于 2.9.3
 		}
 	}
 
