@@ -5,8 +5,9 @@ import { Listr } from 'listr2'
 import { createDist, publishToDist } from './common/publish.js'
 import { artCode } from './common/utils.js'
 import { workerPool } from './common/worker-pool.js'
+import { NpmBuilder } from './common/npm-builder.js'
 import { compileConfig } from './core/index.js'
-import { getAppConfigInfo, getAppId, getAppName, getPages, storeInfo } from './env.js'
+import { getAppConfigInfo, getAppId, getAppName, getPages, getTargetPath, getWorkPath, storeInfo } from './env.js'
 
 let isPrinted = false
 
@@ -44,6 +45,13 @@ export default async function build(targetPath, workPath, useAppIdDir = true) {
 								title: '编译配置信息',
 								task: () => {
 									compileConfig()
+								},
+							},
+							{
+								title: '构建 npm 包',
+								task: async () => {
+									const npmBuilder = new NpmBuilder(getWorkPath(), getTargetPath())
+									await npmBuilder.buildNpmPackages()
 								},
 							},
 						],

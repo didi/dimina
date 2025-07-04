@@ -313,4 +313,91 @@ describe('组件间关系测试', () => {
 		// 由于 __relationPaths__ 是私有属性，我们通过其他方式验证路径解析是否正确
 		expect(parentComponent.__relationPaths__.get('../sibling/child-component')).toBe('components/sibling/child-component')
 	})
+
+	test('双向关系建立 - 父组件先创建', (done) => {
+		const bridgeId = 'test-bridge-5'
+		runtime.instances[bridgeId] = {}
+
+		// 创建父组件模块
+		const parentModule = new ComponentModule({
+			relations: {
+				'./child-component': {
+					type: 'child',
+					linked: function(target) {
+						this.linkedChildren = this.linkedChildren || []
+						this.linkedChildren.push(target)
+					}
+				}
+			},
+			methods: {}
+		}, {
+			component: true,
+			path: 'parent-component',
+			usingComponents: {}
+		})
+
+		// 创建子组件模块
+		const childModule = new ComponentModule({
+			relations: {
+				'./parent-component': {
+					type: 'parent',
+					linked: function(target) {
+						this.linkedParent = target
+					}
+				}
+			},
+			methods: {}
+		}, {
+			component: true,
+			path: 'child-component',
+			usingComponents: {}
+		})
+
+		// 先创建父组件
+		const parentComponent = new Component(parentModule, {
+			bridgeId,
+			moduleId: 'parent-1',
+			path: 'parent-component',
+			pageId: 'page-1',
+			parentId: null,
+			eventAttr: {},
+			properties: {},
+			targetInfo: {}
+		})
+
+		runtime.instances[bridgeId]['parent-1'] = parentComponent
+
+		// 延迟创建子组件
+		setTimeout(() => {
+			const childComponent = new Component(childModule, {
+				bridgeId,
+				moduleId: 'child-1',
+				path: 'child-component',
+				pageId: 'page-1',
+				parentId: 'parent-1',
+				eventAttr: {},
+				properties: {},
+				targetInfo: {}
+			})
+
+			runtime.instances[bridgeId]['child-1'] = childComponent
+
+			// 等待关系建立
+			setTimeout(() => {
+				// 验证父组件能获取子组件（这是关键测试点）
+				const childNodes = parentComponent.getRelationNodes('./child-component')
+				expect(childNodes).toHaveLength(1)
+				expect(childNodes[0]).toBe(childComponent)
+				expect(parentComponent.linkedChildren).toContain(childComponent)
+
+				// 验证子组件能获取父组件
+				const parentNodes = childComponent.getRelationNodes('./parent-component')
+				expect(parentNodes).toHaveLength(1)
+				expect(parentNodes[0]).toBe(parentComponent)
+				expect(childComponent.linkedParent).toBe(parentComponent)
+
+				done()
+			}, 10)
+		}, 5)
+	})
 }) 

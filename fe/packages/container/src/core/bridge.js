@@ -132,6 +132,7 @@ export class Bridge {
 				injectInfo: {
 					// 注入同步 API 信息
 					menuRect: this.parent.getMenuButtonBoundingClientRect(),
+					systemInfo: this.parent.getSystemInfoSync(),
 				},
 			},
 		})

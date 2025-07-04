@@ -3,9 +3,11 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { isObjectEmpty, uuid } from './common/utils.js'
+import { NpmResolver } from './common/npm-resolver.js'
 
 let pathInfo = {}
 let configInfo = {}
+let npmResolver = null
 
 /**
  * 持久化编译过程的上下文
@@ -25,6 +27,11 @@ function storeInfo(workPath) {
 function resetStoreInfo(opts) {
 	pathInfo = opts.pathInfo
 	configInfo = opts.configInfo
+	
+	// 重新初始化 npm 解析器
+	if (pathInfo.workPath) {
+		npmResolver = new NpmResolver(pathInfo.workPath)
+	}
 }
 
 function storePathInfo(workPath) {
@@ -39,6 +46,9 @@ function storePathInfo(workPath) {
 	}
 
 	pathInfo.targetPath = targetDir
+	
+	// 初始化 npm 解析器
+	npmResolver = new NpmResolver(workPath)
 }
 
 function storeProjectConfig() {
@@ -168,11 +178,33 @@ function storeComponentConfig(pageJsonContent, pageFilePath) {
 			continue
 		}
 
-		const componentFilePath = path.resolve(getWorkPath(), `./${moduleId}.json`)
-		if (!fs.existsSync(componentFilePath)) {
-			continue
+		// 尝试查找组件配置文件
+		let componentFilePath = path.resolve(getWorkPath(), `./${moduleId}.json`)
+		let cContent = null
+		
+		if (fs.existsSync(componentFilePath)) {
+			cContent = parseContentByPath(componentFilePath)
+		} else {
+			// 对于 npm 组件，尝试查找 index.json
+			const indexJsonPath = path.resolve(getWorkPath(), `./${moduleId}/index.json`)
+			if (fs.existsSync(indexJsonPath)) {
+				componentFilePath = indexJsonPath
+				cContent = parseContentByPath(componentFilePath)
+			} else {
+				// 如果是 npm 组件，创建一个默认的组件配置
+				if (moduleId.includes('/miniprogram_npm/')) {
+					console.log(`[env] 为 npm 组件创建默认配置: ${moduleId}`)
+					cContent = {
+						component: true,
+						usingComponents: {}
+					}
+				} else {
+					console.warn(`[env] 组件配置文件不存在: ${componentFilePath}`)
+					continue
+				}
+			}
 		}
-		const cContent = parseContentByPath(componentFilePath)
+		
 		const cUsing = cContent.usingComponents || {}
 		const isComponent = cContent.component || false
 		const cComponents = Object.keys(cUsing).reduce((acc, key) => {
@@ -187,22 +219,30 @@ function storeComponentConfig(pageJsonContent, pageFilePath) {
 			usingComponents: cComponents,
 		}
 
-		storeComponentConfig(configInfo.componentInfo[moduleId], componentFilePath)
+		// 只有当配置文件存在时才递归处理
+		if (cContent.usingComponents && Object.keys(cContent.usingComponents).length > 0) {
+			storeComponentConfig(configInfo.componentInfo[moduleId], componentFilePath)
+		}
 	}
 }
 
 /**
  * 转化为相对小程序根目录的绝对路径，作为模块唯一性 id
+ * 支持 npm 组件解析
  * @param {string} src
  */
 function getModuleId(src, pageFilePath) {
-	const lastIndex = pageFilePath.lastIndexOf('/')
+	if (!npmResolver) {
+		// 如果 npm 解析器未初始化，使用原有逻辑
+		const lastIndex = pageFilePath.lastIndexOf('/')
+		const newPath = pageFilePath.slice(0, lastIndex)
+		const workPath = getWorkPath()
+		const res = path.resolve(newPath, src)
+		return res.replace(workPath, '')
+	}
 
-	// 截取除最后一个斜杠之外的所有内容
-	const newPath = pageFilePath.slice(0, lastIndex)
-	const workPath = getWorkPath()
-	const res = path.resolve(newPath, src)
-	return res.replace(workPath, '')
+	// 使用 npm 解析器处理组件路径
+	return npmResolver.resolveComponentPath(src, pageFilePath)
 }
 
 function getTargetPath() {
@@ -223,6 +263,10 @@ function getAppConfigInfo() {
 
 function getWorkPath() {
 	return pathInfo.workPath
+}
+
+function getNpmResolver() {
+	return npmResolver
 }
 
 function getAppId() {
@@ -279,6 +323,7 @@ export {
 	getAppName,
 	getComponent,
 	getContentByPath,
+	getNpmResolver,
 	getPageConfigInfo,
 	getPages,
 	getProjectConfig,
