@@ -159,6 +159,48 @@ export class Component {
 				this.#linkRelation(relationPath, relatedComponent, relationConfig)
 			}
 		}
+		
+		// 通知其他组件重新检查关系（双向关系建立）
+		this.#notifyOthersToCheckRelations()
+	}
+
+	/**
+	 * 通知其他组件重新检查关系
+	 */
+	#notifyOthersToCheckRelations() {
+		const allInstances = Object.values(runtime.instances[this.bridgeId] || {})
+		
+		for (const instance of allInstances) {
+			if (instance !== this && instance._checkRelationsWithTarget) {
+				// 只检查与当前组件相关的关系
+				instance._checkRelationsWithTarget(this)
+			}
+		}
+	}
+
+	/**
+	 * 检查与特定目标组件的关系
+	 */
+	_checkRelationsWithTarget(targetInstance) {
+		const relations = this.__info__.relations
+		if (!relations) return
+		
+		for (const [relationPath, relationConfig] of Object.entries(relations)) {
+			const { type, target } = relationConfig
+			const resolvedPath = this.__relationPaths__.get(relationPath)
+			
+			// 检查目标组件是否匹配
+			let matches = false
+			if (target) {
+				matches = targetInstance.hasBehavior && targetInstance.hasBehavior(target)
+			} else {
+				matches = targetInstance.is === resolvedPath || targetInstance.is.endsWith(`/${resolvedPath}`)
+			}
+			
+			if (matches && this.#checkRelationType(targetInstance, type)) {
+				this.#linkRelation(relationPath, targetInstance, relationConfig)
+			}
+		}
 	}
 
 	/**
