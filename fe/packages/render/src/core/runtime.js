@@ -364,9 +364,7 @@ class Runtime {
 					const entries = Object.entries(initData)
 					for (let i = 0; i < entries.length; i++) {
 						const [key, value] = entries[i]
-						if (!(module.props && Object.hasOwn(module.props, key))) {
-							set(data, key, value)
-						}
+						set(data, key, value)
 					}
 					return data
 				},
