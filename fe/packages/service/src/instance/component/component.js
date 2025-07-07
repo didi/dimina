@@ -58,6 +58,7 @@ export class Component {
 		this.#initLifecycle()
 		this.#initCustomMethods()
 		this.#initRelations()
+		this.#initComponentExport()
 		this.#invokeInitLifecycle().then(() => {
 			addComputedData(this)
 			message.send({
@@ -70,6 +71,20 @@ export class Component {
 				},
 			})
 		})
+	}
+
+	/**
+	 * 初始化组件导出功能
+	 * 处理 wx://component-export behavior
+	 */
+	#initComponentExport() {
+		// 检查是否使用了 wx://component-export behavior
+		if (this.hasBehavior('wx://component-export')) {
+			// 如果组件定义了 export 方法，将其绑定到组件实例
+			if (this.__info__.export && isFunction(this.__info__.export)) {
+				this.export = this.__info__.export.bind(this)
+			}
+		}
 	}
 
 	/**
@@ -423,11 +438,14 @@ export class Component {
 	 */
 	hasBehavior(behavior) {
 		const _hasBehavior = function (behaviors) {
+			if (!Array.isArray(behaviors)) {
+				return false
+			}
 			if (behaviors.includes(behavior)) {
 				return true
 			}
 			for (const b of behaviors) {
-				if (_hasBehavior(b.behaviors)) {
+				if (b && b.behaviors && _hasBehavior(b.behaviors)) {
 					return true
 				}
 			}
@@ -445,15 +463,29 @@ export class Component {
 	}
 
 	/**
+	 * https://developers.weixin.qq.com/miniprogram/dev/framework/custom-component/events.html#获取组件实例
 	 * 使用选择器选取子组件实例对象，返回匹配到的第一个组件实例对象
 	 */
 	selectComponent(selector) {
 		const children = Object.values(runtime.instances[this.bridgeId])
 
 		// 遍历所有组件查找匹配的子组件
-		return children.find(item =>
+		const matchedComponent = children.find(item =>
 			isChildComponent(item, this.__id__, children) && matchComponent(selector, item),
-		) || null
+		)
+
+		if (!matchedComponent) {
+			return null
+		}
+
+		// 检查组件是否使用了 wx://component-export behavior
+		if (matchedComponent.hasBehavior('wx://component-export') && matchedComponent.export) {
+			// 如果组件定义了 export 方法，返回自定义的导出结果
+			return matchedComponent.export()
+		}
+
+		// 默认返回组件实例本身
+		return matchedComponent
 	}
 
 	/**

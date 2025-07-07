@@ -1,6 +1,8 @@
 import { cloneDeep, isFunction, set } from '@dimina/common'
+import { createSelectorQuery } from '../../api/core/wxml/selector-query'
 import message from '../../core/message'
-import { addComputedData, filterData } from '../../core/utils'
+import runtime from '../../core/runtime'
+import { addComputedData, filterData, isChildComponent, matchComponent } from '../../core/utils'
 
 // https://developers.weixin.qq.com/miniprogram/dev/reference/api/Page.html
 // const lifecycleMethods = ['onLoad', 'onShow', 'onReady', 'onHide', 'onUnload',
@@ -56,6 +58,59 @@ export class Page {
 				moduleId: this.__id__,
 				data: fData,
 			},
+		})
+	}
+
+	/**
+	 * 创建一个 SelectorQuery 对象，选择器选取范围为这个页面实例内
+	 */
+	createSelectorQuery() {
+		return createSelectorQuery().in(this)
+	}
+
+	/**
+	 * https://developers.weixin.qq.com/miniprogram/dev/framework/custom-component/events.html#获取组件实例
+	 * 使用选择器选取页面中的组件实例对象，返回匹配到的第一个组件实例对象
+	 */
+	selectComponent(selector) {
+		const children = Object.values(runtime.instances[this.bridgeId] || {})
+
+		// 遍历所有组件查找匹配的子组件
+		const matchedComponent = children.find(item =>
+			isChildComponent(item, this.__id__, children) && matchComponent(selector, item),
+		)
+
+		if (!matchedComponent) {
+			return null
+		}
+
+		// 检查组件是否使用了 wx://component-export behavior
+		if (matchedComponent.hasBehavior && matchedComponent.hasBehavior('wx://component-export') && matchedComponent.export) {
+			// 如果组件定义了 export 方法，返回自定义的导出结果
+			return matchedComponent.export()
+		}
+
+		// 默认返回组件实例本身
+		return matchedComponent
+	}
+
+	/**
+	 * 使用选择器选取页面中的组件实例对象，返回匹配到的全部组件实例对象组成的数组
+	 */
+	selectAllComponents(selector) {
+		const children = Object.values(runtime.instances[this.bridgeId] || {})
+
+		// 遍历所有组件查找匹配的子组件
+		const matchedComponents = children.filter(item =>
+			isChildComponent(item, this.__id__, children) && matchComponent(selector, item),
+		)
+
+		// 处理每个匹配的组件，检查是否有自定义导出
+		return matchedComponents.map(component => {
+			if (component.hasBehavior && component.hasBehavior('wx://component-export') && component.export) {
+				return component.export()
+			}
+			return component
 		})
 	}
 

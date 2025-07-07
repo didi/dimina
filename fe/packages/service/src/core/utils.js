@@ -259,6 +259,10 @@ export function mergeBehaviors(obj, behaviors) {
 		// 检查behavior是否为有效的对象，并且可以用作WeakMap的键
 		// WeakMap只能使用对象作为键，不能使用null、undefined、字符串等基本类型
 		if (!behavior || typeof behavior !== 'object' || typeof behavior === 'string') {
+			// 处理内置 behavior 字符串
+			if (typeof behavior === 'string') {
+				handleBuiltinBehavior(target, behavior)
+			}
 			return
 		}
 		
@@ -298,9 +302,35 @@ export function mergeBehaviors(obj, behaviors) {
 			target.relations = { ...behavior.relations, ...target.relations }
 		}
 
+		// 合并 export 方法 (用于 wx://component-export)
+		if (behavior.export) {
+			target.export = behavior.export
+		}
+
 		// 递归合并
 		if (Array.isArray(behavior.behaviors)) {
 			behavior.behaviors.forEach(b => merge(target, b))
+		}
+	}
+
+	/**
+	 * 处理内置 behavior
+	 * @param {*} target 目标对象
+	 * @param {string} behaviorName behavior 名称
+	 */
+	function handleBuiltinBehavior(target, behaviorName) {
+		switch (behaviorName) {
+			case 'wx://component-export':
+				// wx://component-export behavior 不需要额外的合并操作
+				// 只需要确保 behaviors 数组中包含这个 behavior
+				break
+			case 'wx://form-field':
+				// 表单字段 behavior 的处理
+				// 这里可以添加表单字段相关的属性和方法
+				break
+			// 可以添加更多内置 behavior 的处理
+			default:
+				console.warn(`[service] 未知的内置 behavior: ${behaviorName}`)
 		}
 	}
 
@@ -336,13 +366,47 @@ export function isChildComponent(component, parentId, allComponents) {
  * @returns {boolean} 是否匹配
  */
 export function matchComponent(selector, item) {
-	const idOrClass = selector.slice(1)
+	if (!selector || !item) {
+		return false
+	}
+
+	// ID 选择器 #id
+	if (selector.startsWith('#')) {
+		const id = selector.slice(1)
+		return item.id === id
+	}
+	
+	// 类选择器 .class
 	if (selector.startsWith('.')) {
+		const className = selector.slice(1)
 		return item.__targetInfo__?.class
-			&& item.__targetInfo__.class.split(' ').includes(idOrClass)
+			&& item.__targetInfo__.class.split(' ').includes(className)
 	}
-	else if (selector.startsWith('#')) {
-		return item.id === idOrClass
+	
+	// 属性选择器 [attr=value]
+	if (selector.startsWith('[') && selector.endsWith(']')) {
+		const attrMatch = selector.slice(1, -1).match(/^(\w+)(?:=["']?([^"']*)["']?)?$/)
+		if (attrMatch) {
+			const [, attrName, attrValue] = attrMatch
+			const dataset = item.__targetInfo__?.dataset || {}
+			
+			// 如果只指定了属性名，检查属性是否存在
+			if (attrValue === undefined) {
+				return Object.hasOwn(dataset, attrName)
+			}
+			
+			// 如果指定了属性值，检查属性值是否匹配
+			return dataset[attrName] === attrValue
+		}
+		return false
 	}
+	
+	// 标签选择器 tag-name
+	// 匹配组件的路径名或组件名
+	if (item.is) {
+		const componentName = item.is.split('/').pop() // 获取路径的最后一部分
+		return componentName === selector || item.is === selector
+	}
+	
 	return false
 }
