@@ -49,7 +49,7 @@ export class Component {
 			for (const key in this.__info__.properties) {
 				// 先取逻辑层的属性默认值
 				if (!Object.hasOwn(this.opts.properties, key) || this.opts.properties[key] === undefined) {
-					this.data[key] = this.__info__.properties[key]?.value
+					this.data[key] = this.__info__.properties[key]?.value ?? null
 				}
 				else {
 					// 没有默认值则取渲染层的属性实际值
