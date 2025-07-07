@@ -23,10 +23,6 @@ class NpmBuilder {
 		for (const npmPath of miniprogramNpmPaths) {
 			await this.buildNpmDir(npmPath)
 		}
-
-		if (this.builtPackages.size > 0) {
-			console.log(`[npm依赖] 已构建 ${this.builtPackages.size} 个 npm 包`)
-		}
 	}
 
 	/**
@@ -109,7 +105,6 @@ class NpmBuilder {
 		await this.processDependencies(packageName, packagePath, npmDirPath)
 
 		this.builtPackages.add(packageKey)
-		console.log(`[npm 依赖] 已构建包: ${packageKey}`)
 	}
 
 	/**
