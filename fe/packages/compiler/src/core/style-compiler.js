@@ -174,6 +174,11 @@ async function enhanceCSS(module) {
 				node.selector = node.selector.replace(/::v-deep\s+(\S[^{]*)/g, ':deep($1)')
 			}
 
+			// 处理 :host 选择器
+			if (node.selector.includes(':host')) {
+				node.selector = processHostSelector(node.selector, module.id)
+			}
+
 			node.selector = selectorParser((selectors) => {
 				selectors.walkTags((tag) => {
 					if (tagWhiteList.includes(tag.value)) {
@@ -258,4 +263,23 @@ function ensureImportSemicolons(css) {
 	})
 }
 
-export { compileSS, ensureImportSemicolons }
+/**
+ * 处理 :host 选择器，将其转换为适合组件根节点的选择器
+ * @param {string} selector - 包含 :host 的选择器
+ * @param {string} moduleId - 组件的模块ID
+ * @returns {string} - 转换后的选择器
+ */
+function processHostSelector(selector, moduleId) {
+	// 处理不同的 :host 选择器模式
+	return selector
+		// :host 单独使用，选择组件根节点
+		.replace(/^:host$/, `[data-v-${moduleId}]`)
+		// :host(.class) 选择带有特定类的组件根节点
+		.replace(/:host\(([^)]+)\)/g, `[data-v-${moduleId}]$1`)
+		// :host 后跟其他选择器，如 :host .child
+		.replace(/:host\s+/g, `[data-v-${moduleId}] `)
+		// :host 作为复合选择器的一部分，如 :host.active
+		.replace(/:host(?=\.|#|:)/g, `[data-v-${moduleId}]`)
+}
+
+export { compileSS, ensureImportSemicolons, processHostSelector }
