@@ -72,13 +72,6 @@ class Runtime {
 		this.instances[bridgeId] = this.instances[bridgeId] || {}
 
 		if (module.type === ComponentModule.type) {
-			if (!module.isComponent) {
-				router.push({
-					id: bridgeId,
-					path,
-					query,
-				}, stackId)
-			}
 			const component = new Component(module, {
 				bridgeId,
 				moduleId,
@@ -91,15 +84,13 @@ class Runtime {
 				targetInfo,
 			})
 			this.instances[bridgeId][moduleId] = component
+			if (!module.isComponent) {
+				router.push(component, stackId)
+			}
+			component.init()
 			return component
 		}
 		else if (module.type === PageModule.type) {
-			router.push({
-				id: bridgeId,
-				path,
-				query,
-			}, stackId)
-
 			const page = new Page(module, {
 				bridgeId,
 				moduleId,
@@ -107,6 +98,8 @@ class Runtime {
 				query,
 			})
 			this.instances[bridgeId][moduleId] = page
+			router.push(page, stackId)
+			page.init()
 			return page
 		}
 		else {

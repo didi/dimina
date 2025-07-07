@@ -22,8 +22,13 @@ export class Component {
 			this.__targetInfo__ = opts.targetInfo
 		}
 		this.is = opts.path
+		this.route = opts.path
+		this.query = opts.query
 		this.renderer = 'webview'
 		this.bridgeId = opts.bridgeId
+		if (this.id) {
+			this.id = opts.bridgeId
+		}
 		this.behaviors = module.behaviors
 		this.data = cloneDeep(module.noReferenceData)
 		this.__isComponent__ = module.isComponent
@@ -37,11 +42,9 @@ export class Component {
 		// 初始化关系相关属性
 		this.__relations__ = new Map() // 存储关系节点
 		this.__relationPaths__ = new Map() // 存储关系路径映射
-
-		this.#init()
 	}
 
-	#init() {
+	init() {
 		if (this.__isComponent__) {
 			for (const key in this.__info__.properties) {
 				// 先取逻辑层的属性默认值

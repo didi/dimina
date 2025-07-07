@@ -15,16 +15,17 @@ export class Page {
 		this.initd = false
 		this.opts = opts
 		this.is = opts.path
+		this.route = opts.path
 		this.bridgeId = opts.bridgeId
+		this.id = opts.id
+		this.query = opts.query
 		this.data = cloneDeep(module.noReferenceData)
 		this.__type__ = module.type
 		this.__id__ = opts.moduleId
 		this.__info__ = module.moduleInfo
-
-		this.#init()
 	}
 
-	#init() {
+	init() {
 		this.#initMembers()
 		this.#invokeInitLifecycle().then(() => {
 			addComputedData(this)
