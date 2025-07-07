@@ -36,16 +36,22 @@ function resetStoreInfo(opts) {
 
 function storePathInfo(workPath) {
 	pathInfo.workPath = workPath
-	// 使用工作区目录或系统临时目录，确保有写入权限
-	const tempDir = process.env.GITHUB_WORKSPACE || os.tmpdir()
-	const targetDir = path.join(tempDir, `dimina-fe-dist-${Date.now()}`)
+	
+	// 优先使用环境变量中的 TARGET_PATH
+	if (process.env.TARGET_PATH) {
+		pathInfo.targetPath = process.env.TARGET_PATH
+	} else {
+		// 使用工作区目录或系统临时目录，确保有写入权限
+		const tempDir = process.env.GITHUB_WORKSPACE || os.tmpdir()
+		const targetDir = path.join(tempDir, `dimina-fe-dist-${Date.now()}`)
 
-	// 确保目录存在
-	if (!fs.existsSync(targetDir)) {
-		fs.mkdirSync(targetDir, { recursive: true })
+		// 确保目录存在
+		if (!fs.existsSync(targetDir)) {
+			fs.mkdirSync(targetDir, { recursive: true })
+		}
+
+		pathInfo.targetPath = targetDir
 	}
-
-	pathInfo.targetPath = targetDir
 	
 	// 初始化 npm 解析器
 	npmResolver = new NpmResolver(workPath)
@@ -121,6 +127,12 @@ function storePageConfig() {
 	const { pages, subPackages } = configInfo.appInfo
 	configInfo.pageInfo = {}
 	configInfo.componentInfo = {}
+
+	// 首先处理 app.json 中的全局 usingComponents
+	if (configInfo.appInfo.usingComponents) {
+		const appFilePath = `${pathInfo.workPath}/app.json`
+		storeComponentConfig(configInfo.appInfo, appFilePath)
+	}
 
 	collectionPageJson(pages)
 
@@ -290,13 +302,20 @@ function transSubDir(name) {
  */
 function getPages() {
 	// 获取所有页面路径
-	const { pages, subPackages = [] } = getAppConfigInfo()
+	const { pages, subPackages = [], usingComponents: globalComponents = {} } = getAppConfigInfo()
 	const pageInfo = getPageConfigInfo()
-	const mainPages = pages.map(path => ({
-		id: uuid(),
-		path,
-		usingComponents: pageInfo[path]?.usingComponents || {},
-	}))
+	
+	const mainPages = pages.map(path => {
+		const pageComponents = pageInfo[path]?.usingComponents || {}
+		// 合并全局组件和页面组件，页面组件优先级更高
+		const mergedComponents = { ...globalComponents, ...pageComponents }
+		
+		return {
+			id: uuid(),
+			path,
+			usingComponents: mergedComponents,
+		}
+	})
 
 	const subPages = {}
 	subPackages.forEach((subPkg) => {
@@ -304,11 +323,18 @@ function getPages() {
 		const independent = subPkg.independent ? subPkg.independent : false
 		subPages[transSubDir(rootPath)] = {
 			independent,
-			info: subPkg.pages.map(path => ({
-				id: uuid(),
-				path: rootPath + path,
-				usingComponents: pageInfo[rootPath + path]?.usingComponents || {},
-			})),
+			info: subPkg.pages.map(path => {
+				const fullPath = rootPath + path
+				const pageComponents = pageInfo[fullPath]?.usingComponents || {}
+				// 合并全局组件和页面组件，页面组件优先级更高
+				const mergedComponents = { ...globalComponents, ...pageComponents }
+				
+				return {
+					id: uuid(),
+					path: fullPath,
+					usingComponents: mergedComponents,
+				}
+			}),
 		}
 	})
 	return {

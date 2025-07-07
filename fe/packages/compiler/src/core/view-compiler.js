@@ -293,14 +293,31 @@ function compileModule(module, isComponent, scriptRes) {
 		return
 	}
 
+	// 检查是否有缓存的模板编译结果
+	let useCache = false
+	let cachedCode = null
+	
 	if (!scriptRes.has(module.path) && compileResCache.has(module.path)) {
-		const res = compileResCache.get(module.path)
-		scriptRes.set(module.path, res)
-		for (const sm of instruction.scriptModule) {
-			if (!scriptRes.has(sm.path)) {
-				scriptRes.set(sm.path, sm.code)
+		const cacheData = compileResCache.get(module.path)
+		// 如果缓存数据包含完整的编译信息，则使用缓存
+		if (cacheData && typeof cacheData === 'object' && cacheData.code && cacheData.instruction) {
+			cachedCode = cacheData.code
+			useCache = true
+			// 将缓存的 wxs 模块添加到当前页面的 scriptRes 中
+			for (const sm of cacheData.instruction.scriptModule) {
+				if (!scriptRes.has(sm.path)) {
+					scriptRes.set(sm.path, sm.code)
+				}
 			}
+		} else if (typeof cacheData === 'string') {
+			// 兼容旧的缓存格式（只有代码字符串）
+			cachedCode = cacheData
+			useCache = true
 		}
+	}
+
+	if (useCache && cachedCode) {
+		scriptRes.set(module.path, cachedCode)
 		return
 	}
 
@@ -368,7 +385,12 @@ function compileModule(module, isComponent, scriptRes) {
 		tplComponents: ${tplComponents},
 		});`
 
-	compileResCache.set(module.path, code)
+	// 缓存编译结果，包含代码和指令信息
+	const cacheData = {
+		code: code,
+		instruction: instruction
+	}
+	compileResCache.set(module.path, cacheData)
 	scriptRes.set(module.path, code)
 }
 
