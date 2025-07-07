@@ -23,6 +23,48 @@ Dimina 编译器现在支持 TypeScript、Less 和 SCSS 文件的编译，为开
 }
 ```
 
+#### Import 语句支持
+
+编译器现在支持 ES6 import 语句，包括：
+
+- **相对路径导入**：`import { utils } from './utils'`
+- **npm 包导入**：`import Toast from '@vant/weapp/toast/toast'`
+- **绝对路径导入**：`import { api } from '/utils/api'`
+
+**Import 语句示例**：
+
+```typescript
+// 相对路径导入
+import { formatDate } from '../../utils/helper'
+
+// npm 包导入
+import Toast from '@vant/weapp/toast/toast'
+import Dialog from '@vant/weapp/dialog/dialog'
+
+// 绝对路径导入
+import { request } from '/utils/api'
+
+Page({
+  async onLoad() {
+    const now = formatDate(new Date())
+    
+    Toast.show({
+      message: '页面加载完成'
+    })
+    
+    const confirmed = await Dialog.confirm({
+      title: '提示',
+      message: '确认操作吗？'
+    })
+    
+    if (confirmed) {
+      const result = await request('/api/data', {})
+      console.log('请求结果:', result)
+    }
+  }
+})
+```
+
 #### 使用示例
 
 **页面文件 (pages/index/index.ts)**:

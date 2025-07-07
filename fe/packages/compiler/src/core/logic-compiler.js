@@ -257,10 +257,57 @@ function buildJSByPath(packageName, module, compileRes, mainCompileRes, addExtra
 				}
 			}
 		},
+		ImportDeclaration(ap) {
+			// 处理 ES6 import 语句
+			const importPath = ap.node.source.value
+			if (importPath) {
+				let id
+				let shouldProcess = false
+				
+				if (importPath.startsWith('@') || importPath.startsWith('miniprogram_npm/')) {
+					// 处理 npm 包导入（如 @vant/weapp/toast/toast）
+					if (importPath.startsWith('@')) {
+						// 转换为 miniprogram_npm 路径
+						id = `/miniprogram_npm/${importPath}`
+					} else {
+						// 已经是 miniprogram_npm 路径
+						id = importPath.startsWith('/') ? importPath : `/${importPath}`
+					}
+					shouldProcess = true
+				} else if (importPath.startsWith('./') || importPath.startsWith('../') || !importPath.startsWith('/')) {
+					// 处理相对路径导入
+					const importFullPath = resolve(modulePath, `../${importPath}`)
+					// 依赖的模块相对路径转换为绝对路径
+					id = importFullPath.split(`${getWorkPath()}${sep}`)[1]
+					// 移除文件扩展名（.js 或 .ts）
+					id = id.replace(/\.(js|ts)$/, '').replace(/\\/g, '/')
+					// 确保路径以 '/' 开头，保持一致性
+					if (!id.startsWith('/')) {
+						id = '/' + id
+					}
+					shouldProcess = true
+				} else {
+					// 绝对路径直接使用
+					id = importPath
+					shouldProcess = true
+				}
+				
+				if (shouldProcess) {
+					ap.node.source = types.stringLiteral(id)
+					if (!processedModules.has(packageName + id)) {
+						buildJSByPath(packageName, { path: id }, compileRes, mainCompileRes, false, depthChain)
+					}
+				}
+			}
+		},
 	})
 
 	const { code } = babel.transformFromAstSync(ast, '', {
 		comments: false,
+		plugins: [
+			// 将 ES6 import/export 转换为 CommonJS
+			'@babel/plugin-transform-modules-commonjs'
+		],
 	})
 	compileInfo.code = code
 	// 将当前模块标记为已处理

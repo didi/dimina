@@ -46,6 +46,7 @@
 	],
 	"dependencies": {
 		"@babel/core": "^7.27.4",
+		"@babel/plugin-transform-modules-commonjs": "^7.27.1",
 		"@babel/traverse": "^7.27.4",
 		"@babel/types": "^7.27.6",
 		"@vue/compiler-sfc": "^3.5.16",

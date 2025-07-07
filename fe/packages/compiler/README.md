@@ -113,6 +113,7 @@ miniprogram_npm/      ->  npm包构建   (npm组件支持)
 编译器现已支持现代前端开发工具：
 
 - ✅ **TypeScript 支持**: `.ts` 文件自动编译为 JavaScript
+- ✅ **ES6 Import 语句**: 支持相对路径、npm 包和绝对路径导入
 - ✅ **Less 支持**: `.less` 文件编译为 CSS，支持变量、mixin 和嵌套
 - ✅ **SCSS/Sass 支持**: `.scss` 和 `.sass` 文件编译为 CSS
 - ✅ **错误处理**: 编译失败时自动回退，不中断构建流程

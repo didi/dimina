@@ -24,7 +24,9 @@ class NpmBuilder {
 			await this.buildNpmDir(npmPath)
 		}
 
-		console.log(`[npm-builder] 已构建 ${this.builtPackages.size} 个 npm 包`)
+		if (this.builtPackages.size > 0) {
+			console.log(`[npm依赖] 已构建 ${this.builtPackages.size} 个 npm 包`)
+		}
 	}
 
 	/**
@@ -107,7 +109,7 @@ class NpmBuilder {
 		await this.processDependencies(packageName, packagePath, npmDirPath)
 
 		this.builtPackages.add(packageKey)
-		console.log(`[npm-builder] 已构建包: ${packageKey}`)
+		console.log(`[npm 依赖] 已构建包: ${packageKey}`)
 	}
 
 	/**
