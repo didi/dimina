@@ -328,7 +328,7 @@ function processWxsContent(wxsContent, wxsFilePath, scriptModule, workPath, file
 			
 			// https://developers.weixin.qq.com/miniprogram/dev/reference/wxs/06datatype.html#regexp
 			// getRegExp -> 正则表达式字面量或 new RegExp 调用
-			if (astPath.node.callee.name === 'getRegExp') {
+			if (calleeName === 'getRegExp') {
 				const args = astPath.node.arguments
 				
 				if (args.length > 0) {
@@ -386,7 +386,7 @@ function processWxsContent(wxsContent, wxsFilePath, scriptModule, workPath, file
 					}
 				}
 			}
-			else if (astPath.node.callee.name === 'getDate') {
+			else if (calleeName === 'getDate') {
 				// getDate -> new Date
 				const args = []
 				for (let i = 0; i < astPath.node.arguments.length; i++) {
@@ -398,7 +398,7 @@ function processWxsContent(wxsContent, wxsFilePath, scriptModule, workPath, file
 				astPath.replaceWith(newExpr)
 			}
 			// 处理 wxs 文件内部的 require 调用（仅对外部文件）
-			else if (astPath.node.callee.name === 'require' && astPath.node.arguments.length > 0 && wxsFilePath) {
+			else if (calleeName === 'require' && astPath.node.arguments.length > 0 && wxsFilePath) {
 				const requirePath = astPath.node.arguments[0].value
 				
 				if (requirePath && typeof requirePath === 'string') {
@@ -956,7 +956,7 @@ function getProps(attrs, tag) {
 			// do noting
 		}
 		else if (name.endsWith(':key')) {
-			const tranValue = parseKeyExpression(value, getForItemName(attrs))
+			const tranValue = parseKeyExpression(value, getForItemName(attrs), getForIndexName(attrs))
 			attrsList.push({
 				name: ':key',
 				value: tranValue,
@@ -1115,7 +1115,7 @@ function generateVModelTemplate(expression) {
 /**
  * 兼容 :key="{{ index }}" 或 :key="{{ item.index }}"的情况
  */
-function parseKeyExpression(exp, itemName = 'item') {
+function parseKeyExpression(exp, itemName = 'item', indexName = 'index') {
 	// 去除首尾空格
 	exp = exp.trim()
 
@@ -1131,6 +1131,10 @@ function parseKeyExpression(exp, itemName = 'item') {
 		if (/^-?\d+(\.\d+)?$/.test(exp)) {
 			return exp
 		}
+		// 特殊处理索引变量名 - 直接返回索引变量名，不添加 item 前缀
+		if (exp === indexName) {
+			return indexName
+		}
 		return exp.startsWith(itemName) ? `${exp}` : `${itemName}.${exp}`
 	}
 
@@ -1139,6 +1143,9 @@ function parseKeyExpression(exp, itemName = 'item') {
 		const content = exp.slice(2, -2).trim()
 		if (content === 'this') {
 			return `${itemName}.toString()`
+		} else if (content === indexName) {
+			// 特殊处理索引变量名 - 直接返回索引变量名
+			return indexName
 		} else {
 			return content.startsWith(itemName) ? `${content}` : `${itemName}.${content}`
 		}
@@ -1149,6 +1156,9 @@ function parseKeyExpression(exp, itemName = 'item') {
 	const result = parts.map((part) => {
 		if (part.startsWith('{{') && part.endsWith('}}')) {
 			const content = part.slice(2, -2).trim()
+			if (content === indexName) {
+				return indexName
+			}
 			return content.startsWith(itemName) ? content : `${itemName}.${content}`
 		}
 		return `'${part}'`

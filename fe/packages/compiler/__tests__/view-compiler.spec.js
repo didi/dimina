@@ -2,8 +2,12 @@ import { describe, expect, it } from 'vitest'
 import { generateVModelTemplate, parseBraceExp, parseClassRules, parseKeyExpression, processWxsContent, splitWithBraces } from '../src/core/view-compiler'
 
 describe('parseKeyExpression - 解析 key 表达式', () => {
+	it('默认索引名 index - 应该直接返回 index', () => {
+		expect(parseKeyExpression('index')).toEqual('index')
+	})
+	
 	it('普通属性名 - 应该添加 item 前缀', () => {
-		expect(parseKeyExpression('index')).toEqual('item.index')
+		expect(parseKeyExpression('value')).toEqual('item.value')
 	})
 	
 	it('已有 item 前缀的属性 - 应该保持不变', () => {
@@ -12,6 +16,10 @@ describe('parseKeyExpression - 解析 key 表达式', () => {
 
 	it('双花括号包裹的属性 - 应该去除花括号', () => {
 		expect(parseKeyExpression('{{ item.index }}')).toEqual('item.index')
+	})
+
+	it('双花括号包裹的索引名 - 应该直接返回索引名', () => {
+		expect(parseKeyExpression('{{ index }}')).toEqual('index')
 	})
 
 	it('双花括号包裹的简单属性 - 应该添加 item 前缀', () => {
@@ -55,11 +63,19 @@ describe('parseKeyExpression - 解析 key 表达式', () => {
 	})
 	
 	it('字符串拼接表达式 - 应该正确处理拼接', () => {
-		expect(parseKeyExpression('1-{{index}}')).toEqual('\'1-\'+item.index')
+		expect(parseKeyExpression('1-{{index}}')).toEqual('\'1-\'+index')
 	})
 
 	it('字符串拼接对象属性表达式 - 应该正确处理拼接', () => {
 		expect(parseKeyExpression('1-{{item.index}}')).toEqual('\'1-\'+item.index')
+	})
+	
+	it('自定义索引名 - 应该直接返回自定义索引名', () => {
+		expect(parseKeyExpression('i', 'item', 'i')).toEqual('i')
+	})
+	
+	it('自定义索引名在花括号中 - 应该直接返回自定义索引名', () => {
+		expect(parseKeyExpression('{{ i }}', 'item', 'i')).toEqual('i')
 	})
 })
 
