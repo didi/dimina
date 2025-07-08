@@ -17,7 +17,7 @@ export class Page {
 		this.is = opts.path
 		this.route = opts.path
 		this.bridgeId = opts.bridgeId
-		this.id = opts.id
+		this.id = opts.bridgeId
 		this.query = opts.query
 		this.data = cloneDeep(module.noReferenceData)
 		this.__type__ = module.type

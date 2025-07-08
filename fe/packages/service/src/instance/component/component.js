@@ -1,5 +1,6 @@
 import { cloneDeep, isFunction, isString, set } from '@dimina/common'
 import { createSelectorQuery } from '../../api/core/wxml/selector-query'
+import { createIntersectionObserver } from '../../api/core/wxml/intersection-observer'
 import message from '../../core/message'
 import runtime from '../../core/runtime'
 import { addComputedData, filterData, filterInvokeObserver, isChildComponent, matchComponent } from '../../core/utils'
@@ -517,10 +518,11 @@ export class Component {
 	}
 
 	/**
-	 * TODO: 创建一个 IntersectionObserver 对象，选择器选取范围为这个组件实例内
+	 * 创建一个 IntersectionObserver 对象，选择器选取范围为这个组件实例内
+	 * https://developers.weixin.qq.com/miniprogram/dev/reference/api/Component.html#createIntersectionObserver-Object-options
 	 */
-	createIntersectionObserver() {
-		console.warn('[service] 暂不支持 createIntersectionObserver')
+	createIntersectionObserver(options) {
+		return createIntersectionObserver(this, options)
 	}
 
 	/**
