@@ -1200,5 +1200,6 @@ export {
 	parseBraceExp,
 	parseClassRules,
 	parseKeyExpression,
+	processWxsContent,
 	splitWithBraces,
 }
