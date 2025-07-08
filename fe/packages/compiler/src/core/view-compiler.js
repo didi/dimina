@@ -478,7 +478,13 @@ function toCompileTemplate(isComponent, path, components, componentPlaceholder) 
 		if (src) {
 			const includeFullPath = getAbsolutePath(workPath, path, src)
 			// 计算被包含文件的路径（去掉扩展名），用于 wxs 路径解析
-			const includePath = includeFullPath.replace(workPath, '').replace(/\.(wxml|ddml)$/, '')
+			let includePath = includeFullPath.replace(workPath, '').replace(/\.(wxml|ddml)$/, '')
+			
+			// 确保路径以 / 开头
+			if (!includePath.startsWith('/')) {
+				includePath = '/' + includePath
+			}
+			
 			const includeContent = getContentByPath(includeFullPath).trim()
 			if (includeContent) {
 				const $includeContent = cheerio.load(includeContent, {
@@ -502,12 +508,17 @@ function toCompileTemplate(isComponent, path, components, componentPlaceholder) 
 					includePath,
 				)
 				
-				
 				$includeContent('template').remove()
 				$includeContent('wxs').remove()
 				$includeContent('dds').remove()
-				$(elem).html($includeContent.html())
+				$(elem).replaceWith($includeContent.html())
+			} else {
+				// 如果没有内容，直接移除节点
+				$(elem).remove()
 			}
+		} else {
+			// 如果没有 src 属性，直接移除节点
+			$(elem).remove()
 		}
 	})
 
@@ -526,7 +537,13 @@ function toCompileTemplate(isComponent, path, components, componentPlaceholder) 
 		const src = $(elem).attr('src')
 		if (src) {
 			const importFullPath = getAbsolutePath(workPath, path, src)
-			const importPath = importFullPath.replace(workPath, '').replace(/\.(wxml|ddml)$/, '')
+			let importPath = importFullPath.replace(workPath, '').replace(/\.(wxml|ddml)$/, '')
+			
+			// 确保路径以 / 开头
+			if (!importPath.startsWith('/')) {
+				importPath = '/' + importPath
+			}
+			
 			const importContent = getContentByPath(importFullPath).trim()
 			if (importContent) {
 				const $$ = cheerio.load(importContent, {
