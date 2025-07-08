@@ -22,7 +22,7 @@ onMounted(() => {
 </script>
 
 <template>
-	<component is="dimina-wrapper" v-bind="$attrs" ref="wrapperRef">
+	<wrapper-component v-bind="$attrs" ref="wrapperRef">
 		<slot />
-	</component>
+	</wrapper-component>
 </template>
