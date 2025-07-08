@@ -448,12 +448,33 @@ function toCompileTemplate(isComponent, path, components, componentPlaceholder) 
 		const src = $(elem).attr('src')
 		// 将目标文件除了 <template/> <wxs/> 外的整个代码引入，相当于是拷贝到 include 位置
 		if (src) {
-			const includeContent = getContentByPath(getAbsolutePath(workPath, path, src)).trim()
+			const includeFullPath = getAbsolutePath(workPath, path, src)
+			// 计算被包含文件的路径（去掉扩展名），用于 wxs 路径解析
+			const includePath = includeFullPath.replace(workPath, '').replace(/\.(wxml|ddml)$/, '')
+			const includeContent = getContentByPath(includeFullPath).trim()
 			if (includeContent) {
 				const $includeContent = cheerio.load(includeContent, {
 					xmlMode: true,
 					decodeEntities: false,
 				})
+				
+				// 提取其中的 template 节点
+				transTagTemplate(
+					$includeContent,
+					templateModule,
+					includePath,
+					components,
+					componentPlaceholder,
+				)
+
+				// 提取其中的 wxs 节点
+				transTagWxs(
+					$includeContent,
+					scriptModule,
+					includePath,
+				)
+				
+				
 				$includeContent('template').remove()
 				$includeContent('wxs').remove()
 				$includeContent('dds').remove()
@@ -477,7 +498,7 @@ function toCompileTemplate(isComponent, path, components, componentPlaceholder) 
 		const src = $(elem).attr('src')
 		if (src) {
 			const importFullPath = getAbsolutePath(workPath, path, src)
-			const importPath = importFullPath.replace(workPath, '').split('/').slice(0, -1).join('/')
+			const importPath = importFullPath.replace(workPath, '').replace(/\.(wxml|ddml)$/, '')
 			const importContent = getContentByPath(importFullPath).trim()
 			if (importContent) {
 				const $$ = cheerio.load(importContent, {
