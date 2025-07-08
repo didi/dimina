@@ -223,7 +223,7 @@ describe('processWxsContent - 处理 wxs 内容中的 getRegExp 转换', () => {
 		expect(result).not.toContain('getRegExp(\'[A-Z]\', \'g\')')
 	})
 
-	it('应该保留变量参数的 getRegExp 调用', () => {
+	it('应该转换变量参数的 getRegExp 调用为 new RegExp', () => {
 		const wxsContent = `
 			function genRegExp(str, flags) {
 				return getRegExp(str, flags);
@@ -238,9 +238,11 @@ describe('processWxsContent - 处理 wxs 内容中的 getRegExp 转换', () => {
 		
 		const result = processWxsContent(wxsContent, null, [], '', '')
 		
-		// 验证变量参数的 getRegExp 调用被保留
-		expect(result).toContain('getRegExp(str, flags)')
-		expect(result).toContain('getRegExp(pattern, flags)')
+		// 验证变量参数的 getRegExp 调用被转换为 new RegExp
+		expect(result).toContain('new RegExp(str, flags)')
+		expect(result).toContain('new RegExp(pattern, flags)')
+		expect(result).not.toContain('getRegExp(str, flags)')
+		expect(result).not.toContain('getRegExp(pattern, flags)')
 	})
 
 	it('应该正确处理复杂的正则表达式模式', () => {
@@ -337,8 +339,9 @@ describe('processWxsContent - 处理 wxs 内容中的 getRegExp 转换', () => {
 		const result = processWxsContent(wxsContent, null, [], '', '')
 		
 		// 验证混合场景下的正确转换
-		// 保留变量参数的 getRegExp 调用
-		expect(result).toContain('getRegExp(str, flags)')
+		// 转换变量参数的 getRegExp 调用为 new RegExp
+		expect(result).toContain('new RegExp(str, flags)')
+		expect(result).not.toContain('getRegExp(str, flags)')
 		// 转换字符串字面量参数的 getRegExp 调用
 		expect(result).toContain('/[A-Z]/g')
 		expect(result).not.toContain('getRegExp(\'[A-Z]\', \'g\')')
@@ -403,8 +406,9 @@ describe('processWxsContent - 处理 wxs 内容中的 getRegExp 转换', () => {
 		
 		const result = processWxsContent(wxsContent, null, [], '', '')
 		
-		// 验证 genRegExp 函数内部的 getRegExp 调用被保留（不转换）
-		expect(result).toContain('getRegExp(str, flags)')
+		// 验证 genRegExp 函数内部的 getRegExp 调用被转换为 new RegExp
+		expect(result).toContain('new RegExp(str, flags)')
+		expect(result).not.toContain('getRegExp(str, flags)')
 		
 		// 验证所有的 genRegExp 调用都被保留（因为它们调用的是函数，不是直接的 getRegExp）
 		expect(result).toContain('genRegExp(\'(.+)MpxDash$\')')
@@ -416,7 +420,7 @@ describe('processWxsContent - 处理 wxs 内容中的 getRegExp 转换', () => {
 		
 		// 验证没有出现空的正则表达式（这是原始问题）
 		expect(result).not.toContain('//;')
-		expect(result).not.toContain('//')
+		expect(result).not.toContain('new RegExp()')
 		
 		// 验证 genRegExp 函数定义完整存在
 		expect(result).toContain('function genRegExp(str, flags)')

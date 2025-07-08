@@ -32,35 +32,34 @@ function processWxsContent(wxsContent, wxsFilePath, scriptModule, workPath, file
 	traverse(wxsAst, {
 		CallExpression(astPath) {
 			// https://developers.weixin.qq.com/miniprogram/dev/reference/wxs/06datatype.html#regexp
-			// getRegExp -> 正则表达式字面量
+			// getRegExp -> 正则表达式字面量或 new RegExp 调用
 			if (astPath.node.callee.name === 'getRegExp') {
 				const args = astPath.node.arguments
 				
-				// 只处理参数都是字符串字面量的情况
-				// 对于变量参数（如函数内部的调用），保持原样
-				if (args.length > 0 && args[0].type === 'StringLiteral') {
-					// 获取正则表达式的模式和标志
-					let pattern = ''
-					let flags = ''
-					
-					// 第一个参数是模式（字符串字面量）
-					const arg = args[0]
-					
-					// 获取字符串的原始值，保留其中的转义字符
-					if (arg.extra && arg.extra.raw) {
-						// 去掉首尾的引号，但保留内部的转义字符
-						pattern = arg.extra.raw.slice(1, -1)
-					} else if (arg.value !== undefined) {
-						pattern = arg.value
-					} else {
-						pattern = ''
-					}
-					
-					if (args.length > 1) {
-						// 第二个参数是标志（字符串字面量）
-						const flagArg = args[1]
+				if (args.length > 0) {
+					// 如果参数都是字符串字面量，直接转换为正则表达式字面量
+					if (args[0].type === 'StringLiteral' && (!args[1] || args[1].type === 'StringLiteral')) {
+						// 获取正则表达式的模式和标志
+						let pattern = ''
+						let flags = ''
 						
-						if (flagArg.type === 'StringLiteral') {
+						// 第一个参数是模式（字符串字面量）
+						const arg = args[0]
+						
+						// 获取字符串的原始值，保留其中的转义字符
+						if (arg.extra && arg.extra.raw) {
+							// 去掉首尾的引号，但保留内部的转义字符
+							pattern = arg.extra.raw.slice(1, -1)
+						} else if (arg.value !== undefined) {
+							pattern = arg.value
+						} else {
+							pattern = ''
+						}
+						
+						if (args.length > 1) {
+							// 第二个参数是标志（字符串字面量）
+							const flagArg = args[1]
+							
 							if (flagArg.extra && flagArg.extra.raw) {
 								flags = flagArg.extra.raw.slice(1, -1)
 							} else if (flagArg.value !== undefined) {
@@ -68,17 +67,28 @@ function processWxsContent(wxsContent, wxsFilePath, scriptModule, workPath, file
 							} else {
 								flags = ''
 							}
-						} else {
-							// 如果第二个参数不是字符串字面量，则不进行转换
-							return
 						}
+						
+						// 直接创建正则表达式字面量，将 getRegExp("pattern", "flags") 转换为 /pattern/flags
+						const regexLiteral = types.regExpLiteral(pattern, flags)
+						
+						// 直接替换为正则表达式字面量
+						astPath.replaceWith(regexLiteral)
+					} else {
+						// 对于变量参数，转换为 new RegExp(pattern, flags) 调用
+						const newRegExpArgs = [args[0]]
+						if (args.length > 1) {
+							newRegExpArgs.push(args[1])
+						}
+						
+						const newRegExpCall = types.newExpression(
+							types.identifier('RegExp'),
+							newRegExpArgs
+						)
+						
+						// 替换为 new RegExp 调用
+						astPath.replaceWith(newRegExpCall)
 					}
-					
-					// 直接创建正则表达式字面量，将 getRegExp("pattern", "flags") 转换为 /pattern/flags
-					const regexLiteral = types.regExpLiteral(pattern, flags)
-					
-					// 直接替换为正则表达式字面量
-					astPath.replaceWith(regexLiteral)
 				}
 			}
 			else if (astPath.node.callee.name === 'getDate') {
