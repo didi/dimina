@@ -43,6 +43,10 @@ export class Component {
 		// 初始化关系相关属性
 		this.__relations__ = new Map() // 存储关系节点
 		this.__relationPaths__ = new Map() // 存储关系路径映射
+		
+		// 初始化 groupSetData 相关属性
+		this.__groupSetDataMode__ = false // 是否处于批量更新模式
+		this.__groupSetDataBuffer__ = {} // 批量更新数据缓存
 	}
 
 	init() {
@@ -344,6 +348,15 @@ export class Component {
 			return
 		}
 
+		// 如果处于 groupSetData 模式，将数据缓存起来
+		if (this.__groupSetDataMode__) {
+			// 合并到缓存中
+			for (const key in fData) {
+				this.__groupSetDataBuffer__[key] = fData[key]
+			}
+			return
+		}
+
 		message.send({
 			type: 'u',
 			target: 'render',
@@ -523,6 +536,52 @@ export class Component {
 	 */
 	createIntersectionObserver(options) {
 		return createIntersectionObserver(this, options)
+	}
+
+	/**
+	 * 立刻执行 callback，其中的多个 setData 之间不会触发界面绘制
+	 * （只有某些特殊场景中需要，如用于在不同组件同时 setData 时进行界面绘制同步）
+	 * https://developers.weixin.qq.com/miniprogram/dev/reference/api/Component.html#groupSetData-Function-callback
+	 * @param {Function} callback 回调函数，在此函数中进行的多个 setData 调用会被合并
+	 */
+	groupSetData(callback) {
+		if (!isFunction(callback)) {
+			console.warn('[service] groupSetData callback must be a function')
+			return
+		}
+
+		// 标记进入批量更新模式
+		this.__groupSetDataMode__ = true
+		
+		// 存储批量更新的数据
+		this.__groupSetDataBuffer__ = {}
+		
+		try {
+			// 执行回调函数
+			callback.call(this)
+		} catch (error) {
+			console.error('[service] groupSetData callback error:', error)
+		} finally {
+			// 退出批量更新模式
+			this.__groupSetDataMode__ = false
+			
+			// 如果有缓存的数据，统一发送更新
+			if (this.__groupSetDataBuffer__ && Object.keys(this.__groupSetDataBuffer__).length > 0) {
+				const bufferedData = this.__groupSetDataBuffer__
+				this.__groupSetDataBuffer__ = {}
+				
+				// 发送合并后的数据更新
+				message.send({
+					type: 'u',
+					target: 'render',
+					body: {
+						bridgeId: this.bridgeId,
+						moduleId: this.__id__,
+						data: bufferedData,
+					},
+				})
+			}
+		}
 	}
 
 	/**
