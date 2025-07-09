@@ -429,20 +429,30 @@ export class Component {
 	 * triggerObserver
 	 */
 	tO(data) {
+		// 收集需要执行的观察者函数
+		const observersToExecute = []
+		
+		// 更新数据并收集观察者
 		for (const [prop, val] of Object.entries(data)) {
+			this.data[prop] = val
+			
+			// 收集 observers
 			if (this.__info__.observers) {
-				filterInvokeObserver(prop, this.__info__.observers, data, this)
+				observersToExecute.push(() => filterInvokeObserver(prop, this.__info__.observers, data, this))
 			}
-
+			
+			// 收集属性观察器
 			const observer = this.__info__.properties[prop]?.observer
-
 			if (isString(observer)) {
-				this[observer]?.(val)
+				observersToExecute.push(() => this[observer]?.(val))
 			}
 			else if (isFunction(observer)) {
-				observer.call(this, val)
+				observersToExecute.push(() => observer.call(this, val))
 			}
 		}
+		
+		// 执行所有观察者函数
+		observersToExecute.forEach(fn => fn())
 	}
 
 	getPageId() {
