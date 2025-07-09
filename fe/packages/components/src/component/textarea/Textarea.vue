@@ -201,7 +201,7 @@ const computedPlaceholderStyle = computed(() => {
 				return match[1].trim() // 提取匹配到的值并去除两端的空格
 			}
 		}
-		else {
+		else if (props.placeholderStyle && typeof props.placeholderStyle === 'object') {
 			if (Object.hasOwn(props.placeholderStyle, 'color')) {
 				return props.placeholderStyle.color
 			}
@@ -217,7 +217,7 @@ const computedPlaceholderStyle = computed(() => {
 				size = match[1].trim()
 			}
 		}
-		else {
+		else if (props.placeholderStyle && typeof props.placeholderStyle === 'object') {
 			if (Object.hasOwn(props.placeholderStyle, 'font-size')) {
 				size = props.placeholderStyle['font-size']
 			}
@@ -232,7 +232,7 @@ const computedPlaceholderStyle = computed(() => {
 				return match[1].trim()
 			}
 		}
-		else {
+		else if (props.placeholderStyle && typeof props.placeholderStyle === 'object') {
 			if (Object.hasOwn(props.placeholderStyle, 'font-weight')) {
 				return props.placeholderStyle['font-weight']
 			}
