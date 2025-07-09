@@ -271,13 +271,14 @@ class Runtime {
 					const instance = getCurrentInstance().proxy
 					self.instance.set(moduleId, instance)
 
-					for (const v of Object.values(module.props ?? {})) {
+					const externalClasses = []
+					for (const [k, v] of Object.entries(module.props ?? {})) {
 						if (v.cls) {
 							// 自定义组件的外部样式类，通过 v-c-class 自定义指令处理
-							provide('externalClass', true)
-							break
+							externalClasses.push(k)
 						}
 					}
+					provide('externalClasses', externalClasses)
 
 					const eventAttr = {}
 					for (const attrName in attrs) {
