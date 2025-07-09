@@ -19,6 +19,12 @@ const fileType = ['.wxml', '.ddml']
 // 页面文件编译内容缓存
 const compileResCache = new Map()
 
+// wxs 模块注册表，用于记录确定的 wxs 模块
+const wxsModuleRegistry = new Set()
+
+// wxs 文件路径映射表，用于快速查找模块对应的文件路径
+const wxsFilePathMap = new Map()
+
 if (!isMainThread) {
 	parentPort.on('message', async ({ pages, storeInfo }) => {
 		try {
@@ -54,6 +60,11 @@ if (!isMainThread) {
  * 编译页面视图文件
  */
 async function compileML(pages, root, progress) {
+	const workPath = getWorkPath()
+	
+	// 初始化 wxs 文件路径映射
+	initWxsFilePathMap(workPath)
+	
 	for (const page of pages) {
 		const scriptRes = new Map()
 		buildCompileView(page, false, scriptRes, [])
@@ -91,6 +102,68 @@ async function compileML(pages, root, progress) {
 
 		progress.completedTasks++
 	}
+}
+
+/**
+ * 初始化 wxs 文件路径映射
+ * @param {string} workPath - 工作路径
+ */
+function initWxsFilePathMap(workPath) {
+	// 清空现有映射
+	wxsFilePathMap.clear()
+	
+	// 扫描 miniprogram_npm 目录下的所有 wxs 文件
+	const npmDir = path.join(workPath, 'miniprogram_npm')
+	if (fs.existsSync(npmDir)) {
+		scanWxsFiles(npmDir, workPath)
+	}
+}
+
+/**
+ * 递归扫描目录下的所有 wxs 文件
+ * @param {string} dir - 目录路径
+ * @param {string} workPath - 工作路径
+ */
+function scanWxsFiles(dir, workPath) {
+	try {
+		const items = fs.readdirSync(dir)
+		
+		for (const item of items) {
+			const fullPath = path.join(dir, item)
+			const stat = fs.statSync(fullPath)
+			
+			if (stat.isDirectory()) {
+				// 递归扫描子目录
+				scanWxsFiles(fullPath, workPath)
+			} else if (stat.isFile() && item.endsWith('.wxs')) {
+				// 处理 wxs 文件
+				const relativePath = fullPath.replace(workPath, '').replace(/\.wxs$/, '')
+				const moduleName = relativePath.replace(/[\/\\@\-]/g, '_').replace(/^_/, '')
+				
+				// 建立模块名到文件路径的映射
+				wxsFilePathMap.set(moduleName, fullPath)
+			}
+		}
+	} catch (error) {
+		// 忽略无法读取的目录
+	}
+}
+
+/**
+ * 注册 wxs 模块
+ * @param {string} modulePath - 模块路径
+ */
+function registerWxsModule(modulePath) {
+	wxsModuleRegistry.add(modulePath)
+}
+
+/**
+ * 检查是否为已注册的 wxs 模块
+ * @param {string} modulePath - 模块路径
+ * @returns {boolean}
+ */
+function isRegisteredWxsModule(modulePath) {
+	return wxsModuleRegistry.has(modulePath)
 }
 
 function buildCompileView(module, isComponent = false, scriptRes, depthChain = []) {
@@ -196,7 +269,32 @@ function compileModule(module, isComponent, scriptRes) {
 
 	if (useCache && cachedCode) {
 		scriptRes.set(module.path, cachedCode)
-		return instruction
+		
+		// 即使使用缓存，也需要确保返回的 instruction 包含最新的 wxs 模块信息
+		// 收集所有在 scriptRes 中的 wxs 模块（包括依赖模块）
+		const allWxsModules = collectAllWxsModules(scriptRes, new Set(), instruction.scriptModule || [])
+		
+		// 将收集到的 wxs 模块添加到 instruction 中
+		if (allWxsModules.length > 0) {
+			// 合并现有的 scriptModule 和新收集的 wxs 模块
+			const existingModules = instruction.scriptModule || []
+			const mergedModules = [...existingModules]
+			
+			for (const wxsModule of allWxsModules) {
+				// 避免重复添加相同的模块
+				if (!mergedModules.find(existing => existing.path === wxsModule.path)) {
+					mergedModules.push(wxsModule)
+				}
+			}
+			
+			instruction.scriptModule = mergedModules
+		}
+		
+		// 返回更新后的 instruction，包含所有 wxs 模块
+		return {
+			...instruction,
+			scriptModule: allWxsModules
+		}
 	}
 
 	// 在编译前预处理模板，将 this. 替换为 _ctx.
@@ -264,42 +362,33 @@ function compileModule(module, isComponent, scriptRes) {
 		});`
 
 	// 收集所有在 scriptRes 中的 wxs 模块（包括依赖模块）
-	const allWxsModules = []
-	for (const [modulePath, moduleCode] of scriptRes.entries()) {
-		// 跳过页面/组件本身的代码
-		if (modulePath !== module.path) {
-			// 检查是否是 wxs 模块（通过路径模式判断）
-			if (modulePath.includes('wxs') || modulePath.includes('_index') || modulePath.includes('_utils') || modulePath.includes('_computed')) {
-				// 查找对应的原始模块信息
-				const existingModule = instruction.scriptModule.find(sm => sm.path === modulePath)
-				if (existingModule) {
-					allWxsModules.push(existingModule)
-				} else {
-					// 如果找不到原始模块信息，创建一个基本的模块对象
-					allWxsModules.push({
-						path: modulePath,
-						code: moduleCode
-					})
-				}
+	const allWxsModules = collectAllWxsModules(scriptRes, new Set(), instruction.scriptModule || [])
+	
+	// 将收集到的 wxs 模块添加到 instruction 中
+	if (allWxsModules.length > 0) {
+		// 合并现有的 scriptModule 和新收集的 wxs 模块
+		const existingModules = instruction.scriptModule || []
+		const mergedModules = [...existingModules]
+		
+		for (const wxsModule of allWxsModules) {
+			// 避免重复添加相同的模块
+			if (!mergedModules.find(existing => existing.path === wxsModule.path)) {
+				mergedModules.push(wxsModule)
 			}
 		}
-	}
-
-	// 更新 instruction 以包含所有 wxs 模块
-	const updatedInstruction = {
-		...instruction,
-		scriptModule: allWxsModules
+		
+		instruction.scriptModule = mergedModules
 	}
 
 	// 缓存编译结果，包含代码和更新后的指令信息
 	const cacheData = {
 		code: code,
-		instruction: updatedInstruction
+		instruction: instruction
 	}
 	compileResCache.set(module.path, cacheData)
 	scriptRes.set(module.path, code)
 	
-	return updatedInstruction
+	return instruction
 }
 
 /**
@@ -473,6 +562,23 @@ function processWxsContent(wxsContent, wxsFilePath, scriptModule, workPath, file
 	}).code
 }
 
+/**
+ * 通过代码内容判断是否为 wxs 模块
+ * @param {string} moduleCode - 模块代码
+ * @param {string} modulePath - 模块路径（可选，用于路径判断）
+ * @returns {boolean} 是否为 wxs 模块
+ */
+function isWxsModuleByContent(moduleCode, modulePath = '') {
+	if (!moduleCode || typeof moduleCode !== 'string') {
+		return false
+	}
+	
+	if (modulePath && isRegisteredWxsModule(modulePath)) {
+		return true
+	}
+	return false
+}
+
 // 递归处理 wxs 依赖
 function processWxsDependency(wxsFilePath, moduleName, scriptModule, workPath, filePath) {
 	if (!fs.existsSync(wxsFilePath)) {
@@ -492,6 +598,9 @@ function processWxsDependency(wxsFilePath, moduleName, scriptModule, workPath, f
 	
 	// 使用公共的处理函数
 	const wxsCode = processWxsContent(wxsContent, wxsFilePath, scriptModule, workPath, filePath)
+	
+	// 注册为 wxs 模块（因为这是 wxs 依赖，一定是 wxs 脚本）
+	registerWxsModule(moduleName)
 	
 	scriptModule.push({
 		path: moduleName,
@@ -1403,6 +1512,9 @@ function transTagWxs($, scriptModule, filePath) {
 				compileResCache.set(cacheKey, wxsContent)
 			}
 			if (wxsContent) {
+				// 注册为 wxs 模块（因为这是从 wxs 节点加载的，一定是 wxs 脚本）
+				registerWxsModule(uniqueModuleName)
+				
 				scriptModule.push({
 					path: uniqueModuleName,
 					code: wxsContent,
@@ -1412,6 +1524,126 @@ function transTagWxs($, scriptModule, filePath) {
 		}
 	})
 	wxsNodes.remove()
+}
+
+/**
+ * 递归收集 wxs 模块的所有依赖
+ * @param {Map} scriptRes - 脚本资源映射
+ * @param {Set} collectedPaths - 已收集的路径集合，避免重复处理
+ * @param {Array} scriptModule - 用于收集新加载的 wxs 模块
+ * @returns {Array} 所有 wxs 模块的数组
+ */
+function collectAllWxsModules(scriptRes, collectedPaths = new Set(), scriptModule = []) {
+	const allWxsModules = []
+	const workPath = getWorkPath()
+	
+	for (const [modulePath, moduleCode] of scriptRes.entries()) {
+		// 避免重复处理
+		if (collectedPaths.has(modulePath)) {
+			continue
+		}
+		
+		// 检查是否是 wxs 模块
+		if (isWxsModuleByContent(moduleCode, modulePath)) {
+			collectedPaths.add(modulePath)
+			allWxsModules.push({
+				path: modulePath,
+				code: moduleCode
+			})
+			
+			// 递归收集该模块的依赖
+			const dependencies = extractWxsDependencies(moduleCode)
+			for (const depPath of dependencies) {
+				if (!collectedPaths.has(depPath)) {
+					if (scriptRes.has(depPath)) {
+						// 如果依赖已经在 scriptRes 中，递归处理
+						const depModules = collectAllWxsModules(new Map([[depPath, scriptRes.get(depPath)]]), collectedPaths, scriptModule)
+						allWxsModules.push(...depModules)
+					} else {
+						// 如果依赖不在 scriptRes 中，尝试从文件系统加载
+						const loaded = loadWxsModule(depPath, workPath, scriptModule)
+						if (loaded) {
+							// 将加载的模块添加到 scriptRes 中
+							scriptRes.set(depPath, loaded.code)
+							allWxsModules.push(loaded)
+							collectedPaths.add(depPath)
+							
+							// 递归处理新加载模块的依赖
+							const depModules = collectAllWxsModules(new Map([[depPath, loaded.code]]), collectedPaths, scriptModule)
+							allWxsModules.push(...depModules)
+						}
+					}
+				}
+			}
+		}
+	}
+	
+	return allWxsModules
+}
+
+/**
+ * 尝试从文件系统加载 wxs 模块
+ * @param {string} modulePath - 模块路径
+ * @param {string} workPath - 工作路径
+ * @param {Array} scriptModule - 脚本模块数组
+ * @returns {Object|null} 加载的模块对象或 null
+ */
+function loadWxsModule(modulePath, workPath, scriptModule) {
+	// 如果模块路径不是 wxs 模块特征，直接返回 null
+	if (!modulePath.startsWith('miniprogram_npm__') || !modulePath.includes('_wxs_')) {
+		return null
+	}
+	
+	// 从预先建立的路径映射中查找文件路径
+	const wxsFilePath = wxsFilePathMap.get(modulePath)
+	
+	if (!wxsFilePath) {
+		console.warn(`[view] 无法找到 wxs 模块文件: ${modulePath}`)
+		return null
+	}
+	
+	try {
+		const wxsContent = getContentByPath(wxsFilePath).trim()
+		if (!wxsContent) {
+			return null
+		}
+		
+		// 使用公共的处理函数
+		const processedContent = processWxsContent(wxsContent, wxsFilePath, scriptModule, workPath, '')
+		
+		// 注册为 wxs 模块
+		registerWxsModule(modulePath)
+		
+		return {
+			path: modulePath,
+			code: processedContent
+		}
+	} catch (error) {
+		console.warn(`[view] 加载 wxs 模块失败: ${modulePath}`, error.message)
+		return null
+	}
+}
+
+/**
+ * 从 wxs 模块代码中提取依赖的模块路径
+ * @param {string} moduleCode - 模块代码
+ * @returns {Array} 依赖的模块路径数组
+ */
+function extractWxsDependencies(moduleCode) {
+	const dependencies = []
+	
+	// 匹配 require("模块路径") 或 _("模块路径") 调用
+	const requirePattern = /(?:require|_)\s*\(\s*["']([^"']+)["']\s*\)/g
+	let match
+	
+	while ((match = requirePattern.exec(moduleCode)) !== null) {
+		const depPath = match[1]
+		if (depPath && !dependencies.includes(depPath)) {
+			dependencies.push(depPath)
+		}
+	}
+	
+	return dependencies
 }
 
 function insertWxsToRenderAst(ast, scriptModule, scriptRes) {
