@@ -39,7 +39,7 @@ const wrapperRef = ref(null)
 function createShadowDOM() {
 	if (!wrapperRef.value) return
 	
-	const shadowRoot = wrapperRef.value.attachShadow({ mode: 'open' })
+	const shadowRoot = wrapperRef.value.attachShadow({ mode: 'closed' })
 	
 	const slot = document.createElement('slot')
 	shadowRoot.appendChild(slot)
