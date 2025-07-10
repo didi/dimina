@@ -691,8 +691,8 @@ class Runtime {
 				}
 
 				// 检查是否为祖先关系
-				const isAncestor = Array.isArray(targetEls)
-					? Array.from(targetEls).some(target => relativeEl.contains(target))
+				const isAncestor = Array.isArray(targetEls) || targetEls instanceof NodeList
+					? Array.from(targetEls).some(target => target && relativeEl.contains(target))
 					: relativeEl.contains(targetEls)
 
 				if (isAncestor) {
@@ -758,6 +758,7 @@ class Runtime {
 										intersectionRect: entry.intersectionRect, // 相交区域的边界
 										relativeRect: entry.rootBounds, // 相对参考区域
 										time: entry.time,
+										dataset: entry.target._ds || {},
 									},
 								},
 							},
