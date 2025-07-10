@@ -290,6 +290,7 @@ class Runtime {
 					watch(
 						props,
 						(newProps) => {
+							Object.assign(data, newProps)
 							message.send({
 								type: 't',
 								target: 'service',
