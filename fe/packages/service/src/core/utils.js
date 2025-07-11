@@ -54,7 +54,7 @@ export function filterData(obj) {
 		return obj
 	}
 	return Object.entries(obj).reduce((acc, [key, value]) => {
-		if (key.startsWith('$') || key.startsWith('_l' || key.startsWith('_fl'))) {
+		if (key.startsWith('$') || key.startsWith('_l') || key.startsWith('_fl')) {
 			// 过滤以 $ 开头的属性，未完全过滤以 _ 开头的属性
 			return acc
 		}
@@ -65,11 +65,25 @@ export function filterData(obj) {
 		else if (Array.isArray(value)) {
 			// 如果值是数组，递归过滤其中的函数
 			acc[key] = value
-				.map(item => (typeof item === 'object' ? filterData(item) : item))
+				.map(item => {
+					if (typeof item === 'object' && item !== null) {
+						// 特殊处理 Date 对象，转换为时间戳
+						if (item instanceof Date) {
+							return item.getTime()
+						}
+						return filterData(item)
+					}
+					return item
+				})
 		}
 		else if (value && typeof value === 'object' && !Array.isArray(value)) {
 			// 如果值是对象（非数组），递归过滤该对象中的函数
-			acc[key] = filterData(value)
+			// 特殊处理 Date 对象，转换为时间戳
+			if (value instanceof Date) {
+				acc[key] = value.getTime()
+			} else {
+				acc[key] = filterData(value)
+			}
 		}
 		else {
 			// 其他类型（包括简单类型和非函数对象）直接保留
@@ -328,7 +342,9 @@ export function mergeBehaviors(obj, behaviors) {
 				// 表单字段 behavior 的处理
 				// 这里可以添加表单字段相关的属性和方法
 				break
-			// 可以添加更多内置 behavior 的处理
+			case 'wx://form-field-button':
+				// TODO: https://developers.weixin.qq.com/miniprogram/dev/component/form.html#wx-form-field-button
+				break
 			default:
 				console.warn(`[service] 未知的内置 behavior: ${behaviorName}`)
 		}
