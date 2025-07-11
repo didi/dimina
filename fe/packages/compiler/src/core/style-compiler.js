@@ -4,12 +4,14 @@ import { isMainThread, parentPort } from 'node:worker_threads'
 import { compileStyle } from '@vue/compiler-sfc'
 import autoprefixer from 'autoprefixer'
 import cssnano from 'cssnano'
+import less from 'less'
 import postcss from 'postcss'
 import selectorParser from 'postcss-selector-parser'
+import * as sass from 'sass'
 import { collectAssets, tagWhiteList, transformRpx } from '../common/utils.js'
 import { getAppId, getComponent, getContentByPath, getTargetPath, getWorkPath, resetStoreInfo } from '../env.js'
 
-const fileType = ['.wxss', '.ddss']
+const fileType = ['.wxss', '.ddss', '.less', '.scss', '.sass']
 const compileRes = new Map()
 
 if (!isMainThread) {
@@ -119,9 +121,41 @@ async function enhanceCSS(module) {
 	if (compileRes.has(absolutePath)) {
 		return compileRes.get(absolutePath)
 	}
-	const fixedCSS = ensureImportSemicolons(inputCSS)
 
-	const ast = postcss.parse(fixedCSS)
+	// 预处理器编译
+	let processedCSS = inputCSS
+	const ext = path.extname(absolutePath).toLowerCase()
+	
+	try {
+		if (ext === '.less') {
+			const result = await less.render(inputCSS, {
+				filename: absolutePath,
+				paths: [path.dirname(absolutePath)],
+			})
+			processedCSS = result.css
+		} else if (ext === '.scss' || ext === '.sass') {
+			const result = sass.compileString(inputCSS, {
+				loadPaths: [path.dirname(absolutePath)],
+				syntax: ext === '.sass' ? 'indented' : 'scss',
+			})
+			processedCSS = result.css
+		}
+	} catch (error) {
+		console.error(`[style] 预处理器编译失败 ${absolutePath}:`, error.message)
+		// 如果预处理器编译失败，使用原始内容继续处理
+		processedCSS = inputCSS
+	}
+
+	const fixedCSS = ensureImportSemicolons(processedCSS)
+
+	let ast
+	try {
+		ast = postcss.parse(fixedCSS)
+	} catch (error) {
+		console.error(`[style] PostCSS 解析失败 ${absolutePath}:`, error.message)
+		// 如果 PostCSS 解析失败，返回空字符串
+		return ''
+	}
 	const promises = []
 	ast.walk(async (node) => {
 		if (node.type === 'atrule' && node.name === 'import') {
@@ -138,6 +172,11 @@ async function enhanceCSS(module) {
 			// 处理 ::v-deep
 			if (node.selector.includes('::v-deep')) {
 				node.selector = node.selector.replace(/::v-deep\s+(\S[^{]*)/g, ':deep($1)')
+			}
+
+			// 处理 :host 选择器
+			if (node.selector.includes(':host')) {
+				node.selector = processHostSelector(node.selector, module.id)
 			}
 
 			node.selector = selectorParser((selectors) => {
@@ -176,10 +215,11 @@ async function enhanceCSS(module) {
 	const cssCode = ast.toResult().css
 
 	// 样式隔离
+	const moduleId = module.id
 	const code = compileStyle({
 		source: cssCode,
-		id: module.id,
-		scoped: !!module.id,
+		id: moduleId,
+		scoped: !!moduleId,
 	}).code
 
 	const res = await postcss([autoprefixer({ overrideBrowserslist: ['cover 99.5%'] }), cssnano()]).process(code, {
@@ -223,4 +263,23 @@ function ensureImportSemicolons(css) {
 	})
 }
 
-export { compileSS, ensureImportSemicolons }
+/**
+ * 处理 :host 选择器，将其转换为适合组件根节点的选择器
+ * @param {string} selector - 包含 :host 的选择器
+ * @param {string} moduleId - 组件的模块ID
+ * @returns {string} - 转换后的选择器
+ */
+function processHostSelector(selector, moduleId) {
+	// 处理不同的 :host 选择器模式
+	return selector
+		// :host 单独使用，选择组件根节点
+		.replace(/^:host$/, `[data-v-${moduleId}]`)
+		// :host(.class) 选择带有特定类的组件根节点
+		.replace(/:host\(([^)]+)\)/g, `[data-v-${moduleId}]$1`)
+		// :host 后跟其他选择器，如 :host .child
+		.replace(/:host\s+/g, `[data-v-${moduleId}] `)
+		// :host 作为复合选择器的一部分，如 :host.active
+		.replace(/:host(?=\.|#|:)/g, `[data-v-${moduleId}]`)
+}
+
+export { compileSS, ensureImportSemicolons, processHostSelector }

@@ -14,9 +14,8 @@ export class ComponentModule {
 		this.isComponent = this.extraInfo.component
 		this.behaviors = this.moduleInfo.behaviors
 		this.usingComponents = this.extraInfo.usingComponents
-		this.noReferenceData = filterData(this.moduleInfo.data || {})
-
 		mergeBehaviors(this.moduleInfo, this.behaviors)
+		this.noReferenceData = filterData(this.moduleInfo.data || {})
 	}
 
 	getProps() {

@@ -98,10 +98,58 @@ dmcc build --no-app-id-dir
 
 ```txt
 app.js, index.js      ->  logic.js     (逻辑文件)
+app.ts, index.ts      ->  logic.js     (TypeScript 逻辑文件)
 index.wxml            ->  view.js      (视图文件)
 app.wxss, index.wxss  ->  style.css    (样式文件)
+app.less, index.less  ->  style.css    (Less 样式文件)
+app.scss, index.scss  ->  style.css    (SCSS 样式文件)
+app.sass, index.sass  ->  style.css    (Sass 样式文件)
 app.json, index.json  ->  config.json  (配置文件)
+miniprogram_npm/      ->  npm包构建   (npm组件支持)
 ```
+
+### TypeScript、Less 和 SCSS 支持
+
+编译器现已支持现代前端开发工具：
+
+- ✅ **TypeScript 支持**: `.ts` 文件自动编译为 JavaScript
+- ✅ **ES6 Import 语句**: 支持相对路径、npm 包和绝对路径导入
+- ✅ **Less 支持**: `.less` 文件编译为 CSS，支持变量、mixin 和嵌套
+- ✅ **SCSS/Sass 支持**: `.scss` 和 `.sass` 文件编译为 CSS
+- ✅ **错误处理**: 编译失败时自动回退，不中断构建流程
+- ✅ **向后兼容**: 完全兼容现有的 `.js` 和 `.wxss` 文件
+
+#### 支持的文件类型
+
+**逻辑文件查找顺序**: `.js` → `.ts`
+**样式文件查找顺序**: `.wxss` → `.ddss` → `.less` → `.scss` → `.sass`
+
+详细使用说明请参考：[TypeScript、Less 和 SCSS 支持文档](./docs/typescript-less-scss-support.md)
+
+### npm 组件支持
+
+编译器现已支持微信小程序的 npm 包功能，遵循微信官方的 npm 支持规范：
+
+- ✅ 支持 `miniprogram_npm` 目录中的组件解析
+- ✅ 按照微信小程序寻址顺序查找组件
+- ✅ 自动构建和复制 npm 包文件
+- ✅ 支持组件依赖关系处理
+- ✅ 缓存机制提升编译性能
+- ✅ 兼容现有的相对路径组件引用
+
+#### npm 组件使用示例
+
+```json
+// pages/index/index.json
+{
+  "usingComponents": {
+    "lib-button": "lib-weapp/button",
+    "custom-component": "./components/custom"
+  }
+}
+```
+
+详细使用说明请参考：[npm 支持文档](./docs/npm-support.md)
 
 ### 编译产物目录结构
 

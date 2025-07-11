@@ -52,11 +52,11 @@ function parseDataset(el, vnode) {
 
 function parseExternalClass(el, instance, vnode) {
 	const ctx = vnode.ctx
-	if (ctx.provides.externalClass) {
-		for (const cls of el.classList) {
-			const clsName = instance.props[toCamelCase(cls)]
+	if (instance.props && Array.isArray(ctx.provides.externalClasses)) {
+		for(const externalClass of ctx.provides.externalClasses) {
+			const clsName = instance.props[toCamelCase(externalClass)]
 			if (clsName) {
-				el.className = el.className.replace(cls, clsName)
+				el.className = el.className.replace(externalClass, clsName)
 				if (!el.hasAttribute(instance.sId)) {
 					el.setAttribute(instance.sId, '')
 				}

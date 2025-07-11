@@ -8,12 +8,7 @@ class Router {
 	}
 
 	push(pageInfo, stackId) {
-		const { id, query, path } = pageInfo
-		this.stack(stackId).push({
-			id,
-			query,
-			route: path,
-		})
+		this.stack(stackId).push(pageInfo)
 	}
 
 	pop() {

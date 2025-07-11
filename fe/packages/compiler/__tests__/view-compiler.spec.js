@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { generateVModelTemplate, parseBraceExp, parseClassRules, parseKeyExpression, splitWithBraces } from '../src/core/view-compiler'
+import { generateVModelTemplate, parseBraceExp, parseClassRules, parseKeyExpression, processWxsContent, splitWithBraces } from '../src/core/view-compiler'
 
 describe('parseKeyExpression - 解析 key 表达式', () => {
+	it('默认索引名 index - 应该直接返回 index', () => {
+		expect(parseKeyExpression('index')).toEqual('index')
+	})
+	
 	it('普通属性名 - 应该添加 item 前缀', () => {
-		expect(parseKeyExpression('index')).toEqual('item.index')
+		expect(parseKeyExpression('value')).toEqual('item.value')
 	})
 	
 	it('已有 item 前缀的属性 - 应该保持不变', () => {
@@ -12,6 +16,10 @@ describe('parseKeyExpression - 解析 key 表达式', () => {
 
 	it('双花括号包裹的属性 - 应该去除花括号', () => {
 		expect(parseKeyExpression('{{ item.index }}')).toEqual('item.index')
+	})
+
+	it('双花括号包裹的索引名 - 应该直接返回索引名', () => {
+		expect(parseKeyExpression('{{ index }}')).toEqual('index')
 	})
 
 	it('双花括号包裹的简单属性 - 应该添加 item 前缀', () => {
@@ -55,11 +63,19 @@ describe('parseKeyExpression - 解析 key 表达式', () => {
 	})
 	
 	it('字符串拼接表达式 - 应该正确处理拼接', () => {
-		expect(parseKeyExpression('1-{{index}}')).toEqual('\'1-\'+item.index')
+		expect(parseKeyExpression('1-{{index}}')).toEqual('\'1-\'+index')
 	})
 
 	it('字符串拼接对象属性表达式 - 应该正确处理拼接', () => {
 		expect(parseKeyExpression('1-{{item.index}}')).toEqual('\'1-\'+item.index')
+	})
+	
+	it('自定义索引名 - 应该直接返回自定义索引名', () => {
+		expect(parseKeyExpression('i', 'item', 'i')).toEqual('i')
+	})
+	
+	it('自定义索引名在花括号中 - 应该直接返回自定义索引名', () => {
+		expect(parseKeyExpression('{{ i }}', 'item', 'i')).toEqual('i')
 	})
 })
 
@@ -198,5 +214,231 @@ describe('generateVModelTemplate - 生成 v-model 模板', () => {
 
 	it('简短变量名 - 应该正确处理', () => {
 		expect(generateVModelTemplate('a || b')).to.equal('a ? (a = $event) : (b = $event)')
+	})
+})
+
+describe('processWxsContent - 处理 wxs 内容中的 getRegExp 转换', () => {
+	it('应该转换字符串字面量参数的 getRegExp 调用', () => {
+		const wxsContent = `
+			function test() {
+				var reg1 = getRegExp('(.+)MpxDash$');
+				var reg2 = getRegExp('[$]', 'g');
+				var reg3 = getRegExp('[A-Z]', 'g');
+				return reg1;
+			}
+		`
+		
+		const result = processWxsContent(wxsContent, null, [], '', '')
+		
+		// 验证字符串字面量参数的 getRegExp 调用被转换为正则表达式字面量
+		expect(result).toContain('/(.+)MpxDash$/')
+		expect(result).toContain('/[$]/g')
+		expect(result).toContain('/[A-Z]/g')
+		expect(result).not.toContain('getRegExp(\'(.+)MpxDash$\')')
+		expect(result).not.toContain('getRegExp(\'[$]\', \'g\')')
+		expect(result).not.toContain('getRegExp(\'[A-Z]\', \'g\')')
+	})
+
+	it('应该转换变量参数的 getRegExp 调用为 new RegExp', () => {
+		const wxsContent = `
+			function genRegExp(str, flags) {
+				return getRegExp(str, flags);
+			}
+			
+			function test() {
+				var pattern = '(.+)MpxDash$';
+				var flags = 'g';
+				return getRegExp(pattern, flags);
+			}
+		`
+		
+		const result = processWxsContent(wxsContent, null, [], '', '')
+		
+		// 验证变量参数的 getRegExp 调用被转换为 new RegExp
+		expect(result).toContain('new RegExp(str, flags)')
+		expect(result).toContain('new RegExp(pattern, flags)')
+		expect(result).not.toContain('getRegExp(str, flags)')
+		expect(result).not.toContain('getRegExp(pattern, flags)')
+	})
+
+	it('应该正确处理复杂的正则表达式模式', () => {
+		const wxsContent = `
+			function test() {
+				var reg1 = getRegExp(';(?![^(]*[)])', 'g');
+				var reg2 = getRegExp(':(.+)');
+				var reg3 = getRegExp('-([a-z])', 'g');
+				return reg1;
+			}
+		`
+		
+		const result = processWxsContent(wxsContent, null, [], '', '')
+		
+		// 验证复杂正则表达式模式被正确转换
+		expect(result).toContain('/;(?![^(]*[)])/g')
+		expect(result).toContain('/:(.+)/')
+		expect(result).toContain('/-([a-z])/g')
+	})
+
+	it('应该处理只有一个参数的 getRegExp 调用', () => {
+		const wxsContent = `
+			function test() {
+				var reg = getRegExp('test');
+				return reg;
+			}
+		`
+		
+		const result = processWxsContent(wxsContent, null, [], '', '')
+		
+		// 验证只有一个参数的调用被正确转换
+		expect(result).toContain('/test/')
+		expect(result).not.toContain('getRegExp(\'test\')')
+	})
+
+	it('应该处理 getDate 转换', () => {
+		const wxsContent = `
+			function test() {
+				var date1 = getDate();
+				var date2 = getDate(2023, 5, 15);
+				return date1;
+			}
+		`
+		
+		const result = processWxsContent(wxsContent, null, [], '', '')
+		
+		// 验证 getDate 调用被转换为 new Date
+		expect(result).toContain('new Date()')
+		expect(result).toContain('new Date(2023, 5, 15)')
+		expect(result).not.toContain('getDate()')
+		expect(result).not.toContain('getDate(2023, 5, 15)')
+	})
+
+	it('应该处理 constructor 属性访问', () => {
+		const wxsContent = `
+			function test() {
+				var arr = [];
+				var type = arr.constructor;
+				return type;
+			}
+		`
+		
+		const result = processWxsContent(wxsContent, null, [], '', '')
+		
+		// 验证 constructor 属性访问被转换为 Object.prototype.toString.call().slice(8, -1)
+		expect(result).toContain('Object.prototype.toString.call(arr).slice(8, -1)')
+		expect(result).not.toContain('arr.constructor')
+	})
+
+	it('应该处理混合的转换场景', () => {
+		const wxsContent = `
+			function genRegExp(str, flags) {
+				return getRegExp(str, flags);
+			}
+			
+			function test() {
+				var mpxDashReg = genRegExp('(.+)MpxDash$');
+				var mpxDashReplaceReg = genRegExp('[$]', 'g');
+				var directReg = getRegExp('[A-Z]', 'g');
+				var arr = [];
+				var type = arr.constructor;
+				var date = getDate();
+				
+				return {
+					mpxDashReg: mpxDashReg,
+					mpxDashReplaceReg: mpxDashReplaceReg,
+					directReg: directReg,
+					type: type,
+					date: date
+				};
+			}
+		`
+		
+		const result = processWxsContent(wxsContent, null, [], '', '')
+		
+		// 验证混合场景下的正确转换
+		// 转换变量参数的 getRegExp 调用为 new RegExp
+		expect(result).toContain('new RegExp(str, flags)')
+		expect(result).not.toContain('getRegExp(str, flags)')
+		// 转换字符串字面量参数的 getRegExp 调用
+		expect(result).toContain('/[A-Z]/g')
+		expect(result).not.toContain('getRegExp(\'[A-Z]\', \'g\')')
+		// 转换 constructor 属性访问
+		expect(result).toContain('Object.prototype.toString.call(arr).slice(8, -1)')
+		expect(result).not.toContain('arr.constructor')
+		// 转换 getDate 调用
+		expect(result).toContain('new Date()')
+		expect(result).not.toContain('getDate()')
+	})
+
+	it('应该处理特殊字符的正则表达式', () => {
+		const wxsContent = `
+			function test() {
+				var reg1 = getRegExp('\\\\d+');
+				var reg2 = getRegExp('\\\\s*');
+				var reg3 = getRegExp('\\\\w+', 'gi');
+				return reg1;
+			}
+		`
+		
+		const result = processWxsContent(wxsContent, null, [], '', '')
+		
+		// 验证转义字符被正确处理
+		expect(result).toContain('/\\\\d+/')
+		expect(result).toContain('/\\\\s*/')
+		expect(result).toContain('/\\\\w+/gi')
+	})
+
+	it('应该正确处理实际 stringify wxs 文件的场景', () => {
+		const wxsContent = `
+			function genRegExp (str, flags) {
+				if (false) {} else {
+					return getRegExp(str, flags)
+				}
+			}
+
+			var mpxDashReg = genRegExp('(.+)MpxDash$')
+			var mpxDashReplaceReg = genRegExp('[$]', 'g')
+
+			function hump2dash (value) {
+				var reg = genRegExp('[A-Z]', 'g')
+				return value.replace(reg, function (match) {
+					return '-' + match.toLowerCase()
+				})
+			}
+
+			function dash2hump (value) {
+				var reg = genRegExp('-([a-z])', 'g')
+				return value.replace(reg, function (match, p1) {
+					return p1.toUpperCase()
+				})
+			}
+
+			function parseStyleText (cssText) {
+				var res = {}
+				var listDelimiter = genRegExp(';(?![^(]*[)])', 'g')
+				var propertyDelimiter = genRegExp(':(.+)')
+				return res
+			}
+		`
+		
+		const result = processWxsContent(wxsContent, null, [], '', '')
+		
+		// 验证 genRegExp 函数内部的 getRegExp 调用被转换为 new RegExp
+		expect(result).toContain('new RegExp(str, flags)')
+		expect(result).not.toContain('getRegExp(str, flags)')
+		
+		// 验证所有的 genRegExp 调用都被保留（因为它们调用的是函数，不是直接的 getRegExp）
+		expect(result).toContain('genRegExp(\'(.+)MpxDash$\')')
+		expect(result).toContain('genRegExp(\'[$]\', \'g\')')
+		expect(result).toContain('genRegExp(\'[A-Z]\', \'g\')')
+		expect(result).toContain('genRegExp(\'-([a-z])\', \'g\')')
+		expect(result).toContain('genRegExp(\';(?![^(]*[)])\', \'g\')')
+		expect(result).toContain('genRegExp(\':(.+)\')')
+		
+		// 验证没有出现空的正则表达式（这是原始问题）
+		expect(result).not.toContain('//;')
+		expect(result).not.toContain('new RegExp()')
+		
+		// 验证 genRegExp 函数定义完整存在
+		expect(result).toContain('function genRegExp(str, flags)')
 	})
 })
