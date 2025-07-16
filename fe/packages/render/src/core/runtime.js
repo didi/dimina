@@ -286,23 +286,7 @@ class Runtime {
 							eventAttr[attrName.replace(/^(?:bind:|bind|catch:|catch)/, '')] = attrs[attrName]
 						}
 					}
-
-					watch(
-						props,
-						(newProps) => {
-							Object.assign(data, newProps)
-							message.send({
-								type: 't',
-								target: 'service',
-								body: {
-									bridgeId,
-									moduleId,
-									methodName: 'tO', // triggerObserver
-									event: deepToRaw(newProps),
-								},
-							})
-						},
-					)
+					
 
 					message.send({
 						type: 'mC', // createInstance
@@ -362,6 +346,27 @@ class Runtime {
 					})
 
 					const data = reactive({})
+					
+					watch(
+						props,
+						(newProps) => {
+							Object.assign(data, newProps)
+							message.send({
+								type: 't',
+								target: 'service',
+								body: {
+									bridgeId,
+									moduleId,
+									methodName: 'tO', // triggerObserver
+									event: deepToRaw(newProps),
+								},
+							})
+						},
+						{
+							immediate: true,
+						}
+					)
+					
 					const initData = await message.wait(moduleId)
 					const entries = Object.entries(initData)
 					for (let i = 0; i < entries.length; i++) {
