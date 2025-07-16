@@ -27,7 +27,7 @@ export class Component {
 		this.query = opts.query
 		this.renderer = 'webview'
 		this.bridgeId = opts.bridgeId
-		if (this.id) {
+		if (!this.id) {
 			this.id = opts.bridgeId
 		}
 		this.behaviors = module.behaviors
