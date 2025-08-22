@@ -8,6 +8,7 @@ import com.didi.dimina.api.SyncResult
 import com.didi.dimina.engine.qjs.JSValue
 import com.didi.dimina.ui.container.DiminaActivity
 import com.tencent.mmkv.MMKV
+import org.json.JSONArray
 import org.json.JSONObject
 
 /**
@@ -186,6 +187,11 @@ class StorageApi : BaseApiHandler() {
                     storage.encode(typeKey, "Double")
                 }
 
+                is JSONArray -> {
+                    storage.encode(key, data.toString())
+                    storage.encode(typeKey, "Array")
+                }
+
                 is Any -> try {
                     // For JSON-serializable objects
                     storage.encode(key, data.toString())
@@ -212,6 +218,11 @@ class StorageApi : BaseApiHandler() {
                 "Float" -> storage.decodeFloat(key, 0f)
                 "Long" -> storage.decodeLong(key, 0L)
                 "Double" -> storage.decodeDouble(key, 0.0)
+                "Array" -> try {
+                    JSONArray(storage.decodeString(key))
+                } catch (_: Exception) {
+                    storage.decodeString(key) // Fallback to String if parsing fails
+                }
                 else -> storage.decodeString(key) // Fallback to String for unknown types
             }
         }

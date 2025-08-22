@@ -51,6 +51,8 @@ dependencies {
 在应用的 `Application` 类中初始化 Dimina SDK：
 
 ```kotlin
+import com.didi.dimina.Dimina
+
 class MyApplication : Application() {
     override fun onCreate() {
         super.onCreate()

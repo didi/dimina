@@ -171,7 +171,7 @@ function drag(event) {
 	updateValue(event)
 }
 
-function updateValue(event) {
+function updateValue(event, eventType = 'changing') {
 	const clientX = event.touches ? event.touches[0].clientX : event.clientX
 	const delta = clientX - sliderHandle.value.offsetLeft
 	const position = (delta / sliderHandle.value.offsetWidth) * range.value + Number(props.min)
@@ -181,7 +181,7 @@ function updateValue(event) {
 	collectFormValue?.(props.name, disV)
 
 	// 拖动过程中触发的事件
-	triggerEvent('changing', {
+	triggerEvent(eventType, {
 		event,
 		info,
 		detail: {
@@ -214,7 +214,7 @@ function handleClick(event) {
 	if (props.disabled) {
 		return
 	}
-	updateValue(event)
+	updateValue(event, 'change')
 }
 </script>
 
@@ -283,7 +283,7 @@ function handleClick(event) {
 	position: absolute;
 	left: 0%;
 	top: 50%;
-	cursor: pointer;
+	cursor: grab;
 	border-radius: 50%;
 	transition: border-color 0.3s ease;
 }

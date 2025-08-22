@@ -1,6 +1,6 @@
 {
 	"name": "@dimina/compiler",
-	"version": "1.0.7",
+	"version": "1.0.8",
 	"description": "星河编译工具",
 	"main": "./dist/index.cjs",
 	"module": "./dist/index.js",
@@ -45,20 +45,24 @@
 		"星河"
 	],
 	"dependencies": {
-		"@babel/core": "^7.27.4",
-		"@babel/traverse": "^7.27.4",
-		"@babel/types": "^7.27.6",
-		"@vue/compiler-sfc": "^3.5.16",
+		"@babel/core": "^7.28.3",
+		"@babel/plugin-transform-modules-commonjs": "^7.27.1",
+		"@babel/traverse": "^7.28.3",
+		"@babel/types": "^7.28.2",
+		"@vue/compiler-sfc": "^3.5.19",
 		"autoprefixer": "^10.4.21",
-		"cheerio": "^1.1.0",
+		"cheerio": "^1.1.2",
 		"chokidar": "^4.0.3",
 		"commander": "^14.0.0",
-		"cssnano": "^7.0.7",
-		"esbuild": "^0.25.5",
+		"cssnano": "^7.1.0",
+		"esbuild": "^0.25.9",
 		"htmlparser2": "^10.0.0",
-		"listr2": "^8.3.3",
-		"postcss": "^8.5.5",
-		"postcss-selector-parser": "^7.1.0"
+		"less": "^4.4.1",
+		"listr2": "^9.0.2",
+		"postcss": "^8.5.6",
+		"postcss-selector-parser": "^7.1.0",
+		"sass": "^1.90.0",
+		"typescript": "^5.9.2"
 	},
 	"publishConfig": {
 		"registry": "https://registry.npmjs.org/"

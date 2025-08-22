@@ -3,9 +3,11 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { isObjectEmpty, uuid } from './common/utils.js'
+import { NpmResolver } from './common/npm-resolver.js'
 
 let pathInfo = {}
 let configInfo = {}
+let npmResolver = null
 
 /**
  * 持久化编译过程的上下文
@@ -25,20 +27,34 @@ function storeInfo(workPath) {
 function resetStoreInfo(opts) {
 	pathInfo = opts.pathInfo
 	configInfo = opts.configInfo
+	
+	// 重新初始化 npm 解析器
+	if (pathInfo.workPath) {
+		npmResolver = new NpmResolver(pathInfo.workPath)
+	}
 }
 
 function storePathInfo(workPath) {
 	pathInfo.workPath = workPath
-	// 使用工作区目录或系统临时目录，确保有写入权限
-	const tempDir = process.env.GITHUB_WORKSPACE || os.tmpdir()
-	const targetDir = path.join(tempDir, `dimina-fe-dist-${Date.now()}`)
+	
+	// 优先使用环境变量中的 TARGET_PATH
+	if (process.env.TARGET_PATH) {
+		pathInfo.targetPath = process.env.TARGET_PATH
+	} else {
+		// 使用工作区目录或系统临时目录，确保有写入权限
+		const tempDir = process.env.GITHUB_WORKSPACE || os.tmpdir()
+		const targetDir = path.join(tempDir, `dimina-fe-dist-${Date.now()}`)
 
-	// 确保目录存在
-	if (!fs.existsSync(targetDir)) {
-		fs.mkdirSync(targetDir, { recursive: true })
+		// 确保目录存在
+		if (!fs.existsSync(targetDir)) {
+			fs.mkdirSync(targetDir, { recursive: true })
+		}
+
+		pathInfo.targetPath = targetDir
 	}
-
-	pathInfo.targetPath = targetDir
+	
+	// 初始化 npm 解析器
+	npmResolver = new NpmResolver(workPath)
 }
 
 function storeProjectConfig() {
@@ -112,6 +128,12 @@ function storePageConfig() {
 	configInfo.pageInfo = {}
 	configInfo.componentInfo = {}
 
+	// 首先处理 app.json 中的全局 usingComponents
+	if (configInfo.appInfo.usingComponents) {
+		const appFilePath = `${pathInfo.workPath}/app.json`
+		storeComponentConfig(configInfo.appInfo, appFilePath)
+	}
+
 	collectionPageJson(pages)
 
 	// 处理分包信息
@@ -168,11 +190,33 @@ function storeComponentConfig(pageJsonContent, pageFilePath) {
 			continue
 		}
 
-		const componentFilePath = path.resolve(getWorkPath(), `./${moduleId}.json`)
-		if (!fs.existsSync(componentFilePath)) {
-			continue
+		// 尝试查找组件配置文件
+		let componentFilePath = path.resolve(getWorkPath(), `./${moduleId}.json`)
+		let cContent = null
+		
+		if (fs.existsSync(componentFilePath)) {
+			cContent = parseContentByPath(componentFilePath)
+		} else {
+			// 对于 npm 组件，尝试查找 index.json
+			const indexJsonPath = path.resolve(getWorkPath(), `./${moduleId}/index.json`)
+			if (fs.existsSync(indexJsonPath)) {
+				componentFilePath = indexJsonPath
+				cContent = parseContentByPath(componentFilePath)
+			} else {
+				// 如果是 npm 组件，创建一个默认的组件配置
+				if (moduleId.includes('/miniprogram_npm/')) {
+					console.log(`[env] 为 npm 组件创建默认配置: ${moduleId}`)
+					cContent = {
+						component: true,
+						usingComponents: {}
+					}
+				} else {
+					console.warn(`[env] 组件配置文件不存在: ${componentFilePath}`)
+					continue
+				}
+			}
 		}
-		const cContent = parseContentByPath(componentFilePath)
+		
 		const cUsing = cContent.usingComponents || {}
 		const isComponent = cContent.component || false
 		const cComponents = Object.keys(cUsing).reduce((acc, key) => {
@@ -187,22 +231,30 @@ function storeComponentConfig(pageJsonContent, pageFilePath) {
 			usingComponents: cComponents,
 		}
 
-		storeComponentConfig(configInfo.componentInfo[moduleId], componentFilePath)
+		// 只有当配置文件存在时才递归处理
+		if (cContent.usingComponents && Object.keys(cContent.usingComponents).length > 0) {
+			storeComponentConfig(configInfo.componentInfo[moduleId], componentFilePath)
+		}
 	}
 }
 
 /**
  * 转化为相对小程序根目录的绝对路径，作为模块唯一性 id
+ * 支持 npm 组件解析
  * @param {string} src
  */
 function getModuleId(src, pageFilePath) {
-	const lastIndex = pageFilePath.lastIndexOf('/')
+	if (!npmResolver) {
+		// 如果 npm 解析器未初始化，使用原有逻辑
+		const lastIndex = pageFilePath.lastIndexOf('/')
+		const newPath = pageFilePath.slice(0, lastIndex)
+		const workPath = getWorkPath()
+		const res = path.resolve(newPath, src)
+		return res.replace(workPath, '')
+	}
 
-	// 截取除最后一个斜杠之外的所有内容
-	const newPath = pageFilePath.slice(0, lastIndex)
-	const workPath = getWorkPath()
-	const res = path.resolve(newPath, src)
-	return res.replace(workPath, '')
+	// 使用 npm 解析器处理组件路径
+	return npmResolver.resolveComponentPath(src, pageFilePath)
 }
 
 function getTargetPath() {
@@ -223,6 +275,10 @@ function getAppConfigInfo() {
 
 function getWorkPath() {
 	return pathInfo.workPath
+}
+
+function getNpmResolver() {
+	return npmResolver
 }
 
 function getAppId() {
@@ -246,13 +302,20 @@ function transSubDir(name) {
  */
 function getPages() {
 	// 获取所有页面路径
-	const { pages, subPackages = [] } = getAppConfigInfo()
+	const { pages, subPackages = [], usingComponents: globalComponents = {} } = getAppConfigInfo()
 	const pageInfo = getPageConfigInfo()
-	const mainPages = pages.map(path => ({
-		id: uuid(),
-		path,
-		usingComponents: pageInfo[path]?.usingComponents || {},
-	}))
+	
+	const mainPages = pages.map(path => {
+		const pageComponents = pageInfo[path]?.usingComponents || {}
+		// 合并全局组件和页面组件，页面组件优先级更高
+		const mergedComponents = { ...globalComponents, ...pageComponents }
+		
+		return {
+			id: uuid(),
+			path,
+			usingComponents: mergedComponents,
+		}
+	})
 
 	const subPages = {}
 	subPackages.forEach((subPkg) => {
@@ -260,11 +323,18 @@ function getPages() {
 		const independent = subPkg.independent ? subPkg.independent : false
 		subPages[transSubDir(rootPath)] = {
 			independent,
-			info: subPkg.pages.map(path => ({
-				id: uuid(),
-				path: rootPath + path,
-				usingComponents: pageInfo[rootPath + path]?.usingComponents || {},
-			})),
+			info: subPkg.pages.map(path => {
+				const fullPath = rootPath + path
+				const pageComponents = pageInfo[fullPath]?.usingComponents || {}
+				// 合并全局组件和页面组件，页面组件优先级更高
+				const mergedComponents = { ...globalComponents, ...pageComponents }
+				
+				return {
+					id: uuid(),
+					path: fullPath,
+					usingComponents: mergedComponents,
+				}
+			}),
 		}
 	})
 	return {
@@ -279,6 +349,7 @@ export {
 	getAppName,
 	getComponent,
 	getContentByPath,
+	getNpmResolver,
 	getPageConfigInfo,
 	getPages,
 	getProjectConfig,

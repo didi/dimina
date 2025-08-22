@@ -118,12 +118,18 @@ public class DMPRender: DMPWebViewDelegate {
     public func fromContainer(data: DMPMap, webViewId: Int) {
         let webview = webviewsMap[webViewId]
         let dataString = data.toJsonString()
-        webview?.executeJavaScript("DiminaRenderBridge.onMessage(\(dataString))", completionHandler: nil)
+        
+        DispatchQueue.main.async {
+            webview?.executeJavaScript("DiminaRenderBridge.onMessage(\(dataString))", completionHandler: nil)
+        }
     }
 
     public func fromService(msg: String, webViewId: Int) {
         let webview = webviewsMap[webViewId]
-        webview?.executeJavaScript("DiminaRenderBridge.onMessage(\(msg))", completionHandler: nil)
+        
+        DispatchQueue.main.async {
+            webview?.executeJavaScript("DiminaRenderBridge.onMessage(\(msg))", completionHandler: nil)
+        }
     }
 }
 

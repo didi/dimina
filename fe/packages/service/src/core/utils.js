@@ -54,7 +54,7 @@ export function filterData(obj) {
 		return obj
 	}
 	return Object.entries(obj).reduce((acc, [key, value]) => {
-		if (key.startsWith('$') || key.startsWith('_l' || key.startsWith('_fl'))) {
+		if (key.startsWith('$') || key.startsWith('_l') || key.startsWith('_fl')) {
 			// 过滤以 $ 开头的属性，未完全过滤以 _ 开头的属性
 			return acc
 		}
@@ -65,11 +65,25 @@ export function filterData(obj) {
 		else if (Array.isArray(value)) {
 			// 如果值是数组，递归过滤其中的函数
 			acc[key] = value
-				.map(item => (typeof item === 'object' ? filterData(item) : item))
+				.map(item => {
+					if (typeof item === 'object' && item !== null) {
+						// 特殊处理 Date 对象，转换为时间戳
+						if (item instanceof Date) {
+							return item.getTime()
+						}
+						return filterData(item)
+					}
+					return item
+				})
 		}
 		else if (value && typeof value === 'object' && !Array.isArray(value)) {
 			// 如果值是对象（非数组），递归过滤该对象中的函数
-			acc[key] = filterData(value)
+			// 特殊处理 Date 对象，转换为时间戳
+			if (value instanceof Date) {
+				acc[key] = value.getTime()
+			} else {
+				acc[key] = filterData(value)
+			}
 		}
 		else {
 			// 其他类型（包括简单类型和非函数对象）直接保留
@@ -118,7 +132,7 @@ export function serializeProps(properties) {
 				if (item && isFunction(item.value)) {
 					props[key].default = item.value()
 				}
-				else if (item && item.type) {
+				else if (item) {
 					props[key].default = item.value
 				}
 			}
@@ -176,8 +190,9 @@ function convertToStringType(type) {
  * @param {*} observers
  * @param {*} data
  * @param {*} ctx
+ * @param {*} oldVal
  */
-export function filterInvokeObserver(changedKey, observers, data, ctx) {
+export function filterInvokeObserver(changedKey, observers, data, ctx, oldVal) {
 	for (const observerKey in observers) {
 		const observerFn = observers[observerKey]
 
@@ -186,7 +201,12 @@ export function filterInvokeObserver(changedKey, observers, data, ctx) {
 
 		if (keys.includes(changedKey)) {
 			const args = keys.map(key => get(data, key))
-			observerFn.call(ctx, ...args)
+			// 对于单个字段的观察器，如果正好是变化的字段，添加 oldVal 参数
+			if (keys.length === 1 && keys[0] === changedKey) {
+				observerFn.call(ctx, ...args, oldVal)
+			} else {
+				observerFn.call(ctx, ...args)
+			}
 			continue
 		}
 
@@ -216,7 +236,12 @@ export function filterInvokeObserver(changedKey, observers, data, ctx) {
 					targetData = targetData[part]
 				}
 			}
-			observerFn.call(ctx, targetData)
+			// 对于完全匹配的字段，添加 oldVal 参数
+			if (observerKey === changedKey) {
+				observerFn.call(ctx, targetData, oldVal)
+			} else {
+				observerFn.call(ctx, targetData)
+			}
 			continue
 		}
 
@@ -259,6 +284,10 @@ export function mergeBehaviors(obj, behaviors) {
 		// 检查behavior是否为有效的对象，并且可以用作WeakMap的键
 		// WeakMap只能使用对象作为键，不能使用null、undefined、字符串等基本类型
 		if (!behavior || typeof behavior !== 'object' || typeof behavior === 'string') {
+			// 处理内置 behavior 字符串
+			if (typeof behavior === 'string') {
+				handleBuiltinBehavior(target, behavior)
+			}
 			return
 		}
 		
@@ -298,9 +327,37 @@ export function mergeBehaviors(obj, behaviors) {
 			target.relations = { ...behavior.relations, ...target.relations }
 		}
 
+		// 合并 export 方法 (用于 wx://component-export)
+		if (behavior.export) {
+			target.export = behavior.export
+		}
+
 		// 递归合并
 		if (Array.isArray(behavior.behaviors)) {
 			behavior.behaviors.forEach(b => merge(target, b))
+		}
+	}
+
+	/**
+	 * 处理内置 behavior
+	 * @param {*} target 目标对象
+	 * @param {string} behaviorName behavior 名称
+	 */
+	function handleBuiltinBehavior(target, behaviorName) {
+		switch (behaviorName) {
+			case 'wx://component-export':
+				// wx://component-export behavior 不需要额外的合并操作
+				// 只需要确保 behaviors 数组中包含这个 behavior
+				break
+			case 'wx://form-field':
+				// 表单字段 behavior 的处理
+				// 这里可以添加表单字段相关的属性和方法
+				break
+			case 'wx://form-field-button':
+				// TODO: https://developers.weixin.qq.com/miniprogram/dev/component/form.html#wx-form-field-button
+				break
+			default:
+				console.warn(`[service] 未知的内置 behavior: ${behaviorName}`)
 		}
 	}
 
@@ -336,13 +393,47 @@ export function isChildComponent(component, parentId, allComponents) {
  * @returns {boolean} 是否匹配
  */
 export function matchComponent(selector, item) {
-	const idOrClass = selector.slice(1)
+	if (!selector || !item) {
+		return false
+	}
+
+	// ID 选择器 #id
+	if (selector.startsWith('#')) {
+		const id = selector.slice(1)
+		return item.id === id
+	}
+	
+	// 类选择器 .class
 	if (selector.startsWith('.')) {
+		const className = selector.slice(1)
 		return item.__targetInfo__?.class
-			&& item.__targetInfo__.class.split(' ').includes(idOrClass)
+			&& item.__targetInfo__.class.split(' ').includes(className)
 	}
-	else if (selector.startsWith('#')) {
-		return item.id === idOrClass
+	
+	// 属性选择器 [attr=value]
+	if (selector.startsWith('[') && selector.endsWith(']')) {
+		const attrMatch = selector.slice(1, -1).match(/^(\w+)(?:=["']?([^"']*)["']?)?$/)
+		if (attrMatch) {
+			const [, attrName, attrValue] = attrMatch
+			const dataset = item.__targetInfo__?.dataset || {}
+			
+			// 如果只指定了属性名，检查属性是否存在
+			if (attrValue === undefined) {
+				return Object.hasOwn(dataset, attrName)
+			}
+			
+			// 如果指定了属性值，检查属性值是否匹配
+			return dataset[attrName] === attrValue
+		}
+		return false
 	}
+	
+	// 标签选择器 tag-name
+	// 匹配组件的路径名或组件名
+	if (item.is) {
+		const componentName = item.is.split('/').pop() // 获取路径的最后一部分
+		return componentName === selector || item.is === selector
+	}
+	
 	return false
 }

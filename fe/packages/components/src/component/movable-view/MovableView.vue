@@ -341,6 +341,7 @@ watch([() => props.x, () => props.y], ([nX, nY], [pX, pY]) => {
 	left: 0;
 	position: absolute;
 	visibility: hidden;
+	cursor: grab;
 
 	&.direction-horizontal {
 		touch-action: pan-y;

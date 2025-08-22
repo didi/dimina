@@ -27,9 +27,6 @@
     "**/package-lock.json",
     "**/pnpm-lock.yaml",
     "**/coverage",
-    "example/*",
-    "!example/subpackages",
-    "!example/weui",
     "**/yarn.lock",
     "**/bun.lockb",
     "**/output",
@@ -56,7 +53,7 @@
     "**/__snapshots__",
     "**/auto-import?(s).d.ts",
     "**/components.d.ts",
-    "example",
+    "example/**",
     "packages/container/public",
     "packages/container/dist"
   ],

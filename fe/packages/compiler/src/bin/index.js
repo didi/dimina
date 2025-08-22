@@ -4,7 +4,7 @@ import path from 'node:path'
 import process from 'node:process'
 import chokidar from 'chokidar'
 import { program } from 'commander'
-import pack from '../../package.json'
+import pack from '../../package.json' with { type: 'json' }
 import build from '../index.js'
 
 program

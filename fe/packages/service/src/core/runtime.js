@@ -72,13 +72,6 @@ class Runtime {
 		this.instances[bridgeId] = this.instances[bridgeId] || {}
 
 		if (module.type === ComponentModule.type) {
-			if (!module.isComponent) {
-				router.push({
-					id: bridgeId,
-					path,
-					query,
-				}, stackId)
-			}
 			const component = new Component(module, {
 				bridgeId,
 				moduleId,
@@ -91,15 +84,13 @@ class Runtime {
 				targetInfo,
 			})
 			this.instances[bridgeId][moduleId] = component
+			if (!module.isComponent) {
+				router.push(component, stackId)
+			}
+			component.init()
 			return component
 		}
 		else if (module.type === PageModule.type) {
-			router.push({
-				id: bridgeId,
-				path,
-				query,
-			}, stackId)
-
 			const page = new Page(module, {
 				bridgeId,
 				moduleId,
@@ -107,23 +98,12 @@ class Runtime {
 				query,
 			})
 			this.instances[bridgeId][moduleId] = page
+			router.push(page, stackId)
+			page.init()
 			return page
 		}
 		else {
 			console.error(`[service] ${module.type} instance is not exist.`)
-		}
-	}
-
-	moduleAttached(opts) {
-		const { bridgeId, moduleId } = opts
-		const instance = this.instances[bridgeId][moduleId]
-
-		if (!instance) {
-			return
-		}
-
-		if (instance.__type__ === ComponentModule.type) {
-			instance.componentAttached()
 		}
 	}
 
@@ -136,7 +116,16 @@ class Runtime {
 		}
 
 		if (instance.__type__ === ComponentModule.type) {
+			// 调用组件的 ready 生命周期
 			instance.componentReadied()
+			// 标记组件已准备就绪
+			instance.__componentReadied__ = true
+			
+			// 检查是否可以调用页面的 onReady
+			const pageInstance = this.getPageInstance(bridgeId)
+			if (pageInstance) {
+				this.checkAndCallPageReady(bridgeId, pageInstance.__id__)
+			}
 		}
 	}
 
@@ -196,8 +185,66 @@ class Runtime {
 			return
 		}
 
+		// 先调用 pageShow
 		this.pageShow(opts)
-		instance.pageReady()
+		
+		// 标记页面准备就绪，但延迟调用 onReady
+		// 等待所有组件的 ready 执行完毕后再调用
+		instance.__pageReadyPending__ = true
+		
+		// 检查是否所有组件都已经准备就绪
+		this.checkAndCallPageReady(bridgeId, moduleId)
+	}
+
+	/**
+	 * 检查并调用页面的 onReady
+	 * 确保所有组件的 ready 都已执行完毕
+	 */
+	/**
+	 * 获取指定 bridgeId 下的页面实例
+	 */
+	getPageInstance(bridgeId) {
+		const instances = this.instances[bridgeId]
+		if (!instances) {
+			return null
+		}
+
+		return Object.values(instances).find(instance => {
+			return instance && (
+				instance.__type__ === PageModule.type || 
+				(instance.__type__ === ComponentModule.type && !instance.__isComponent__)
+			)
+		})
+	}
+
+	checkAndCallPageReady(bridgeId, moduleId) {
+		const instance = this.instances[bridgeId][moduleId]
+		if (!instance || !instance.__pageReadyPending__) {
+			return
+		}
+
+		const instances = this.instances[bridgeId]
+		if (!instances) {
+			// 没有组件，直接调用页面 onReady
+			instance.__pageReadyPending__ = false
+			instance.pageReady()
+			return
+		}
+
+		// 检查是否还有组件未准备就绪
+		const pendingComponents = Object.values(instances).filter(componentInstance => {
+			return componentInstance && 
+				componentInstance.__type__ === ComponentModule.type && 
+				componentInstance.__isComponent__ &&
+				componentInstance.initd &&
+				!componentInstance.__componentReadied__
+		})
+
+		if (pendingComponents.length === 0) {
+			// 所有组件都已准备就绪，调用页面 onReady
+			instance.__pageReadyPending__ = false
+			instance.pageReady()
+		}
 	}
 
 	pageHide(opts) {

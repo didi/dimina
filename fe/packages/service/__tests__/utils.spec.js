@@ -384,3 +384,48 @@ describe('mergeBehaviors 行为合并逻辑', () => {
 		expect(target.behaviorLifetimes.detached[0]()).toBe('behavior2-detached')
 	})
 })
+
+describe('观察者函数 oldVal 参数测试', () => {
+	it('应该将 oldVal 参数传递给单个字段观察器', () => {
+		const observer = vi.fn()
+		const observers = {
+			'numberA': observer,
+		}
+		const data = { numberA: 10 }
+		const oldVal = 5
+		const ctx = {}
+
+		filterInvokeObserver('numberA', observers, data, ctx, oldVal)
+
+		expect(observer).toHaveBeenCalledWith(10, 5)
+	})
+
+	it('应该将 oldVal 参数传递给完全匹配的字段观察器', () => {
+		const observer = vi.fn()
+		const observers = {
+			'user.name': observer,
+		}
+		const data = { user: { name: 'John' } }
+		const oldVal = 'Jane'
+		const ctx = {}
+
+		filterInvokeObserver('user.name', observers, data, ctx, oldVal)
+
+		expect(observer).toHaveBeenCalledWith('John', 'Jane')
+	})
+
+	it('多字段观察器不应该接收 oldVal 参数', () => {
+		const observer = vi.fn()
+		const observers = {
+			'numberA, numberB': observer,
+		}
+		const data = { numberA: 10, numberB: 20 }
+		const oldVal = 5
+		const ctx = {}
+
+		filterInvokeObserver('numberA', observers, data, ctx, oldVal)
+
+		expect(observer).toHaveBeenCalledWith(10, 20)
+		expect(observer).not.toHaveBeenCalledWith(10, 20, 5)
+	})
+})

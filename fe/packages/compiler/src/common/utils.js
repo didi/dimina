@@ -14,6 +14,26 @@ function hasCompileInfo(modulePath, list, preList) {
 }
 
 function getAbsolutePath(workPath, pagePath, src) {
+	// 如果是绝对路径，直接拼接工作路径
+	if (src.startsWith('/')) {
+		return path.join(workPath, src)
+	}
+	
+	// 检查是否是 npm 组件路径
+	if (pagePath.includes('/miniprogram_npm/')) {
+		// 对于 npm 组件，需要特殊处理相对路径
+		// pagePath 格式: /miniprogram_npm/@lib/radio-group/index
+		// src 格式: ../template/item.wxml 或 ./index.wxml
+		
+		// 获取组件所在目录的完整路径
+		const componentDir = pagePath.split('/').slice(0, -1).join('/')
+		const componentFullPath = workPath + componentDir
+		
+		// 使用 Node.js path.resolve 来正确解析相对路径
+		return path.resolve(componentFullPath, src)
+	}
+	
+	// 对于普通组件，使用原有逻辑
 	const relativePath = pagePath.split('/').filter(part => part !== '').slice(0, -1).join('/')
 	return path.resolve(workPath, relativePath, src)
 }

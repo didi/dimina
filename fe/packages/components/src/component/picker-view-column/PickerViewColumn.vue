@@ -173,6 +173,7 @@ onMounted(async () => {
 		left: 0;
 		width: 100%;
 		transition: transform var(--duration) ease-out 0s;
+		cursor: grab;
 	}
 
 	.dd-picker__indicator:after,

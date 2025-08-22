@@ -6,7 +6,7 @@
 
 <div align="center">
 
-![Dimina](./static/logo.png)
+<img src="https://socialify.git.ci/didi/dimina/image?description=1&font=JetBrains+Mono&forks=1&logo=https%3A%2F%2Fgithub.com%2Fdidi%2Fdimina%2Fraw%2Fmain%2Fstatic%2Flogo.png&name=1&owner=1&pattern=Plus&stargazers=1&theme=Light" alt="dimina" width="640" height="320" />
 
 [![Dimina is released under the Apache 2.0 license.](https://img.shields.io/badge/License-Apache%202.0-blue)](https://github.com/didi/dimina/blob/HEAD/LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-%20Android%20%7C%20iOS%20%7C%20Harmony%20%7C%20Web-4CAF50)](#showcase)
@@ -14,7 +14,7 @@
 
 # Dimina - Didi's Open Source Cross-Platform Mini Program Framework
 
-> Dimina is pronounced /diːminə/, short for didi miniprogram. It is designed to provide a flexible and lightweight cross-platform mini program framework.
+> Dimina is pronounced /diːminə/, short for didi miniprogram. It aims to build a flexible and lightweight cross-platform mini program development framework.
 
 [Introduction](#introduction) • [Showcase](#showcase) • [Getting Started](#getting-started) • [Contributing](#contributing) • [Star Trend](#star-trend) • [License](#license)
 
@@ -22,9 +22,9 @@
 
 ## Introduction
 
-Dimina is a lightweight cross-platform mini program framework independently developed by Didi. It aims to offer developers a high-performance, cross-platform, and low-barrier development experience.
+Dimina is a lightweight cross-platform mini program framework independently developed by Didi. It can be understood as an open-source version of mini program solutions, committed to providing developers with a high-performance, cross-platform, and low-barrier development experience.
 
-Currently, Dimina supports four major platforms: Android, iOS, Harmony, and Web. Developers can use Dimina as a **mobile cross-platform framework**—either integrating existing mini program logic as independent modules into current apps, or developing new features using mini program syntax and packaging them into standalone native apps.
+Currently, Dimina supports four major platforms: Android, iOS, Harmony, and Web. Developers can use Dimina as a **mobile cross-platform development framework**—either integrating existing mini program logic as independent modules into current apps, or directly developing using mini program syntax and packaging them into standalone native apps with one click.
 
 ### 🔧 Technical Features
 
@@ -68,18 +68,18 @@ graph TD
 ### Step-by-Step Guide
 
 1. **Create Mini Program Project**
-   - Set up a new project using mini program development tools
+   - Use mini program development tools to create project
    - Configure `app.json` and page routing
 
 2. **Develop Mini Program Pages**
-   - Create WXML templates
+   - Write WXML templates
    - Add WXSS styles
-   - Write page logic using JavaScript
+   - Use JavaScript to write page logic
 
 3. **Compile and Package**
-   - Use [DMCC Compiler](./fe/packages/compiler/README.md) to transpile mini program code
-   - Package the Dimina application
-   - Place the generated package in the corresponding platform directory
+   - Use [DMCC Compiler](./fe/packages/compiler/README.md) to compile mini program code into cross-platform code
+   - Package Dimina mini program bundle
+   - Place the Dimina mini program bundle in the corresponding platform directory
 
 4. **Platform Integration**
    - [Android Integration Guide](./android/README.md)
@@ -87,20 +87,20 @@ graph TD
    - [Harmony Integration Guide](./harmony/dimina/README.md)
 
 5. **Debugging and Publishing**
-   - Debug on real devices with integrated app
-   - Publish to respective app stores
+   - Integrate app for real device debugging
+   - Package and publish to respective app stores
 
 ## Contributing
 
-Dimina is designed in accordance with the [Mini App Standard White Paper](https://www.w3.org/TR/mini-app-white-paper/) and has currently aligned with the main functionalities of the WeChat Mini Program.
+Dimina is designed in accordance with the [Mini App Standard White Paper](https://www.w3.org/TR/mini-app-white-paper/) and has currently aligned with the main functionalities of WeChat Mini Program.
 
-For currently supported capabilities, see the [Dimina capability reference guide](./docs/API-Reference.md).
+For currently supported capabilities, see the [Dimina Capability Reference Guide](./docs/API-Reference.md).
 
-Benefiting from the high similarity between Vue3 and Mini Program syntax, the Dimina framework's underlying view rendering is built on Vue. The Dimina framework uses DMCC (./fe/packages/compiler/README.md) to transpile Mini Program syntax into Vue syntax, and based on this, it implements a complete Mini Program standard Vue component system. Ultimately, by implementing a native Mini Program container on the client side, it provides native capabilities while flexibly loading and displaying view pages.
+Thanks to the high similarity between Vue3 and mini program syntax, Dimina's underlying view rendering framework is built on Vue. The Dimina framework uses [DMCC](./fe/packages/compiler/README.md) to transpile mini program syntax into Vue syntax, and based on this, implements a complete mini program standard Vue component system. Finally, by implementing client-side mini program containers to provide native capabilities while flexibly loading and displaying view pages.
 
-To learn more about the principles of the underlying implementation of frameworks, please refer to the [documentation](./docs/README.md).
+For more information about the underlying implementation principles of the framework, please refer to the [detailed documentation](./docs/README.md).
 
-As the mini program ecosystem has evolved over the years, Dimina does not yet fully support all **APIs/components/features** of mini programs. Contributions and suggestions are highly welcome!
+Since various mini program solutions in the industry have been iterating for many years, Dimina has not yet fully covered all mini program **APIs/components/features**. We welcome everyone to actively contribute code and suggestions to improve Dimina together.
 
 - Bug reports and new feature requests are filed in [Issues](https://github.com/didi/dimina/issues)
 - Discussions and proposals are discussed in [Discussions](https://github.com/didi/dimina/discussions)

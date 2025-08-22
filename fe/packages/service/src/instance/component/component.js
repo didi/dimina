@@ -1,5 +1,6 @@
 import { cloneDeep, isFunction, isString, set } from '@dimina/common'
 import { createSelectorQuery } from '../../api/core/wxml/selector-query'
+import { createIntersectionObserver } from '../../api/core/wxml/intersection-observer'
 import message from '../../core/message'
 import runtime from '../../core/runtime'
 import { addComputedData, filterData, filterInvokeObserver, isChildComponent, matchComponent } from '../../core/utils'
@@ -22,8 +23,13 @@ export class Component {
 			this.__targetInfo__ = opts.targetInfo
 		}
 		this.is = opts.path
+		this.route = opts.path
+		this.query = opts.query
 		this.renderer = 'webview'
 		this.bridgeId = opts.bridgeId
+		if (!this.id) {
+			this.id = opts.bridgeId
+		}
 		this.behaviors = module.behaviors
 		this.data = cloneDeep(module.noReferenceData)
 		this.__isComponent__ = module.isComponent
@@ -37,27 +43,37 @@ export class Component {
 		// 初始化关系相关属性
 		this.__relations__ = new Map() // 存储关系节点
 		this.__relationPaths__ = new Map() // 存储关系路径映射
-
-		this.#init()
+		
+		// 初始化 groupSetData 相关属性
+		this.__groupSetDataMode__ = false // 是否处于批量更新模式
+		this.__groupSetDataBuffer__ = {} // 批量更新数据缓存
 	}
 
-	#init() {
+	init() {
 		if (this.__isComponent__) {
 			for (const key in this.__info__.properties) {
 				// 先取逻辑层的属性默认值
 				if (!Object.hasOwn(this.opts.properties, key) || this.opts.properties[key] === undefined) {
-					this.data[key] = this.__info__.properties[key]?.value
+					this.data[key] = this.__info__.properties[key]?.value ?? null
 				}
 				else {
 					// 没有默认值则取渲染层的属性实际值
 					this.data[key] = this.opts.properties[key]
 				}
 			}
+			Object.defineProperty(this, 'properties', {
+				get() {
+					return this.data
+				},
+				enumerable: true,
+				configurable: false
+			})
 		}
 
 		this.#initLifecycle()
 		this.#initCustomMethods()
 		this.#initRelations()
+		this.#initComponentExport()
 		this.#invokeInitLifecycle().then(() => {
 			addComputedData(this)
 			message.send({
@@ -70,6 +86,20 @@ export class Component {
 				},
 			})
 		})
+	}
+
+	/**
+	 * 初始化组件导出功能
+	 * 处理 wx://component-export behavior
+	 */
+	#initComponentExport() {
+		// 检查是否使用了 wx://component-export behavior
+		if (this.hasBehavior('wx://component-export')) {
+			// 如果组件定义了 export 方法，将其绑定到组件实例
+			if (this.__info__.export && isFunction(this.__info__.export)) {
+				this.export = this.__info__.export.bind(this)
+			}
+		}
 	}
 
 	/**
@@ -157,6 +187,48 @@ export class Component {
 			// 建立关系连接
 			for (const relatedComponent of relatedComponents) {
 				this.#linkRelation(relationPath, relatedComponent, relationConfig)
+			}
+		}
+		
+		// 通知其他组件重新检查关系（双向关系建立）
+		this.#notifyOthersToCheckRelations()
+	}
+
+	/**
+	 * 通知其他组件重新检查关系
+	 */
+	#notifyOthersToCheckRelations() {
+		const allInstances = Object.values(runtime.instances[this.bridgeId] || {})
+		
+		for (const instance of allInstances) {
+			if (instance !== this && instance._checkRelationsWithTarget) {
+				// 只检查与当前组件相关的关系
+				instance._checkRelationsWithTarget(this)
+			}
+		}
+	}
+
+	/**
+	 * 检查与特定目标组件的关系
+	 */
+	_checkRelationsWithTarget(targetInstance) {
+		const relations = this.__info__.relations
+		if (!relations) return
+		
+		for (const [relationPath, relationConfig] of Object.entries(relations)) {
+			const { type, target } = relationConfig
+			const resolvedPath = this.__relationPaths__.get(relationPath)
+			
+			// 检查目标组件是否匹配
+			let matches = false
+			if (target) {
+				matches = targetInstance.hasBehavior && targetInstance.hasBehavior(target)
+			} else {
+				matches = targetInstance.is === resolvedPath || targetInstance.is.endsWith(`/${resolvedPath}`)
+			}
+			
+			if (matches && this.#checkRelationType(targetInstance, type)) {
+				this.#linkRelation(relationPath, targetInstance, relationConfig)
 			}
 		}
 	}
@@ -283,6 +355,15 @@ export class Component {
 			return
 		}
 
+		// 如果处于 groupSetData 模式，将数据缓存起来
+		if (this.__groupSetDataMode__) {
+			// 合并到缓存中
+			for (const key in fData) {
+				this.__groupSetDataBuffer__[key] = fData[key]
+			}
+			return
+		}
+
 		message.send({
 			type: 'u',
 			target: 'render',
@@ -337,12 +418,15 @@ export class Component {
 
 	async #invokeInitLifecycle() {
 		if (this.__isComponent__) {
+			// 组件实例创建时调用 componentCreated
 			await this.componentCreated()
+			// Fixme: 组件已挂载到DOM (componentAttached)
 			await this.componentAttached()
 		}
 		else {
 			// 使用 Component 构造器创建的页面生命周期
 			await this.componentCreated()
+			// Fixme: 组件已挂载到DOM (componentAttached)
 			await this.componentAttached()
 
 			await this.onLoad?.(this.opts.query || {})
@@ -355,20 +439,34 @@ export class Component {
 	 * triggerObserver
 	 */
 	tO(data) {
+		// 收集需要执行的观察者函数
+		const observersToExecute = []
+		
+		// 保存旧值并更新数据，收集观察者
 		for (const [prop, val] of Object.entries(data)) {
+			// 保存旧值
+			const oldVal = this.data[prop]
+			
+			// 更新数据
+			this.data[prop] = val
+			
+			// 收集 observers
 			if (this.__info__.observers) {
-				filterInvokeObserver(prop, this.__info__.observers, data, this)
+				observersToExecute.push(() => filterInvokeObserver(prop, this.__info__.observers, data, this, oldVal))
 			}
-
-			const observer = this.__info__.properties[prop]?.observer
-
+			
+			// 收集属性观察器
+			const observer = this.__info__.properties?.[prop]?.observer
 			if (isString(observer)) {
-				this[observer]?.(val)
+				observersToExecute.push(() => this[observer]?.(val, oldVal))
 			}
 			else if (isFunction(observer)) {
-				observer.call(this, val)
+				observersToExecute.push(() => observer.call(this, val, oldVal))
 			}
 		}
+		
+		// 执行所有观察者函数
+		observersToExecute.forEach(fn => fn())
 	}
 
 	getPageId() {
@@ -381,11 +479,14 @@ export class Component {
 	 */
 	hasBehavior(behavior) {
 		const _hasBehavior = function (behaviors) {
+			if (!Array.isArray(behaviors)) {
+				return false
+			}
 			if (behaviors.includes(behavior)) {
 				return true
 			}
 			for (const b of behaviors) {
-				if (_hasBehavior(b.behaviors)) {
+				if (b && b.behaviors && _hasBehavior(b.behaviors)) {
 					return true
 				}
 			}
@@ -403,15 +504,29 @@ export class Component {
 	}
 
 	/**
+	 * https://developers.weixin.qq.com/miniprogram/dev/framework/custom-component/events.html#获取组件实例
 	 * 使用选择器选取子组件实例对象，返回匹配到的第一个组件实例对象
 	 */
 	selectComponent(selector) {
 		const children = Object.values(runtime.instances[this.bridgeId])
 
 		// 遍历所有组件查找匹配的子组件
-		return children.find(item =>
+		const matchedComponent = children.find(item =>
 			isChildComponent(item, this.__id__, children) && matchComponent(selector, item),
-		) || null
+		)
+
+		if (!matchedComponent) {
+			return null
+		}
+
+		// 检查组件是否使用了 wx://component-export behavior
+		if (matchedComponent.hasBehavior('wx://component-export') && matchedComponent.export) {
+			// 如果组件定义了 export 方法，返回自定义的导出结果
+			return matchedComponent.export()
+		}
+
+		// 默认返回组件实例本身
+		return matchedComponent
 	}
 
 	/**
@@ -440,10 +555,57 @@ export class Component {
 	}
 
 	/**
-	 * TODO: 创建一个 IntersectionObserver 对象，选择器选取范围为这个组件实例内
+	 * 创建一个 IntersectionObserver 对象，选择器选取范围为这个组件实例内
+	 * https://developers.weixin.qq.com/miniprogram/dev/reference/api/Component.html#createIntersectionObserver-Object-options
 	 */
-	createIntersectionObserver() {
-		console.warn('[service] 暂不支持 createIntersectionObserver')
+	createIntersectionObserver(options) {
+		return createIntersectionObserver(this, options)
+	}
+
+	/**
+	 * 立刻执行 callback，其中的多个 setData 之间不会触发界面绘制
+	 * （只有某些特殊场景中需要，如用于在不同组件同时 setData 时进行界面绘制同步）
+	 * https://developers.weixin.qq.com/miniprogram/dev/reference/api/Component.html#groupSetData-Function-callback
+	 * @param {Function} callback 回调函数，在此函数中进行的多个 setData 调用会被合并
+	 */
+	groupSetData(callback) {
+		if (!isFunction(callback)) {
+			console.warn('[service] groupSetData callback must be a function')
+			return
+		}
+
+		// 标记进入批量更新模式
+		this.__groupSetDataMode__ = true
+		
+		// 存储批量更新的数据
+		this.__groupSetDataBuffer__ = {}
+		
+		try {
+			// 执行回调函数
+			callback.call(this)
+		} catch (error) {
+			console.error('[service] groupSetData callback error:', error)
+		} finally {
+			// 退出批量更新模式
+			this.__groupSetDataMode__ = false
+			
+			// 如果有缓存的数据，统一发送更新
+			if (this.__groupSetDataBuffer__ && Object.keys(this.__groupSetDataBuffer__).length > 0) {
+				const bufferedData = this.__groupSetDataBuffer__
+				this.__groupSetDataBuffer__ = {}
+				
+				// 发送合并后的数据更新
+				message.send({
+					type: 'u',
+					target: 'render',
+					body: {
+						bridgeId: this.bridgeId,
+						moduleId: this.__id__,
+						data: bufferedData,
+					},
+				})
+			}
+		}
 	}
 
 	/**

@@ -14,14 +14,14 @@
 		"@dimina/components": "workspace:^",
 		"@dimina/render": "workspace:^",
 		"@dimina/service": "workspace:^",
-		"chalk": "^5.4.1",
+		"chalk": "^5.6.0",
 		"mitt": "^3.0.1",
 		"vconsole": "^3.15.1"
 	},
 	"devDependencies": {
 		"http-server": "^14.1.1",
 		"qrcode": "^1.5.4",
-		"sass": "^1.89.2",
+		"sass": "^1.90.0",
 		"vite-plugin-html-minifier": "^1.0.5"
 	}
 }

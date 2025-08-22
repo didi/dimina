@@ -58,7 +58,3 @@ jobs:
       - name: Run tests
         working-directory: ./fe
         run: pnpm test
-        
-      - name: Generate coverage report
-        working-directory: ./fe
-        run: pnpm coverage

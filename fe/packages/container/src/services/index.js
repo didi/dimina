@@ -112,18 +112,42 @@ function rgbToHex(r, g, b) {
 
 function generateLogo(app) {
 	const size = [60, 60]
+	const pixelRatio = window.devicePixelRatio || 1
+	
 	const cvs = document.createElement('canvas')
-	cvs.setAttribute('width', size[0])
-	cvs.setAttribute('height', size[1])
+	// 设置实际显示尺寸
+	cvs.style.width = size[0] + 'px'
+	cvs.style.height = size[1] + 'px'
+	// 设置内部画布尺寸（考虑设备像素比）
+	cvs.width = size[0] * pixelRatio
+	cvs.height = size[1] * pixelRatio
+	
 	const ctx = cvs.getContext('2d')
+	// 缩放画布以匹配设备像素比
+	ctx.scale(pixelRatio, pixelRatio)
+	
+	// 启用抗锯齿和文字渲染优化
+	ctx.imageSmoothingEnabled = true
+	ctx.imageSmoothingQuality = 'high'
+	ctx.textRenderingOptimization = 'optimizeQuality'
 
 	// Use the new color generation function instead of random colors
 	ctx.fillStyle = generateColorFromName(app.name)
 	ctx.fillRect(0, 0, size[0], size[1])
 	ctx.fillStyle = 'rgb(255,255,255)'
-	ctx.font = `${size[0] * 0.6}px Arial`
-	ctx.textBaseline = 'middle'
+	
+	const fontSize = size[0] * 0.6
+	ctx.font = `${fontSize}px Arial`
+	
+	const text = app.name.charAt(0)
+	const textMetrics = ctx.measureText(text)
+	
+	// 计算精确的居中位置
+	const x = size[0] / 2
+	// 使用字体度量信息计算更精确的垂直居中位置
+	const y = size[1] / 2 + (textMetrics.actualBoundingBoxAscent - textMetrics.actualBoundingBoxDescent) / 2
+	
 	ctx.textAlign = 'center'
-	ctx.fillText(app.name.charAt(0), size[0] / 2, size[1] / 2)
-	return cvs.toDataURL('image/jpeg', 1)
+	ctx.fillText(text, x, y)
+	return cvs.toDataURL('image/png', 1)
 }

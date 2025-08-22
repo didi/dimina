@@ -147,7 +147,7 @@ fun WebView.postMessage(msg: String, callback: ((String?) -> Unit)? = null) {
  */
 private fun getFilesFile(context: Context, url: String): File {
     val filesDir = context.filesDir
-    val appIdRegex = "(wx|dd)[0-9a-f]{16}".toRegex()
+    val appIdRegex = "(wx|dd)[0-9a-zA-Z]{16}".toRegex()
     val matchResult = appIdRegex.find(url)
     return if (matchResult != null) {
         // jsapp url，使用 appId 并构造路径

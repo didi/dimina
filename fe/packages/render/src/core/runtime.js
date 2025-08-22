@@ -271,13 +271,14 @@ class Runtime {
 					const instance = getCurrentInstance().proxy
 					self.instance.set(moduleId, instance)
 
-					for (const v of Object.values(module.props ?? {})) {
+					const externalClasses = []
+					for (const [k, v] of Object.entries(module.props ?? {})) {
 						if (v.cls) {
 							// 自定义组件的外部样式类，通过 v-c-class 自定义指令处理
-							provide('externalClass', true)
-							break
+							externalClasses.push(k)
 						}
 					}
+					provide('externalClasses', externalClasses)
 
 					const eventAttr = {}
 					for (const attrName in attrs) {
@@ -285,25 +286,10 @@ class Runtime {
 							eventAttr[attrName.replace(/^(?:bind:|bind|catch:|catch)/, '')] = attrs[attrName]
 						}
 					}
-
-					watch(
-						props,
-						(newProps) => {
-							message.send({
-								type: 't',
-								target: 'service',
-								body: {
-									bridgeId,
-									moduleId,
-									methodName: 'tO', // triggerObserver
-									event: deepToRaw(newProps),
-								},
-							})
-						},
-					)
+					
 
 					message.send({
-						type: 'mC', // createInstance
+						type: 'mC', // createInstance + componentAttached
 						target: 'service',
 						body: {
 							bridgeId,
@@ -360,13 +346,32 @@ class Runtime {
 					})
 
 					const data = reactive({})
+					
+					watch(
+						props,
+						(newProps) => {
+							Object.assign(data, newProps)
+							message.send({
+								type: 't',
+								target: 'service',
+								body: {
+									bridgeId,
+									moduleId,
+									methodName: 'tO', // triggerObserver
+									event: deepToRaw(newProps),
+								},
+							})
+						},
+						{
+							immediate: true,
+						}
+					)
+					
 					const initData = await message.wait(moduleId)
 					const entries = Object.entries(initData)
 					for (let i = 0; i < entries.length; i++) {
 						const [key, value] = entries[i]
-						if (!(module.props && Object.hasOwn(module.props, key))) {
-							set(data, key, value)
-						}
+						set(data, key, value)
 					}
 					return data
 				},
@@ -691,8 +696,8 @@ class Runtime {
 				}
 
 				// 检查是否为祖先关系
-				const isAncestor = Array.isArray(targetEls)
-					? Array.from(targetEls).some(target => relativeEl.contains(target))
+				const isAncestor = Array.isArray(targetEls) || targetEls instanceof NodeList
+					? Array.from(targetEls).some(target => target && relativeEl.contains(target))
 					: relativeEl.contains(targetEls)
 
 				if (isAncestor) {
@@ -758,6 +763,7 @@ class Runtime {
 										intersectionRect: entry.intersectionRect, // 相交区域的边界
 										relativeRect: entry.rootBounds, // 相对参考区域
 										time: entry.time,
+										dataset: entry.target._ds || {},
 									},
 								},
 							},
