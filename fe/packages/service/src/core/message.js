@@ -35,7 +35,7 @@ class Message {
 		this.event.off(type)
 	}
 
-	// 逻辑层透过容器层发送消息
+	// 逻辑层透过容器层中转向渲染层发送消息
 	send(msg) {
 		if (isWebWorker) {
 			Message.prototype.send = function (msg) {
