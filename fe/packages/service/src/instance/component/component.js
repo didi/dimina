@@ -136,7 +136,12 @@ export class Component {
 	#resolveRelationPath(relationPath) {
 		if (relationPath.startsWith('./')) {
 			// 相对路径，基于当前组件路径解析
-			const currentDir = this.is.substring(0, this.is.lastIndexOf('/'))
+			const lastSlashIndex = this.is.lastIndexOf('/')
+			if (lastSlashIndex === -1) {
+				// 当前组件路径没有目录，直接返回去掉 ./ 的路径
+				return relationPath.substring(2)
+			}
+			const currentDir = this.is.substring(0, lastSlashIndex)
 			return `${currentDir}/${relationPath.substring(2)}`
 		} else if (relationPath.startsWith('../')) {
 			// 上级路径，基于当前组件路径解析
