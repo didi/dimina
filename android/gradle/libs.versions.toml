@@ -14,7 +14,7 @@ composeBom = "2025.06.00"
 appcompat = "1.7.1"
 material = "1.12.0"
 mmkv = "2.2.2"
-okhttp = "4.12.0"
+okhttp = "5.2.1"
 uiTooling = "1.8.2"
 
 [libraries]
