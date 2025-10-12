@@ -15,7 +15,7 @@ appcompat = "1.7.1"
 material = "1.12.0"
 mmkv = "2.2.2"
 okhttp = "4.12.0"
-uiTooling = "1.8.2"
+uiTooling = "1.9.3"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
