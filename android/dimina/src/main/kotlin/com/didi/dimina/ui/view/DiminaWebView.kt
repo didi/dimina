@@ -90,6 +90,8 @@ private fun createWebView(context: Context, onPageLoadFinished: () -> Unit): Web
             domStorageEnabled = true
             allowFileAccess = true
             allowContentAccess = true
+            allowFileAccessFromFileURLs = true  // 允许 file:// 协议下的跨域访问
+            allowUniversalAccessFromFileURLs = true  // 允许 file:// 协议下的通用访问
             loadWithOverviewMode = true
             useWideViewPort = true
             cacheMode = WebSettings.LOAD_NO_CACHE
