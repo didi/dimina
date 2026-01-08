@@ -276,41 +276,7 @@ object WebViewCacheManager : ComponentCallbacks2 {
             webView.clearCache(true)
             
             // 重新设置WebViewClient
-            webView.webViewClient = object : WebViewClient() {
-                override fun onPageFinished(view: WebView, url: String) {
-                    super.onPageFinished(view, url)
-                    LogUtils.d(TAG, "Cached WebView page finished loading: $url")
-                    if (url.contains("pageFrame.html")) {
-                        onPageLoadFinished()
-                    }
-                }
-                
-                override fun shouldInterceptRequest(
-                    view: WebView,
-                    request: WebResourceRequest
-                ): WebResourceResponse? {
-                    val url = request.url.toString()
-                    val context = view.context
-                    
-                    if (url.startsWith(FILE_PROTOCOL)) {
-                        try {
-                            val localFile = getFilesFile(context, url.substring(FILE_PROTOCOL.length))
-                            if (localFile.exists()) {
-                                LogUtils.d(TAG, "Loading file from local: $url")
-                                val mimeType = MimeTypeMap.getSingleton()
-                                    .getMimeTypeFromExtension(MimeTypeMap.getFileExtensionFromUrl(url))
-                                    ?: "text/html"
-                                return WebResourceResponse(mimeType, "UTF-8", FileInputStream(localFile))
-                            } else {
-                                LogUtils.e(TAG, "intercepting file: $url is not existed")
-                            }
-                        } catch (e: Exception) {
-                            LogUtils.e(TAG, "Error intercepting file: $url", e)
-                        }
-                    }
-                    return super.shouldInterceptRequest(view, request)
-                }
-            }
+            webView.webViewClient = createWebViewClientWithInterceptor { onPageLoadFinished() }
             
         } catch (e: Exception) {
             LogUtils.e(TAG, "Failed to reset WebView", e)
@@ -507,6 +473,9 @@ object WebViewCacheManager : ComponentCallbacks2 {
     }
 }
 
+// 文件级别的TAG常量，用于日志记录
+private const val WEBVIEW_TAG = "WebViewInterceptor"
+
 /**
  * 根据给定的URL获取文件对象
  * 此函数用于区分jsapp和jssdk类型的URL，并返回相应的文件对象
@@ -515,7 +484,7 @@ object WebViewCacheManager : ComponentCallbacks2 {
  * @param url 需要解析的URL，用于确定文件路径
  * @return 返回一个File对象，表示解析后的文件路径
  */
-private fun getFilesFile(context: Context, url: String): File {
+internal fun getFilesFile(context: Context, url: String): File {
     val filesDir = context.filesDir
     val appIdRegex = "(wx|dd)[0-9a-zA-Z]{16}".toRegex()
     val matchResult = appIdRegex.find(url)
@@ -526,6 +495,103 @@ private fun getFilesFile(context: Context, url: String): File {
         // jssdk url，使用版本号构造路径
         File(filesDir, "jssdk/${VersionUtils.getJSVersion()}/main/$url")
     }
+}
+
+/**
+ * 创建统一的文件拦截处理器
+ * 用于拦截WebView的文件协议请求，从本地文件系统加载资源
+ *
+ * @param onPageFinished 页面加载完成的回调
+ * @return WebViewClient实例
+ */
+internal fun createWebViewClientWithInterceptor(
+    onPageFinished: (String) -> Unit = {}
+): WebViewClient {
+    return object : WebViewClient() {
+        override fun onPageFinished(view: WebView, url: String) {
+            super.onPageFinished(view, url)
+            LogUtils.d(WEBVIEW_TAG, "WebView page finished loading: $url")
+            if (url.contains("pageFrame.html")) {
+                onPageFinished(url)
+            }
+        }
+        
+        override fun shouldInterceptRequest(
+            view: WebView,
+            request: WebResourceRequest
+        ): WebResourceResponse? {
+            return handleFileInterceptRequest(view.context, request)
+        }
+    }
+}
+
+/**
+ * 统一处理文件拦截请求的逻辑
+ * 拦截file://协议的请求，优先从本地文件系统加载资源
+ * 
+ * 处理策略：
+ * 1. 优先尝试作为本地文件加载
+ * 2. 如果文件不存在，则判断可能是被错误解析的协议相对URL，转换为https://协议加载
+ * 
+ * 这样可以兼容两种情况：
+ * - 真正的本地文件：直接加载
+ * - 被错误解析的网络资源：自动转换为https加载
+ *
+ * @param context 上下文对象
+ * @param request WebView资源请求
+ * @return 如果是文件协议请求且文件存在，返回WebResourceResponse；如果文件不存在则尝试网络加载；否则返回null
+ */
+internal fun handleFileInterceptRequest(
+    context: Context,
+    request: WebResourceRequest
+): WebResourceResponse? {
+    val url = request.url.toString()
+    
+    if (url.startsWith(FILE_PROTOCOL)) {
+        try {
+            // 提取file://协议后的路径部分
+            val pathAfterProtocol = url.substring(FILE_PROTOCOL.length)
+            
+            // 优先尝试作为本地文件加载
+            val localFile = getFilesFile(context, pathAfterProtocol)
+            if (localFile.exists()) {
+                LogUtils.d(WEBVIEW_TAG, "Loading file from local: $url")
+                val mimeType = MimeTypeMap.getSingleton()
+                    .getMimeTypeFromExtension(MimeTypeMap.getFileExtensionFromUrl(url))
+                    ?: "text/html" // Fallback MIME type
+                return WebResourceResponse(mimeType, "UTF-8", FileInputStream(localFile))
+            }
+            
+            // 文件不存在，可能是被错误解析的协议相对URL，尝试转换为https://协议加载网络资源
+            LogUtils.d(WEBVIEW_TAG, "Local file not found: $url")
+            LogUtils.d(WEBVIEW_TAG, "Attempting to load as network resource via https")
+            
+            val correctedUrl = "https:/${pathAfterProtocol}" // 转换为 https://domain/path
+            LogUtils.d(WEBVIEW_TAG, "Corrected URL: $correctedUrl")
+            
+            try {
+                val connection = java.net.URL(correctedUrl).openConnection()
+                connection.connectTimeout = 5000
+                connection.readTimeout = 10000
+                val inputStream = connection.getInputStream()
+                val mimeType = connection.contentType?.split(";")?.firstOrNull()?.trim() 
+                    ?: MimeTypeMap.getSingleton()
+                        .getMimeTypeFromExtension(MimeTypeMap.getFileExtensionFromUrl(correctedUrl))
+                    ?: "application/octet-stream"
+                
+                LogUtils.d(WEBVIEW_TAG, "Successfully loaded network resource: $correctedUrl")
+                return WebResourceResponse(mimeType, "UTF-8", inputStream)
+            } catch (e: Exception) {
+                LogUtils.e(WEBVIEW_TAG, "Failed to load network resource: $correctedUrl", e)
+                // 返回null，让WebView按默认方式处理
+                return null
+            }
+        } catch (e: Exception) {
+            LogUtils.e(WEBVIEW_TAG, "Error intercepting file: $url", e)
+        }
+    }
+    
+    return null
 }
 
 @SuppressLint("SetJavaScriptEnabled")
@@ -549,42 +615,7 @@ private fun createWebView(context: Context, onPageLoadFinished: () -> Unit): Web
         }
 
         // Configure WebViewClient with file interceptor
-        webViewClient = object : WebViewClient() {
-            override fun onPageFinished(view: WebView, url: String) {
-                super.onPageFinished(view, url)
-                LogUtils.d("WebViewCacheManager", "WebView page finished loading: $url")
-                if (url.contains("pageFrame.html")) {
-                    onPageLoadFinished()
-                }
-            }
-
-            override fun shouldInterceptRequest(
-                view: WebView,
-                request: WebResourceRequest
-            ): WebResourceResponse? {
-                val url = request.url.toString()
-                val context = view.context
-
-                if (url.startsWith(FILE_PROTOCOL)) {
-                    try {
-                        val localFile = getFilesFile(context, url.substring(FILE_PROTOCOL.length))
-                        if (localFile.exists()) {
-                            LogUtils.d("WebViewCacheManager", "Loading file from local: $url")
-                            val mimeType = MimeTypeMap.getSingleton()
-                                .getMimeTypeFromExtension(MimeTypeMap.getFileExtensionFromUrl(url))
-                                ?: "text/html" // Fallback MIME type
-                            return WebResourceResponse(mimeType, "UTF-8", FileInputStream(localFile))
-                        } else {
-                            LogUtils.e("WebViewCacheManager", "intercepting file: $url is not existed")
-                        }
-                    } catch (e: Exception) {
-                        LogUtils.e("WebViewCacheManager", "Error intercepting file: $url", e)
-                    }
-                }
-                // Fall back to default handling for other resources
-                return super.shouldInterceptRequest(view, request)
-            }
-        }
+        webViewClient = createWebViewClientWithInterceptor { onPageLoadFinished() }
     }
 }
 

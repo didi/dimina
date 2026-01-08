@@ -33,7 +33,9 @@
 		"build": "vite build",
 		"test": "vitest run",
 		"test:dev": "vitest",
-		"coverage": "vitest run --coverage"
+		"coverage": "vitest run --coverage",
+		"release:beta": "npm version prerelease --preid=beta && npm publish --tag beta",
+		"release": "npm version patch && npm publish"
 	},
 	"author": "doslin",
 	"license": "Apache-2.0",
@@ -65,6 +67,7 @@
 		"typescript": "^5.9.3"
 	},
 	"publishConfig": {
-		"registry": "https://registry.npmjs.org/"
+		"registry": "https://registry.npmjs.org/",
+		"access": "public"
 	}
 }

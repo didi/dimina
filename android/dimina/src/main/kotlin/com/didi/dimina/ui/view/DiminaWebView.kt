@@ -102,42 +102,7 @@ private fun createWebView(context: Context, onPageLoadFinished: () -> Unit): Web
         }
 
         // Configure WebViewClient with file interceptor
-        webViewClient = object : WebViewClient() {
-            override fun onPageFinished(view: WebView, url: String) {
-                super.onPageFinished(view, url)
-                LogUtils.d(TAG, "WebView page finished loading: $url")
-                if (url.contains("pageFrame.html")) {
-                    onPageLoadFinished()
-                }
-            }
-
-            override fun shouldInterceptRequest(
-                view: WebView,
-                request: WebResourceRequest
-            ): WebResourceResponse? {
-                val url = request.url.toString()
-                val context = view.context
-
-                if (url.startsWith(FILE_PROTOCOL)) {
-                    try {
-                        val localFile = getFilesFile(context, url.substring(FILE_PROTOCOL.length))
-                        if (localFile.exists()) {
-                            LogUtils.d(TAG, "Loading file from local: $url")
-                            val mimeType = MimeTypeMap.getSingleton()
-                                .getMimeTypeFromExtension(MimeTypeMap.getFileExtensionFromUrl(url))
-                                ?: "text/html" // Fallback MIME type
-                            return WebResourceResponse(mimeType, "UTF-8", FileInputStream(localFile))
-                        } else {
-                            LogUtils.e(TAG, "intercepting file: $url is not existed")
-                        }
-                    } catch (e: Exception) {
-                        LogUtils.e(TAG, "Error intercepting file: $url", e)
-                    }
-                }
-                // Fall back to default handling for other resources
-                return super.shouldInterceptRequest(view, request)
-            }
-        }
+        webViewClient = createWebViewClientWithInterceptor { onPageLoadFinished() }
     }
 }
 
@@ -170,27 +135,6 @@ fun WebView.postMessage(msg: String, callback: ((String?) -> Unit)? = null) {
     this.evaluateJavascript("DiminaRenderBridge.onMessage($msg)", callback)
 }
 
-
-/**
- * 根据给定的URL获取文件对象
- * 此函数用于区分jsapp和jssdk类型的URL，并返回相应的文件对象
- *
- * @param context 上下文对象，用于访问应用程序的文件目录
- * @param url 需要解析的URL，用于确定文件路径
- * @return 返回一个File对象，表示解析后的文件路径
- */
-private fun getFilesFile(context: Context, url: String): File {
-    val filesDir = context.filesDir
-    val appIdRegex = "(wx|dd)[0-9a-zA-Z]{16}".toRegex()
-    val matchResult = appIdRegex.find(url)
-    return if (matchResult != null) {
-        // jsapp url，使用 appId 并构造路径
-        File(filesDir, "jsapp/$url")
-    } else {
-        // jssdk url，使用版本号构造路径
-        File(filesDir, "jssdk/${VersionUtils.getJSVersion()}/main/$url")
-    }
-}
 
 /**
  * JavaScript interface for DiminaRenderBridge
