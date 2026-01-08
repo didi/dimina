@@ -19,6 +19,6 @@ class CameraContext {
 	}
 
 	stopRecord() {
-		invokeAPI('startRecord')
+		invokeAPI('stopRecord')
 	}
 }
