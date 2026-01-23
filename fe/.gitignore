@@ -13,3 +13,6 @@ example/*
 !example/weui
 !example/vant
 !example/taro-todo
+# 自己的小程序
+!example/weui_app
+
