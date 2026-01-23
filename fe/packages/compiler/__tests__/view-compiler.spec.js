@@ -439,7 +439,7 @@ describe('processWxsContent - 处理 wxs 内容中的 getRegExp 转换', () => {
 		expect(result).not.toContain('new RegExp()')
 		
 		// 验证 genRegExp 函数定义完整存在
-		expect(result).toContain('function genRegExp(str, flags)')
+		expect(result).toContain('function genRegExp (str, flags)')
 	})
 })
 

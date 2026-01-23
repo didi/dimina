@@ -1,12 +1,9 @@
 /**
- * 表达式解析器 - 使用 Babel AST 解析器提取依赖
+ * 表达式解析器 - 使用 Oxc AST 解析器提取依赖
  */
 
-import babel from '@babel/core'
-import _traverse from '@babel/traverse'
-
-// https://github.com/babel/babel/issues/13855
-const traverse = _traverse.default ? _traverse.default : _traverse
+import { parseSync } from 'oxc-parser'
+import { walk } from 'oxc-walker'
 
 // JavaScript 关键字和全局对象，不应该被识别为数据依赖
 const KEYWORDS = new Set([
@@ -22,7 +19,7 @@ const KEYWORDS = new Set([
 
 /**
  * 提取表达式中的所有变量依赖路径
- * 使用 Babel AST 解析器进行精确分析
+ * 使用 Oxc AST 解析器进行精确分析
  * @param {string} expression - 表达式字符串，如 "count || defaultValue" 或 "item.name"
  * @returns {Array<string>} - 依赖的变量名数组，如 ["count", "defaultValue"] 或 ["item"]
  */
@@ -34,64 +31,72 @@ export function extractDependencies(expression) {
 	const dependencies = new Set()
 	
 	try {
-		// 将表达式包装为完整的语句以便 Babel 解析
+		// 将表达式包装为完整的语句以便 Oxc 解析
 		const code = `(${expression})`
-		const ast = babel.parseSync(code, {
-			sourceType: 'module',
-			plugins: []
+		const ast = parseSync('expression.js', code, {
+			sourceType: 'module'
 		})
 		
+		// 用于追踪 MemberExpression 是否已被处理
+		const processedMemberExpressions = new Set()
+		
 		// 遍历 AST 提取标识符
-		traverse(ast, {
-			Identifier(path) {
-				const name = path.node.name
-				
-				// 跳过关键字和全局对象
-				if (KEYWORDS.has(name)) {
+		walk(ast.program, {
+			enter(node, parent) {
+				// 处理成员表达式，确保只提取根对象
+				if (node.type === 'MemberExpression') {
+					// 避免重复处理
+					if (processedMemberExpressions.has(node)) {
+						return
+					}
+					processedMemberExpressions.add(node)
+					
+					// 获取成员表达式的根对象
+					let root = node.object
+					while (root.type === 'MemberExpression') {
+						root = root.object
+						processedMemberExpressions.add(root)
+					}
+					
+					// 如果根对象是标识符且不是关键字，添加为依赖
+					if (root.type === 'Identifier' && !KEYWORDS.has(root.name)) {
+						dependencies.add(root.name)
+					}
+					
 					return
 				}
 				
-				// 检查是否是对象属性（右侧）
-				// 如果是 obj.prop，我们只要 obj，不要 prop
-				const parent = path.parent
-				if (parent.type === 'MemberExpression' && parent.property === path.node && !parent.computed) {
-					// 这是属性名（非计算属性），跳过
-					return
-				}
-				
-				// 检查是否是函数/方法名的一部分
-				// 对于 Math.max()，Math 是对象，max 是方法名
-				if (parent.type === 'CallExpression' && parent.callee === path.node) {
-					// 这是函数调用，保留
+				// 处理标识符
+				if (node.type === 'Identifier') {
+					const name = node.name
+					
+					// 跳过关键字和全局对象
+					if (KEYWORDS.has(name)) {
+						return
+					}
+					
+					// 检查是否是对象属性（右侧）
+					// 如果是 obj.prop，我们只要 obj，不要 prop
+					if (parent && parent.type === 'MemberExpression' && parent.property === node && !parent.computed) {
+						// 这是属性名（非计算属性），跳过
+						return
+					}
+					
+					// 检查是否是对象字面量的键
+					if (parent && parent.type === 'Property' && parent.key === node && !parent.computed) {
+						// 这是对象字面量的键，跳过
+						return
+					}
+					
+					// 如果父节点是 MemberExpression 的 object 部分，已经在上面的 MemberExpression 处理中处理过了
+					if (parent && parent.type === 'MemberExpression' && parent.object === node) {
+						// 这个会被 MemberExpression 处理，跳过
+						return
+					}
+					
+					// 其他情况下，如果不是属性名，就是我们需要的依赖
 					dependencies.add(name)
-					return
 				}
-				
-				// 检查是否是对象字面量的键
-				if (parent.type === 'ObjectProperty' && parent.key === path.node && !parent.computed) {
-					// 这是对象字面量的键，跳过
-					return
-				}
-				
-				// 其他情况下，如果不是属性名，就是我们需要的依赖
-				dependencies.add(name)
-			},
-			
-			// 处理成员表达式，确保只提取根对象
-			MemberExpression(path) {
-				// 获取成员表达式的根对象
-				let root = path.node.object
-				while (root.type === 'MemberExpression') {
-					root = root.object
-				}
-				
-				// 如果根对象是标识符且不是关键字，添加为依赖
-				if (root.type === 'Identifier' && !KEYWORDS.has(root.name)) {
-					dependencies.add(root.name)
-				}
-				
-				// 跳过子节点遍历，避免重复处理
-				path.skip()
 			}
 		})
 	} catch (error) {

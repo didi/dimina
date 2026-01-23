@@ -626,7 +626,7 @@ export function syncUpdateChildrenProps(parent, allInstances, changedData) {
 
 		// 如果有数据需要更新，触发子组件的 tO 方法，但不触发 observers
 		if (Object.keys(updateData).length > 0) {
-			child.tO?.(updateData)
+			child.tO?.(updateData, false)
 		}
 	}
 }
