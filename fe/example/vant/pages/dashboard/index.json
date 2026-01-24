@@ -1,6 +1,0 @@
-{
-  "navigationBarTitleText": "Vant 组件库",
-  "usingComponents": {
-    "demo-home": "../../components/demo-home/index"
-  }
-}

@@ -7,7 +7,61 @@
 
 
 
+.test-section {
+  padding: 20rpx;
+  background: #f5f5f5;
+  margin: 20rpx;
+  border-radius: 10rpx;
+}
 
+.test-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10rpx;
+  margin-bottom: 20rpx;
+}
+
+.test-buttons button {
+  flex: 1;
+  min-width: 150rpx;
+  font-size: 24rpx;
+  padding: 10rpx;
+}
+
+.test-results {
+  background: white;
+  padding: 20rpx;
+  border-radius: 10rpx;
+  margin-bottom: 20rpx;
+}
+
+.result-title {
+  font-weight: bold;
+  margin-bottom: 10rpx;
+}
+
+.result-item {
+  border-bottom: 1rpx solid #eee;
+  padding: 10rpx 0;
+  font-size: 24rpx;
+}
+
+.result-item text {
+  display: block;
+  margin: 2rpx 0;
+}
+
+.time { color: #666; font-size: 20rpx; }
+.api { color: #1890ff; font-weight: bold; }
+.status.success { color: #52c41a; }
+.status.error { color: #ff4d4f; }
+.data { color: #333; word-break: break-all; }
+
+.live-data {
+  background: white;
+  padding: 20rpx;
+  border-radius: 10rpx;
+}
 
 /*******************按钮**/
 /* 导航按钮样式 */

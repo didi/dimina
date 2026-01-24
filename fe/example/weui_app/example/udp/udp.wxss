@@ -1,0 +1,63 @@
+.container {
+  padding: 20rpx;
+  font-size: 28rpx;
+}
+
+.section {
+  margin-bottom: 30rpx;
+  padding: 20rpx;
+  background: #f5f5f5;
+  border-radius: 10rpx;
+}
+
+.section-title {
+  display: block;
+  font-weight: bold;
+  margin-bottom: 15rpx;
+  color: #333;
+  font-size: 32rpx;
+}
+
+input, textarea {
+  width: 100%;
+  padding: 20rpx;
+  margin: 10rpx 0;
+  border: 1rpx solid #ddd;
+  border-radius: 5rpx;
+  background: white;
+  box-sizing: border-box;
+}
+
+button {
+  margin: 10rpx 5rpx;
+}
+
+button[disabled] {
+  opacity: 0.5;
+}
+
+.status {
+  display: block;
+  margin-top: 10rpx;
+  padding: 10rpx;
+  background: #eee;
+  border-radius: 5rpx;
+  font-family: monospace;
+}
+
+.log-container {
+  height: 300rpx;
+  margin: 20rpx 0;
+  padding: 20rpx;
+  background: #1a1a1a;
+  color: #0f0;
+  font-family: 'Courier New', monospace;
+  border-radius: 5rpx;
+  overflow-y: auto;
+  font-size: 24rpx;
+}
+
+.log-text {
+  white-space: pre-wrap;
+  line-height: 1.5;
+}

@@ -18,6 +18,34 @@
 
 
 
+  <!-- 在原有内容基础上添加测试区域 -->
+  <view class="test-section">
+    <view class="test-buttons">
+      <button bindtap="but1">测试网络API</button>
+      <button bindtap="but2">测试设备API</button>
+      <button bindtap="but3">测试界面API</button>
+      <button bindtap="clearTestResults">清空结果</button>
+    </view>
+
+    <!-- 测试结果显示 -->
+    <view class="test-results" wx:if="{{apiTestResults.length > 0}}">
+      <view class="result-title">API测试结果 (最近10条):</view>
+      <view class="result-item" wx:for="{{apiTestResults}}" wx:key="time">
+        <text class="time">{{item.time}}</text>
+        <text class="api">{{item.api}}</text>
+        <text class="status {{item.status.includes('成功') ? 'success' : 'error'}}">{{item.status}}</text>
+        <text class="data">{{item.data}}</text>
+      </view>
+    </view>
+
+    <!-- 实时数据显示 -->
+    <view class="live-data">
+      <view>存储测试值: {{testData.storageValue}}</view>
+      <view>网络类型: {{testData.networkType}}</view>
+      <view wx:if="{{testData.systemInfo.model}}">设备型号: {{testData.systemInfo.model}}</view>
+    </view>
+  </view>
+
 
 
   <view class="page__bd page__bd_spacing">

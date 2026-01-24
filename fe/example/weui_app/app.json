@@ -1,6 +1,7 @@
 {
   "pages": [
     "example/index",
+    "example/udp/udp",
 
     "example/button/button",
     "example/button/button_default",
