@@ -27,6 +27,6 @@
 	"devDependencies": {
 		"@vitejs/plugin-vue": "^6.0.3",
 		"terser": "^5.46.0",
-		"unplugin-auto-import": "^20.3.0"
+		"unplugin-auto-import": "^21.0.0"
 	}
 }
