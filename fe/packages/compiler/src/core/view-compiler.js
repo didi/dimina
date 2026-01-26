@@ -1,9 +1,10 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { isMainThread, parentPort } from 'node:worker_threads'
-import { parseSync } from 'oxc-parser'
-import { walk } from 'oxc-walker'
-import MagicString from 'magic-string'
+import babel from '@babel/core'
+import _traverse from '@babel/traverse'
+import types from '@babel/types'
+import generate from '@babel/generator'
 import { compileTemplate } from '@vue/compiler-sfc'
 import * as cheerio from 'cheerio'
 import { transform } from 'esbuild'
@@ -12,7 +13,27 @@ import { collectAssets, getAbsolutePath, tagWhiteList, transformRpx } from '../c
 import { getAppId, getComponent, getContentByPath, getTargetPath, getWorkPath, resetStoreInfo } from '../env.js'
 import { parseBindings } from '../common/expression-parser.js'
 
+// https://github.com/babel/babel/issues/13855
+const traverse = _traverse.default ? _traverse.default : _traverse
+const generateCode = generate.default ? generate.default : generate
+
 const fileType = ['.wxml', '.ddml']
+
+/**
+ * 从 AST 生成代码，如果顶层是单个表达式语句，则只生成表达式部分
+ * @param {*} ast - Babel AST
+ * @returns {string} 生成的表达式代码
+ */
+function generateCodeFromAst(ast) {
+	// 检查是否是 Program 节点且只包含一个 ExpressionStatement
+	if (ast.type === 'File' && ast.program.body.length === 1) {
+		const statement = ast.program.body[0]
+		if (statement.type === 'ExpressionStatement') {
+			return generateCode(statement.expression, { comments: false }).code
+		}
+	}
+	return generateCode(ast, { comments: false }).code
+}
 
 // 页面文件编译内容缓存
 const compileResCache = new Map()
@@ -351,14 +372,18 @@ function compileModule(module, isComponent, scriptRes) {
 			},
 		})
 
-		code = insertWxsToRenderAst(code, instruction.scriptModule, scriptRes)
+		const ast = babel.parseSync(code)
+		insertWxsToRenderAst(ast, instruction.scriptModule, scriptRes)
+		code = generateCodeFromAst(ast)
 
 		tplComponents
 			+= `'${tm.path}':${code},`
 	}
 	tplComponents += '}'
 
-	const transCode = insertWxsToRenderAst(tplCode.code, instruction.scriptModule, scriptRes)
+	const tplAst = babel.parseSync(tplCode.code)
+	insertWxsToRenderAst(tplAst, instruction.scriptModule, scriptRes)
+	const transCode = generateCodeFromAst(tplAst)
 
 	// 通过 component 字段标记该页面 以 Component 形式进行渲染或着以 Page 形式进行渲染
 	// https://developers.weixin.qq.com/miniprogram/dev/framework/app-service/page.html
@@ -414,157 +439,160 @@ function processWxsContent(wxsContent, wxsFilePath, scriptModule, workPath, file
 	
 	let wxsAst
 	try {
-		wxsAst = parseSync(wxsFilePath || 'wxs-inline', wxsContent, { sourceType: 'module' })
+		wxsAst = babel.parseSync(wxsContent)
 	} catch (error) {
 		console.error(`[view] 解析 wxs 文件失败: ${wxsFilePath}`, error.message)
 		return wxsContent // 返回原始内容
 	}
 	
-	const s = new MagicString(wxsContent)
-	const transforms = []
-	
-	// 遍历并收集需要转换的位置
-	walk(wxsAst.program, {
-		enter(node) {
-			// 处理 CallExpression
-			if (node.type === 'CallExpression' && node.callee.type === 'Identifier') {
-				const calleeName = node.callee.name
+	// 遍历并处理各种转换
+	traverse(wxsAst, {
+		CallExpression(astPath) {
+			const calleeName = astPath.node.callee.name
+			
+			// https://developers.weixin.qq.com/miniprogram/dev/reference/wxs/06datatype.html#regexp
+			// getRegExp -> 正则表达式字面量或 new RegExp 调用
+			if (calleeName === 'getRegExp') {
+				const args = astPath.node.arguments
 				
-				// https://developers.weixin.qq.com/miniprogram/dev/reference/wxs/06datatype.html#regexp
-				// getRegExp -> 正则表达式字面量或 new RegExp 调用
-				if (calleeName === 'getRegExp') {
-					const args = node.arguments
-					
-					if (args.length > 0) {
-						const firstArg = args[0]
-						const isStringLiteral = firstArg.type === 'Literal' && typeof firstArg.value === 'string'
-						const secondArg = args[1]
-						const secondIsStringLiteral = !secondArg || (secondArg.type === 'Literal' && typeof secondArg.value === 'string')
+				if (args.length > 0) {
+					// 如果参数都是字符串字面量，直接转换为正则表达式字面量
+					if (args[0].type === 'StringLiteral' && (!args[1] || args[1].type === 'StringLiteral')) {
+						// 获取正则表达式的模式和标志
+						let pattern = ''
+						let flags = ''
 						
-						// 如果参数都是字符串字面量，直接转换为正则表达式字面量
-						if (isStringLiteral && secondIsStringLiteral) {
-							// 获取正则表达式的模式和标志
-							let pattern = ''
-							let flags = ''
-							
-							// 从源代码中提取原始字符串（保留转义字符）
-							const patternStart = firstArg.start
-							const patternEnd = firstArg.end
-							const rawPattern = wxsContent.slice(patternStart, patternEnd)
-							// 去掉引号
-							pattern = rawPattern.slice(1, -1)
-							
-							if (secondArg) {
-								const flagsStart = secondArg.start
-								const flagsEnd = secondArg.end
-								const rawFlags = wxsContent.slice(flagsStart, flagsEnd)
-								flags = rawFlags.slice(1, -1)
-							}
-							
-							transforms.push({
-								start: node.start,
-								end: node.end,
-								replacement: `/${pattern}/${flags}`
-							})
+						// 第一个参数是模式（字符串字面量）
+						const arg = args[0]
+						
+						// 获取字符串的原始值，保留其中的转义字符
+						if (arg.extra && arg.extra.raw) {
+							// 去掉首尾的引号，但保留内部的转义字符
+							pattern = arg.extra.raw.slice(1, -1)
+						} else if (arg.value !== undefined) {
+							pattern = arg.value
 						} else {
-							// 对于变量参数，转换为 new RegExp(pattern, flags) 调用
-							const patternCode = wxsContent.slice(args[0].start, args[0].end)
-							const flagsCode = args[1] ? wxsContent.slice(args[1].start, args[1].end) : ''
-							
-							const replacement = flagsCode 
-								? `new RegExp(${patternCode}, ${flagsCode})`
-								: `new RegExp(${patternCode})`
-							
-							transforms.push({
-								start: node.start,
-								end: node.end,
-								replacement
-							})
+							pattern = ''
 						}
-					}
-				}
-				else if (calleeName === 'getDate') {
-					// getDate -> new Date
-					const argsCode = node.arguments.map(arg => 
-						wxsContent.slice(arg.start, arg.end)
-					).join(', ')
-					
-					transforms.push({
-						start: node.start,
-						end: node.end,
-						replacement: `new Date(${argsCode})`
-					})
-				}
-				// 处理 wxs 文件内部的 require 调用（仅对外部文件）
-				else if (calleeName === 'require' && node.arguments.length > 0 && wxsFilePath) {
-					const firstArg = node.arguments[0]
-					if (firstArg.type === 'Literal' && typeof firstArg.value === 'string') {
-						const requirePath = firstArg.value
 						
-						if (requirePath) {
-							// 解析 wxs 内部的相对路径 require
-							let resolvedWxsPath
-							let moduleName
+						if (args.length > 1) {
+							// 第二个参数是标志（字符串字面量）
+							const flagArg = args[1]
 							
-							if (filePath && filePath.includes('/miniprogram_npm/')) {
-								// 对于 npm 组件中的 wxs，需要特殊处理相对路径
-								const currentWxsDir = path.dirname(wxsFilePath)
-								resolvedWxsPath = path.resolve(currentWxsDir, requirePath)
-								
-								// 转换为相对于工作目录的路径，并移除 .wxs 扩展名
-								const relativePath = resolvedWxsPath.replace(workPath, '').replace(/\.wxs$/, '')
-								
-								// 生成唯一的模块名（移除特殊字符）
-								moduleName = relativePath.replace(/[\/\\@\-]/g, '_').replace(/^_/, '')
-								
-								// 递归处理依赖的 wxs 文件
-								processWxsDependency(resolvedWxsPath, moduleName, scriptModule, workPath, filePath)
+							if (flagArg.extra && flagArg.extra.raw) {
+								flags = flagArg.extra.raw.slice(1, -1)
+							} else if (flagArg.value !== undefined) {
+								flags = flagArg.value
 							} else {
-								// 对于普通组件，使用原有逻辑
-								const currentWxsDir = path.dirname(wxsFilePath)
-								resolvedWxsPath = path.resolve(currentWxsDir, requirePath)
-								const relativePath = resolvedWxsPath.replace(workPath, '').replace(/\.wxs$/, '')
-								moduleName = relativePath.replace(/[\/\\@\-]/g, '_').replace(/^_/, '')
-								
-								// 递归处理依赖
-								processWxsDependency(resolvedWxsPath, moduleName, scriptModule, workPath, filePath)
+								flags = ''
 							}
-							
-							// 替换 require 路径
-							transforms.push({
-								start: firstArg.start,
-								end: firstArg.end,
-								replacement: `'${moduleName}'`
-							})
 						}
+						
+						// 直接创建正则表达式字面量，将 getRegExp("pattern", "flags") 转换为 /pattern/flags
+						const regexLiteral = types.regExpLiteral(pattern, flags)
+						
+						// 直接替换为正则表达式字面量
+						astPath.replaceWith(regexLiteral)
+					} else {
+						// 对于变量参数，转换为 new RegExp(pattern, flags) 调用
+						const newRegExpArgs = [args[0]]
+						if (args.length > 1) {
+							newRegExpArgs.push(args[1])
+						}
+						
+						const newRegExpCall = types.newExpression(
+							types.identifier('RegExp'),
+							newRegExpArgs
+						)
+						
+						// 替换为 new RegExp 调用
+						astPath.replaceWith(newRegExpCall)
 					}
 				}
 			}
-			// 处理 MemberExpression - constructor 属性访问
-			else if (node.type === 'MemberExpression') {
-				// 处理 constructor 属性访问，模拟微信小程序 wxs 中 constructor 返回字符串的行为
-				if (node.property.type === 'Identifier' && node.property.name === 'constructor' && !node.computed) {
-					// 获取对象代码
-					const objectCode = wxsContent.slice(node.object.start, node.object.end)
+			else if (calleeName === 'getDate') {
+				// getDate -> new Date
+				const args = []
+				for (let i = 0; i < astPath.node.arguments.length; i++) {
+					args.push(astPath.node.arguments[i])
+				}
+				// 创建新的 NewExpression 节点
+				const newExpr = types.newExpression(types.identifier('Date'), args)
+				// 替换原来的 CallExpression 节点
+				astPath.replaceWith(newExpr)
+			}
+			// 处理 wxs 文件内部的 require 调用（仅对外部文件）
+			else if (calleeName === 'require' && astPath.node.arguments.length > 0 && wxsFilePath) {
+				const requirePath = astPath.node.arguments[0].value
+				
+				if (requirePath && typeof requirePath === 'string') {
+					// 解析 wxs 内部的相对路径 require
+					let resolvedWxsPath
 					
-					// 生成: Object.prototype.toString.call(obj).slice(8, -1)
-					transforms.push({
-						start: node.start,
-						end: node.end,
-						replacement: `Object.prototype.toString.call(${objectCode}).slice(8, -1)`
-					})
+					if (filePath && filePath.includes('/miniprogram_npm/')) {
+						// 对于 npm 组件中的 wxs，需要特殊处理相对路径
+						const currentWxsDir = path.dirname(wxsFilePath)
+						resolvedWxsPath = path.resolve(currentWxsDir, requirePath)
+						
+						// 转换为相对于工作目录的路径，并移除 .wxs 扩展名
+						const relativePath = resolvedWxsPath.replace(workPath, '').replace(/\.wxs$/, '')
+						
+						// 生成唯一的模块名（移除特殊字符）
+						const moduleName = relativePath.replace(/[\/\\@\-]/g, '_').replace(/^_/, '')
+						
+						// 递归处理依赖的 wxs 文件
+						processWxsDependency(resolvedWxsPath, moduleName, scriptModule, workPath, filePath)
+						
+						// 替换 require 路径
+						astPath.node.arguments[0] = types.stringLiteral(moduleName)
+					} else {
+						// 对于普通组件，使用原有逻辑
+						const currentWxsDir = path.dirname(wxsFilePath)
+						resolvedWxsPath = path.resolve(currentWxsDir, requirePath)
+						const relativePath = resolvedWxsPath.replace(workPath, '').replace(/\.wxs$/, '')
+						const depModuleName = relativePath.replace(/[\/\\@\-]/g, '_').replace(/^_/, '')
+						
+						// 递归处理依赖
+						processWxsDependency(resolvedWxsPath, depModuleName, scriptModule, workPath, filePath)
+						
+						// 替换 require 路径
+						astPath.node.arguments[0] = types.stringLiteral(depModuleName)
+					}
 				}
 			}
-		}
+		},
+		MemberExpression(astPath) {
+			// 处理 constructor 属性访问，模拟微信小程序 wxs 中 constructor 返回字符串的行为
+			if (astPath.node.property.name === 'constructor' && !astPath.node.computed) {
+				// 创建一个辅助函数调用，返回类型字符串
+				// 生成: Object.prototype.toString.call(obj).slice(8, -1)
+				const getTypeString = types.callExpression(
+					types.memberExpression(
+						types.callExpression(
+							types.memberExpression(
+								types.memberExpression(
+									types.memberExpression(
+										types.identifier('Object'),
+										types.identifier('prototype')
+									),
+									types.identifier('toString')
+								),
+								types.identifier('call')
+							),
+							[astPath.node.object]
+						),
+						types.identifier('slice')
+					),
+					[types.numericLiteral(8), types.numericLiteral(-1)]
+				)
+				
+				astPath.replaceWith(getTypeString)
+			}
+		},
 	})
 	
-	// 按照从后往前的顺序应用转换（避免位置偏移问题）
-	transforms.sort((a, b) => b.start - a.start)
-	for (const t of transforms) {
-		s.overwrite(t.start, t.end, t.replacement)
-	}
-	
-	return s.toString()
+	// 生成代码
+	return generateCodeFromAst(wxsAst)
 }
 
 /**
@@ -665,14 +693,18 @@ function compileModuleWithAllWxs(module, scriptRes, allScriptModules) {
 			},
 		})
 
-		code = insertWxsToRenderAst(code, allScriptModules, scriptRes)
+		const ast = babel.parseSync(code)
+		insertWxsToRenderAst(ast, allScriptModules, scriptRes)
+		code = generateCodeFromAst(ast)
 
 		tplComponents
 			+= `'${tm.path}':${code},`
 	}
 	tplComponents += '}'
 
-	const transCode = insertWxsToRenderAst(tplCode.code, allScriptModules, scriptRes)
+	const tplAst = babel.parseSync(tplCode.code)
+	insertWxsToRenderAst(tplAst, allScriptModules, scriptRes)
+	const transCode = generateCodeFromAst(tplAst)
 
 	const code = `Module({
 		path: '${module.path}',
@@ -1789,36 +1821,37 @@ function extractWxsDependencies(moduleCode) {
 	return dependencies
 }
 
-function insertWxsToRenderAst(code, scriptModule, scriptRes) {
+function insertWxsToRenderAst(ast, scriptModule, scriptRes) {
 	for (const sm of scriptModule) {
 		if (!scriptRes.has(sm.path)) {
 			scriptRes.set(sm.path, sm.code)
 		}
-	}
-	
-	// 如果没有需要注入的模块，直接返回
-	if (scriptModule.length === 0) {
-		return code
-	}
-	
-	const s = new MagicString(code)
-	
-	// 生成所有 wxs 模块的 require 语句
-	const requireStatements = scriptModule.map(sm => {
+		
+		// 使用原始模块名作为模板中的属性名，唯一模块名作为 require 的参数
 		const templatePropertyName = sm.originalName || sm.path
 		const requireModuleName = sm.path
-		return `_ctx.${templatePropertyName} = require('${requireModuleName}');`
-	}).join('\n')
-	
-	// 查找函数体开始位置（第一个 { 之后）
-	// 代码格式通常是: (function(_ctx) { ... })
-	const functionBodyStart = code.indexOf('{', code.indexOf('function'))
-	if (functionBodyStart !== -1) {
-		// 在函数体开始处插入 require 语句
-		s.appendLeft(functionBodyStart + 1, '\n' + requireStatements + '\n')
+		
+		const assignmentExpression = types.assignmentExpression(
+			'=',
+			// 创建赋值表达式
+			types.memberExpression(
+				types.identifier('_ctx'), // 对象标识符
+				types.identifier(templatePropertyName), // 使用原始模块名作为属性名
+				false, // 是否是计算属性
+			),
+
+			// 创建require调用表达式
+			types.callExpression(
+				types.identifier('require'), // 函数标识符
+				[types.stringLiteral(requireModuleName)], // 使用唯一模块名作为 require 参数
+			),
+		)
+
+		// 将这个赋值表达式包装在一个表达式语句中
+		const expressionStatement = types.expressionStatement(assignmentExpression)
+
+		ast.program.body[0].expression.body.body.unshift(expressionStatement)
 	}
-	
-	return s.toString()
 }
 
 export {

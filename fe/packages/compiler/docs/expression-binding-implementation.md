@@ -42,7 +42,7 @@ parseBindings(bindings)
 ```
 
 **关键特性**：
-- 使用 Oxc AST 解析器进行精确的语法分析
+- 使用 Babel AST 解析器进行精确的语法分析
 - 自动过滤字符串字面量中的标识符
 - 只提取成员访问表达式的根对象（如 `item.name` 只提取 `item`）
 - 智能识别并跳过 JavaScript 关键字和全局对象（如 `Math`、`Array`）
@@ -265,8 +265,8 @@ if (changedKey.startsWith(dep + '.') || changedKey.startsWith(dep + '[')) {
 
 ## 实现亮点
 
-### 1. 基于 Oxc AST 的精确依赖提取
-- 使用 `oxc-parser` 和 `oxc-walker` 进行完整的语法树分析
+### 1. 基于 Babel AST 的精确依赖提取
+- 使用 `@babel/core` 和 `@babel/traverse` 进行完整的语法树分析
 - 自动过滤字符串字面量中的标识符
 - 只提取成员访问的根对象
 - 智能识别 JavaScript 关键字和全局对象

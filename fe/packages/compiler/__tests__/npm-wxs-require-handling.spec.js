@@ -2,120 +2,92 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
-import { parseSync } from 'oxc-parser'
-import { walk } from 'oxc-walker'
-import MagicString from 'magic-string'
+import babel from '@babel/core'
+import _traverse from '@babel/traverse'
+import types from '@babel/types'
+
+// https://github.com/babel/babel/issues/13855
+const traverse = _traverse.default ? _traverse.default : _traverse
 
 // 模拟 transTagWxs 函数中处理 wxs 内部 require 的逻辑
 function mockProcessWxsRequires(wxsContent, wxsFilePath, filePath, workPath) {
 	const scriptModule = []
 	
-	const wxsAst = parseSync(wxsFilePath, wxsContent, { sourceType: 'module' })
-	const s = new MagicString(wxsContent)
-	const transforms = []
-	
-	walk(wxsAst.program, {
-		enter(node) {
-			if (node.type === 'CallExpression' && node.callee.type === 'Identifier') {
-				// getRegExp -> new RegExp, getDate -> new Date
-				if (node.callee.name === 'getRegExp' || node.callee.name === 'getDate') {
-					const argsCode = node.arguments.map(arg => 
-						wxsContent.slice(arg.start, arg.end)
-					).join(', ')
-					
-					const className = node.callee.name.substring(3) // 'RegExp' or 'Date'
-					transforms.push({
-						start: node.start,
-						end: node.end,
-						replacement: `new ${className}(${argsCode})`
-					})
+	const wxsAst = babel.parseSync(wxsContent)
+	traverse(wxsAst, {
+		CallExpression(astPath) {
+			// getRegExp -> new RegExp, getDate -> new Date
+			if (astPath.node.callee.name === 'getRegExp' || astPath.node.callee.name === 'getDate') {
+				const args = []
+				for (let i = 0; i < astPath.node.arguments.length; i++) {
+					args.push(astPath.node.arguments[i])
 				}
-				// 处理 wxs 文件内部的 require 调用
-				else if (node.callee.name === 'require' && node.arguments.length > 0) {
-					const firstArg = node.arguments[0]
-					if (firstArg.type === 'Literal' && typeof firstArg.value === 'string') {
-						const requirePath = firstArg.value
+				// 创建新的 NewExpression 节点
+				const newExpr = types.newExpression(types.identifier(astPath.node.callee.name.substring(3)), args)
+				// 替换原来的 CallExpression 节点
+				astPath.replaceWith(newExpr)
+			}
+			// 处理 wxs 文件内部的 require 调用
+			else if (astPath.node.callee.name === 'require' && astPath.node.arguments.length > 0) {
+				const requirePath = astPath.node.arguments[0].value
+				if (requirePath && typeof requirePath === 'string') {
+					// 解析 wxs 内部的相对路径 require
+					let resolvedWxsPath
+					
+					if (filePath.includes('/miniprogram_npm/')) {
+						// 对于 npm 组件中的 wxs，需要特殊处理相对路径
+						const currentWxsDir = path.dirname(wxsFilePath)
+						resolvedWxsPath = path.resolve(currentWxsDir, requirePath)
 						
-						if (requirePath) {
-							// 解析 wxs 内部的相对路径 require
-							let resolvedWxsPath
-							
-							if (filePath.includes('/miniprogram_npm/')) {
-								// 对于 npm 组件中的 wxs，需要特殊处理相对路径
-								const currentWxsDir = path.dirname(wxsFilePath)
-								resolvedWxsPath = path.resolve(currentWxsDir, requirePath)
+						// 转换为相对于工作目录的路径，并移除 .wxs 扩展名
+						const relativePath = resolvedWxsPath.replace(workPath, '').replace(/\.wxs$/, '')
+						
+						// 生成唯一的模块名（移除特殊字符）
+						const moduleName = relativePath.replace(/[\/\\@\-]/g, '_').replace(/^_/, '')
+						
+						// 将依赖的 wxs 文件也加入到 scriptModule 中
+						if (fs.existsSync(resolvedWxsPath)) {
+							const depWxsContent = fs.readFileSync(resolvedWxsPath, 'utf-8').trim()
+							if (depWxsContent && !scriptModule.find(sm => sm.path === moduleName)) {
+								// 递归处理依赖的 wxs 文件
+								const depWxsAst = babel.parseSync(depWxsContent)
 								
-								// 转换为相对于工作目录的路径，并移除 .wxs 扩展名
-								const relativePath = resolvedWxsPath.replace(workPath, '').replace(/\.wxs$/, '')
-								
-								// 生成唯一的模块名（移除特殊字符）
-								const moduleName = relativePath.replace(/[\/\\@\-]/g, '_').replace(/^_/, '')
-								
-								// 将依赖的 wxs 文件也加入到 scriptModule 中
-								if (fs.existsSync(resolvedWxsPath)) {
-									const depWxsContent = fs.readFileSync(resolvedWxsPath, 'utf-8').trim()
-									if (depWxsContent && !scriptModule.find(sm => sm.path === moduleName)) {
-										// 递归处理依赖的 wxs 文件
-										const depWxsAst = parseSync(resolvedWxsPath, depWxsContent, { sourceType: 'module' })
-										const depS = new MagicString(depWxsContent)
-										const depTransforms = []
-										
-										// 对依赖文件也进行 getRegExp/getDate 转换
-										walk(depWxsAst.program, {
-											enter(depNode) {
-												if (depNode.type === 'CallExpression' && depNode.callee.type === 'Identifier') {
-													if (depNode.callee.name === 'getRegExp' || depNode.callee.name === 'getDate') {
-														const depArgsCode = depNode.arguments.map(arg => 
-															depWxsContent.slice(arg.start, arg.end)
-														).join(', ')
-														
-														const depClassName = depNode.callee.name.substring(3)
-														depTransforms.push({
-															start: depNode.start,
-															end: depNode.end,
-															replacement: `new ${depClassName}(${depArgsCode})`
-														})
-													}
-												}
+								// 对依赖文件也进行 getRegExp/getDate 转换
+								traverse(depWxsAst, {
+									CallExpression(depAstPath) {
+										if (depAstPath.node.callee.name === 'getRegExp' || depAstPath.node.callee.name === 'getDate') {
+											const depArgs = []
+											for (let i = 0; i < depAstPath.node.arguments.length; i++) {
+												depArgs.push(depAstPath.node.arguments[i])
 											}
-										})
-										
-										// 应用转换
-										depTransforms.sort((a, b) => b.start - a.start)
-										for (const t of depTransforms) {
-											depS.overwrite(t.start, t.end, t.replacement)
+											const depNewExpr = types.newExpression(types.identifier(depAstPath.node.callee.name.substring(3)), depArgs)
+											depAstPath.replaceWith(depNewExpr)
 										}
-										
-										const depWxsCode = depS.toString()
-										
-										scriptModule.push({
-											path: moduleName,
-											code: depWxsCode,
-										})
 									}
-								}
+								})
 								
-								// 替换 require 路径
-								transforms.push({
-									start: firstArg.start,
-									end: firstArg.end,
-									replacement: `"${moduleName}"`
+								const depWxsCode = babel.transformFromAstSync(depWxsAst, '', {
+									comments: false,
+								}).code
+								
+								scriptModule.push({
+									path: moduleName,
+									code: depWxsCode,
 								})
 							}
 						}
+						
+						// 替换 require 路径
+						astPath.node.arguments[0] = types.stringLiteral(moduleName)
 					}
 				}
 			}
-		}
+		},
 	})
 	
-	// 应用转换（从后往前避免位置偏移）
-	transforms.sort((a, b) => b.start - a.start)
-	for (const t of transforms) {
-		s.overwrite(t.start, t.end, t.replacement)
-	}
-	
-	const transformedCode = s.toString()
+	const transformedCode = babel.transformFromAstSync(wxsAst, '', {
+		comments: false,
+	}).code
 	
 	return {
 		transformedCode,
