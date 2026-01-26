@@ -85,3 +85,9 @@ pnpm generate:sdk
 ### dmcc 编译工具
 
 请参考[编译工具使用说明](./packages/compiler/README.md)。
+
+
+
+## 编译导出sdk
+pnpm build:dev
+pnpm generate:sdk

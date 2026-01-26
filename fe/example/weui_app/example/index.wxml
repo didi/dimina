@@ -17,6 +17,11 @@
 </view>
 
 
+<view class="nav-section">
+  <button class="nav-btn" bindtap="testapi">
+    <text class="nav-btn-text">🚀 测试</text>
+  </button>
+</view>
 
 
 

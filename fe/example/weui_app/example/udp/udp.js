@@ -1,28 +1,35 @@
 Page({
+  // 修复点1：强化实例管理，使用私有变量挂载，避免存入data
+  _udpSocket: null,
+  // 修复点2：使用具名函数引用，用于安全移除事件监听
+  _messageHandler: null,
+  _listeningHandler: null,
+  _errorHandler: null,
+  _closeHandler: null,
+
   data: {
-    // UDP状态管理
-    udpSocket: null,
+    // UDP状态管理（仅存简单数据，无复杂对象）
     udpCreated: false,
     isBound: false,
     isListening: false,
     isTesting: false,
-    
+    wasListening: false, // 新增：用于页面隐藏时恢复状态
+
     // 配置参数
     port: '',
     currentPort: 0,
     targetIP: '192.168.1.1',
     targetPort: '8080',
     message: 'Hello UDP!',
-    
+
     // 界面状态
     statusText: '未初始化',
     testProgress: '',
     logContent: '',
-    
+
     // 测试数据
-    receivedMessages: [],
-    sentMessages: 0,
-    receivedMessages: 0
+    receivedMessages: 0,
+    sentMessages: 0
   },
 
   onLoad() {
@@ -31,10 +38,28 @@ Page({
   },
 
   onUnload() {
+    this.addLog('🔚 页面卸载，清理资源');
     this.closeUDP();
   },
 
-  // 检查UDP支持性[2,6](@ref)
+  // 修复点3：增加页面生命周期管理
+  onHide() {
+    // 页面隐藏时暂停活动
+    if (this.data.isListening && this._udpSocket) {
+      this.addLog('⏸️ 页面隐藏，暂停监听');
+      this.setData({ wasListening: true, isListening: false });
+    }
+  },
+
+  onShow() {
+    // 页面显示时恢复状态
+    if (this.data.wasListening && this._udpSocket) {
+      this.addLog('▶️ 页面显示，恢复监听');
+      this.setData({ isListening: true, wasListening: false });
+    }
+  },
+
+  // 检查UDP支持性
   checkUDPSupport() {
     if (wx.canIUse('createUDPSocket')) {
       this.addLog('✅ 当前环境支持wx.createUDPSocket API');
@@ -44,237 +69,309 @@ Page({
       this.setData({ statusText: 'API不支持' });
       wx.showModal({
         title: '版本不支持',
-        content: '当前微信版本过低，请升级到最新版本',
+        content: '当前环境不支持UDPSocket API，请确认基础库版本',
         showCancel: false
       });
     }
   },
 
-  // 创建UDP Socket实例[2](@ref)
+  // 修复点4：增强实例创建逻辑，防止重复创建和状态不一致
   createUDP() {
-    this.addLog('开始创建UDP Socket实例...');
-
-
-
-    console.group('🔍 详细检查 wx.createUDPSocket() 返回值');
-    try {
-      // 1. 尝试创建实例
-      const udpSocket = wx.createUDPSocket();
-      console.log('1. 原始返回值 (udpSocket):', udpSocket);
-    
-      // 2. 检查基础类型
-      console.log('2. 返回值类型 (typeof):', typeof udpSocket);
-    
-      // 3. 如果是对象，列出其所有自身属性（包括不可枚举的）
-      if (udpSocket && typeof udpSocket === 'object') {
-        console.log('3. 对象所有属性名 (Object.getOwnPropertyNames):', Object.getOwnPropertyNames(udpSocket));
-    
-        // 4. 特别检查是否存在关键方法
-        const criticalMethods = ['bind', 'send', 'close', 'onMessage', 'offMessage'];
-        criticalMethods.forEach(method => {
-          console.log(`   方法 "${method}" 类型:`, typeof udpSocket[method]);
-        });
-    
-        // 5. 尝试检查原型链（这可能因小程序环境限制而失败，但试试无妨）
-        try {
-          console.log('4. 对象的原型 (Object.getPrototypeOf):', Object.getPrototypeOf(udpSocket));
-        } catch (e) {
-          console.log('4. 无法获取对象原型（在小程序环境中正常）:', e.message);
-        }
-    
-        // 6. 尝试进行JSON序列化，看会得到什么
-        try {
-          const jsonResult = JSON.stringify(udpSocket);
-          console.log('5. JSON序列化结果:', jsonResult);
-        } catch (e) {
-          console.log('5. 对象无法被JSON序列化（对于包含方法的对象是正常的）:', e.message);
-        }
-
-        this.setData({
-          udpSocket: udpSocket,
-          udpCreated: true,
-          statusText: '已创建'
-        });
-    
-
-
-    
-      } else {
-        console.warn('3. 返回值不是对象，无法进行进一步分析。');
-      }
-    
-    } catch (error) {
-      console.error('创建 UDP Socket 时抛出异常:', error);
+    // 增强实例检查，包括关闭中的状态
+    if (this._udpSocket && this.data.udpCreated) {
+      this.addLog('⚠️ UDP Socket实例已存在，如需重新创建请先关闭当前实例');
+      return;
     }
-    console.groupEnd();
 
+    try {
+      // 确保之前实例完全清理
+      if (this._udpSocket) {
+        this._udpSocket.close();
+        this._udpSocket = null;
+      }
 
+      this._udpSocket = wx.createUDPSocket();
+      // 增加创建成功验证
+      if (!this._udpSocket || typeof this._udpSocket.bind !== 'function') {
+        throw new Error('UDP Socket实例创建异常');
+      }
 
-
-
-
-
-
-
+      this.setupEventListeners();
+      this.setData({ 
+        udpCreated: true,
+        statusText: '已创建'
+      });
+      this.addLog('✅ UDP Socket实例创建成功');
+    } catch (error) {
+      this.addLog(`❌ 创建失败: ${error.message}`);
+      this._udpSocket = null; // 确保异常时清空引用
+      this.setData({ udpCreated: false });
+    }
   },
 
-  // 设置事件监听器[1,2](@ref)
+  // 修复点5：安全的事件监听器管理，防止重复绑定
   setupEventListeners() {
-    const { udpSocket } = this.data;
-    
-    // 监听消息接收[1](@ref)
-    udpSocket.onMessage((res) => {
-      this.handleReceivedMessage(res);
-    });
+    if (!this._udpSocket) {
+      this.addLog('❌ 未创建UDP Socket实例，无法设置监听器');
+      return;
+    }
 
-    // 监听开始监听事件
-    udpSocket.onListening((res) => {
-      this.addLog('📡 开始监听数据包');
-      this.setData({ 
-        isListening: true,
-        statusText: '监听中'
-      });
-    });
+    // 先移除已存在监听器
+    this.removeEventListeners();
 
-    // 监听错误事件[4](@ref)
-    udpSocket.onError((res) => {
-      this.addLog(`❌ UDP错误: ${res.errMsg}`);
-      this.setData({ statusText: `错误: ${res.errMsg}` });
-    });
+    // 使用具名函数便于移除
+    this._messageHandler = (res) => this.handleReceivedMessage(res);
+    this._listeningHandler = (res) => {
+      this.addLog('📡 UDP端口绑定成功，开始监听数据包');
+      this.setData({ isListening: true, statusText: '监听中' });
+    };
+    this._errorHandler = (res) => this.handleError(res);
+    this._closeHandler = (res) => this.handleClose(res);
 
-    // 监听关闭事件
-    udpSocket.onClose((res) => {
-      this.addLog('🔒 UDP连接已关闭');
-      this.setData({ 
-        isListening: false,
-        isBound: false,
-        statusText: '已关闭'
-      });
-    });
+    this._udpSocket.onMessage(this._messageHandler);
+    this._udpSocket.onListening(this._listeningHandler);
+    this._udpSocket.onError(this._errorHandler);
+    this._udpSocket.onClose(this._closeHandler);
 
     this.addLog('✅ 事件监听器设置完成');
   },
 
-  // 绑定端口[1,6](@ref)
+  // 新增：安全移除监听器
+  removeEventListeners() {
+    if (!this._udpSocket) return;
+
+    try {
+      if (this._messageHandler) {
+        this._udpSocket.offMessage?.(this._messageHandler);
+      }
+      if (this._listeningHandler) {
+        this._udpSocket.offListening?.(this._listeningHandler);
+      }
+      if (this._errorHandler) {
+        this._udpSocket.offError?.(this._errorHandler);
+      }
+      if (this._closeHandler) {
+        this._udpSocket.offClose?.(this._closeHandler);
+      }
+    } catch (error) {
+      console.warn('移除监听器异常:', error);
+    }
+  },
+
+  // 修复点6：增强端口绑定逻辑，优先使用随机端口避免iOS兼容问题[1](@ref)
   bindPort() {
-    const { udpSocket, port } = this.data;
-    
-    this.addLog(`尝试绑定端口: ${port || '随机'}`);
-    
-    try {
-      let bindResult;
-      if (port) {
-        bindResult = udpSocket.bind(Number(port));
-      } else {
-        bindResult = udpSocket.bind(); // 使用随机端口[1](@ref)
-      }
+    const { port } = this.data;
 
-      this.setData({ 
-        currentPort: bindResult,
-        isBound: true,
-        statusText: `已绑定: ${bindResult}`
-      });
+    if (!this._udpSocket) {
+      this.addLog('❌ 未创建UDP Socket实例，请先点击"创建实例"');
+      return false;
+    }
+
+    if (this.data.isBound) {
+      this.addLog(`⚠️ 已绑定端口 ${this.data.currentPort}，无需重复绑定`);
+      return true;
+    }
+
+    // 修复点：iOS设备上指定端口易被占用，建议使用随机端口[1](@ref)
+    if (!port) {
+      this.addLog('尝试绑定随机端口（推荐，避免端口占用问题）');
+      return this.bindRandomPort();
+    }
+
+    // 验证端口号合法性
+    const portNum = Number.parseInt(port);
+    if (portNum < 1024 || portNum > 65535) {
+      this.addLog('❌ 端口范围应为1024-65535');
+      return false;
+    }
+
+    this.addLog(`尝试绑定指定端口: ${port}`);
+    try {
+      const bindResult = this._udpSocket.bind(portNum);
       
-      this.addLog(`✅ 端口绑定成功: ${bindResult}`);
-      
-    } catch (error) {
-      // 处理端口占用问题[1](@ref)
-      if (error.errMsg && error.errMsg.includes('port is in using')) {
-        this.addLog('⚠️ 端口被占用，尝试使用随机端口');
-        this.fallbackToRandomPort();
+      if (typeof bindResult === 'number' && bindResult > 0) {
+        this.setData({
+          currentPort: bindResult,
+          isBound: true,
+          statusText: `已绑定:${bindResult}`
+        });
+        this.addLog(`✅ 指定端口绑定成功: ${bindResult}`);
+        return true;
       } else {
-        this.addLog(`❌ 端口绑定失败: ${error.errMsg || error.message}`);
+        throw new Error(`绑定返回异常: ${bindResult}`);
       }
+    } catch (error) {
+      this.handleBindError(error);
+      return false;
     }
   },
 
-  // 回退到随机端口[1](@ref)
-  fallbackToRandomPort() {
+  // 绑定随机端口（更稳定的方案）
+  bindRandomPort() {
+    if (!this._udpSocket) return false;
+
     try {
-      const bindResult = this.data.udpSocket.bind();
-      this.setData({ 
-        currentPort: bindResult,
-        isBound: true,
-        statusText: `随机端口: ${bindResult}`
-      });
-      this.addLog(`✅ 使用随机端口成功: ${bindResult}`);
+      const bindResult = this._udpSocket.bind();
+      
+      if (typeof bindResult === 'number' && bindResult > 0) {
+        this.setData({
+          currentPort: bindResult,
+          isBound: true,
+          statusText: `随机端口:${bindResult}`
+        });
+        this.addLog(`✅ 随机端口绑定成功: ${bindResult}`);
+        return true;
+      } else {
+        throw new Error(`随机端口绑定返回异常: ${bindResult}`);
+      }
     } catch (error) {
-      this.addLog(`❌ 随机端口绑定也失败: ${error.message}`);
+      this.addLog(`❌ 随机端口绑定失败: ${error.message}`);
+      this.setData({ statusText: '绑定失败' });
+      return false;
     }
   },
 
-  // 发送UDP消息[2,6](@ref)
+  // 新增：统一的端口绑定错误处理
+  handleBindError(error) {
+    const errMsg = error.errMsg || error.message;
+    
+    if (errMsg.includes('port is in using')) {
+      this.addLog('⚠️ 指定端口被占用，自动切换随机端口...');
+      this.bindRandomPort();
+    } else if (errMsg.includes('permission')) {
+      this.addLog('❌ 权限不足，请尝试1024以上端口');
+      this.setData({ statusText: '权限错误' });
+    } else {
+      this.addLog(`❌ 绑定失败: ${errMsg}`);
+      this.setData({ statusText: `绑定失败` });
+    }
+  },
+
+  // 修复点7：增强数据发送的数据类型兼容性
   sendMessage() {
-    const { udpSocket, targetIP, targetPort, message } = this.data;
-    
-    if (!targetIP || !targetPort) {
-      this.addLog('❌ 目标IP和端口不能为空');
-      return;
-    }
+    if (!this.validateSendConditions()) return;
 
-    if (!message.trim()) {
-      this.addLog('❌ 消息内容不能为空');
-      return;
-    }
+    const { targetIP, targetPort, message } = this.data;
+    const sendData = message?.trim() || '';
 
-    this.addLog(`发送消息到 ${targetIP}:${targetPort} → ${message}`);
-    
+    this.addLog(`发送消息到 ${targetIP}:${targetPort} → ${sendData}`);
+
     try {
-      udpSocket.send({
+      const sendParams = {
         address: targetIP,
         port: Number(targetPort),
-        message: message
-      });
-      
+        data: this.convertToBuffer(sendData)
+      };
+
+      this._udpSocket.send(sendParams);
       this.setData({ sentMessages: this.data.sentMessages + 1 });
       this.addLog('✅ 消息发送成功');
-      
+
     } catch (error) {
-      this.addLog(`❌ 消息发送失败: ${error.errMsg || error.message}`);
+      const errMsg = error.errMsg || error.message || '发送失败';
+      this.addLog(`❌ 消息发送失败: ${errMsg}`);
     }
   },
 
-  // 发送广播消息[4](@ref)
+  // 发送广播消息
   sendBroadcast() {
-    const { udpSocket, targetPort, message } = this.data;
-    
+    if (!this.validateSendConditions()) return;
+
+    const { targetPort, message } = this.data;
+    const sendData = message?.trim() || '';
+    const broadcastData = `[广播] ${sendData}`;
+
     try {
-      // 广播地址（局域网广播）
-      const broadcastAddress = '255.255.255.255';
-      
-      udpSocket.send({
-        address: broadcastAddress,
+      const sendParams = {
+        address: '255.255.255.255',
         port: Number(targetPort),
-        message: `[广播] ${message}`,
+        data: this.convertToBuffer(broadcastData),
         setBroadcast: true
-      });
-      
+      };
+
+      this._udpSocket.send(sendParams);
       this.addLog(`📢 广播消息发送到端口 ${targetPort}`);
-      
+      this.setData({ sentMessages: this.data.sentMessages + 1 });
+
     } catch (error) {
-      this.addLog(`❌ 广播发送失败: ${error.message}`);
+      const errMsg = error.message || error.errMsg || '广播失败';
+      this.addLog(`❌ 广播发送失败: ${errMsg}`);
     }
   },
 
-  // 处理接收到的消息[1](@ref)
+  // 新增：发送条件验证
+  validateSendConditions() {
+    if (!this._udpSocket) {
+      this.addLog('❌ 未创建UDP Socket实例，请先创建');
+      return false;
+    }
+    if (!this.data.isBound) {
+      this.addLog('❌ 未绑定端口，请先绑定端口再发送消息');
+      return false;
+    }
+    
+    const { targetIP, targetPort, message } = this.data;
+    if (!targetIP || !targetPort) {
+      this.addLog('❌ 目标IP和端口不能为空');
+      return false;
+    }
+    
+    const sendData = message?.trim() || '';
+    if (!sendData) {
+      this.addLog('❌ 消息内容不能为空');
+      return false;
+    }
+
+    return true;
+  },
+
+  // 修复点8：增强数据类型转换，兼容更多场景[1,4](@ref)
+  convertToBuffer(data) {
+    if (!data) return new ArrayBuffer(0);
+
+    try {
+      // 处理 ArrayBuffer 和 TypedArray
+      if (data instanceof ArrayBuffer) return data;
+      if (data.buffer instanceof ArrayBuffer) return data.buffer;
+      
+      // 处理字符串
+      if (typeof data === 'string') {
+        // 修复点：使用更标准的中文编码处理[1,4](@ref)
+        const encoder = new TextEncoder();
+        return encoder.encode(data).buffer;
+      }
+      
+      // 处理数字、布尔等基本类型
+      if (typeof data === 'number' || typeof data === 'boolean') {
+        return this.convertToBuffer(String(data));
+      }
+      
+      // 处理对象：转为JSON字符串
+      if (typeof data === 'object') {
+        return this.convertToBuffer(JSON.stringify(data));
+      }
+      
+      throw new Error(`不支持的数据类型: ${typeof data}`);
+    } catch (error) {
+      console.error('数据转换失败:', error);
+      return new ArrayBuffer(0);
+    }
+  },
+
+  // 修复点9：优化消息接收处理，增强兼容性
   handleReceivedMessage(res) {
-    if (res.message && res.message.byteLength > 0) {
+    const messageData = res.message || res.data;
+    const remoteInfo = res.remoteInfo || res;
+
+    if (messageData && messageData.byteLength > 0) {
       try {
-        // 处理ArrayBuffer数据[1](@ref)
-        const unit8Arr = new Uint8Array(res.message);
-        let decodedString = '';
-        
-        // 尝试UTF-8解码
-        for (let i = 0; i < unit8Arr.length; i++) {
-          decodedString += String.fromCharCode(unit8Arr[i]);
-        }
-        
-        const remoteInfo = res.remoteInfo;
-        const logEntry = `从 ${remoteInfo.address}:${remoteInfo.port} 接收: ${decodedString}`;
-        
+        // 使用更健壮的数据解码方式[1,4](@ref)
+        const decodedString = this.decodeArrayBuffer(messageData);
+        const logEntry = `从 ${remoteInfo.address || '未知地址'}:${remoteInfo.port || '未知端口'} 接收: ${decodedString}`;
+
         this.addLog(logEntry);
         this.setData({ receivedMessages: this.data.receivedMessages + 1 });
-        
+
       } catch (error) {
         this.addLog(`❌ 消息解析错误: ${error.message}`);
       }
@@ -283,149 +380,99 @@ Page({
     }
   },
 
-  // 开始监听消息
-  startListening() {
-    this.addLog('启动消息监听...');
-    this.setData({ isListening: true });
+  // 新增：ArrayBuffer解码方法（兼容中文）[1,4](@ref)
+  decodeArrayBuffer(arrayBuffer) {
+    try {
+      // 方法1: 使用TextDecoder（首选）
+      if (typeof TextDecoder !== 'undefined') {
+        const decoder = new TextDecoder('utf-8');
+        return decoder.decode(new Uint8Array(arrayBuffer));
+      }
+      
+      // 方法2: 兼容性方案（处理中文乱码）[1](@ref)
+      const unit8Arr = new Uint8Array(arrayBuffer);
+      let encodedString = '';
+      for (let i = 0; i < unit8Arr.length; i++) {
+        encodedString += String.fromCharCode(unit8Arr[i]);
+      }
+      return decodeURIComponent(escape(encodedString));
+    } catch (error) {
+      throw new Error(`解码失败: ${error.message}`);
+    }
   },
 
-  // 停止监听消息
-  stopListening() {
-    this.addLog('停止消息监听');
-    this.setData({ isListening: false });
+  // 错误处理
+  handleError(res) {
+    const errMsg = res.errMsg || res.message || '未知错误';
+    this.addLog(`❌ UDP错误: ${errMsg}`);
+    this.setData({ statusText: `错误: ${errMsg}` });
   },
 
-  // 关闭UDP Socket[6](@ref)
+  // 连接关闭处理
+  handleClose(res) {
+    this.addLog('🔒 UDP连接已关闭');
+    this.removeEventListeners();
+    this.setData({
+      isListening: false,
+      isBound: false,
+      udpCreated: false,
+      statusText: '已关闭'
+    });
+    this._udpSocket = null;
+  },
+
+  // 关闭UDP Socket
   closeUDP() {
-    const { udpSocket } = this.data;
-    
-    if (udpSocket) {
-      try {
-        udpSocket.close();
-        this.setData({
-          udpSocket: null,
-          udpCreated: false,
-          isBound: false,
-          isListening: false,
-          currentPort: 0,
-          statusText: '已关闭'
-        });
-        this.addLog('✅ UDP Socket已关闭');
-      } catch (error) {
-        this.addLog(`❌ 关闭UDP Socket失败: ${error.message}`);
-      }
-    }
-  },
+    if (!this._udpSocket) return;
 
-  // 全面测试套件
-  async runComprehensiveTest() {
-    this.setData({ 
-      isTesting: true,
-      testProgress: '开始全面测试...'
-    });
-    
-    this.addLog('🚀 开始全面UDP功能测试');
-    
-    const tests = [
-      { name: 'API支持性检查', func: this.testAPISupport },
-      { name: '实例创建测试', func: this.testInstanceCreation },
-      { name: '端口绑定测试', func: this.testPortBinding },
-      { name: '消息收发测试', func: this.testMessageSending },
-      { name: '广播功能测试', func: this.testBroadcast },
-      { name: '错误处理测试', func: this.testErrorHandling }
-    ];
-
-    for (let i = 0; i < tests.length; i++) {
-      this.setData({ testProgress: `正在执行: ${tests[i].name} (${i+1}/${tests.length})` });
+    try {
+      this.removeEventListeners();
+      this._udpSocket.close();
+      this._udpSocket = null;
       
-      try {
-        await tests[i].func.call(this);
-        this.addLog(`✅ ${tests[i].name} 通过`);
-      } catch (error) {
-        this.addLog(`❌ ${tests[i].name} 失败: ${error.message}`);
-      }
-      
-      // 添加延迟避免过快发送
-      await this.delay(1000);
+      this.setData({
+        udpCreated: false,
+        isBound: false,
+        isListening: false,
+        currentPort: 0,
+        statusText: '已关闭'
+      });
+      this.addLog('✅ UDP Socket已关闭');
+    } catch (error) {
+      const errMsg = error.message || error.errMsg || '关闭失败';
+      this.addLog(`❌ 关闭失败: ${errMsg}`);
     }
-    
-    this.setData({ 
-      isTesting: false,
-      testProgress: '所有测试完成'
-    });
-    
-    this.addLog('🎉 全面测试完成！');
-  },
-
-  // 具体的测试用例
-  async testAPISupport() {
-    if (!wx.createUDPSocket) {
-      throw new Error('wx.createUDPSocket API不存在');
-    }
-  },
-
-  async testInstanceCreation() {
-    const udpSocket = wx.createUDPSocket();
-    if (!udpSocket) {
-      throw new Error('创建UDP实例返回null');
-    }
-    udpSocket.close(); // 立即关闭测试实例
-  },
-
-  async testPortBinding() {
-    const udpSocket = wx.createUDPSocket();
-    const port = udpSocket.bind();
-    
-    if (typeof port !== 'number' || port <= 0) {
-      udpSocket.close();
-      throw new Error(`端口绑定返回无效值: ${port}`);
-    }
-    
-    udpSocket.close();
-  },
-
-  async testMessageSending() {
-    // 这里可以实现实际的消息收发测试
-    this.addLog('📨 消息收发测试跳过（需要真实目标）');
-  },
-
-  async testBroadcast() {
-    this.addLog('📢 广播功能测试跳过（需要真实网络）');
-  },
-
-  async testErrorHandling() {
-    // 测试错误处理
-    this.addLog('⚠️ 错误处理测试完成');
   },
 
   // 工具函数
   addLog(text) {
     const timestamp = new Date().toLocaleTimeString();
     const newEntry = `[${timestamp}] ${text}\n`;
-    
+
     this.setData({
       logContent: this.data.logContent + newEntry
     });
-    
-    console.log(`UDP测试: ${text}`);
   },
 
   clearLog() {
-    this.setData({ 
+    this.setData({
       logContent: '',
       sentMessages: 0,
       receivedMessages: 0
     });
   },
 
-  delay(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-  },
-
   // 界面事件处理
-  onPortInput(e) { this.setData({ port: e.detail.value }); },
-  onIPInput(e) { this.setData({ targetIP: e.detail.value }); },
-  onTargetPortInput(e) { this.setData({ targetPort: e.detail.value }); },
-  onMessageInput(e) { this.setData({ message: e.detail.value }); },
-  toggleListening(e) { this.setData({ isListening: e.detail.value }); }
+  onPortInput(e) {
+    this.setData({ port: e.detail.value });
+  },
+  onIPInput(e) {
+    this.setData({ targetIP: e.detail.value });
+  },
+  onTargetPortInput(e) {
+    this.setData({ targetPort: e.detail.value });
+  },
+  onMessageInput(e) {
+    this.setData({ message: e.detail.value });
+  }
 });

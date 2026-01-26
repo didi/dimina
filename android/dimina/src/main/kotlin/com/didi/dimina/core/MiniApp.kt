@@ -186,7 +186,7 @@ class MiniApp private constructor() {
         // network
         com.didi.dimina.api.network.NetworkApi().registerWith(apiRegistry)
         // ===== 添加UDP API注册 =====
-        com.didi.dimina.api.network.UdpSocketApi().registerWith(apiRegistry)
+        com.didi.dimina.api.udp.UdpApi().registerWith(apiRegistry)
 
         // storage
         StorageApi().registerWith(apiRegistry)

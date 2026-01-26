@@ -61,6 +61,15 @@ Page({
   },
 
 
+  //测试api
+  testapi(){
+
+
+
+    var a = wx.UDP_test(123)
+    console.log('测试 UDP_test 返回',a);
+  },
+
   // 原有的其他方法保持不变
   kindToggle(e) {
     const { id } = e.currentTarget;

@@ -5,7 +5,7 @@ import com.didi.dimina.ui.container.DiminaActivity
 import org.json.JSONObject
 
 /**
- * API Registry to manage all API handlers
+ * API Registry to manage all API handlers API注册表，用于管理所有API处理程序
  * Author: Doslin
  */
 class ApiRegistry {
@@ -13,14 +13,14 @@ class ApiRegistry {
     private val apiHandlers = mutableMapOf<String, ApiHandler>()
 
     /**
-     * Registers an API handler
+     * Registers an API handler 注册API处理程序
      */
     fun register(name: String, handler: ApiHandler) {
         apiHandlers[name] = handler
     }
     
     /**
-     * Invokes an API
+     * Invokes an API 调用API
      * 
      * @param apiName The name of the API to invoke
      * @param params Parameters for the API call
@@ -49,7 +49,7 @@ class ApiRegistry {
     }
     
     /**
-     * Gets a set of all registered API names
+     * Gets a set of all registered API names 获取所有注册的API名称的集合
      * 
      * @return Set of all registered API names
      */

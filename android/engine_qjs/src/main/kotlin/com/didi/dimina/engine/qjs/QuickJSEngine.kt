@@ -147,11 +147,11 @@ class QuickJSEngine {
                             task.completeWithError("Error: ${e.message}")
                         }
                     }
-                    
+
                     // Run the libuv event loop to process timers and I/O
                     // This is non-blocking and will return immediately if no events
                     nativeRunEventLoop(instanceId)
-                    
+
                 } catch (e: InterruptedException) {
                     Log.d(tag, "JavaScript thread interrupted (instance ID: $instanceId)")
                     break
@@ -372,7 +372,7 @@ class QuickJSEngine {
 
     @Suppress("unused")
     fun invokeFromJS(msg: JSONObject) : JSValue? {
-        Log.d(tag, "Received invoke from JavaScript: $msg")
+        Log.d(tag, "从 JavaScript 接收调用 Received invoke from JavaScript: $msg")
         val body = msg.getJSONObject("body")
         val id = body.optString("bridgeId")
         return invokeCallbacks[id]?.invoke(msg)
