@@ -1,6 +1,6 @@
 Page({
   // 修复点1：强化实例管理，使用私有变量挂载，避免存入data
-  _udpSocket: null,
+  udp: null,
   // 修复点2：使用具名函数引用，用于安全移除事件监听
   _messageHandler: null,
   _listeningHandler: null,
@@ -46,7 +46,7 @@ Page({
   // 修复点3：增加页面生命周期管理
   onHide() {
     // 页面隐藏时暂停活动
-    if (this.data.isListening && this._udpSocket) {
+    if (this.data.isListening && this.udp) {
       this.addLog('⏸️ 页面隐藏，暂停监听');
       this.setData({ wasListening: true, isListening: false });
     }
@@ -54,7 +54,7 @@ Page({
 
   onShow() {
     // 页面显示时恢复状态
-    if (this.data.wasListening && this._udpSocket) {
+    if (this.data.wasListening && this.udp) {
       this.addLog('▶️ 页面显示，恢复监听');
       this.setData({ isListening: true, wasListening: false });
     }
@@ -79,21 +79,21 @@ Page({
   // 增强实例创建逻辑，防止重复创建和状态不一致
   createUDP() {
     // 增强实例检查，包括关闭中的状态
-    if (this._udpSocket && this.data.udpCreated) {
+    if (this.udp && this.data.udpCreated) {
       this.addLog('⚠️ UDP Socket实例已存在，如需重新创建请先关闭当前实例');
       return;
     }
 
     try {
       // 确保之前实例完全清理
-      if (this._udpSocket) {
-        this._udpSocket.close();
-        this._udpSocket = null;
+      if (this.udp) {
+        this.udp.close();
+        this.udp = null;
       }
 
-      this._udpSocket = wx.createUDPSocket();
+      this.udp = wx.createUDPSocket();
       // 增加创建成功验证
-      if (!this._udpSocket || typeof this._udpSocket.bind !== 'function') {
+      if (!this.udp || typeof this.udp.bind !== 'function') {
         throw new Error('UDP Socket实例创建异常');
       }
 
@@ -105,14 +105,14 @@ Page({
       this.addLog('✅ UDP Socket实例创建成功');
     } catch (error) {
       this.addLog(`❌ 创建失败: ${error.message}`);
-      this._udpSocket = null; // 确保异常时清空引用
+      this.udp = null; // 确保异常时清空引用
       this.setData({ udpCreated: false });
     }
   },
 
   // 监听消息
   setupEventListeners() {
-    if (!this._udpSocket) {
+    if (!this.udp) {
       this.addLog('❌ 未创建UDP Socket实例，无法设置监听器');
       return;
     }
@@ -129,30 +129,30 @@ Page({
     this._errorHandler = (res) => this.handleError(res);
     this._closeHandler = (res) => this.handleClose(res);
 
-    this._udpSocket.onMessage(this._messageHandler);
-    this._udpSocket.onListening(this._listeningHandler);
-    this._udpSocket.onError(this._errorHandler);
-    this._udpSocket.onClose(this._closeHandler);
+    this.udp.onMessage(this._messageHandler);
+    this.udp.onListening(this._listeningHandler);
+    this.udp.onError(this._errorHandler);
+    this.udp.onClose(this._closeHandler);
 
     this.addLog('✅ 事件监听器设置完成');
   },
 
   // 新增：安全移除监听器
   removeEventListeners() {
-    if (!this._udpSocket) return;
+    if (!this.udp) return;
 
     try {
       if (this._messageHandler) {
-        this._udpSocket.offMessage?.(this._messageHandler);
+        this.udp.offMessage?.(this._messageHandler);
       }
       if (this._listeningHandler) {
-        this._udpSocket.offListening?.(this._listeningHandler);
+        this.udp.offListening?.(this._listeningHandler);
       }
       if (this._errorHandler) {
-        this._udpSocket.offError?.(this._errorHandler);
+        this.udp.offError?.(this._errorHandler);
       }
       if (this._closeHandler) {
-        this._udpSocket.offClose?.(this._closeHandler);
+        this.udp.offClose?.(this._closeHandler);
       }
     } catch (error) {
       console.warn('移除监听器异常:', error);
@@ -163,7 +163,7 @@ Page({
   bindPort() {
     const { port } = this.data;
 
-    if (!this._udpSocket) {
+    if (!this.udp) {
       this.addLog('❌ 未创建UDP Socket实例，请先点击"创建实例"');
       return false;
     }
@@ -179,7 +179,7 @@ Page({
       var bindResult;
       if (!port) {
         this.addLog('尝试绑定随机端口（推荐，避免端口占用问题）');
-         bindResult = this._udpSocket.bind();//绑定随机端口
+         bindResult = this.udp.bind();//绑定随机端口
       }else{
         // 验证端口号合法性
         const portNum = Number.parseInt(port);
@@ -187,7 +187,7 @@ Page({
           this.addLog('❌ 端口范围应为1024-65535');
           return false;
         }
-        bindResult = this._udpSocket.bind(portNum);
+        bindResult = this.udp.bind(portNum);
       }
       if (typeof bindResult === 'number' && bindResult > 0) {
         this.setData({
@@ -231,26 +231,41 @@ Page({
 
     const { targetIP, targetPort, message } = this.data;
     const sendData = message?.trim() || '';
-
     this.addLog(`发送消息到 ${targetIP}:${targetPort} → ${sendData}`);
 
     try {
-      // const sendParams = {
-      //   address: targetIP,
-      //   port: Number(targetPort),
-      //   data: this.convertToBuffer(sendData)
-      // };
-
-      // this._udpSocket.send(sendParams);
-
-      this._udpSocket.send({
+      this.udp.send({
         address: targetIP,
         port: Number(targetPort),
         message: sendData
       })
+
+
+
+      /* 发送 ArrayBuffer类型*/
+      const buffer = new ArrayBuffer(16) // 16字节缓冲区
+      const dataView = new DataView(buffer)
+      // 写入不同类型的数据
+      dataView.setUint8(0, 0x01)        // 协议版本
+      dataView.setUint32(1, Date.now()) // 时间戳
+      dataView.setFloat32(5, 25.5)     // 温度
+      dataView.setFloat32(9, 60.2)      // 湿度
+      dataView.setUint16(13, 1013)     // 气压
+      
+      this.udp.send({
+        address: targetIP,
+        port: Number(targetPort),
+        message: buffer,
+        offset:0,
+        length:buffer.byteLength,
+        setBroadcast:true
+      })
+      /* 发送 ArrayBuffer类型*/
+    
     
 
 
+    
       this.setData({ sentMessages: this.data.sentMessages + 1 });
       this.addLog('✅ 消息发送成功');
 
@@ -268,13 +283,13 @@ Page({
     const sendData = message?.trim() || '';
     const broadcastData = `[广播] ${sendData}`;
     try {
-      this._udpSocket.send({
+      this.udp.send({
         address: '255.255.255.255',
         port: Number(targetPort),
         message: broadcastData
       })
     
-      // this._udpSocket.send(sendParams);
+      // this.udp.send(sendParams);
       this.addLog(`📢 广播消息发送到端口 ${targetPort}`);
       this.setData({ sentMessages: this.data.sentMessages + 1 });
 
@@ -286,7 +301,7 @@ Page({
 
   // 新增：发送条件验证
   validateSendConditions() {
-    if (!this._udpSocket) {
+    if (!this.udp) {
       this.addLog('❌ 未创建UDP Socket实例，请先创建');
       return false;
     }
@@ -404,17 +419,17 @@ Page({
       udpCreated: false,
       statusText: '已关闭'
     });
-    this._udpSocket = null;
+    this.udp = null;
   },
 
   // 关闭UDP Socket
   closeUDP() {
-    if (!this._udpSocket) return;
+    if (!this.udp) return;
 
     try {
       this.removeEventListeners();
-      this._udpSocket.close();
-      this._udpSocket = null;
+      this.udp.close();
+      this.udp = null;
       
       this.setData({
         udpCreated: false,

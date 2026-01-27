@@ -13,6 +13,8 @@ import com.didi.dimina.common.ApiUtils
 import com.didi.dimina.core.MiniApp
 import com.didi.dimina.engine.qjs.JSValue
 import com.didi.dimina.ui.container.DiminaActivity
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.lang.ref.WeakReference
 import java.net.DatagramPacket
@@ -268,6 +270,7 @@ class UdpApi : ApiHandler {
     /**
      * 4. 发送UDP消息（对应微信UDPSocket.send()）- 同步API
      */
+
     private fun sendUDPMessage(
         activity: DiminaActivity,
         appId: String,
@@ -282,6 +285,9 @@ class UdpApi : ApiHandler {
             val targetPort = params.getInt("port")
             val message = params.getString("message")
 
+
+
+
             // 获取Socket实例
             val socketInstance = socketInstances[mid] ?: run {
                 throw IllegalArgumentException("未找到 mid=$mid 的 UDP Socket实例")
@@ -290,23 +296,79 @@ class UdpApi : ApiHandler {
                 throw IllegalStateException("mid=$mid 的 Socket已关闭")
             }
 
+
+            // 处理ArrayBuffer类型（Base64解码，原代码错误地编码了）
+//            val isArrayBuffer = if (params.has("isArrayBuffer")) params.getBoolean("isArrayBuffer") else false
+
+
+            // 处理ArrayBuffer类型
+            val isArrayBuffer = params.optBoolean("isArrayBuffer", false)
+            val setBroadcast = params.optBoolean("setBroadcast", false)
+            val offset = params.optInt("offset", 0)
+            var length = params.optInt("length", 0)
+
+
+
+
+            val dataBytes: ByteArray = if (isArrayBuffer) {
+                // ArrayBuffer场景：前端已将ArrayBuffer转Base64，这里需要解码回字节数组
+                try {
+                    Base64.decode(message, Base64.DEFAULT)
+                } catch (e: IllegalArgumentException) {
+                    throw RuntimeException("Base64解码失败，message不是合法的Base64字符串", e)
+                }
+            } else {
+                // 字符串场景：直接转UTF-8字节数组
+                message.toByteArray(StandardCharsets.UTF_8)
+            }
+
+
+            // 校验偏移量和长度参数
+            if (offset < 0 || offset > dataBytes.size) {
+                throw IllegalStateException("校验偏移量 抄出范围")
+            }
+
+            if (length <= 0) {
+                length = dataBytes.size - offset
+            }
+
+            if (offset + length > dataBytes.size) {
+                throw IllegalStateException("长度参数无效: offset=$offset, length=$length, 数据长度=${dataBytes.size}")
+            }
+
+
+            // 设置广播属性
+//            if (setBroadcast) {
+//                try {
+//                    datagramSocket.broadcast = true // 这里会导致程序卡死
+//                    Log.d(TAG, "设置Socket广播属性: true")
+//                } catch (e: Exception) {
+//                    Log.w(TAG, "设置广播属性失败: ${e.message}")
+//                }
+//            }
+
+            val sendData = if (offset == 0 && length == dataBytes.size) {
+                dataBytes
+            } else {
+                dataBytes.copyOfRange(offset, offset + length)
+            }
+
             // 构建UDP数据包并发送
-            val dataBytes = message.toByteArray(StandardCharsets.UTF_8)
             val inetAddress = InetAddress.getByName(targetAddress)
             val packet = DatagramPacket(
-                dataBytes,
-                dataBytes.size,
+                sendData,
+                sendData.size,
                 inetAddress,
                 targetPort
             )
             datagramSocket.send(packet)
 
-            Log.d(TAG, "UDP消息发送成功: mid=$mid, 目标=$targetAddress:$targetPort, 数据长度=${dataBytes.size}")
+            Log.d(TAG, "UDP消息发送成功: mid=$mid, 目标=$targetAddress:$targetPort, 数据长度=${sendData.size}")
 
             // 构建返回结果
             val resultObj = JSONObject().apply {
                 put("mid", mid)
-                put("sentBytes", dataBytes.size)
+                put("sentBytes", sendData.size)
                 put("errMsg", "$UDP_SEND:ok")
             }
 
