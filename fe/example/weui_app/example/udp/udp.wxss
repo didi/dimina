@@ -18,10 +18,12 @@
   font-size: 32rpx;
 }
 
+
 input, textarea {
   width: 100%;
-  padding: 20rpx;
-  margin: 10rpx 0;
+
+  padding: 0rpx;
+  margin: 15rpx 0;
   border: 1rpx solid #ddd;
   border-radius: 5rpx;
   background: white;

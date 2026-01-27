@@ -16,9 +16,10 @@ Page({
     wasListening: false, // 新增：用于页面隐藏时恢复状态
 
     // 配置参数
-    port: '',
+    port: '7788',//监听
+
     currentPort: 0,
-    targetIP: '192.168.1.1',
+    targetIP: '192.168.8.109',//对方
     targetPort: '8080',
     message: 'Hello UDP!',
 
@@ -75,7 +76,7 @@ Page({
     }
   },
 
-  // 修复点4：增强实例创建逻辑，防止重复创建和状态不一致
+  // 增强实例创建逻辑，防止重复创建和状态不一致
   createUDP() {
     // 增强实例检查，包括关闭中的状态
     if (this._udpSocket && this.data.udpCreated) {
@@ -96,7 +97,7 @@ Page({
         throw new Error('UDP Socket实例创建异常');
       }
 
-      this.setupEventListeners();
+      
       this.setData({ 
         udpCreated: true,
         statusText: '已创建'
@@ -109,7 +110,7 @@ Page({
     }
   },
 
-  // 修复点5：安全的事件监听器管理，防止重复绑定
+  // 监听消息
   setupEventListeners() {
     if (!this._udpSocket) {
       this.addLog('❌ 未创建UDP Socket实例，无法设置监听器');
@@ -158,7 +159,7 @@ Page({
     }
   },
 
-  // 修复点6：增强端口绑定逻辑，优先使用随机端口避免iOS兼容问题[1](@ref)
+  // 端口绑定逻辑
   bindPort() {
     const { port } = this.data;
 
@@ -172,23 +173,22 @@ Page({
       return true;
     }
 
-    // 修复点：iOS设备上指定端口易被占用，建议使用随机端口[1](@ref)
-    if (!port) {
-      this.addLog('尝试绑定随机端口（推荐，避免端口占用问题）');
-      return this.bindRandomPort();
-    }
-
-    // 验证端口号合法性
-    const portNum = Number.parseInt(port);
-    if (portNum < 1024 || portNum > 65535) {
-      this.addLog('❌ 端口范围应为1024-65535');
-      return false;
-    }
-
+ 
     this.addLog(`尝试绑定指定端口: ${port}`);
     try {
-      const bindResult = this._udpSocket.bind(portNum);
-      
+      var bindResult;
+      if (!port) {
+        this.addLog('尝试绑定随机端口（推荐，避免端口占用问题）');
+         bindResult = this._udpSocket.bind();//绑定随机端口
+      }else{
+        // 验证端口号合法性
+        const portNum = Number.parseInt(port);
+        if (portNum < 1024 || portNum > 65535) {
+          this.addLog('❌ 端口范围应为1024-65535');
+          return false;
+        }
+        bindResult = this._udpSocket.bind(portNum);
+      }
       if (typeof bindResult === 'number' && bindResult > 0) {
         this.setData({
           currentPort: bindResult,
@@ -196,6 +196,7 @@ Page({
           statusText: `已绑定:${bindResult}`
         });
         this.addLog(`✅ 指定端口绑定成功: ${bindResult}`);
+        this.setupEventListeners();//监听消息
         return true;
       } else {
         throw new Error(`绑定返回异常: ${bindResult}`);
@@ -204,34 +205,11 @@ Page({
       this.handleBindError(error);
       return false;
     }
+    
   },
 
-  // 绑定随机端口（更稳定的方案）
-  bindRandomPort() {
-    if (!this._udpSocket) return false;
 
-    try {
-      const bindResult = this._udpSocket.bind();
-      
-      if (typeof bindResult === 'number' && bindResult > 0) {
-        this.setData({
-          currentPort: bindResult,
-          isBound: true,
-          statusText: `随机端口:${bindResult}`
-        });
-        this.addLog(`✅ 随机端口绑定成功: ${bindResult}`);
-        return true;
-      } else {
-        throw new Error(`随机端口绑定返回异常: ${bindResult}`);
-      }
-    } catch (error) {
-      this.addLog(`❌ 随机端口绑定失败: ${error.message}`);
-      this.setData({ statusText: '绑定失败' });
-      return false;
-    }
-  },
-
-  // 新增：统一的端口绑定错误处理
+  // 统一的端口绑定错误处理
   handleBindError(error) {
     const errMsg = error.errMsg || error.message;
     
@@ -257,13 +235,22 @@ Page({
     this.addLog(`发送消息到 ${targetIP}:${targetPort} → ${sendData}`);
 
     try {
-      const sendParams = {
+      // const sendParams = {
+      //   address: targetIP,
+      //   port: Number(targetPort),
+      //   data: this.convertToBuffer(sendData)
+      // };
+
+      // this._udpSocket.send(sendParams);
+
+      this._udpSocket.send({
         address: targetIP,
         port: Number(targetPort),
-        data: this.convertToBuffer(sendData)
-      };
+        message: sendData
+      })
+    
 
-      this._udpSocket.send(sendParams);
+
       this.setData({ sentMessages: this.data.sentMessages + 1 });
       this.addLog('✅ 消息发送成功');
 
@@ -280,16 +267,14 @@ Page({
     const { targetPort, message } = this.data;
     const sendData = message?.trim() || '';
     const broadcastData = `[广播] ${sendData}`;
-
     try {
-      const sendParams = {
+      this._udpSocket.send({
         address: '255.255.255.255',
         port: Number(targetPort),
-        data: this.convertToBuffer(broadcastData),
-        setBroadcast: true
-      };
-
-      this._udpSocket.send(sendParams);
+        message: broadcastData
+      })
+    
+      // this._udpSocket.send(sendParams);
       this.addLog(`📢 广播消息发送到端口 ${targetPort}`);
       this.setData({ sentMessages: this.data.sentMessages + 1 });
 
@@ -360,6 +345,7 @@ Page({
 
   // 修复点9：优化消息接收处理，增强兼容性
   handleReceivedMessage(res) {
+    console.log(`【UDP UdpSocketApi】小程序收到消息:`,res);
     const messageData = res.message || res.data;
     const remoteInfo = res.remoteInfo || res;
 
