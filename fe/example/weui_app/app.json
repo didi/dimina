@@ -2,6 +2,7 @@
   "pages": [
     "example/index",
     "example/udp/udp",
+    "api/openminiapp/openminiapp",
 
     "example/button/button",
     "example/button/button_default",
@@ -67,6 +68,10 @@
     "navigationBarBackgroundColor": "#EDEDED",
     "backgroundColor": "#EDEDED"
   },
+  "navigateToMiniProgramAppIdList": [
+    "wxc77007cc301be278",
+    "打开别的小程序"
+  ],
   "networkTimeout": {
     "request": 10000,
     "connectSocket": 10000,

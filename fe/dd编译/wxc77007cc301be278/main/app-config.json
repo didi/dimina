@@ -1,0 +1,20 @@
+{
+    "app": {
+        "pages": [
+            "pages/index/index"
+        ],
+        "window": {
+            "navigationBarTextStyle": "white",
+            "navigationBarTitleText": "ESP32蓝牙配网",
+            "navigationBarBackgroundColor": "#667eea"
+        },
+        "style": "v2",
+        "sitemapLocation": "sitemap.json"
+    },
+    "modules": {
+        "pages/index/index": {
+            "usingComponents": {}
+        }
+    },
+    "projectName": "blufi_wechat"
+}

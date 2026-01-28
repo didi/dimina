@@ -2,26 +2,38 @@
 <view class="page" data-weui-theme="{{theme}}" data-weui-mode="{{mode}}">
   <view class="page__hd">
     <view aria-role="heading" aria-level="1" class="page__title">WeUI</view>
-    <view class="page__desc">7788 是一套同微信原生视觉体验一致的基础样式库，由微信官方设计团队为微信内网页和微信小程序量身设计，令用户的使用感知更加统一。</view>
+    <view class="page__desc">
+
+    </view>
   </view>
 
 
+  <!-- 跳转到UDP示例页面按钮 -->
+  <view class="nav-section">
+    <button class="nav-btn" bindtap="goToUdpExample">
+      <text class="nav-btn-text">🚀 udp</text>
+    </button>
+  </view>
 
-<!-- 在您现有的页面中添加这个按钮，比如在 index.wxml 或测试页面的合适位置 -->
+  <view class="nav-section">
+    <button class="nav-btn" bindtap="goToopenapp">
+      <text class="nav-btn-text">🚀 打开另外一个小程序</text>
+    </button>
+  </view>
 
-<!-- 跳转到UDP示例页面按钮 -->
-<view class="nav-section">
-  <button class="nav-btn" bindtap="goToUdpExample">
-    <text class="nav-btn-text">🚀 跳转到UDP示例页面</text>
-  </button>
-</view>
+  <view class="nav-section">
+    <button class="nav-btn" bindtap="testapi">
+      <text class="nav-btn-text">🚀 测试</text>
+    </button>
+  </view>
+
+<!-- 开关联动 -->
+  <view class="nav-section">
+    <switch checked="{{sw1}}" bindchange="b1" />
+    <switch checked="{{sw2}}" bindchange="b2" />
+  </view>
 
 
-<view class="nav-section">
-  <button class="nav-btn" bindtap="testapi">
-    <text class="nav-btn-text">🚀 测试</text>
-  </button>
-</view>
 
 
 

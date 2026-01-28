@@ -1,7 +1,10 @@
 
 Page({
   mixins: [require('../mixin/common')],
+  TAG:"WEAPI_APP",
   data: {
+    sw1: true,
+    sw2: false,
     list: [
       {
         id: 'form',
@@ -36,6 +39,14 @@ Page({
     ],
 
   },
+  b1(e) {
+    console.log('测试 开关', e);
+    this.setData({
+      sw2: e.detail.value
+    }
+    )
+
+  },
 
   /**
   * 跳转到UDP示例页面
@@ -60,14 +71,47 @@ Page({
     });
   },
 
+  //打开另外一个小程序
+  goToopenapp() {
+    // 方式1: 使用navigateTo跳转（推荐，保留当前页面）
+    wx.navigateTo({
+      url: '/api/openminiapp/openminiapp',
+      success: (res) => {
+        console.log('跳转成功', res);
+      },
+      fail: (err) => {
+        console.error('跳转失败', err);
+        this.fallbackToUdpPage();
+      }
+    });
+  },
+
 
   //测试api
-  testapi(){
+  testapi() {
 
 
 
     var a = wx.UDP_test(123)
-    console.log('测试 UDP_test 返回',a);
+    console.log('测试 UDP_test 返回', a);
+  },
+  onLoad() {
+    console.log('设置背景颜色');
+    wx.setNavigationBarColor({
+      frontColor: '#ffffff',       // 文字和按钮颜色（白色）
+      backgroundColor: '#ff0000',  // 背景颜色（红色）
+      animation: {                 // 可选：颜色切换动画
+        duration: 400,             // 动画时长（毫秒）
+        timingFunc: 'easeIn'
+      },
+      success() {
+        console.log('导航栏颜色设置成功');
+      },
+      fail(err) {
+        console.error('设置失败', err);
+      }
+    });
+
   },
 
   // 原有的其他方法保持不变

@@ -6,6 +6,7 @@ import android.animation.ValueAnimator
 import android.content.Context
 import android.content.Intent
 import android.content.res.Resources
+import android.graphics.Color as AndroidColor // 区分原生Color和Compose Color
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
@@ -52,7 +53,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Color // Compose Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -135,7 +136,7 @@ class DiminaActivity : ComponentActivity() {
     private lateinit var contactPicker: ContactPicker
 
     private var imageChooseCallback: ((List<String>) -> Unit)? = null
-    
+
     private var adjustBottom = 0.0
 
     // 屏幕高度
@@ -230,7 +231,10 @@ class DiminaActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        
+
+        // ========== 关键修改1：配置窗口属性，让布局延伸到状态栏并透明 ==========
+        setupImmersiveStatusBar()
+
         // 获取屏幕高度
         screenHeight = resources.displayMetrics.heightPixels
 
@@ -301,6 +305,40 @@ class DiminaActivity : ComponentActivity() {
         }
     }
 
+    // ========== 关键新增方法：设置沉浸式状态栏 ==========
+    /**
+     * 配置沉浸式状态栏，让布局延伸到状态栏区域并设置透明
+     */
+    private fun setupImmersiveStatusBar() {
+        window.apply {
+            // 1. 让布局延伸到状态栏/导航栏区域
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                setDecorFitsSystemWindows(false)
+            } else {
+                @Suppress("DEPRECATION")
+                decorView.systemUiVisibility = decorView.systemUiVisibility or
+                        View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
+                        View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+            }
+
+            // 2. 状态栏设置为完全透明，消除白色背景（改用原生Android Color）
+            statusBarColor = AndroidColor.TRANSPARENT
+
+            // 3. 导航栏保持默认（如需透明可添加：navigationBarColor = AndroidColor.TRANSPARENT）
+        }
+
+        // 处理布局Insets，确保自定义导航栏时内容正确延伸
+        ViewCompat.setOnApplyWindowInsetsListener(window.decorView) { view, insets ->
+            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            // 自定义导航栏时，移除状态栏的top padding，让WebView延伸到状态栏
+            if (showNavigationBar.value.not()) {
+                view.setPadding(systemBars.left, 0, systemBars.right, systemBars.bottom)
+            } else {
+                view.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
+            }
+            insets
+        }
+    }
 
     /**
      * Create and initialize the QuickJS engine after UI setup
@@ -319,7 +357,7 @@ class DiminaActivity : ComponentActivity() {
                     val localVersion = VersionUtils.getAppVersion(appId)
                     val isDebugMode = Dimina.getInstance().isDebugMode()
                     val appVersionUpdated = VersionUtils.isAppVersionUpdated(this@DiminaActivity)
-                    
+
                     when {
                         isDebugMode -> {
                             // 调试模式：版本号大于本地版本就解压
@@ -403,8 +441,6 @@ class DiminaActivity : ComponentActivity() {
                 }
             }
         }
-
-
     }
 
     private fun createBridge(options: BridgeOptions): Bridge {
@@ -414,21 +450,26 @@ class DiminaActivity : ComponentActivity() {
         return bridge
     }
 
-
+    // ========== 关键修改2：优化setInitialStyle，移除不存在的statusBarTextStyle ==========
     private fun setInitialStyle(config: MergedPageConfig) {
         // Set navigation bar visibility based on navigationStyle
-        showNavigationBar.value = config.navigationStyle != "custom"
+        val isCustomNavBar = config.navigationStyle == "custom"
+        showNavigationBar.value = !isCustomNavBar
 
         // Set navigation bar title
         navigationBarTitle.value = config.navigationBarTitleText
 
-        // Set navigation bar background color
-        navigationBarBackgroundColor.value = config.navigationBarBackgroundColor
+        // 自定义导航栏时，导航栏背景色不再影响状态栏（状态栏已透明）
+        navigationBarBackgroundColor.value = if (isCustomNavBar) {
+            "#00000000" // 透明
+        } else {
+            config.navigationBarBackgroundColor
+        }
 
         // Set page background color
         backgroundColor.value = config.backgroundColor
 
-        // Update status bar style based on text style
+        // 移除对statusBarTextStyle的引用，直接使用navigationBarTextStyle（兼容原有逻辑）
         this.updateActionColorStyle(config.navigationBarTextStyle)
     }
 
@@ -439,6 +480,17 @@ class DiminaActivity : ComponentActivity() {
     fun setNavigationBarColor(frontColor:String, backgroundColor: String) {
         updateActionColorStyle(frontColor)
         navigationBarBackgroundColor.value = backgroundColor
+
+        // 非自定义导航栏时，同步更新状态栏背景色（自定义导航栏已透明，无需更新）
+        if (showNavigationBar.value) {
+            runOnUiThread {
+                window.statusBarColor = try {
+                    AndroidColor.parseColor(backgroundColor) // 改用原生Color解析
+                } catch (_: Exception) {
+                    AndroidColor.WHITE // 改用原生Android Color的WHITE
+                }
+            }
+        }
     }
 
     /**
@@ -446,7 +498,7 @@ class DiminaActivity : ComponentActivity() {
      */
     private fun updateActionColorStyle(color: String) {
         if (color == "white" || color == "#ffffff") {
-            navigationBarTextColor.value = Color.White
+            navigationBarTextColor.value = Color.White // Compose Color的White是正确的（小写开头）
         } else {
             navigationBarTextColor.value = Color.Black
         }
@@ -499,7 +551,6 @@ class DiminaActivity : ComponentActivity() {
             }
         }
     }
-
 
     /**
      * Reads and parses the app-config.json file from the extracted mini program
@@ -678,18 +729,18 @@ class DiminaActivity : ComponentActivity() {
         val bgColor = try {
             Color(backgroundColor.value.toColorInt())
         } catch (_: Exception) {
-            Color.White
+            Color(0xFFFFFFFF) // Compose Color用十六进制值替代Color.WHITE
         }
 
         val navBarBgColor = try {
             Color(navigationBarBackgroundColor.value.toColorInt())
         } catch (_: Exception) {
-            Color.White
+            Color(0xFFFFFFFF) // Compose Color用十六进制值替代Color.WHITE
         }
 
-        // Set status bar color
-        @Suppress("DEPRECATION")
-        window.statusBarColor = navBarBgColor.toArgb()
+        // ========== 关键修改3：移除这里的状态栏颜色赋值，避免覆盖透明设置 ==========
+        // 原代码注释掉：@Suppress("DEPRECATION")
+        // 原代码注释掉：window.statusBarColor = navBarBgColor.toArgb()
 
         Scaffold(
             topBar = {
@@ -723,7 +774,11 @@ class DiminaActivity : ComponentActivity() {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(top = innerPadding.calculateTopPadding())
+                    // ========== 关键修改4：自定义导航栏时去掉top padding，让WebView延伸到状态栏 ==========
+                    .padding(
+                        top = if (showNavigationBar.value) innerPadding.calculateTopPadding() else 0.dp,
+                        bottom = innerPadding.calculateBottomPadding()
+                    )
                     .background(bgColor)
             ) {
                 // 始终创建DiminaWebView
@@ -771,7 +826,7 @@ class DiminaActivity : ComponentActivity() {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.White), // 添加背景遮住后面的 Webview
+                .background(Color.White), // Compose Color用十六进制值替代Color.WHITE
             contentAlignment = Alignment.Center
         ) {
             Column(
@@ -824,7 +879,7 @@ class DiminaActivity : ComponentActivity() {
 
                     Text(
                         text = firstLetter,
-                        color = Color.White,
+                        color = Color.White, // Compose Color用十六进制值替代Color.WHITE
                         fontSize = 20.sp,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.align(Alignment.Center)
@@ -836,7 +891,7 @@ class DiminaActivity : ComponentActivity() {
                     text = miniProgram.name,
                     style = TextStyle(
                         fontSize = 16.sp,
-                        color = Color.Black,
+                        color = Color.Black, // Compose Color用十六进制值替代Color.BLACK
                         fontWeight = FontWeight.Medium
                     )
                 )
