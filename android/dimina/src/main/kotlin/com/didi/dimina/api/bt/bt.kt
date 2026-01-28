@@ -13,6 +13,12 @@ import com.didi.dimina.api.APIResult
 import com.didi.dimina.api.ApiHandler
 import com.didi.dimina.api.ApiRegistry
 import com.didi.dimina.api.NoneResult
+import com.didi.dimina.api.udp.UdpApi
+import com.didi.dimina.api.udp.UdpApi.Companion.CREATE_UDP_SOCKET
+import com.didi.dimina.api.udp.UdpApi.Companion.UDP_BIND
+import com.didi.dimina.api.udp.UdpApi.Companion.UDP_CLOSE
+import com.didi.dimina.api.udp.UdpApi.Companion.UDP_ONMSG
+import com.didi.dimina.api.udp.UdpApi.Companion.UDP_SEND
 import com.didi.dimina.common.ApiUtils
 import com.didi.dimina.ui.container.DiminaActivity
 import org.json.JSONObject
@@ -23,7 +29,27 @@ class BtApi : ApiHandler {
         private const val TAG = "BtApi"
 
         // 对齐微信 API 名称
+        /*
+        wx.openBluetoothAdapter()（初始化蓝牙适配器）
+        wx.startBluetoothDevicesDiscovery()（开始搜索蓝牙设备）
+        wx.getBluetoothDevices()（获取已发现的蓝牙设备列表）
+        wx.createBLEConnection()（连接蓝牙低功耗设备）
+        wx.getBLEDeviceServices()（获取蓝牙设备的服务列表）
+        wx.getBLEDeviceCharacteristics()（获取蓝牙设备服务的特征值列表）
+        wx.notifyBLECharacteristicValueChange()（开启 / 关闭特征值变化监听）
+        wx.onBLECharacteristicValueChange()（监听蓝牙特征值变化，接收数据）
+        wx.writeBLECharacteristicValue()（向蓝牙设备写入数据，发送数据）
+        */
+
         const val API_openBluetoothAdapter = "openBluetoothAdapter"
+        const val API_startBluetoothDevicesDiscovery = "startBluetoothDevicesDiscovery"
+        const val API_getBluetoothDevices = "getBluetoothDevices"
+        const val API_createBLEConnection = "createBLEConnection"
+        const val API_getBLEDeviceServices = "getBLEDeviceServices"
+        const val API_getBLEDeviceCharacteristics = "getBLEDeviceCharacteristics"
+        const val API_notifyBLECharacteristicValueChange = "notifyBLECharacteristicValueChange"
+        const val API_onBLECharacteristicValueChange = "onBLECharacteristicValueChange"
+        const val API_writeBLECharacteristicValue = "writeBLECharacteristicValue"
 
         // 微信蓝牙API标准错误码（参考微信官方文档）
         private const val ERR_CODE_SUCCESS = 0 // 成功
@@ -36,8 +62,12 @@ class BtApi : ApiHandler {
 
     fun registerWith(registry: ApiRegistry) {
         registry.register(API_openBluetoothAdapter, this)
+        registry.register(API_startBluetoothDevicesDiscovery, this)
+
         Log.d(TAG, "API 注册完成")
     }
+
+
 
     /**
      * 处理UDP API调用（核心入口，完全对齐微信API规范）
@@ -52,6 +82,71 @@ class BtApi : ApiHandler {
         Log.d(TAG, "处理微信标准API: $apiName, 调用方appId: $appId, 参数: $params")
         return when (apiName) {
             API_openBluetoothAdapter -> openBluetoothAdapter(activity, params, responseCallback)
+            API_startBluetoothDevicesDiscovery -> startBluetoothDevicesDiscovery(
+                activity,
+                appId,
+                apiName,
+                params,
+                responseCallback
+            )
+
+            API_getBluetoothDevices -> getBluetoothDevices(
+                activity,
+                appId,
+                apiName,
+                params,
+                responseCallback
+            )
+
+
+
+
+            API_createBLEConnection -> createBLEConnection(
+                activity,
+                appId,
+                apiName,
+                params,
+                responseCallback
+            )
+            API_getBLEDeviceServices -> getBLEDeviceServices(
+                activity,
+                appId,
+                apiName,
+                params,
+                responseCallback
+            )
+            API_getBLEDeviceCharacteristics -> getBLEDeviceCharacteristics(
+                activity,
+                appId,
+                apiName,
+                params,
+                responseCallback
+            )
+            API_notifyBLECharacteristicValueChange -> notifyBLECharacteristicValueChange(
+                activity,
+                appId,
+                apiName,
+                params,
+                responseCallback
+            )
+            API_onBLECharacteristicValueChange -> onBLECharacteristicValueChange(
+                activity,
+                appId,
+                apiName,
+                params,
+                responseCallback
+            )
+
+
+            API_writeBLECharacteristicValue -> writeBLECharacteristicValue(
+                activity,
+                appId,
+                apiName,
+                params,
+                responseCallback
+            )
+
+
             else -> {
                 val errorMsg = "未知的微信标准API: $apiName"
                 Log.w(TAG, errorMsg)
@@ -75,7 +170,8 @@ class BtApi : ApiHandler {
     ): APIResult {
         return try {
             // 1. 检查设备是否支持蓝牙
-            val bluetoothManager = activity.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
+            val bluetoothManager =
+                activity.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
             val bluetoothAdapter = bluetoothManager.adapter
             if (bluetoothAdapter == null) {
                 val unsupportedResult = JSONObject().apply {
@@ -153,11 +249,20 @@ class BtApi : ApiHandler {
     private fun checkBluetoothPermission(activity: Activity): Boolean {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             // Android 12+ 需要 BLUETOOTH_CONNECT 权限
-            ActivityCompat.checkSelfPermission(activity, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
+            ActivityCompat.checkSelfPermission(
+                activity,
+                Manifest.permission.BLUETOOTH_CONNECT
+            ) == PackageManager.PERMISSION_GRANTED
         } else {
             // 低版本需要 BLUETOOTH 和 BLUETOOTH_ADMIN 权限
-            ActivityCompat.checkSelfPermission(activity, Manifest.permission.BLUETOOTH) == PackageManager.PERMISSION_GRANTED
-                    && ActivityCompat.checkSelfPermission(activity, Manifest.permission.BLUETOOTH_ADMIN) == PackageManager.PERMISSION_GRANTED
+            ActivityCompat.checkSelfPermission(
+                activity,
+                Manifest.permission.BLUETOOTH
+            ) == PackageManager.PERMISSION_GRANTED
+                    && ActivityCompat.checkSelfPermission(
+                activity,
+                Manifest.permission.BLUETOOTH_ADMIN
+            ) == PackageManager.PERMISSION_GRANTED
         }
     }
 
@@ -188,4 +293,130 @@ class BtApi : ApiHandler {
         }
         ApiUtils.invokeFail(params, permResult, responseCallback)
     }
+
+
+
+
+//    wx.startBluetoothDevicesDiscovery()（开始搜索蓝牙设备）
+    private fun startBluetoothDevicesDiscovery(
+        activity: DiminaActivity,
+        appId: String,
+        apiName: String,
+        params: JSONObject,
+        responseCallback: (String) -> Unit
+    ) : APIResult{
+        Log.e(TAG, "开始搜索蓝牙设备" )
+        return try{
+            NoneResult()
+        }catch (e: Exception){
+            NoneResult()
+        }
+    }
+    //    wx.getBluetoothDevices()（获取已发现的蓝牙设备列表）
+    private fun getBluetoothDevices(
+        activity: DiminaActivity,
+        appId: String,
+        apiName: String,
+        params: JSONObject,
+        responseCallback: (String) -> Unit
+    ) : APIResult{
+        Log.e(TAG, "获取已发现的蓝牙设备列表" )
+        return try{
+            NoneResult()
+        }catch (e: Exception){
+            NoneResult()
+        }
+    }
+    //    wx.createBLEConnection()（连接蓝牙低功耗设备）
+    private fun createBLEConnection(
+        activity: DiminaActivity,
+        appId: String,
+        apiName: String,
+        params: JSONObject,
+        responseCallback: (String) -> Unit
+    ) : APIResult{
+        Log.e(TAG, "连接蓝牙低功耗设备" )
+        return try{
+            NoneResult()
+        }catch (e: Exception){
+            NoneResult()
+        }
+    }
+    //    wx.getBLEDeviceServices()（获取蓝牙设备的服务列表）
+    private fun getBLEDeviceServices(
+        activity: DiminaActivity,
+        appId: String,
+        apiName: String,
+        params: JSONObject,
+        responseCallback: (String) -> Unit
+    ) : APIResult{
+        Log.e(TAG, "获取蓝牙设备的服务列表" )
+        return try{
+            NoneResult()
+        }catch (e: Exception){
+            NoneResult()
+        }
+    }
+    //    wx.getBLEDeviceCharacteristics()（获取蓝牙设备服务的特征值列表）
+    private fun getBLEDeviceCharacteristics(
+        activity: DiminaActivity,
+        appId: String,
+        apiName: String,
+        params: JSONObject,
+        responseCallback: (String) -> Unit
+    ) : APIResult{
+        Log.e(TAG, "获取蓝牙设备服务的特征值列表" )
+        return try{
+            NoneResult()
+        }catch (e: Exception){
+            NoneResult()
+        }
+    }
+    //    wx.notifyBLECharacteristicValueChange()（开启 / 关闭特征值变化监听）
+    private fun notifyBLECharacteristicValueChange(
+        activity: DiminaActivity,
+        appId: String,
+        apiName: String,
+        params: JSONObject,
+        responseCallback: (String) -> Unit
+    ) : APIResult{
+        Log.e(TAG, "开启 / 关闭特征值变化监听" )
+        return try{
+            NoneResult()
+        }catch (e: Exception){
+            NoneResult()
+        }
+    }
+    //    wx.onBLECharacteristicValueChange()（监听蓝牙特征值变化，接收数据）
+    private fun onBLECharacteristicValueChange(
+        activity: DiminaActivity,
+        appId: String,
+        apiName: String,
+        params: JSONObject,
+        responseCallback: (String) -> Unit
+    ) : APIResult{
+        Log.e(TAG, "监听蓝牙特征值变化，接收数据" )
+        return try{
+            NoneResult()
+        }catch (e: Exception){
+            NoneResult()
+        }
+    }
+    //    wx.writeBLECharacteristicValue()（向蓝牙设备写入数据，发送数据）
+    private fun writeBLECharacteristicValue(
+        activity: DiminaActivity,
+        appId: String,
+        apiName: String,
+        params: JSONObject,
+        responseCallback: (String) -> Unit
+    ) : APIResult{
+        Log.e(TAG, "向蓝牙设备写入数据，发送数据" )
+        return try{
+            NoneResult()
+        }catch (e: Exception){
+            NoneResult()
+        }
+    }
+
+
 }
