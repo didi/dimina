@@ -3,6 +3,7 @@ package com.didi.dimina.ui.container
 import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
+import android.bluetooth.BluetoothAdapter // 新增 ↓
 import android.content.Context
 import android.content.Intent
 import android.content.res.Resources
@@ -17,6 +18,8 @@ import android.webkit.WebView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.ActivityResultLauncher // 新增 ↓
+import androidx.activity.result.contract.ActivityResultContracts // 新增 ↓
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -142,6 +145,10 @@ class DiminaActivity : ComponentActivity() {
     // 屏幕高度
     private var screenHeight = 0
 
+    // 蓝牙开启相关 - 新增 ↓
+    lateinit var bluetoothEnableLauncher: ActivityResultLauncher<Intent>
+    private var bluetoothCallback: ((Boolean) -> Unit)? = null
+    // 新增 ↑
 
     /**
      * 调整WebView的位置以适应键盘
@@ -210,6 +217,16 @@ class DiminaActivity : ComponentActivity() {
         mediaType.value = MediaType.CAMERA
     }
 
+    // 蓝牙开启相关 - 新增 ↓
+    /**
+     * 对外提供开启蓝牙的方法，供BtApi调用
+     */
+    fun requestEnableBluetooth(callback: (Boolean) -> Unit) {
+        this.bluetoothCallback = callback
+        val enableBtIntent = Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
+        bluetoothEnableLauncher.launch(enableBtIntent)
+    }
+    // 新增 ↑
 
     fun getSoftKeyboardHeight(rootView: View, callback: (Int) -> Unit) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -234,6 +251,11 @@ class DiminaActivity : ComponentActivity() {
 
         // ========== 关键修改1：配置窗口属性，让布局延伸到状态栏并透明 ==========
         setupImmersiveStatusBar()
+
+        // 蓝牙开启相关 - 新增 ↓
+        // 初始化蓝牙开启的回调（必须在onCreate中完成，生命周期安全）
+        initBluetoothLauncher()
+        // 新增 ↑
 
         // 获取屏幕高度
         screenHeight = resources.displayMetrics.heightPixels
@@ -304,6 +326,23 @@ class DiminaActivity : ComponentActivity() {
             initialize()
         }
     }
+
+    // 蓝牙开启相关 - 新增 ↓
+    /**
+     * 初始化蓝牙开启的回调（必须在onCreate中完成）
+     */
+    private fun initBluetoothLauncher() {
+        bluetoothEnableLauncher = registerForActivityResult(
+            ActivityResultContracts.StartActivityForResult()
+        ) { result ->
+            val isSuccess = result.resultCode == RESULT_OK
+            // 回调给BtApi处理结果
+            bluetoothCallback?.invoke(isSuccess)
+            // 清空回调，避免内存泄漏
+            bluetoothCallback = null
+        }
+    }
+    // 新增 ↑
 
     // ========== 关键新增方法：设置沉浸式状态栏 ==========
     /**
@@ -675,6 +714,11 @@ class DiminaActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        // 蓝牙开启相关 - 新增 ↓
+        // 清空蓝牙回调，避免内存泄漏
+        bluetoothCallback = null
+        // 新增 ↑
+
         bridge?.let { cBridge ->
             miniApp.removeBridge(miniProgram.appId, cBridge)?.let { cApp ->
                 cApp.destroy()
