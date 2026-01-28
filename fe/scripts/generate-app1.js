@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 
-const { execSync } = require('node:child_process')
-const fs = require('node:fs')
-const path = require('node:path')
-const process = require('node:process')
+const { execSync } = require('node:child_process');
+const fs = require('node:fs');
+const path = require('node:path');
+const process = require('node:process');
 
 // ===================== 依赖检查 =====================
 function checkAndInstallArchiver() {
@@ -26,6 +26,8 @@ const archiver = require('archiver');
 // ===================== 工具函数 =====================
 /**
  * 安全读取配置
+ * @param {string} configPath 配置文件路径
+ * @returns {object} 配置对象（兜底appid）
  */
 function safeReadConfig(configPath) {
   try {
@@ -48,94 +50,121 @@ function safeReadConfig(configPath) {
 
 /**
  * 压缩目录（保留main目录结构） + 详细调试日志
+ * @param {string} sourceDir 源目录
+ * @param {string} outputZipPath 输出ZIP路径
+ * @returns {Promise<boolean>} 压缩是否成功
  */
 async function zipDirectory(sourceDir, outputZipPath) {
-	const mainDir = path.join(sourceDir, 'main');
-	console.log(`[调试] 待压缩的main文件夹：${mainDir}`);
-	console.log(`[调试] 压缩目标路径：${outputZipPath}`);
+  const mainDir = path.join(sourceDir, 'main');
+  console.log(`[调试] 待压缩的main文件夹：${mainDir}`);
+  console.log(`[调试] 压缩目标路径：${outputZipPath}`);
 
-	if (!fs.existsSync(mainDir)) {
-	  console.error(`❌ 压缩失败：main文件夹不存在 ${mainDir}`);
-	  return false;
-	}
-	const files = fs.readdirSync(mainDir);
-	if (files.length === 0) {
-	  console.error(`❌ 压缩失败：main文件夹为空 ${mainDir}`);
-	  return false;
-	}
-
-	return new Promise((resolve) => {
-	  try {
-		const zipParentDir = path.dirname(outputZipPath);
-		if (!fs.existsSync(zipParentDir)) {
-		  fs.mkdirSync(zipParentDir, { recursive: true });
-		  console.log(`[调试] 创建目标目录：${zipParentDir}`);
-		}
-
-		const output = fs.createWriteStream(outputZipPath);
-		const archive = archiver('zip', { zlib: { level: 9 } });
-
-		output.on('close', () => {
-		  console.log(`✅ 压缩完成，ZIP大小：${(archive.pointer() / 1024).toFixed(2)} KB`);
-		  resolve(true);
-		});
-
-		archive.on('error', (err) => {
-		  console.error(`❌ 压缩异常：${err.message}`);
-		  resolve(false);
-		});
-
-		archive.pipe(output);
-		// 核心：显式指定ZIP内的目录名为'main'，消除冗余路径
-		archive.directory(mainDir, 'main');
-		archive.finalize();
-	  } catch (err) {
-		console.error(`❌ 压缩初始化失败：${err.message}`);
-		resolve(false);
-	  }
-	});
+  if (!fs.existsSync(mainDir)) {
+    console.error(`❌ 压缩失败：main文件夹不存在 ${mainDir}`);
+    return false;
+  }
+  const files = fs.readdirSync(mainDir);
+  if (files.length === 0) {
+    console.error(`❌ 压缩失败：main文件夹为空 ${mainDir}`);
+    return false;
   }
 
-/**
- * 创建/更新config.json（压缩成功后执行）
- */
-function updateConfigJson(configPath, appId, 小程序名称, 小程序版本) {
-  try {
-    let config = {
-      "appId": appId,
-      "name": 小程序名称?小程序名称:"小程序",
-      "path": "example/index",
-      "versionCode": 1,
-      "versionName": 小程序版本?小程序版本:"1.0.0"
-    };
+  return new Promise((resolve) => {
+    try {
+      const zipParentDir = path.dirname(outputZipPath);
+      if (!fs.existsSync(zipParentDir)) {
+        fs.mkdirSync(zipParentDir, { recursive: true });
+        console.log(`[调试] 创建目标目录：${zipParentDir}`);
+      }
 
+      const output = fs.createWriteStream(outputZipPath);
+      const archive = archiver('zip', { zlib: { level: 9 } });
+
+      output.on('close', () => {
+        console.log(`✅ 压缩完成，ZIP大小：${(archive.pointer() / 1024).toFixed(2)} KB`);
+        resolve(true);
+      });
+
+      archive.on('error', (err) => {
+        console.error(`❌ 压缩异常：${err.message}`);
+        resolve(false);
+      });
+
+      archive.pipe(output);
+      // 核心：显式指定ZIP内的目录名为'main'，消除冗余路径
+      archive.directory(mainDir, 'main');
+      archive.finalize();
+    } catch (err) {
+      console.error(`❌ 压缩初始化失败：${err.message}`);
+      resolve(false);
+    }
+  });
+}
+
+/**
+ * 创建/更新config.json（文件不存在时自动新建）
+ * @param {string} configPath 配置文件路径
+ * @param {object} miniProgramConfig 小程序配置（project.config.json内容）
+ * @param {object} appJson app.json配置内容
+ */
+function updateConfigJsonFile(configPath, miniProgramConfig, appJson) {
+  // 处理首页路径，保持原有逻辑
+  const homePagePath = appJson.pages[0] ? appJson.pages[0] : "example/index";
+
+  try {
+    let existingConfig = { versionCode: 0 }; // 默认配置，文件不存在时使用
+
+    // 检查文件是否存在，不存在则跳过读取，直接使用默认配置
     if (fs.existsSync(configPath)) {
       const content = fs.readFileSync(configPath, 'utf8');
-      const existingConfig = JSON.parse(content);
-      config = {
-        ...existingConfig,
-        appId: appId,
-        name: 小程序名称?小程序名称:"小程序",
-        versionCode: (existingConfig.versionCode || 1) + 1,
-      };
-      const versionParts = (config.versionName || "1.0.0").split('.');
-      versionParts[versionParts.length - 1] = (Number.parseInt(versionParts[versionParts.length - 1]) + 1).toString();
-      config.versionName = versionParts.join('.');
-      console.log(`[调试] 读取原有config.json，versionCode递增为：${config.versionCode}`);
-    } else {
-      console.log(`[调试] config.json不存在，创建新文件并初始化版本号`);
+      existingConfig = JSON.parse(content); // 读取并解析已有配置
     }
 
+    // 构建新的配置对象
+    let config = {
+      appId: miniProgramConfig.appid || miniProgramConfig.appId || 'unknown',
+      name: miniProgramConfig.projectname || miniProgramConfig.projectName || "小程序",
+      path: homePagePath,
+      versionCode: (existingConfig.versionCode || 1) + 1,
+      versionName: miniProgramConfig.libVersion || "1.0.0"
+    };
+
+    // 递增版本号的最后一位（如 1.0.0 → 1.0.1）
+    const versionParts = (config.versionName || "1.0.0").split('.');
+    versionParts[versionParts.length - 1] = (Number.parseInt(versionParts[versionParts.length - 1], 10) + 1).toString();
+    config.versionName = versionParts.join('.');
+
+    console.log(`[调试] 读取原有config.json（文件不存在则使用默认值），versionCode递增为：${config.versionCode}`);
+
+    // 确保配置文件所在目录存在
+    const configDir = path.dirname(configPath);
+    if (!fs.existsSync(configDir)) {
+      fs.mkdirSync(configDir, { recursive: true });
+      console.log(`[调试] 创建config.json所在目录：${configDir}`);
+    }
+
+    // 写入配置文件（文件不存在会自动新建，存在则覆盖）
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
-    console.log(`✅ config.json更新成功：${configPath}`);
+    console.log(`✅ config.json更新/新建成功：${configPath}`);
     console.log(`[调试] 最新配置：`, config);
+
   } catch (err) {
-    console.error(`❌ 更新config.json失败：${err.message}`);
+    // 区分不同错误类型，给出更精准的提示
+    if (err.code === 'ENOENT') {
+      console.error(`❌ 找不到config.json所在目录：${err.path}`);
+    } else if (err instanceof SyntaxError) {
+      console.error(`❌ config.json文件格式错误，无法解析JSON：${err.message}`);
+    } else {
+      console.error(`❌ 更新/新建config.json失败：${err.message}`);
+    }
   }
 }
 
 /**
  * 复制config.json到压缩包同级目录
+ * @param {string} sourceConfigPath 源config.json路径
+ * @param {string} targetDir 目标目录
+ * @returns {boolean} 复制是否成功
  */
 function copyConfigToZipDir(sourceConfigPath, targetDir) {
   try {
@@ -160,53 +189,53 @@ function copyConfigToZipDir(sourceConfigPath, targetDir) {
 }
 
 // ===================== 配置项（核心修改：调整编译目录的绝对路径） =====================
-const 小程序打包路径 = path.resolve(__dirname, '../../shared/jsapp');
-const 小程序实例路径 = path.resolve(__dirname, '../example');
-const 编译目录 = 'dd编译';
+const miniProgramPackagePath = path.resolve(__dirname, '../../shared/jsapp'); // 小程序打包路径
+const miniProgramInstancePath = path.resolve(__dirname, '../example'); // 小程序实例路径
+const compileDirName = 'dd编译'; // 编译目录名
 // 编译目录的绝对路径（提至项目根目录，不再嵌套在小程序目录名下）
-const 编译目录绝对路径 = path.resolve(__dirname, `../${编译目录}`);
+const compileDirAbsPath = path.resolve(__dirname, `../${compileDirName}`);
 // 修改编译命令：-s 参数指向根目录的dd编译目录（不再用../../相对路径）
-const 编译命令 = `dmcc build -s ${编译目录绝对路径}`;
-const 小程序配置文件名称 = 'project.config.json';
+const compileCommand = `dmcc build -s ${compileDirAbsPath}`;
+const miniProgramConfigFileName = 'project.config.json'; // 小程序配置文件名称
 
 // ===================== 前置检查 =====================
-if (!fs.existsSync(小程序打包路径)) {
-  console.error(`错误：打包目录不存在 ${小程序打包路径}`);
+if (!fs.existsSync(miniProgramPackagePath)) {
+  console.error(`错误：打包目录不存在 ${miniProgramPackagePath}`);
   process.exit(1);
 }
-if (!fs.existsSync(小程序实例路径)) {
-  console.error(`错误：小程序实例目录不存在 ${小程序实例路径}`);
+if (!fs.existsSync(miniProgramInstancePath)) {
+  console.error(`错误：小程序实例目录不存在 ${miniProgramInstancePath}`);
   process.exit(1);
 }
 // 提前创建独立的dd编译目录（避免编译时目录不存在）
-if (!fs.existsSync(编译目录绝对路径)) {
-  fs.mkdirSync(编译目录绝对路径, { recursive: true });
-  console.log(`[调试] 创建独立的编译目录：${编译目录绝对路径}`);
+if (!fs.existsSync(compileDirAbsPath)) {
+  fs.mkdirSync(compileDirAbsPath, { recursive: true });
+  console.log(`[调试] 创建独立的编译目录：${compileDirAbsPath}`);
 }
 
 // ===================== 主流程 =====================
 async function main() {
   console.log(`===== 开始处理（调试模式）=====`);
-  console.log(`编译命令：${编译命令}`);
-  console.log(`[调试] 独立编译目录：${编译目录绝对路径}`);
+  console.log(`编译命令：${compileCommand}`);
+  console.log(`[调试] 独立编译目录：${compileDirAbsPath}`);
 
   // 1. 获取小程序目录列表
-  const 小程序目录列表 = fs.readdirSync(小程序实例路径)
-    .filter(item => fs.statSync(path.join(小程序实例路径, item)).isDirectory());
+  const miniProgramDirList = fs.readdirSync(miniProgramInstancePath)
+    .filter(item => fs.statSync(path.join(miniProgramInstancePath, item)).isDirectory());
 
-  if (小程序目录列表.length === 0) {
+  if (miniProgramDirList.length === 0) {
     console.log(`⚠️ 无小程序目录`);
     return;
   }
 
   // 2. 编译所有小程序（编译输出到独立的dd编译目录）
-  for (const 小程序目录名 of 小程序目录列表) {
-    const 小程序完整路径 = path.join(小程序实例路径, 小程序目录名);
-    console.log(`\n--- 编译【${小程序目录名}】---`);
+  for (const miniProgramDirName of miniProgramDirList) {
+    const miniProgramFullPath = path.join(miniProgramInstancePath, miniProgramDirName);
+    console.log(`\n--- 编译【${miniProgramDirName}】---`);
     try {
       // 编译命令的cwd仍为小程序目录名（保证dmcc build读取该目录下的配置）
-      execSync(编译命令, { cwd: 小程序完整路径, stdio: 'inherit' });
-      console.log(`✅ 编译成功（产物输出到：${编译目录绝对路径}）`);
+      execSync(compileCommand, { cwd: miniProgramFullPath, stdio: 'inherit' });
+      console.log(`✅ 编译成功（产物输出到：${compileDirAbsPath}）`);
     } catch (err) {
       console.error(`❌ 编译失败：${err.message}`);
     }
@@ -214,36 +243,37 @@ async function main() {
 
   // 3. 压缩所有产物 + 更新+复制config.json
   console.log(`\n--- 开始压缩所有产物（保留main目录结构）---`);
-  for (const 小程序目录名 of 小程序目录列表) {
-    const 小程序完整路径 = path.join(小程序实例路径, 小程序目录名);
-    const 配置文件路径 = path.join(小程序完整路径, 小程序配置文件名称);
+  for (const miniProgramDirName of miniProgramDirList) {
+    const miniProgramFullPath = path.join(miniProgramInstancePath, miniProgramDirName);
 
-    console.log(`\n处理【${小程序目录名}】`);
-    const 小程序配置 = safeReadConfig(配置文件路径);
-    const 小程序appid = 小程序配置.appid;
-	const 小程序名称 = 小程序配置.projectname;
-	const 小程序版本 = 小程序配置.libVersion;
-    console.log(`[调试] appid：${小程序appid}`);
+    const configFilePath = path.join(miniProgramFullPath, miniProgramConfigFileName);
+    const appJson = safeReadConfig(path.join(miniProgramFullPath, 'app.json'));
+
+    console.log(`\n处理【${miniProgramDirName}】`);
+    const miniProgramConfig = safeReadConfig(configFilePath);
+    const miniProgramAppId = miniProgramConfig.appid;
+
+    console.log(`[调试] appid：${miniProgramAppId}`);
 
     // ========== 核心修改：产物目录改为「独立dd编译目录 + appid」 ==========
-    const 小程序产物目录 = path.join(编译目录绝对路径, 小程序appid);
-    console.log(`[调试] 小程序编译后的产物目录：${小程序产物目录}`);
+    const miniProgramDistDir = path.join(compileDirAbsPath, miniProgramAppId);
+    console.log(`[调试] 小程序编译后的产物目录：${miniProgramDistDir}`);
 
     // 拼接压缩路径（不变）
-    const zipOutputPath = path.join(小程序打包路径, 小程序appid, `${小程序appid}.zip`);
+    const zipOutputPath = path.join(miniProgramPackagePath, miniProgramAppId, `${miniProgramAppId}.zip`);
     const zipDir = path.dirname(zipOutputPath);
     // 执行压缩
-    const 压缩成功 = await zipDirectory(小程序产物目录, zipOutputPath);
+    const isZipSuccess = await zipDirectory(miniProgramDistDir, zipOutputPath);
 
-    if (压缩成功) {
-      console.log(`✅ 【${小程序目录名}】压缩完成，ZIP路径：${zipOutputPath}`);
+    if (isZipSuccess) {
+      console.log(`✅ 【${miniProgramDirName}】压缩完成，ZIP路径：${zipOutputPath}`);
       // 更新/创建config.json（在产物目录下）
-      const localConfigPath = path.join(小程序产物目录, 'config.json');
-      updateConfigJson(localConfigPath, 小程序appid,小程序名称,小程序版本);
+      const localConfigPath = path.join(miniProgramDistDir, 'config.json');
+      updateConfigJsonFile(localConfigPath, miniProgramConfig, appJson);
       // 复制config.json到压缩包同级目录
       copyConfigToZipDir(localConfigPath, zipDir);
     } else {
-      console.error(`❌ 【${小程序目录名}】压缩失败，跳过config.json更新/复制`);
+      console.error(`❌ 【${miniProgramDirName}】压缩失败，跳过config.json更新/复制`);
     }
   }
 
