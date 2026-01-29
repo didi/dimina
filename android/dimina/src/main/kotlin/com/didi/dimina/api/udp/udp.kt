@@ -31,6 +31,7 @@ import kotlin.concurrent.thread
 /**
  * UDP Socket API实现 - 完全对齐微信小程序API规范
  * 严格遵循Dimina框架ApiHandler规范，参考微信官方UDPSocket API设计
+ * 作者: 上电冒烟
  */
 class UdpApi : ApiHandler {
 

@@ -20,7 +20,10 @@ import com.didi.dimina.common.ApiUtils
 import com.didi.dimina.ui.container.DiminaActivity
 import org.json.JSONObject
 import java.util.UUID
-
+/**
+ * 蓝牙 API
+ * 作者: 上电冒烟
+ */
 class BtApi : ApiHandler {
     // 扫描事件监听接口（全局）
     interface BluetoothScanListener {
