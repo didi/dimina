@@ -1,0 +1,71 @@
+<page-meta root-font-size="system"></page-meta>
+<view class="page" data-weui-theme="{{theme}}" data-weui-mode="{{mode}}">
+  <view class="page__hd">
+    <view aria-role="heading" aria-level="1" class="page__title">WeUI</view>
+    <view class="page__desc">
+
+    </view>
+  </view>
+
+
+  <!-- 跳转到UDP示例页面按钮 -->
+  <view class="nav-section">
+    <button class="nav-btn" bindtap="goToUdpExample">
+      <text class="nav-btn-text">🚀 udp</text>
+    </button>
+  </view>
+
+  <view class="nav-section">
+    <button class="nav-btn" bindtap="goToopenapp">
+      <text class="nav-btn-text">🚀 打开另外一个小程序</text>
+    </button>
+  </view>
+
+  <view class="nav-section">
+    <button class="nav-btn" bindtap="testapi">
+      <text class="nav-btn-text">🚀 测试</text>
+    </button>
+  </view>
+
+<!-- 开关联动 -->
+  <view class="nav-section">
+    <switch checked="{{sw1}}" bindchange="b1" />
+    <switch checked="{{sw2}}" bindchange="b2" />
+  </view>
+
+
+
+
+
+  <view class="page__bd page__bd_spacing">
+    <view class="kind-list">
+      <block wx:for="{{list}}" wx:key="id">
+        <view class="kind-list__item">
+          <view id="{{item.id}}" class="weui-flex kind-list__item-hd {{item.open ? 'kind-list__item-hd_show' : ''}}"
+            bindtap="kindToggle">
+            <view class="weui-flex__item">{{item.name}}</view>
+            <image aria-role="button" aria-label="{{item.open ? ' 收起' : ' 展开'}}" class="kind-list__img"
+              src="images/icon_nav_{{item.id}}.png"></image>
+          </view>
+          <view aria-hidden="{{item.open ? 'false' : 'true'}}"
+            class="kind-list__item-bd {{item.open ? 'kind-list__item-bd_show' : ''}}">
+            <view class="weui-cells {{item.open ? 'weui-cells_show' : ''}}">
+              <block wx:for="{{item.pages}}" wx:for-item="page" wx:key="*this">
+                <navigator aria-role="menuitem" url="{{page}}/{{page}}" class="weui-cell weui-cell_access"
+                  hover-class="weui-cell_active">
+                  <view class="weui-cell__bd">{{page}}</view>
+                  <view class="weui-cell__ft weui-cell__ft_in-access"></view>
+                </navigator>
+              </block>
+            </view>
+          </view>
+        </view>
+      </block>
+    </view>
+  </view>
+  <view class="page__ft" bindtap="changeTheme">
+    <image aria-label="weui logo" src="images/icon_footer.png" style="width: 84px; height: 19px; margin: 0 auto;">
+    </image>
+    <view class="page_bottom_tips">该小程序仅演示示例，不收集个人信息。</view>
+  </view>
+</view>

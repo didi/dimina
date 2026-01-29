@@ -36,6 +36,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -57,6 +58,9 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.didi.dimina.Dimina
 import com.didi.dimina.bean.MiniProgram
 import com.didi.dimina.common.Utils
@@ -71,6 +75,31 @@ val bgColor = Color(0xFFF5F5F5)
  */
 class MainActivity : ComponentActivity() {
 
+    private fun openMiniProgram() {
+        try {
+            val appid= "wxd58cedf6d1e1c52c"
+            val jsonString = assets.open("jsapp/$appid/config.json").bufferedReader().use { it.readText() }
+            val jsonObject = JSONObject(jsonString)
+            val miniProgram = MiniProgram(
+                appId =  jsonObject.getString("appId"),//"wxd58cedf6d1e1c52c"
+                name = "小程序",
+                versionCode = jsonObject.getInt("versionCode"),//1
+                versionName = jsonObject.getString("versionName"),//1.0.0
+                path = jsonObject.getString("path"),//"example/index"
+            )
+            Log.d("MainActivity", "打开小程序*****************************************")
+            // 启动小程序
+            Dimina.getInstance().startMiniProgram(this@MainActivity, miniProgram)
+
+            // 关键修改：小程序启动指令发送后，关闭当前 MainActivity
+            // 此时小程序页面会成为任务栈顶，作为应用首页
+            finish()
+
+        } catch (e: Exception) {
+            Log.e("MainActivity", "启动失败: ${e.message}")
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -80,8 +109,40 @@ class MainActivity : ComponentActivity() {
         window.statusBarColor = bgColor.toArgb() // Convert Compose Color to ARGB int
         WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = true
 
+        // 启动小程序（启动后会自动关闭当前页面）
+        openMiniProgram()
+
         setContent {
             DiminaAndroidTheme {
+                val lifecycleOwner = LocalLifecycleOwner.current
+                var isHomePageVisible by remember { mutableStateOf(false) }
+                // 监听生命周期变化（注：若小程序启动成功，当前 Activity 会被销毁，该监听大概率不会触发）
+                DisposableEffect(lifecycleOwner) {
+                    val observer = LifecycleEventObserver { _, event ->
+                        when (event) {
+                            Lifecycle.Event.ON_START -> {
+                                isHomePageVisible = true
+                                Log.d("MainActivity", "首页变为可见状态")
+                                // 小程序已在 onCreate 中启动，此处无需重复调用
+//                                openMiniProgram();
+                            }
+
+                            Lifecycle.Event.ON_STOP -> {
+                                isHomePageVisible = false
+                                Log.d("MainActivity", "首页变为不可见状态")
+                            }
+
+                            else -> {}
+                        }
+                    }
+                    lifecycleOwner.lifecycle.addObserver(observer)
+                    onDispose {
+                        lifecycleOwner.lifecycle.removeObserver(observer)
+                    }
+                }
+
+                // 注：若小程序启动成功，当前 Activity 会被立即销毁，该列表页面不会显示
+                // 若小程序启动失败，会显示该列表页面作为兜底
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     MiniProgramListScreen(
                         modifier = Modifier.padding(innerPadding)
@@ -91,7 +152,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
-
 @Composable
 fun MiniProgramListScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
@@ -133,7 +193,7 @@ fun MiniProgramListScreen(modifier: Modifier = Modifier) {
                 fontWeight = FontWeight.Bold,
             )
         }
-        
+
         // Search bar
         SearchBar(
             query = searchQuery,
@@ -143,7 +203,7 @@ fun MiniProgramListScreen(modifier: Modifier = Modifier) {
                 .fillMaxWidth()
                 .padding(16.dp)
         )
-        
+
         // App list title
         Text(
             text = "应用列表",
@@ -152,7 +212,7 @@ fun MiniProgramListScreen(modifier: Modifier = Modifier) {
             fontSize = 16.sp,
             color = Color.Gray
         )
-        
+
         // Mini-program list
         MiniProgramList(
             miniPrograms = filteredMiniPrograms,
@@ -175,7 +235,7 @@ fun SearchBar(
 ) {
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusRequester = remember { FocusRequester() }
-    
+
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -279,9 +339,9 @@ fun MiniProgramItem(
                 fontWeight = FontWeight.Bold
             )
         }
-        
+
         Spacer(modifier = Modifier.width(16.dp))
-        
+
         // Mini-program name
         Text(
             text = miniProgram.name,
@@ -304,14 +364,14 @@ fun Context.getMiniProgramsList(): List<MiniProgram> {
         }?:emptyList()
 
         val miniPrograms = mutableListOf<MiniProgram>()
-        
+
         // Convert to MiniProgram objects with consistent colors based on name
         for (jsonObject in configResults) {
             if (jsonObject == null) {
                 continue
             }
             val name = jsonObject.getString("name")
-            
+
             miniPrograms.add(MiniProgram(
                 appId =  jsonObject.getString("appId"),
                 name = name,
@@ -320,7 +380,7 @@ fun Context.getMiniProgramsList(): List<MiniProgram> {
                 path = jsonObject.getString("path"),
             ))
         }
-        
+
         return miniPrograms
     } catch (e: Exception) {
         Log.e("MainActivity", "Error reading config.json: ${e.message}")

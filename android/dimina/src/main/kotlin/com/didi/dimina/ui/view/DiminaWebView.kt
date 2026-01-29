@@ -163,7 +163,7 @@ class DiminaRenderBridge(
     @Suppress("unused")
     @JavascriptInterface
     fun publish(message: String) {
-        LogUtils.d(TAG, "DiminaRenderBridge.publish called from WebView: $message")
+        LogUtils.d(TAG, "从WebView调用 DiminaRenderBridge.publish called from WebView: $message")
         this.publishHandler(JSONObject(message))
     }
 

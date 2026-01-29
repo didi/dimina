@@ -1,6 +1,0 @@
-{
-  "usingComponents": {
-    "van-cell": "@vant/weapp/cell/index",
-    "van-calendar": "@vant/weapp/calendar/index"
-  }
-}

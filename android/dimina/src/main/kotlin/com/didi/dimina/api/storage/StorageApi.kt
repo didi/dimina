@@ -12,7 +12,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * Storage API implementation
+ * Storage API implementation 存储API实施
  * Author: Doslin
  *
  * Handles data storage operations like setting, getting, and removing stored data
