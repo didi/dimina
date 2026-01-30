@@ -597,6 +597,13 @@ internal fun handleFileInterceptRequest(
 @SuppressLint("SetJavaScriptEnabled")
 private fun createWebView(context: Context, onPageLoadFinished: () -> Unit): WebView {
     return WebView(context).apply {
+        // Ensure WebView has explicit layoutParams.
+        // Chromium determines viewport size during initial layout.
+        // Missing layoutParams may cause vh/vw and window.innerHeight to be incorrect.
+        layoutParams = android.view.ViewGroup.LayoutParams(
+            android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+            android.view.ViewGroup.LayoutParams.MATCH_PARENT
+        )
         // 配置 WebView 设置
         settings.apply {
             javaScriptEnabled = true
