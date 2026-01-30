@@ -271,25 +271,53 @@ async function buildJSByPath(packageName, module, compileRes, mainCompileRes, ad
 						let id
 						let shouldProcess = true
 						
-						// 处理不同类型的 require 路径
-						if (requirePath.startsWith('@') || requirePath.startsWith('miniprogram_npm/')) {
-							// 处理 npm 包导入（如 @vant/weapp/toast/toast）
-							if (requirePath.startsWith('@')) {
-								// 转换为 miniprogram_npm 路径
-								id = `/miniprogram_npm/${requirePath}`
-							} else {
-								// 已经是 miniprogram_npm 路径
-								id = requirePath.startsWith('/') ? requirePath : `/${requirePath}`
-							}
+						// // 处理不同类型的 require 路径
+						// if (requirePath.startsWith('@') || requirePath.startsWith('miniprogram_npm/')) {
+						// 	// 处理 npm 包导入（如 @vant/weapp/toast/toast）
+						// 	if (requirePath.startsWith('@')) {
+						// 		// 转换为 miniprogram_npm 路径
+						// 		id = `/miniprogram_npm/${requirePath}`
+						// 	} else {
+						// 		// 已经是 miniprogram_npm 路径
+						// 		id = requirePath.startsWith('/') ? requirePath : `/${requirePath}`
+						// 	}
+						// } else {
+						// 	// 其他所有路径（相对路径、绝对路径等）都进行解析
+						// 	// 这与 Babel 原版逻辑保持一致
+						// 	const requireFullPath = resolve(modulePath, `../${requirePath}`)
+						// 	// 依赖的模块相对路径转换为绝对路径
+						// 	id = requireFullPath.split(`${getWorkPath()}${sep}`)[1]
+						// 	// 移除文件扩展名（.js 或 .ts）
+						// 	id = id.replace(/\.(js|ts)$/, '').replace(/\\/g, '/')
+						// 	// 确保路径以 '/' 开头，保持一致性
+						// 	if (!id.startsWith('/')) {
+						// 		id = '/' + id
+						// 	}
+						// }
+						// 处理 miniprogram_npm 路径
+						const isMiniprogramNpm = requirePath === 'miniprogram_npm' ||
+								requirePath.startsWith('miniprogram_npm/') ||
+								requirePath.startsWith('/miniprogram_npm/')
+
+						// 判断是否为相对路径
+						const isRelative = requirePath.startsWith('./') || requirePath.startsWith('../')
+
+						const isAbsolute = requirePath.startsWith('/')
+
+						// 是否是 npm 包（不以 ./ ../ / 开头，且不是 miniprogram_npm）
+						const isNpmPackage = !isRelative && !isMiniprogramNpm && !isAbsolute
+
+						if (isNpmPackage) {
+							// npm 包统一映射到 /miniprogram_npm/
+							id = `/miniprogram_npm/${requirePath}`
+						} else if (isMiniprogramNpm) {
+							// 保持原有 miniprogram_npm 路径
+							id = requirePath.startsWith('/') ? requirePath : `/${requirePath}`
 						} else {
-							// 其他所有路径（相对路径、绝对路径等）都进行解析
-							// 这与 Babel 原版逻辑保持一致
+							// 相对路径 / 其他绝对路径
 							const requireFullPath = resolve(modulePath, `../${requirePath}`)
-							// 依赖的模块相对路径转换为绝对路径
 							id = requireFullPath.split(`${getWorkPath()}${sep}`)[1]
-							// 移除文件扩展名（.js 或 .ts）
 							id = id.replace(/\.(js|ts)$/, '').replace(/\\/g, '/')
-							// 确保路径以 '/' 开头，保持一致性
 							if (!id.startsWith('/')) {
 								id = '/' + id
 							}
@@ -317,31 +345,62 @@ async function buildJSByPath(packageName, module, compileRes, mainCompileRes, ad
 					let id
 					let shouldProcess = false
 					
-					if (importPath.startsWith('@') || importPath.startsWith('miniprogram_npm/')) {
-						// 处理 npm 包导入（如 @vant/weapp/toast/toast）
-						if (importPath.startsWith('@')) {
-							// 转换为 miniprogram_npm 路径
-							id = `/miniprogram_npm/${importPath}`
-						} else {
-							// 已经是 miniprogram_npm 路径
-							id = importPath.startsWith('/') ? importPath : `/${importPath}`
-						}
+					// if (importPath.startsWith('@') || importPath.startsWith('miniprogram_npm/')) {
+					// 	// 处理 npm 包导入（如 @vant/weapp/toast/toast）
+					// 	if (importPath.startsWith('@')) {
+					// 		// 转换为 miniprogram_npm 路径
+					// 		id = `/miniprogram_npm/${importPath}`
+					// 	} else {
+					// 		// 已经是 miniprogram_npm 路径
+					// 		id = importPath.startsWith('/') ? importPath : `/${importPath}`
+					// 	}
+					// 	shouldProcess = true
+					// } else if (importPath.startsWith('./') || importPath.startsWith('../') || !importPath.startsWith('/')) {
+					// 	// 处理相对路径导入
+					// 	const importFullPath = resolve(modulePath, `../${importPath}`)
+					// 	// 依赖的模块相对路径转换为绝对路径
+					// 	id = importFullPath.split(`${getWorkPath()}${sep}`)[1]
+					// 	// 移除文件扩展名（.js 或 .ts）
+					// 	id = id.replace(/\.(js|ts)$/, '').replace(/\\/g, '/')
+					// 	// 确保路径以 '/' 开头，保持一致性
+					// 	if (!id.startsWith('/')) {
+					// 		id = '/' + id
+					// 	}
+					// 	shouldProcess = true
+					// } else {
+					// 	// 绝对路径直接使用
+					// 	id = importPath
+					// 	shouldProcess = true
+					// }
+					// 处理 miniprogram_npm 路径
+					const isMiniprogramNpm = importPath === 'miniprogram_npm' ||
+							importPath.startsWith('miniprogram_npm/') ||
+							importPath.startsWith('/miniprogram_npm/')
+
+					// 判断是否为相对路径
+					const isRelative = importPath.startsWith('./') || importPath.startsWith('../')
+
+					const isAbsolute = importPath.startsWith('/')
+
+					// 是否是 npm 包（不以 ./ ../ / 开头，且不是 miniprogram_npm）
+					const isNpmPackage = !isRelative && !isMiniprogramNpm && !isAbsolute
+
+					if (isNpmPackage) {
+						// npm 包统一映射到 /miniprogram_npm/
+						id = `/miniprogram_npm/${importPath}`
 						shouldProcess = true
-					} else if (importPath.startsWith('./') || importPath.startsWith('../') || !importPath.startsWith('/')) {
-						// 处理相对路径导入
+					} else if (isMiniprogramNpm) {
+						// 保持原有 miniprogram_npm 路径
+						id = importPath.startsWith('/') ? importPath : `/${importPath}`
+						shouldProcess = true
+					} else {
+						// 相对路径 / 其他绝对路径
 						const importFullPath = resolve(modulePath, `../${importPath}`)
-						// 依赖的模块相对路径转换为绝对路径
 						id = importFullPath.split(`${getWorkPath()}${sep}`)[1]
-						// 移除文件扩展名（.js 或 .ts）
 						id = id.replace(/\.(js|ts)$/, '').replace(/\\/g, '/')
-						// 确保路径以 '/' 开头，保持一致性
 						if (!id.startsWith('/')) {
 							id = '/' + id
 						}
-						shouldProcess = true
-					} else {
-						// 绝对路径直接使用
-						id = importPath
 						shouldProcess = true
 					}
 					
@@ -492,6 +551,11 @@ function getJSAbsolutePath(modulePath) {
 		const fullPath = `${workPath}${modulePath}${ext}`
 		if (fs.existsSync(fullPath)) {
 			return fullPath
+		}
+		// 尝试查找 index.js 或 index.ts
+		const fullPathWithIndex = `${workPath}${modulePath}/index${ext}`
+		if (fs.existsSync(fullPathWithIndex)) {
+			return fullPathWithIndex
 		}
 	}
 	

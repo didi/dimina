@@ -47,6 +47,11 @@
 		"星河"
 	],
 	"dependencies": {
+		"@babel/core": "^7.28.6",
+		"@babel/generator": "^7.28.6",
+		"@babel/plugin-transform-modules-commonjs": "^7.28.6",
+		"@babel/traverse": "^7.28.6",
+		"@babel/types": "^7.28.6",
 		"@vue/compiler-sfc": "^3.5.27",
 		"autoprefixer": "^10.4.23",
 		"cheerio": "^1.1.2",
