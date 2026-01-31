@@ -6,4 +6,10 @@
 
 <view class="bottom-safe" style="height: {{bottomSafeHeight}}px;"></view>
 
+<view class="nav-section">
+<button class="nav-btn" bindtap="get_h">
+    <text class="nav-btn-text">🚀 获取状态栏高度</text>
+</button>
+</view>
+
 

@@ -91,3 +91,5 @@ pnpm generate:sdk
 ## 编译导出sdk
 pnpm build:dev
 pnpm generate:sdk
+
+pnpm compile ; pnpm generate:app

@@ -124,6 +124,7 @@ appDirs.forEach(async (appId) => {
 		}
 	}
 
+
 	// 检查shared/jsapp下的config.json是否存在
 	const configPath = path.join(appSharedPath, 'config.json')
 	let config = {
@@ -144,6 +145,9 @@ appDirs.forEach(async (appId) => {
 			const versionParts = config.versionName.split('.')
 			versionParts[versionParts.length - 1] = (Number.parseInt(versionParts[versionParts.length - 1]) + 1).toString()
 			config.versionName = versionParts.join('.')
+			config.path = appPath
+			config.name = appName
+			config.appId = appId
 
 			console.log(`🔢 为${appId}递增版本号：${config.versionName}（版本编码：${config.versionCode}）`)
 		}
