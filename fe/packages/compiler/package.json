@@ -61,7 +61,7 @@
 		"esbuild": "^0.27.2",
 		"htmlparser2": "^10.0.0",
 		"less": "^4.5.1",
-		"listr2": "^9.0.5",
+		"listr2": "^10.1.0",
 		"magic-string": "^0.30.21",
 		"oxc-parser": "^0.110.0",
 		"oxc-transform": "^0.110.0",
