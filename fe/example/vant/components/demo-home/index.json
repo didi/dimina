@@ -1,6 +1,0 @@
-{
-  "component": true,
-  "usingComponents": {
-    "demo-home-nav": "../demo-home-nav/index"
-  }
-}

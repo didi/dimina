@@ -1,0 +1,82 @@
+<page-meta root-font-size="system"></page-meta>
+<view class="page" data-weui-theme="{{theme}}" data-weui-mode="{{mode}}">
+  <view class="page__hd">
+    <view aria-role="heading" aria-level="1" class="page__title">WeUI</view>
+    <view class="page__desc">7788 是一套同微信原生视觉体验一致的基础样式库，由微信官方设计团队为微信内网页和微信小程序量身设计，令用户的使用感知更加统一。</view>
+  </view>
+
+
+
+<!-- 在您现有的页面中添加这个按钮，比如在 index.wxml 或测试页面的合适位置 -->
+
+<!-- 跳转到UDP示例页面按钮 -->
+<view class="nav-section">
+  <button class="nav-btn" bindtap="goToUdpExample">
+    <text class="nav-btn-text">🚀 跳转到UDP示例页面</text>
+  </button>
+</view>
+
+
+
+  <!-- 在原有内容基础上添加测试区域 -->
+  <view class="test-section">
+    <view class="test-buttons">
+      <button bindtap="but1">测试网络API</button>
+      <button bindtap="but2">测试设备API</button>
+      <button bindtap="but3">测试界面API</button>
+      <button bindtap="clearTestResults">清空结果</button>
+    </view>
+
+    <!-- 测试结果显示 -->
+    <view class="test-results" wx:if="{{apiTestResults.length > 0}}">
+      <view class="result-title">API测试结果 (最近10条):</view>
+      <view class="result-item" wx:for="{{apiTestResults}}" wx:key="time">
+        <text class="time">{{item.time}}</text>
+        <text class="api">{{item.api}}</text>
+        <text class="status {{item.status.includes('成功') ? 'success' : 'error'}}">{{item.status}}</text>
+        <text class="data">{{item.data}}</text>
+      </view>
+    </view>
+
+    <!-- 实时数据显示 -->
+    <view class="live-data">
+      <view>存储测试值: {{testData.storageValue}}</view>
+      <view>网络类型: {{testData.networkType}}</view>
+      <view wx:if="{{testData.systemInfo.model}}">设备型号: {{testData.systemInfo.model}}</view>
+    </view>
+  </view>
+
+
+
+  <view class="page__bd page__bd_spacing">
+    <view class="kind-list">
+      <block wx:for="{{list}}" wx:key="id">
+        <view class="kind-list__item">
+          <view id="{{item.id}}" class="weui-flex kind-list__item-hd {{item.open ? 'kind-list__item-hd_show' : ''}}"
+            bindtap="kindToggle">
+            <view class="weui-flex__item">{{item.name}}</view>
+            <image aria-role="button" aria-label="{{item.open ? ' 收起' : ' 展开'}}" class="kind-list__img"
+              src="images/icon_nav_{{item.id}}.png"></image>
+          </view>
+          <view aria-hidden="{{item.open ? 'false' : 'true'}}"
+            class="kind-list__item-bd {{item.open ? 'kind-list__item-bd_show' : ''}}">
+            <view class="weui-cells {{item.open ? 'weui-cells_show' : ''}}">
+              <block wx:for="{{item.pages}}" wx:for-item="page" wx:key="*this">
+                <navigator aria-role="menuitem" url="{{page}}/{{page}}" class="weui-cell weui-cell_access"
+                  hover-class="weui-cell_active">
+                  <view class="weui-cell__bd">{{page}}</view>
+                  <view class="weui-cell__ft weui-cell__ft_in-access"></view>
+                </navigator>
+              </block>
+            </view>
+          </view>
+        </view>
+      </block>
+    </view>
+  </view>
+  <view class="page__ft" bindtap="changeTheme">
+    <image aria-label="weui logo" src="images/icon_footer.png" style="width: 84px; height: 19px; margin: 0 auto;">
+    </image>
+    <view class="page_bottom_tips">该小程序仅演示示例，不收集个人信息。</view>
+  </view>
+</view>

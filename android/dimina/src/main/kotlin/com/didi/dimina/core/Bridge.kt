@@ -110,7 +110,7 @@ class Bridge(
 
         val type = msg.getString("type")
         val target = msg.getString("target")
-        LogUtils.d(tag, "[Container] receive msg from $source: $msg")
+        LogUtils.d(tag, "[容器]接收到的消息 $source: $msg")
 
         // Create transMsg object
         val transMsg = JSONObject().apply {

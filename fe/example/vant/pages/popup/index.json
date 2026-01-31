@@ -1,6 +1,0 @@
-{
-  "usingComponents": {
-    "van-cell": "@vant/weapp/cell/index",
-    "van-popup": "@vant/weapp/popup/index"
-  }
-}

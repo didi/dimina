@@ -1,0 +1,46 @@
+<view class="container">
+  <view class="section">
+    <text class="section-title">UDP Socket基础控制</text>
+    <button type="primary" bindtap="createUDP" disabled="{{udpCreated}}">创建UDP实例</button>
+    <button type="warn" bindtap="closeUDP" disabled="{{!udpCreated}}">关闭UDP实例</button>
+    <text class="status">状态: {{statusText}}</text>
+  </view>
+
+  <view class="section">
+    <text class="section-title">端口绑定配置</text>
+    <input type="number" placeholder="本地端口(空为随机)" bindinput="onPortInput" value="{{port}}"/>
+    <button bindtap="bindPort" disabled="{{!udpCreated}}">绑定端口</button>
+    <text>绑定端口: {{currentPort || '未绑定'}}</text>
+  </view>
+
+  <view class="section">
+    <text class="section-title">消息发送测试</text>
+    <input placeholder="目标IP" bindinput="onIPInput" value="{{targetIP}}"/>
+    <input type="number" placeholder="目标端口" bindinput="onTargetPortInput" value="{{targetPort}}"/>
+    <textarea placeholder="发送的消息" bindinput="onMessageInput" value="{{message}}"></textarea>
+    <button bindtap="sendMessage" disabled="{{!isBound}}">发送UDP消息</button>
+    <button bindtap="sendBroadcast" disabled="{{!isBound}}">发送广播消息</button>
+  </view>
+
+  <view class="section">
+    <text class="section-title">消息接收监控</text>
+    <switch checked="{{isListening}}" bindchange="toggleListening" disabled="{{!isBound}}"/>
+    <text>监听状态: {{isListening ? '监听中' : '已停止'}}</text>
+    <button bindtap="startListening" disabled="{{!isBound || isListening}}">开始监听</button>
+    <button bindtap="stopListening" disabled="{{!isBound || !isListening}}">停止监听</button>
+  </view>
+
+  <view class="section">
+    <text class="section-title">自动化全面测试</text>
+    <button bindtap="runComprehensiveTest" disabled="{{isTesting}}">运行全面测试套件</button>
+    <text>测试进度: {{testProgress}}</text>
+  </view>
+
+  <view class="section">
+    <text class="section-title">操作日志</text>
+    <scroll-view scroll-y class="log-container">
+      <text class="log-text">{{logContent}}</text>
+    </scroll-view>
+    <button bindtap="clearLog">清空日志</button>
+  </view>
+</view>

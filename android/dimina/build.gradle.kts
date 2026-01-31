@@ -68,6 +68,7 @@ dependencies {
     implementation (libs.okhttp)
     implementation(libs.landscapist.coil)
     implementation (libs.ui.tooling)
+    implementation(libs.androidx.bluetooth)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

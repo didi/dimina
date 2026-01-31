@@ -52,11 +52,11 @@ class JsCore {
         if (!loadedJsPaths.contains(scriptPath)) {
             val result = jsEngine.evaluateFromFile(scriptPath)
             loadedJsPaths.add(scriptPath)
-            LogUtils.d(tag, "Loaded new JS file: $scriptPath")
+            LogUtils.d(tag, "加载新的JS文件: $scriptPath")
             return result
         }
 
-        LogUtils.d(tag, "Reusing already loaded JS file: $scriptPath")
+        LogUtils.d(tag, "重用已加载的JS文件: $scriptPath")
         return JSValue.createUndefined()
     }
 

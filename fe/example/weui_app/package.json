@@ -1,0 +1,6 @@
+{
+    "scripts": {
+      "build": "dmcc build -s ../../../shared/jsapp/",
+      "dev": "dmcc build -w"
+    }
+  }

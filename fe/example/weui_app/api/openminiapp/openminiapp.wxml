@@ -1,0 +1,9 @@
+<view class="container" style="padding: 30rpx;">
+  <button 
+    type="primary" 
+    bindtap="openAnotherMiniProgram"
+    size="mini"
+  >
+    点击打开目标小程序
+  </button>
+</view>

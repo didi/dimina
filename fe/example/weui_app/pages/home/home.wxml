@@ -1,0 +1,15 @@
+<view class="status-bar" style="height: {{statusBarHeight}}px;"></view>
+<view class="nav-bar" style="height: {{navBarHeight}}px;"></view>
+
+<!-- <view class="safe" style="height: {{safeHeight}}px;"></view> -->
+<view class="content" style="height: {{safeHeight - navBarHeight}}px"></view>
+
+<view class="bottom-safe" style="height: {{bottomSafeHeight}}px;"></view>
+
+<view class="nav-section">
+<button class="nav-btn" bindtap="get_h">
+    <text class="nav-btn-text">🚀 获取状态栏高度</text>
+</button>
+</view>
+
+
