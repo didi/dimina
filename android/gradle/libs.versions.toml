@@ -16,7 +16,7 @@ material = "1.12.0"
 materialIconsCore = "1.7.8"
 mmkv = "2.2.4"
 okhttp = "5.2.1"
-uiTooling = "1.8.2"
+uiTooling = "1.9.4"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
