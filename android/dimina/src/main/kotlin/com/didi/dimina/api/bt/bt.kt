@@ -16,10 +16,17 @@ import com.didi.dimina.api.APIResult
 import com.didi.dimina.api.ApiHandler
 import com.didi.dimina.api.ApiRegistry
 import com.didi.dimina.api.NoneResult
+//import com.didi.dimina.api.udp.UdpApi.Companion.UDPSocketInstance
+//import com.didi.dimina.api.udp.UdpApi.Companion.socketInstances
 import com.didi.dimina.common.ApiUtils
 import com.didi.dimina.ui.container.DiminaActivity
 import org.json.JSONObject
+//import java.net.DatagramSocket
 import java.util.UUID
+//import java.util.concurrent.ConcurrentHashMap
+//import java.util.concurrent.atomic.AtomicBoolean
+//import kotlin.collections.set
+
 /**
  * 蓝牙 API
  * 作者: 上电冒烟
@@ -52,6 +59,8 @@ class BtApi : ApiHandler {
         const val API_onBLECharacteristicValueChange = "onBLECharacteristicValueChange"
         const val API_writeBLECharacteristicValue = "writeBLECharacteristicValue"
 
+        const val API_onBluetoothDeviceFound= "onBluetoothDeviceFound"
+
         // 微信蓝牙API标准错误码
         private const val ERR_CODE_SUCCESS = 0 // 成功
         private const val ERR_CODE_SYSTEM_ERROR = 10000 // 系统错误
@@ -68,7 +77,11 @@ class BtApi : ApiHandler {
         private val discoveredDevices = mutableSetOf<BluetoothDevice>()
         private val scanHandler = Handler(Looper.getMainLooper())
         private var isScanning = false
+
+
+
     }
+
 
     fun registerWith(registry: ApiRegistry) {
         registry.register(API_openBluetoothAdapter, this)
@@ -83,6 +96,18 @@ class BtApi : ApiHandler {
         params: JSONObject,
         responseCallback: (String) -> Unit
     ): APIResult {
+
+//        val btdata = BtData(
+//            appId=appId,
+//            apiName=apiName,
+//            params = params,
+//            activity = activity,
+//            responseCallback = responseCallback,
+//        )
+//        btdatali[0] = btdata
+
+
+
         Log.d(TAG, "处理微信标准API: $apiName, 调用方appId: $appId, 参数: $params")
         return when (apiName) {
             API_openBluetoothAdapter -> openBluetoothAdapter(activity, params, responseCallback)
@@ -142,6 +167,15 @@ class BtApi : ApiHandler {
                 params,
                 responseCallback
             )
+            API_onBluetoothDeviceFound -> onBluetoothDeviceFound(
+                activity,
+                appId,
+                apiName,
+                params,
+                responseCallback
+            )
+
+
             else -> {
                 val errorMsg = "未知的微信标准API: $apiName"
                 Log.w(TAG, errorMsg)
@@ -296,14 +330,14 @@ class BtApi : ApiHandler {
             val bluetoothManager = activity.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
             val bluetoothAdapter = bluetoothManager.adapter
             if (bluetoothAdapter == null) {
-                val unsupportedResult = JSONObject().apply {
+                val unsupportedResult = JSONObject().apply {//设备不支持蓝牙
                     put("errCode", ERR_CODE_BLUETOOTH_UNSUPPORT)
                     put("errMsg", "$API_startBluetoothDevicesDiscovery:fail 设备不支持蓝牙")
                 }
                 ApiUtils.invokeFail(params, unsupportedResult, responseCallback)
                 return NoneResult()
             }
-            if (!bluetoothAdapter.isEnabled) {
+            if (!bluetoothAdapter.isEnabled) {//蓝牙未开启
                 val btOffResult = JSONObject().apply {
                     put("errCode", ERR_CODE_BLUETOOTH_OFF)
                     put("errMsg", "$API_startBluetoothDevicesDiscovery:fail 蓝牙未开启")
@@ -311,8 +345,8 @@ class BtApi : ApiHandler {
                 ApiUtils.invokeFail(params, btOffResult, responseCallback)
                 return NoneResult()
             }
-            if (isScanning) {
-                val scanRunningResult = JSONObject().apply {
+            if (isScanning) {//正在扫描
+                val scanRunningResult = JSONObject().apply {//蓝牙扫描已开启
                     put("errCode", ERR_CODE_SCAN_ALREADY_START)
                     put("errMsg", "$API_startBluetoothDevicesDiscovery:fail 蓝牙扫描已开启")
                 }
@@ -425,7 +459,8 @@ class BtApi : ApiHandler {
                             put("errCode", ERR_CODE_SUCCESS)
                             put("errMsg", "$API_startBluetoothDevicesDiscovery:ok 扫描超时自动停止")
                         }
-                        ApiUtils.invokeSuccess(params, timeoutResult, responseCallback)
+                        Log.w(TAG, "startBluetoothDevicesDiscovery 扫描超时自动停止 异步返回成功")//异步返回成功
+                        ApiUtils.invokeSuccess(params, timeoutResult, responseCallback)//异步返回成功
                     }
                 }, SCAN_TIMEOUT_MS)
 
@@ -434,6 +469,7 @@ class BtApi : ApiHandler {
                     put("errCode", ERR_CODE_SUCCESS)
                     put("errMsg", "$API_startBluetoothDevicesDiscovery:ok")
                 }
+                Log.w(TAG, "startBluetoothDevicesDiscovery 开始搜索蓝牙 异步返回成功")//异步返回成功
                 ApiUtils.invokeSuccess(params, successResult, responseCallback)
             } else {
                 // 权限不足/启动失败
@@ -456,8 +492,38 @@ class BtApi : ApiHandler {
     }
 
     /**
-     * 检查蓝牙扫描权限（适配Android不同版本）
+     * API_onBluetoothDeviceFound 监听搜索到新设备的事件
      */
+    private fun onBluetoothDeviceFound(
+        activity: DiminaActivity,
+        appId: String,
+        apiName: String,
+        params: JSONObject,
+        responseCallback: (String) -> Unit
+    ): APIResult{
+        return try {
+            Log.d(TAG, "onBluetoothDeviceFound：注册蓝牙设备发现事件监听成功")
+
+            // 1. 保存小程序的回调和入参（弱引用，避免持有 Activity 强引用导致内存泄漏）
+
+
+            // 2. 立即返回「监听注册成功」的结果（微信小程序标准格式）
+            val successResult = JSONObject().apply {
+                put("errCode", ERR_CODE_SUCCESS)
+                put("errMsg", "$API_onBluetoothDeviceFound:ok")
+            }
+            ApiUtils.invokeSuccess(params, successResult, responseCallback)
+
+            NoneResult()
+        } catch (e: Exception) {
+            val errorResult = JSONObject().apply {
+                put("errCode", ERR_CODE_SYSTEM_ERROR)
+                put("errMsg", "$API_onBluetoothDeviceFound:fail ${e.message}")
+            }
+            ApiUtils.invokeFail(params, errorResult, responseCallback)
+            NoneResult()
+        }
+    }
 
 
     /**

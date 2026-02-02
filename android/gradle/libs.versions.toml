@@ -17,6 +17,7 @@ materialIconsCore = "1.7.8"
 mmkv = "2.2.4"
 okhttp = "5.2.1"
 uiTooling = "1.8.2"
+bluetooth = "1.0.0-alpha02"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -41,6 +42,7 @@ material = { group = "com.google.android.material", name = "material", version.r
 mmkv = { module = "com.tencent:mmkv", version.ref = "mmkv" }
 okhttp = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp" }
 ui-tooling = { module = "androidx.compose.ui:ui-tooling", version.ref = "uiTooling" }
+androidx-bluetooth = { group = "androidx.bluetooth", name = "bluetooth", version.ref = "bluetooth" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

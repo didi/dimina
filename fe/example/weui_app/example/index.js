@@ -1,7 +1,7 @@
 
 Page({
   mixins: [require('../mixin/common')],
-  TAG:"WEAPI_APP",
+  TAG: "WEAPI_APP",
   data: {
     sw1: true,
     sw2: false,
@@ -71,17 +71,31 @@ Page({
     });
   },
 
-  //打开另外一个小程序
+  //打开蓝牙小程序
   goToopenapp() {
-    // 方式1: 使用navigateTo跳转（推荐，保留当前页面）
-    wx.navigateTo({
-      url: '/api/openminiapp/openminiapp',
-      success: (res) => {
-        console.log('跳转成功', res);
+    wx.navigateToMiniProgram({
+      appId: 'wxc77007cc301be278',
+      path: 'pages/index/index?from=我的小程序&userId=123',
+      extraData: {
+        source: 'demoMiniProgram',
+        timestamp: Date.now()
       },
-      fail: (err) => {
-        console.error('跳转失败', err);
-        this.fallbackToUdpPage();
+      envVersion: 'release',
+      success(res) {
+        console.log('打开小程序成功', res);
+      },
+      // 失败回调（比如白名单配置错误、appid错误等）
+      fail(err) {
+        console.error('打开小程序失败', err);
+        wx.showToast({
+          title: '打开失败：' + err.errMsg,
+          icon: 'none',
+          duration: 3000
+        });
+      },
+      // 完成回调（无论成功/失败都会执行）
+      complete() {
+        console.log('打开小程序操作完成');
       }
     });
   },
