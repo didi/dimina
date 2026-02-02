@@ -34,7 +34,7 @@
   },
   "appid": "wxd58cedf6d1e1c52c",
   "projectname": "WeUI for 小程序",
-  "libVersion": "3.3.1",
+  "libVersion": "3.13.2",
   "packOptions": {
     "ignore": [],
     "include": []

@@ -110,7 +110,7 @@ class MainActivity : ComponentActivity() {
         WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = true
 
         // 启动小程序（启动后会自动关闭当前页面）
-        openMiniProgram()
+//        openMiniProgram()
 
         setContent {
             DiminaAndroidTheme {
