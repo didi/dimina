@@ -39,14 +39,22 @@
     "minifyWXSS": true,
     "showES6CompileOption": false,
     "ignoreUploadUnusedFiles": true,
-    "condition": false
+    "condition": false,
+    "compileWorklet": false,
+    "minifyWXML": true,
+    "localPlugins": false,
+    "disableUseStrict": false,
+    "useCompilerPlugins": false,
+    "swc": false,
+    "disableSWC": true
   },
   "compileType": "miniprogram",
   "libVersion": "2.27.3",
-  "appid": "wx1c01b35002d3ba14",
+  "appid": "wxd58cedf6d1e1c52c",
   "projectname": "Vant 组件库展示",
   "editorSetting": {
     "tabIndent": "insertSpaces",
     "tabSize": 2
-  }
+  },
+  "simulatorPluginLibVersion": {}
 }

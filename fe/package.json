@@ -8,6 +8,11 @@
     "pnpm": ">=7"
   },
   "scripts": {
+    "generate:app1": "node ./scripts/generate-app1.js",
+
+
+
+    
     "build:dev": "pnpm --filter container... build --mode development",
     "build": "pnpm --filter container... build --mode production",
     "compile": "node ./packages/compiler/src/bin/compile.js",
