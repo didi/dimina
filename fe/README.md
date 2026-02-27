@@ -54,6 +54,9 @@ pnpm test
 # 注意：需要 shared/jsapp 目录存在
 pnpm generate:app
 
+# 兼容windows环境生成小程序到shared/jsapp
+pnpm generate:app1
+
 # 生成SDK包
 # 注意：需要先执行构建命令
 pnpm generate:sdk
