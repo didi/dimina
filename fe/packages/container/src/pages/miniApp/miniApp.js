@@ -1,6 +1,7 @@
 import { AppManager } from '@/core/appManager'
 import { Bridge } from '@/core/bridge'
 import { JSCore } from '@/core/jscore'
+import { HashRouter } from '@/utils/hashRouter'
 import { mergePageConfig, queryPath, readFile, sleep, uuid } from '@/utils/util'
 import tpl from './miniApp.html?raw'
 import './miniApp.scss'
@@ -76,6 +77,7 @@ export class MiniApp {
 
 		this.bridgeList.push(entryPageBridge)
 		entryPageBridge.start()
+		HashRouter.sync(this.appId, entryPagePath, this.appInfo.query)
 
 		// 6.隐藏 loading
 		this.hideLaunchScreen()
@@ -106,6 +108,9 @@ export class MiniApp {
 		// 首次异步创建时， bridge 不存在，会在[Service]自行调用 invokeInitLifecycle
 		currentBridge?.appShow()
 		currentBridge?.pageShow()
+		if (currentBridge) {
+			HashRouter.sync(this.appId, currentBridge.opts.pagePath, currentBridge.opts.query)
+		}
 	}
 
 	onPresentOut() {
@@ -212,6 +217,7 @@ export class MiniApp {
 
 		// 触发新页面的初始化逻辑
 		bridge.start()
+		HashRouter.sync(this.appId, pagePath, query)
 
 		// 上一个页面推出
 		preWebview.el.classList.remove('dimina-native-view--instage')
@@ -288,6 +294,7 @@ export class MiniApp {
 
 				// 启动新页面
 				bridge.start()
+				HashRouter.sync(this.appId, pagePath, query)
 
 				// 设置 z-index
 				bridge.webview.el.style.zIndex = 1
@@ -338,6 +345,7 @@ export class MiniApp {
 		}
 		curBridge.resetStatus()
 		curBridge.start()
+		HashRouter.sync(this.appId, pagePath, query)
 
 		this.webviewAnimaEnd = true
 		onSuccess?.()
@@ -377,6 +385,7 @@ export class MiniApp {
 
 		// 触发上一个页面的生命周期函数
 		preBridge?.pageShow()
+		HashRouter.sync(this.appId, preBridge.opts.pagePath, preBridge.opts.query)
 		await sleep(540)
 		this.webviewAnimaEnd = true
 
@@ -427,6 +436,7 @@ export class MiniApp {
 		const closeBtn = this.el.querySelector('.dimina-mini-app-navigation__actions-close')
 
 		closeBtn.onclick = () => {
+			HashRouter.clear()
 			AppManager.closeApp(this)
 		}
 	}
