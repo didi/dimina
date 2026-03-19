@@ -1,7 +1,6 @@
 <script setup>
 // 富文本
 // https://developers.weixin.qq.com/miniprogram/dev/component/rich-text.html
-
 const props = defineProps({
 	/**
 	 * 节点列表/HTML String
@@ -30,6 +29,8 @@ const props = defineProps({
 })
 
 const sanitizedHtml = ref('')
+const info = inject('info', {})
+const scopeId = info?.sId
 
 function renderNode(node) {
 	const spaceType = props.space
@@ -74,16 +75,46 @@ function renderNode(node) {
 	return html
 }
 
+/**
+ * 为 HTML 字符串的所有标签注入 scopeId 属性（如 data-v-xxx）
+ */
+function injectScopeIdToHtml(html, scopeId) {
+	if (!html || !scopeId) return html
+	
+	// 使用 DOMParser 解析 HTML 字符串
+	const parser = new DOMParser()
+	const doc = parser.parseFromString(html, 'text/html')
+	const body = doc.body
+	
+	// 递归遍历所有元素节点并添加 scopeId
+	function injectAttrs(element) {
+		if (element.nodeType === Node.ELEMENT_NODE) {
+			element.setAttribute(scopeId, '')
+			// 递归处理子元素
+			for (const child of element.children) {
+				injectAttrs(child)
+			}
+		}
+	}
+	
+	injectAttrs(body)
+
+	return body.innerHTML
+}
+
 onMounted(() => {
 	let htmlContent = ''
 	const nodes = toRaw(props.nodes)
 	if (typeof nodes === 'string') {
-		htmlContent = nodes
+		htmlContent = injectScopeIdToHtml(nodes, scopeId)
 	}
 	else if (typeof nodes === 'object' && Array.isArray(nodes)) {
 		nodes.forEach((node) => {
 			htmlContent += renderNode(node)
 		})
+		if (htmlContent) {
+			htmlContent = injectScopeIdToHtml(htmlContent, scopeId)
+		}
 	}
 	// HTML 清理逻辑 来避免 XSS 攻击。考虑使用像 DOMPurify 这样的库来清理 HTML。
 	sanitizedHtml.value = htmlContent.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')

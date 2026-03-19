@@ -21,7 +21,7 @@
 		"@dimina/common": "workspace:^",
 		"@dimina/components": "workspace:^",
 		"mitt": "^3.0.1",
-		"vue": "^3.5.29"
+		"vue": "^3.5.30"
 	},
 	"devDependencies": {
 		"@vitejs/plugin-vue": "^6.0.4"

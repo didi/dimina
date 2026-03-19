@@ -1,6 +1,8 @@
 import { isFunction } from '@dimina/common'
 
 const lifecycleMethods = ['onLaunch', 'onShow', 'onHide']
+const reservedProperties = ['globalData']
+
 export class App {
 	constructor(appModule, options) {
 		this.appModule = appModule
@@ -9,9 +11,14 @@ export class App {
 	}
 
 	init() {
+		this.initGlobalData()
 		this.initLifecycle()
 		this.initCustomMethods()
 		this.invokeSomeLifecycle()
+	}
+
+	initGlobalData() {
+		this.globalData = this.appModule.moduleInfo.globalData
 	}
 
 	initLifecycle() {
@@ -25,11 +32,10 @@ export class App {
 		})
 	}
 
-	// 开发者自定义函数
 	initCustomMethods() {
 		const moduleInfo = this.appModule.moduleInfo
 		for (const attr in moduleInfo) {
-			if (!lifecycleMethods.includes(attr) && isFunction(moduleInfo[attr])) {
+			if (!lifecycleMethods.includes(attr) && !reservedProperties.includes(attr) && isFunction(moduleInfo[attr])) {
 				this[attr] = moduleInfo[attr].bind(this)
 			}
 		}

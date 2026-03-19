@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ensureImportSemicolons } from '../src/core/style-compiler'
+import { ensureImportSemicolons, removeBaseComponentScope } from '../src/core/style-compiler'
 
 describe('ensureImportSemicolons', () => {
 	it('should add semicolons to @import statements that do not have them', () => {
@@ -82,5 +82,141 @@ body {
 
 	it('should handle empty input', () => {
 		expect(ensureImportSemicolons('')).toEqual('')
+	})
+})
+
+describe('removeBaseComponentScope', () => {
+	const moduleId = '7a7a37b1'
+
+	it('应该移除基础组件选择器的 scoped 属性', async () => {
+		const input = `.dd-input[data-v-${moduleId}] { color: red; }`
+		const expected = `.dd-input { color: red; }`
+		
+		const result = await removeBaseComponentScope(input, moduleId)
+		expect(result).toEqual(expected)
+	})
+
+	it('应该处理多个基础组件选择器', async () => {
+		const input = `
+.dd-input[data-v-${moduleId}] { color: red; }
+.dd-button[data-v-${moduleId}] { padding: 10px; }
+.dd-view[data-v-${moduleId}] { display: block; }
+		`.trim()
+		
+		const expected = `
+.dd-input { color: red; }
+.dd-button { padding: 10px; }
+.dd-view { display: block; }
+		`.trim()
+		
+		const result = await removeBaseComponentScope(input, moduleId)
+		expect(result).toEqual(expected)
+	})
+
+	it('应该保留非基础组件选择器的 scoped 属性', async () => {
+		const input = `
+.dd-input[data-v-${moduleId}] { color: red; }
+.custom-class[data-v-${moduleId}] { color: blue; }
+		`.trim()
+		
+		const expected = `
+.dd-input { color: red; }
+.custom-class[data-v-${moduleId}] { color: blue; }
+		`.trim()
+		
+		const result = await removeBaseComponentScope(input, moduleId)
+		expect(result).toEqual(expected)
+	})
+
+	it('应该处理复合选择器', async () => {
+		const input = `.dd-input.active[data-v-${moduleId}] { color: red; }`
+		const expected = `.dd-input.active { color: red; }`
+		
+		const result = await removeBaseComponentScope(input, moduleId)
+		expect(result).toEqual(expected)
+	})
+
+	it('应该处理后代选择器', async () => {
+		const input = `.container .dd-input[data-v-${moduleId}] { color: red; }`
+		const expected = `.container .dd-input { color: red; }`
+		
+		const result = await removeBaseComponentScope(input, moduleId)
+		expect(result).toEqual(expected)
+	})
+
+	it('应该处理伪类选择器', async () => {
+		const input = `.dd-input:focus[data-v-${moduleId}] { border-color: blue; }`
+		const expected = `.dd-input:focus { border-color: blue; }`
+		
+		const result = await removeBaseComponentScope(input, moduleId)
+		expect(result).toEqual(expected)
+	})
+
+	it('应该处理多个类名的组合', async () => {
+		const input = `
+.dd-input[data-v-${moduleId}].dd-button[data-v-${moduleId}] { color: red; }
+		`.trim()
+		
+		const expected = `
+.dd-input.dd-button { color: red; }
+		`.trim()
+		
+		const result = await removeBaseComponentScope(input, moduleId)
+		expect(result).toEqual(expected)
+	})
+
+	it('应该处理没有 scoped 属性的基础组件', async () => {
+		const input = `.dd-input { color: red; }`
+		
+		const result = await removeBaseComponentScope(input, moduleId)
+		expect(result).toEqual(input)
+	})
+
+	it('当 moduleId 为空时应该返回原始 CSS', async () => {
+		const input = `.dd-input[data-v-${moduleId}] { color: red; }`
+		
+		const result = await removeBaseComponentScope(input, '')
+		expect(result).toEqual(input)
+	})
+
+	it('当 moduleId 为 null 时应该返回原始 CSS', async () => {
+		const input = `.dd-input[data-v-${moduleId}] { color: red; }`
+		
+		const result = await removeBaseComponentScope(input, null)
+		expect(result).toEqual(input)
+	})
+
+	it('应该处理混合的基础组件和自定义选择器', async () => {
+		const input = `
+.dd-input[data-v-${moduleId}] { color: red; }
+.custom-wrapper .dd-button[data-v-${moduleId}] { padding: 10px; }
+.custom-class[data-v-${moduleId}] { margin: 5px; }
+.dd-view[data-v-${moduleId}] .child { display: flex; }
+		`.trim()
+		
+		const expected = `
+.dd-input { color: red; }
+.custom-wrapper .dd-button { padding: 10px; }
+.custom-class[data-v-${moduleId}] { margin: 5px; }
+.dd-view .child { display: flex; }
+		`.trim()
+		
+		const result = await removeBaseComponentScope(input, moduleId)
+		expect(result).toEqual(expected)
+	})
+
+	it('应该处理所有白名单中的基础组件', async () => {
+		const components = ['input', 'button', 'view', 'text', 'image', 'checkbox', 'radio']
+		
+		const input = components
+			.map(tag => `.dd-${tag}[data-v-${moduleId}] { color: red; }`)
+			.join('\n')
+		
+		const expected = components
+			.map(tag => `.dd-${tag} { color: red; }`)
+			.join('\n')
+		
+		const result = await removeBaseComponentScope(input, moduleId)
+		expect(result).toEqual(expected)
 	})
 })
