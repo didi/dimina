@@ -24,6 +24,31 @@ export class MiniApp {
 			timer: null,
 		}
 		this.color = null
+		this.apiRegistry = {}
+	}
+
+	/**
+	 * Register a custom API handler
+	 * @param {string} name API name
+	 * @param {function} handler Handler function receiving (params)
+	 */
+	registerApi(name, handler) {
+		this.apiRegistry[name] = handler
+	}
+
+	/**
+	 * Invoke an API by name, checking registry first then built-in methods
+	 * @param {string} name API name
+	 * @param {object} params API parameters
+	 */
+	invokeApi(name, params) {
+		const handler = this.apiRegistry[name]
+		if (handler) {
+			handler.call(this, params)
+		}
+		else if (typeof this[name] === 'function') {
+			this[name](params)
+		}
 	}
 
 	viewDidLoad() {

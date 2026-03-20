@@ -7,7 +7,9 @@
 		"dev": "vite",
 		"build": "vite build",
 		"preview": "vite preview",
-		"serve": "qrcode --small \"http://$(ifconfig | grep 'inet ' | grep -v 127.0.0.1 | awk '{print $2}'):9966\" && http-server ./dist/ -c-1 -p 9966 -g"
+		"serve": "qrcode --small \"http://$(ifconfig | grep 'inet ' | grep -v 127.0.0.1 | awk '{print $2}'):9966\" && http-server ./dist/ -c-1 -p 9966 -g",
+		"test": "vitest run",
+		"test:dev": "vitest"
 	},
 	"dependencies": {
 		"@dimina/common": "workspace:^",
