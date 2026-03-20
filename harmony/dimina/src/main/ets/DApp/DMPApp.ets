@@ -29,8 +29,6 @@ import { DMPNavigatorManager } from '../Navigator/DMPNavigatorManager'
 import { DRouter } from '../Navigator/DRouter'
 import { DMPAppLifecycle } from './DMPAppLifecycle'
 import { DMPDeviceUtil } from '../Utils/DMPDeviceUtils'
-import { DiminaConfig } from './config/DiminaConfig'
-
 export type DMPBundleUpdateCallback = () => void;
 //小程序应用实例
 export class DMPApp {
@@ -40,6 +38,7 @@ export class DMPApp {
   private onUpdateResult?: DMPBundleUpdateCallback
   private _container: DMPContainer = new DMPContainer(this)
   private static _context: common.UIAbilityContext
+  private static _apiNamespaces: string[] = []
   private _containerBridges: DMPBridges = new DMPBridges()
   private static _entryContext: DMPEntryContext
   private _appModuleManager: DMPAppModuleManager = new DMPAppModuleManager(this)
@@ -123,9 +122,10 @@ export class DMPApp {
     return DMPApp._entryContext.getWindowStage();
   }
 
-  static init(context: DMPEntryContext) {
+  static init(context: DMPEntryContext, options?: { apiNamespaces?: string[] }) {
     DMPApp._entryContext = context;
     DMPApp._context = DMPApp._entryContext.getContext();
+    DMPApp._apiNamespaces = options?.apiNamespaces ?? [];
     ImageKnife.with(DMPApp._entryContext.getContext())
     context.getWindowStage().on('windowStageEvent', DMPAppLifecycle.onWindowStageEvent);
     DMPDeviceUtil.prepareSafeAreaAndDisplayWH(DMPApp._entryContext.getContext())
@@ -356,7 +356,7 @@ export class DMPApp {
   private async startEngineService() {
     DMPLogger.d(Tags.LAUNCH, "startEngineService start");
     // Inject custom API namespaces before loading service.js
-    const namespaces = DiminaConfig.shared.apiNamespaces
+    const namespaces = DMPApp._apiNamespaces
     if (namespaces.length > 0) {
       const json = namespaces.map((n: string) => `"${n}"`).join(",")
       this._service.executeScript(`globalThis.__diminaApiNamespaces = [${json}]`)

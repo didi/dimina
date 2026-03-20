@@ -7,14 +7,19 @@
 
 public class DMPAppManager {
     private static let instance = DMPAppManager()
-    
+
     private var appPools: [Int: DMPApp] = [:]
     private var appIndex: Int = 0
-    
+    public private(set) var apiNamespaces: [String] = []
+
     private init() {}
-    
+
     public static func sharedInstance() -> DMPAppManager {
         return instance
+    }
+
+    public func setup(apiNamespaces: [String] = []) {
+        self.apiNamespaces = apiNamespaces
     }
     
     func getApp(appIndex: Int) -> DMPApp? {

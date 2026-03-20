@@ -108,7 +108,7 @@ public class DMPApp {
     public func loadBundle() async {
         print("loadBundle")
         // Inject custom API namespaces before loading service.js
-        let namespaces = DiminaConfig.shared.apiNamespaces
+        let namespaces = DMPAppManager.sharedInstance().apiNamespaces
         if !namespaces.isEmpty {
             let json = namespaces.map { "\"\($0)\"" }.joined(separator: ",")
             await service?.evaluateScript("globalThis.__diminaApiNamespaces = [\(json)]")

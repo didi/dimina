@@ -12,17 +12,15 @@ class Env {
 	}
 
 	init() {
-		globalThis.dd = globalThis.wx = globalApi
-
-		// Register custom API namespaces
-		let apiNamespaces = globalThis.__diminaApiNamespaces || []
-		if (apiNamespaces.length === 0 && typeof self !== 'undefined' && self.name) {
+		// Register API namespaces (dd, wx are built-in; custom ones from config)
+		let customNamespaces = globalThis.__diminaApiNamespaces || []
+		if (customNamespaces.length === 0 && typeof self !== 'undefined' && self.name) {
 			try {
 				const config = JSON.parse(self.name)
-				apiNamespaces = config.apiNamespaces || []
+				customNamespaces = config.apiNamespaces || []
 			} catch (e) {}
 		}
-		for (const name of apiNamespaces) {
+		for (const name of ['dd', 'wx', ...customNamespaces]) {
 			globalThis[name] = globalApi
 		}
 		globalThis.modRequire = modRequire
