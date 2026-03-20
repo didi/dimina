@@ -38,8 +38,37 @@ export class MiniApp {
 			timer: null,
 		}
 		this.color = null
+		this.apiRegistry = {}
 		// 维护第三方扩展的持续订阅，key: `${module}_${event}`，value: unsubscribe 函数
 		this._extSubscriptions = new Map()
+	}
+
+	/**
+	 * 注册自定义 API 处理函数
+	 * @param {string} name API 名称
+	 * @param {function} handler 处理函数，接收 (params)
+	 */
+	registerApi(name, handler) {
+		this.apiRegistry[name] = handler
+	}
+
+	/**
+	 * 按名称调用 API，优先查找自定义注册 → 内置方法 → 第三方扩展路由
+	 * @param {string} name API 名称
+	 * @param {object} params API 参数
+	 */
+	invokeApi(name, params) {
+		const handler = this.apiRegistry[name]
+		if (handler) {
+			handler.call(this, params)
+		}
+		else if (typeof this[name] === 'function') {
+			this[name](params)
+		}
+		else {
+			// 未命中已知方法，转发给第三方扩展路由处理
+			this._handleExtCall(name, params)
+		}
 	}
 
 	viewDidLoad() {
