@@ -80,6 +80,8 @@ export class AppList {
 			AppManager.openApp({
 				appId,
 				path: appInfo.path,
+				name: appInfo.name,
+				logo: appInfo.logo,
 				scene: 1001,
 				destroy: true, // 关闭之前的小程序
 			}, this.parent)
