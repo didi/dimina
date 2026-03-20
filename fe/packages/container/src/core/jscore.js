@@ -12,7 +12,9 @@ export class JSCore {
 		// 使用 Web Worker 创建逻辑线程
 		// 使用下面的形式会使 hash 失效
 		// this.worker = new Worker(new URL('@dimina/service', import.meta.url))；
-		this.worker = new Worker(serviceURL, { type: 'classic' })
+		const namespaces = this.parent.getApiNamespaces?.() || []
+		const workerName = JSON.stringify({ apiNamespaces: namespaces })
+		this.worker = new Worker(serviceURL, { type: 'classic', name: workerName })
 
 		// 监听逻辑线程的消息
 		this.worker.onmessage = (e) => {

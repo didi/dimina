@@ -6,3 +6,4 @@ export { DMPPhotoPreview } from './src/main/ets/Bridges/PhotoView/DMPPhotoPrevie
 export { DMPAppManager } from './src/main/ets/DApp/DMPAppManager';
 export { DMPLaunchConfig, DMPOpenType } from './src/main/ets/DApp/config/DMPLaunchConfig';
 export { DMPColorUtils } from './src/main/ets/Utils/DMPColorUtils';
+export { DiminaConfig } from './src/main/ets/DApp/config/DiminaConfig';

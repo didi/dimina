@@ -43,12 +43,19 @@ class Dimina private constructor(context: Context) {
     // 配置类
     class DiminaConfig private constructor(builder: Builder) {
         val debugMode: Boolean = builder.debugMode
+        val apiNamespaces: List<String> = builder.apiNamespaces
 
         class Builder {
             var debugMode: Boolean = false
+            internal var apiNamespaces: MutableList<String> = mutableListOf()
 
             fun setDebugMode(debugMode: Boolean): Builder {
                 this.debugMode = debugMode
+                return this
+            }
+
+            fun addApiNamespace(name: String): Builder {
+                apiNamespaces.add(name)
                 return this
             }
 
@@ -65,6 +72,8 @@ class Dimina private constructor(context: Context) {
     fun isDebugMode(): Boolean {
         return config.debugMode
     }
+
+    fun getApiNamespaces(): List<String> = config.apiNamespaces
 
     private val appContext: Context = context
     private lateinit var config: DiminaConfig

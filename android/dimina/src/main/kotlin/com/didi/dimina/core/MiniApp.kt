@@ -5,6 +5,7 @@ import android.content.Context
 import com.didi.dimina.Dimina
 import com.didi.dimina.api.ApiRegistry
 import com.didi.dimina.api.AsyncResult
+import com.didi.dimina.api.BaseApiHandler
 import com.didi.dimina.api.SyncResult
 import com.didi.dimina.api.base.AppEventApi
 import com.didi.dimina.api.base.BaseAPI
@@ -133,6 +134,13 @@ class MiniApp private constructor() {
                                 } else {
                                     LogUtils.d(tag, "Skipping JSSDK update check, last check was recent")
                                 }
+                                // Inject custom API namespaces before loading service.js
+                                val namespaces = Dimina.getInstance().getApiNamespaces()
+                                if (namespaces.isNotEmpty()) {
+                                    val json = namespaces.joinToString(",") { "\"$it\"" }
+                                    evaluate("globalThis.__diminaApiNamespaces = [$json]")
+                                }
+
                                 evaluateFromFile(
                                     File(
                                         context.filesDir.absolutePath,
@@ -350,6 +358,10 @@ class MiniApp private constructor() {
         // Clear all Bridge lists
         bridgeListMap.clear()
         LogUtils.d(tag, "Cleared all Bridge lists")
+    }
+
+    fun registerApi(handler: BaseApiHandler) {
+        handler.registerWith(apiRegistry)
     }
 
     fun destroy() {

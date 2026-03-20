@@ -29,6 +29,7 @@ import { DMPNavigatorManager } from '../Navigator/DMPNavigatorManager'
 import { DRouter } from '../Navigator/DRouter'
 import { DMPAppLifecycle } from './DMPAppLifecycle'
 import { DMPDeviceUtil } from '../Utils/DMPDeviceUtils'
+import { DiminaConfig } from './config/DiminaConfig'
 
 export type DMPBundleUpdateCallback = () => void;
 //小程序应用实例
@@ -354,6 +355,12 @@ export class DMPApp {
 
   private async startEngineService() {
     DMPLogger.d(Tags.LAUNCH, "startEngineService start");
+    // Inject custom API namespaces before loading service.js
+    const namespaces = DiminaConfig.shared.apiNamespaces
+    if (namespaces.length > 0) {
+      const json = namespaces.map((n: string) => `"${n}"`).join(",")
+      this._service.executeScript(`globalThis.__diminaApiNamespaces = [${json}]`)
+    }
     const serviceJsPath = await this._bundleManager.requestServiceJsUri();
     await this._service.loadFileUri(serviceJsPath);
     DMPLogger.i(Tags.LAUNCH, "startEngineService end");

@@ -43,6 +43,13 @@ class JsCore {
      * @param scriptPath The JavaScript code to evaluate
      * @return The result of the evaluation
      */
+    fun evaluate(script: String): JSValue {
+        if (!isInitialized()) {
+            return JSValue.createError("Engine not initialized")
+        }
+        return jsEngine.evaluate(script)
+    }
+
     fun evaluateFromFile(scriptPath: String): JSValue {
         if (!isInitialized()) {
             return JSValue.createError("Engine not initialized")
