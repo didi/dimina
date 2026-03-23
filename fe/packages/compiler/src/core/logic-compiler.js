@@ -8,15 +8,20 @@ import MagicString from 'magic-string'
 import { transform } from 'esbuild'
 import ts from 'typescript'
 import { hasCompileInfo } from '../common/utils.js'
+import { wrapModDefine, mergeSourcemap } from './sourcemap.js'
 import { getAppConfigInfo, getComponent, getContentByPath, getNpmResolver, getTargetPath, getWorkPath, resetStoreInfo, resolveAppAlias } from '../env.js'
 
 // 用于缓存已处理的模块
 const processedModules = new Set()
 
+// 是否生成 sourcemap
+let enableSourcemap = false
+
 if (!isMainThread) {
-	parentPort.on('message', async ({ pages, storeInfo }) => {
+	parentPort.on('message', async ({ pages, storeInfo, sourcemap }) => {
 		try {
 			resetStoreInfo(storeInfo)
+			enableSourcemap = !!sourcemap
 
 			const progress = {
 				_completedTasks: 0,
@@ -46,18 +51,18 @@ if (!isMainThread) {
 				}
 			}
 			await writeCompileRes(mainCompileRes, null)
-			
+
 			// Worker 任务完成后清理缓存，释放内存
 			processedModules.clear()
-			
+
 			parentPort.postMessage({ success: true })
 		}
 		catch (error) {
 			// 错误时也清理缓存
 			processedModules.clear()
-			
-			parentPort.postMessage({ 
-				success: false, 
+
+			parentPort.postMessage({
+				success: false,
 				error: {
 					message: error.message,
 					stack: error.stack,
@@ -96,6 +101,17 @@ ${module.code}
 			fs.mkdirSync(mainDir, { recursive: true })
 		}
 		fs.writeFileSync(`${mainDir}/logic.js`, mergeCode)
+	}
+
+	// sourcemap 模式：用未压缩的代码重新生成 logic.js 并附带 sourcemap
+	if (enableSourcemap) {
+		const outputDir = root
+			? `${getTargetPath()}/${root}`
+			: `${getTargetPath()}/main`
+		const { bundleCode, sourcemap } = mergeSourcemap(compileRes)
+		const sourcemapFileName = 'logic.js.map'
+		fs.writeFileSync(`${outputDir}/logic.js`, `${bundleCode}//# sourceMappingURL=${sourcemapFileName}\n`)
+		fs.writeFileSync(`${outputDir}/${sourcemapFileName}`, sourcemap)
 	}
 }
 
@@ -142,6 +158,7 @@ async function buildJSByPath(packageName, module, compileRes, mainCompileRes, ad
 	const compileInfo = {
 		path: module.path,
 		code: '',
+		sourceFile: null,
 	}
 
 	const src = module.path.startsWith('/') ? module.path : `/${module.path}`
@@ -155,6 +172,14 @@ async function buildJSByPath(packageName, module, compileRes, mainCompileRes, ad
 	if (!sourceCode) {
 		console.warn('[logic]', `无法读取模块文件: ${modulePath}`)
 		return
+	}
+
+	// 记录源文件路径，用于 sourcemap
+	if (enableSourcemap) {
+		const workPath = getWorkPath()
+		compileInfo.sourceFile = modulePath.startsWith(workPath)
+			? modulePath.slice(workPath.length)
+			: src
 	}
 	
 	// 如果是 TypeScript 文件，先编译为 JavaScript
@@ -237,7 +262,12 @@ async function buildJSByPath(packageName, module, compileRes, mainCompileRes, ad
 	// 如果需要添加 extraInfo，在代码开头注入
 	if (addExtra) {
 		const extraInfoCode = `globalThis.__extraInfo = ${JSON.stringify(extraInfo)};\n`
-		s.prepend(extraInfoCode)
+		if (enableSourcemap) {
+			// 存到 compileInfo，在 modDefine header 中注入，避免影响 sourcemap 行号
+			compileInfo.extraInfoCode = extraInfoCode
+		} else {
+			s.prepend(extraInfoCode)
+		}
 	}
 
 	if (putMain) {
@@ -367,13 +397,23 @@ async function buildJSByPath(packageName, module, compileRes, mainCompileRes, ad
 	// 使用 esbuild 进行最终的 CommonJS 转换和压缩
 	// 这是必需的，因为 oxc-transform 不支持模块格式转换
 	try {
-		const esbuildResult = await transform(transformedCode, {
+		const esbuildOpts = {
 			format: 'cjs',
 			target: 'es2020',
 			platform: 'neutral',
-			loader: 'js'
-		})
-		
+			loader: 'js',
+		}
+		if (enableSourcemap && compileInfo.sourceFile) {
+			esbuildOpts.sourcemap = true
+			esbuildOpts.sourcefile = compileInfo.sourceFile
+			esbuildOpts.sourcesContent = true
+		}
+		const esbuildResult = await transform(transformedCode, esbuildOpts)
+
+		if (enableSourcemap && esbuildResult.map) {
+			compileInfo.map = esbuildResult.map
+		}
+
 		// esbuild 转换后，需要再次处理生成的 require 调用
 		// 因为 esbuild 可能生成新的 require 调用（从 import 转换而来）
 		const esbuildCode = esbuildResult.code
