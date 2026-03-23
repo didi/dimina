@@ -67,6 +67,7 @@
 		"oxc-transform": "^0.110.0",
 		"oxc-walker": "^0.7.0",
 		"postcss": "^8.5.8",
+		"source-map-js": "^1.2.1",
 		"postcss-selector-parser": "^7.1.1",
 		"sass": "^1.98.0",
 		"typescript": "^5.9.3"

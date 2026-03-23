@@ -17,7 +17,8 @@ let isPrinted = false
  * @param {string} workPath 编译工作目录
  * @param {boolean} useAppIdDir 产物根目录是否包含appId
  */
-export default async function build(targetPath, workPath, useAppIdDir = true) {
+export default async function build(targetPath, workPath, useAppIdDir = true, options = {}) {
+	const { sourcemap = false } = options
 	if (!isPrinted) {
 		artCode()
 		isPrinted = true
@@ -70,13 +71,13 @@ export default async function build(targetPath, workPath, useAppIdDir = true) {
 								title: '编译页面文件',
 								task: async (ctx, task) => {
 									// ddml, wxml
-									return runCompileInWorker('view', ctx, task)
+									return runCompileInWorker('view', ctx, task, { sourcemap })
 								},
 							},
 							{
 								title: '编译页面逻辑',
 								task: async (ctx, task) => {
-									return runCompileInWorker('logic', ctx, task)
+									return runCompileInWorker('logic', ctx, task, { sourcemap })
 								},
 							},
 							{
@@ -88,7 +89,7 @@ export default async function build(targetPath, workPath, useAppIdDir = true) {
 										path: 'app',
 										id: '',
 									})
-									return runCompileInWorker('style', ctx, task)
+									return runCompileInWorker('style', ctx, task, { sourcemap })
 								},
 							},
 						],
@@ -119,7 +120,7 @@ export default async function build(targetPath, workPath, useAppIdDir = true) {
 	}
 }
 
-function runCompileInWorker(script, ctx, task) {
+function runCompileInWorker(script, ctx, task, options = {}) {
 	return workerPool.runWorker(() => new Promise((resolve, reject) => {
 		const worker = new Worker(
 			path.join(path.dirname(fileURLToPath(import.meta.url)), `core/${script}-compiler.js`),
@@ -139,7 +140,7 @@ function runCompileInWorker(script, ctx, task) {
 			reject(error)
 		}
 
-		worker.postMessage({ pages: ctx.pages, storeInfo: ctx.storeInfo })
+		worker.postMessage({ pages: ctx.pages, storeInfo: ctx.storeInfo, sourcemap: !!options.sourcemap })
 		// 接收 Worker 完成后的消息
 		worker.on('message', (message) => {
 			try {
