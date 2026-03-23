@@ -99,7 +99,7 @@ export class Bridge {
 			if (type === 'invokeAPI') {
 				const { name, params } = body
 				// parent 是 miniApp 对象
-				this.parent[name]?.(params)
+				this.parent.invokeApi(name, params)
 			}
 		}
 	}
