@@ -12,7 +12,17 @@ class Env {
 	}
 
 	init() {
-		globalThis.dd = globalThis.wx = globalApi
+		// Register API namespaces (dd, wx are built-in; custom ones from config)
+		let customNamespaces = globalThis.__diminaApiNamespaces || []
+		if (customNamespaces.length === 0 && typeof self !== 'undefined' && self.name) {
+			try {
+				const config = JSON.parse(self.name)
+				customNamespaces = config.apiNamespaces || []
+			} catch (e) {}
+		}
+		for (const name of ['dd', 'wx', ...customNamespaces]) {
+			globalThis[name] = globalApi
+		}
 		globalThis.modRequire = modRequire
 		globalThis.modDefine = modDefine
 		globalThis.global = {}
