@@ -3,6 +3,11 @@ import { queryPath } from '@/utils/util'
 
 export class AppManager {
 	static appStack = []
+	static apiRegistry = {}
+
+	static registerApi(name, handler) {
+		this.apiRegistry[name] = handler
+	}
 
 	static openApp(opts, dimina) {
 		const { appId, path, scene, destroy, name, logo } = opts
@@ -31,6 +36,7 @@ export class AppManager {
 				logo,
 				pagePath,
 				query,
+				apiRegistry: this.apiRegistry,
 			})
 
 			this.appStack.push(miniApp)

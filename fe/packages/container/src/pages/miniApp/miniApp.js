@@ -102,8 +102,7 @@ export class MiniApp {
 			timer: null,
 		}
 		this.color = null
-		this.apiRegistry = {}
-		this.registerApi('request', defaultProxyRequest)
+		this.apiRegistry = { ...opts.apiRegistry }
 	}
 
 	/**
