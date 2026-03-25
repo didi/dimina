@@ -86,10 +86,14 @@ function defaultProxyRequest({
 
 export class MiniApp {
 	constructor(opts) {
-		this.appInfo = opts
 		this.id = `mini_app_${uuid()}`
 		this.parent = null
 		this.appId = opts.appId
+		this.name = opts.name
+		this.logo = opts.logo
+		this.scene = opts.scene
+		this.pagePath = opts.pagePath
+		this.query = opts.query
 		this.appConfig = null
 		this.bridgeList = []
 		this.jscore = new JSCore(this)
@@ -147,7 +151,7 @@ export class MiniApp {
 
 		// 3. 读取配置文件
 		const root = 'main'
-		const configPath = `${this.appInfo.appId}/${root}/app-config.json`
+		const configPath = `${this.appId}/${root}/app-config.json`
 		const configContent = await readFile(`${import.meta.env.BASE_URL}${configPath}`)
 
 		if (!configContent) {
@@ -156,7 +160,7 @@ export class MiniApp {
 
 		this.appConfig = JSON.parse(configContent)
 
-		const entryPagePath = this.appInfo.pagePath || this.appConfig.app.entryPagePath
+		const entryPagePath = this.pagePath || this.appConfig.app.entryPagePath
 
 		// 4. 读取页面配置
 		const pageConfig = this.appConfig.modules[entryPagePath]
@@ -168,19 +172,19 @@ export class MiniApp {
 		// 6. 创建通信 bridge
 		const entryPageBridge = await this.createBridge({
 			pagePath: entryPagePath,
-			query: this.appInfo.query,
-			scene: this.appInfo.scene,
+			query: this.query,
+			scene: this.scene,
 			jscore: this.jscore,
 			isRoot: true,
 			root,
-			appId: this.appInfo.appId,
+			appId: this.appId,
 			pages: this.appConfig.app.pages,
 			configInfo: mergeConfig,
 		})
 
 		this.bridgeList.push(entryPageBridge)
 		entryPageBridge.start()
-		HashRouter.sync(this.appId, entryPagePath, this.appInfo.query)
+		HashRouter.sync(this.appId, entryPagePath, this.query)
 
 		// 6.隐藏 loading
 		this.hideLaunchScreen()
@@ -239,8 +243,15 @@ export class MiniApp {
 		const logo = this.el.querySelector('.dimina-mini-app__logo-img-url')
 
 		this.updateActionColorStyle('black')
-		name.innerHTML = this.appInfo.name
-		logo.src = this.appInfo.logo
+		name.innerHTML = this.name || this.appId || ''
+		if (this.logo) {
+			logo.src = this.logo
+			logo.style.display = ''
+		}
+		else {
+			logo.removeAttribute('src')
+			logo.style.display = 'none'
+		}
 		launchScreen.style.display = 'block'
 	}
 
@@ -303,11 +314,11 @@ export class MiniApp {
 		const bridge = await this.createBridge({
 			pagePath,
 			query,
-			scene: this.appInfo.scene,
+			scene: this.scene,
 			jscore: this.jscore,
 			isRoot: false,
 			root: pageConfig?.root || 'main',
-			appId: this.appInfo.appId,
+			appId: this.appId,
 			pages: this.appConfig.app.pages,
 			configInfo: mergeConfig,
 		})
@@ -384,11 +395,11 @@ export class MiniApp {
 			this.createBridge({
 				pagePath,
 				query,
-				scene: this.appInfo.scene,
+				scene: this.scene,
 				jscore: this.jscore,
 				isRoot: true, // 作为根页面
 				root: pageConfig?.root || 'main',
-				appId: this.appInfo.appId,
+				appId: this.appId,
 				pages: this.appConfig.app.pages,
 				configInfo: mergeConfig,
 			}).then((bridge) => {
