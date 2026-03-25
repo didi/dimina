@@ -6,12 +6,94 @@ import { mergePageConfig, queryPath, readFile, sleep, uuid } from '@/utils/util'
 import tpl from './miniApp.html?raw'
 import './miniApp.scss'
 
+/**
+ * 发起 HTTPS 网络请求
+ * https://developers.weixin.qq.com/miniprogram/dev/api/network/request/wx.request.html
+ * @param {*} param0
+ */
+function defaultProxyRequest({
+	url,
+	data,
+	header = {}, // 默认为空对象
+	timeout = 0, // 默认为0，表示没有超时
+	method = 'GET', // 默认为GET方法
+	dataType = 'json', // 默认为json类型
+	responseType = 'text', // 响应的数据类型，默认为 text
+	success,
+	fail,
+	complete,
+}) {
+	// 创建一个AbortController实例
+	// const controller = new AbortController();
+	// const { signal } = controller;
+
+	// 创建fetch请求的init对象
+	const init = {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json',
+		},
+		body: JSON.stringify({
+			url,
+			data,
+			header,
+			timeout,
+			method,
+			dataType,
+			responseType,
+		}),
+	}
+
+	const onSuccess = this.createCallbackFunction(success)
+	const onFail = this.createCallbackFunction(fail)
+	const onComplete = this.createCallbackFunction(complete)
+
+	fetch('http://localhost:7788/proxy', init)
+		.then((response) => {
+			if (!response.ok) {
+				const error = new Error(response.statusText)
+				error.code = response.status
+				throw error
+			}
+
+			// Convert the Headers object to a plain object
+			const headers = {}
+			response.headers.forEach((value, key) => {
+				headers[key] = value
+			})
+
+			switch (dataType) {
+				case 'json':
+					return response.json().then(data => ({ data: JSON.parse(data), header: headers, statusCode: response.status }))
+				case 'arraybuffer':
+					return response.arrayBuffer().then(data => ({ data, header: headers, statusCode: response.status }))
+				default:
+					return response.text().then(data => ({ data, header: headers, statusCode: response.status }))
+			}
+		})
+		.then((data) => {
+			onSuccess?.(data)
+		})
+		.catch((error) => {
+			onFail?.({ errMsg: error.message, errno: error.code })
+		})
+		.finally(() => {
+			onComplete?.()
+		})
+
+	// return { abort: controller.abort };
+}
+
 export class MiniApp {
 	constructor(opts) {
-		this.appInfo = opts
 		this.id = `mini_app_${uuid()}`
 		this.parent = null
 		this.appId = opts.appId
+		this.name = opts.name
+		this.logo = opts.logo
+		this.scene = opts.scene
+		this.pagePath = opts.pagePath
+		this.query = opts.query
 		this.appConfig = null
 		this.bridgeList = []
 		this.jscore = new JSCore(this)
@@ -24,7 +106,7 @@ export class MiniApp {
 			timer: null,
 		}
 		this.color = null
-		this.apiRegistry = {}
+		this.apiRegistry = { ...opts.apiRegistry }
 	}
 
 	/**
@@ -69,7 +151,7 @@ export class MiniApp {
 
 		// 3. 读取配置文件
 		const root = 'main'
-		const configPath = `${this.appInfo.appId}/${root}/app-config.json`
+		const configPath = `${this.appId}/${root}/app-config.json`
 		const configContent = await readFile(`${import.meta.env.BASE_URL}${configPath}`)
 
 		if (!configContent) {
@@ -78,7 +160,7 @@ export class MiniApp {
 
 		this.appConfig = JSON.parse(configContent)
 
-		const entryPagePath = this.appInfo.pagePath || this.appConfig.app.entryPagePath
+		const entryPagePath = this.pagePath || this.appConfig.app.entryPagePath
 
 		// 4. 读取页面配置
 		const pageConfig = this.appConfig.modules[entryPagePath]
@@ -90,19 +172,19 @@ export class MiniApp {
 		// 6. 创建通信 bridge
 		const entryPageBridge = await this.createBridge({
 			pagePath: entryPagePath,
-			query: this.appInfo.query,
-			scene: this.appInfo.scene,
+			query: this.query,
+			scene: this.scene,
 			jscore: this.jscore,
 			isRoot: true,
 			root,
-			appId: this.appInfo.appId,
+			appId: this.appId,
 			pages: this.appConfig.app.pages,
 			configInfo: mergeConfig,
 		})
 
 		this.bridgeList.push(entryPageBridge)
 		entryPageBridge.start()
-		HashRouter.sync(this.appId, entryPagePath, this.appInfo.query)
+		HashRouter.sync(this.appId, entryPagePath, this.query)
 
 		// 6.隐藏 loading
 		this.hideLaunchScreen()
@@ -161,8 +243,15 @@ export class MiniApp {
 		const logo = this.el.querySelector('.dimina-mini-app__logo-img-url')
 
 		this.updateActionColorStyle('black')
-		name.innerHTML = this.appInfo.name
-		logo.src = this.appInfo.logo
+		name.innerHTML = this.name || this.appId || ''
+		if (this.logo) {
+			logo.src = this.logo
+			logo.style.display = ''
+		}
+		else {
+			logo.removeAttribute('src')
+			logo.style.display = 'none'
+		}
 		launchScreen.style.display = 'block'
 	}
 
@@ -225,11 +314,11 @@ export class MiniApp {
 		const bridge = await this.createBridge({
 			pagePath,
 			query,
-			scene: this.appInfo.scene,
+			scene: this.scene,
 			jscore: this.jscore,
 			isRoot: false,
 			root: pageConfig?.root || 'main',
-			appId: this.appInfo.appId,
+			appId: this.appId,
 			pages: this.appConfig.app.pages,
 			configInfo: mergeConfig,
 		})
@@ -306,11 +395,11 @@ export class MiniApp {
 			this.createBridge({
 				pagePath,
 				query,
-				scene: this.appInfo.scene,
+				scene: this.scene,
 				jscore: this.jscore,
 				isRoot: true, // 作为根页面
 				root: pageConfig?.root || 'main',
-				appId: this.appInfo.appId,
+				appId: this.appId,
 				pages: this.appConfig.app.pages,
 				configInfo: mergeConfig,
 			}).then((bridge) => {
@@ -483,86 +572,8 @@ export class MiniApp {
 		})
 	}
 
-	/**
-	 * 发起 HTTPS 网络请求
-	 * https://developers.weixin.qq.com/miniprogram/dev/api/network/request/wx.request.html
-	 * @param {*} param0
-	 */
-	request({
-		url,
-		data,
-		header = {}, // 默认为空对象
-		timeout = 0, // 默认为0，表示没有超时
-		method = 'GET', // 默认为GET方法
-		dataType = 'json', // 默认为json类型
-		responseType = 'text', // 响应的数据类型，默认为 text
-		success,
-		fail,
-		complete,
-	}) {
-		// 创建一个AbortController实例
-		// const controller = new AbortController();
-		// const { signal } = controller;
-
-		// 创建fetch请求的init对象
-		const init = {
-			method: 'POST',
-			headers: {
-				'Content-Type': 'application/json',
-			},
-			body: JSON.stringify({
-				url,
-				data,
-				header,
-				timeout,
-				method,
-				dataType,
-				responseType,
-			}),
-		}
-
-		const onSuccess = this.createCallbackFunction(success)
-		const onFail = this.createCallbackFunction(fail)
-		const onComplete = this.createCallbackFunction(complete)
-
-		fetch('http://localhost:7788/proxy', init)
-			.then((response) => {
-				if (!response.ok) {
-					const error = new Error(response.statusText)
-					error.code = response.status
-					throw error
-				}
-
-				// Convert the Headers object to a plain object
-				const headers = {}
-				response.headers.forEach((value, key) => {
-					headers[key] = value
-				})
-
-				switch (dataType) {
-					case 'json':
-						return response.json().then(data => ({ data: JSON.parse(data), header: headers, statusCode: response.status }))
-					case 'arraybuffer':
-						return response.arrayBuffer().then(data => ({ data, header: headers, statusCode: response.status }))
-					default:
-						return response.text().then(data => ({ data, header: headers, statusCode: response.status }))
-				}
-			})
-			.then((data) => {
-				onSuccess?.(data)
-			})
-			.catch((error) => {
-				onFail?.({ errMsg: error.message, errno: error.code })
-			})
-			.finally(() => {
-				onComplete?.()
-			})
-
-		// return { abort: controller.abort };
-	}
-
 	getSystemInfoAsync(opts) {
-		const bar = this.parent.parent.root.querySelector('.iphone__status-bar').getBoundingClientRect()
+		const bar = this.parent.getStatusBarRect()
 		const wb = this.parent.el.querySelector('.dimina-native-webview__root').getBoundingClientRect()
 
 		const { success, complete } = opts

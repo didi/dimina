@@ -1,14 +1,17 @@
 import { MiniApp } from '@/pages/miniApp/miniApp'
-import { getMiniAppInfo } from '@/services'
 import { queryPath } from '@/utils/util'
 
 export class AppManager {
 	static appStack = []
+	static apiRegistry = {}
 
-	static async openApp(opts, dimina) {
-		const { appId, path, scene, destroy } = opts
+	static registerApi(name, handler) {
+		this.apiRegistry[name] = handler
+	}
+
+	static openApp(opts, dimina) {
+		const { appId, path, scene, destroy, name, logo } = opts
 		const { pagePath, query } = queryPath(path)
-		const { name, logo } = await getMiniAppInfo(appId)
 
 		if (destroy) { // 打开新小程序前销毁之前的小程序视图
 			for (const app of this.appStack) {
@@ -33,6 +36,7 @@ export class AppManager {
 				logo,
 				pagePath,
 				query,
+				apiRegistry: this.apiRegistry,
 			})
 
 			this.appStack.push(miniApp)

@@ -190,6 +190,14 @@ export class Application {
 		this.el.removeChild(view.el)
 	}
 
+	getStatusBarRect() {
+		const statusBar = this.parent?.root?.querySelector('.iphone__status-bar')
+		if (statusBar) {
+			return statusBar.getBoundingClientRect()
+		}
+		return { height: 0 }
+	}
+
 	updateStatusBarColor(color) {
 		this.parent?.updateDeviceBarColor(color)
 	}
