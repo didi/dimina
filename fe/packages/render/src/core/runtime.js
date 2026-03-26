@@ -102,10 +102,20 @@ class Runtime {
 				props: {
 					data: Object,
 				},
-				data() {
-					return {
-						...this.data,
-					}
+				setup(props) {
+					const state = reactive({})
+					watch(
+						() => props.data,
+						(newData) => {
+							if (newData) {
+								for (const key in newData) {
+									state[key] = newData[key]
+								}
+							}
+						},
+						{ immediate: true },
+					)
+					return state
 				},
 				render,
 			})
