@@ -85,7 +85,7 @@ public class DMPContainer {
 
     public func callBridgeMethod(
         methodName: String, webViewId: Int, param: DMPBridgeParam, app: DMPApp
-    ) -> Any {
+    ) -> DMPAPIResult {
         let moduleName = "DMPContainerBridgesModule"
         print("Bridge call: module=\(moduleName), method=\(methodName)")
         var callback: DMPBridgeCallback = { _, _ in }
@@ -128,11 +128,32 @@ public class DMPContainer {
             let env: DMPBridgeEnv = DMPBridgeEnv(
                 appIndex: self.app?.getAppIndex() ?? 0, appId: self.app?.getAppId() ?? "",
                 webViewId: webViewId)
-            return handler(param, env, callback) ?? DMPMap()
+            let result = handler(param, env, callback)
+            return normalizeBridgeResult(result, isAsyncMethod: param.isAsync)
         }
 
         print("Bridge invoke error: 未找到方法: \(methodName)")
-        return ["error": "未找到方法: \(methodName)"]
+        return DMPSyncResult(["error": "未找到方法: \(methodName)"])
+    }
+
+    private func normalizeBridgeResult(_ result: Any?, isAsyncMethod: Bool) -> DMPAPIResult {
+        if let result = result as? DMPAPIResult {
+            return result
+        }
+
+        guard let result else {
+            return isAsyncMethod ? DMPAsyncResult() : DMPNoneResult()
+        }
+
+        if let map = result as? DMPMap {
+            return DMPSyncResult(map.toDictionary())
+        }
+
+        if let param = result as? DMPBridgeParam {
+            return DMPSyncResult(param.getValue())
+        }
+
+        return DMPSyncResult(result)
     }
 
     // MARK: - Private Methods
