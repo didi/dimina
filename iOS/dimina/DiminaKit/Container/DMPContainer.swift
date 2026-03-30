@@ -104,7 +104,7 @@ public class DMPContainer {
 
     public func callBridgeMethod(
         methodName: String, webViewId: Int, param: DMPBridgeParam, app: DMPApp
-    ) -> Any {
+    ) -> DMPAPIResult {
         let moduleName = "DMPContainerBridgesModule"
         print("Bridge call: module=\(moduleName), method=\(methodName)")
         var callback: DMPBridgeCallback = { _, _ in }
@@ -151,7 +151,7 @@ public class DMPContainer {
 
         // 1. 精确命中已注册的标准 API
         if let handler = DMPContainerApi.getHandler(for: methodName) {
-            return handler(param, env, callback) ?? DMPMap()
+            return handler(param, env, callback)
         }
 
         // 2. extBridge：param 携带 "module" 字段
@@ -164,7 +164,7 @@ public class DMPContainer {
                 callback: callback,
                 extModules: extModules
             )
-            return DMPMap()
+            return DMPNoneResult()
         }
 
         // 3. extOnBridge / extOffBridge：methodName 格式为 "${module}_${event}"
@@ -181,12 +181,11 @@ public class DMPContainer {
             } else {
                 handleExtOffBridge(eventKey: methodName)
             }
-            return DMPMap()
+            return DMPNoneResult()
         }
 
         print("Bridge invoke error: 未找到方法: \(methodName)")
-        return ["error": "未找到方法: \(methodName)"]
-    }
+        return DMPSyncResult(["error": "未找到方法: \(methodName)"])
 
     /// 处理 extOnBridge：启动持续订阅，保存取消函数
     private func handleExtOnBridge(
