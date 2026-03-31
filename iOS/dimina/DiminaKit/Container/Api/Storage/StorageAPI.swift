@@ -32,33 +32,26 @@ public class StorageAPI: DMPContainerApi {
         DMPStorage.shared.initialize()
     }
     
-    // Set storage synchronously
+    // wx.setStorageSync(key, data) → params: [key, data]
     @BridgeMethod(SET_STORAGE_SYNC)
     var setStorageSync: DMPBridgeMethodHandler = { param, env, callback in
-        let param = param.getMap()
-        guard let key = param.get("key") as? String else { return DMPSyncResult(false) }
-        let data = param.get("data")
-        let encrypt = param.get("encrypt") as? Bool ?? false
-
-        guard let data = data else { return DMPSyncResult(false) }
-
-        let result = DMPStorage.shared.set(key: key, value: data, encrypted: encrypt)
-        return DMPSyncResult(result)
+        guard let array = param.getValue() as? [Any], array.count >= 2,
+              let key = array[0] as? String else { return DMPSyncResult(false) }
+        return DMPSyncResult(DMPStorage.shared.set(key: key, value: array[1], encrypted: false))
     }
 
-    // Get storage synchronously
+    // wx.getStorageSync(key) → params: key string
     @BridgeMethod(GET_STORAGE_SYNC)
     var getStorageSync: DMPBridgeMethodHandler = { param, env, callback in
         guard let key = param.getValue() as? String else { return DMPNoneResult() }
         let value = DMPStorage.shared.get(key: key, encrypted: false)
-        return DMPSyncResult(value)
+        return DMPSyncResult(value ?? "")
     }
 
-    // Remove storage synchronously
+    // wx.removeStorageSync(key) → params: key string
     @BridgeMethod(REMOVE_STORAGE_SYNC)
     var removeStorageSync: DMPBridgeMethodHandler = { param, env, callback in
         guard let key = param.getValue() as? String else { return DMPSyncResult(false) }
-
         DMPStorage.shared.remove(key: key, encrypted: false)
         return DMPSyncResult(true)
     }
