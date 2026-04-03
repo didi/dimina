@@ -58,15 +58,15 @@ describe('env.js API namespace registration', () => {
 	})
 
 	it('should fall back to self.name when __diminaApiNamespaces is not set', async () => {
-		self.name = JSON.stringify({ apiNamespaces: ['qd'] })
+		globalThis.name = JSON.stringify({ apiNamespaces: ['qd'] })
 
 		await import('../src/core/env.js')
 
 		expect(globalThis.qd).toBe(mockGlobalApi)
 	})
 
-	it('should ignore invalid JSON in self.name', async () => {
-		self.name = 'not-json'
+	it('should ignore invalid JSON in globalThis.name', async () => {
+		globalThis.name = 'not-json'
 
 		await import('../src/core/env.js')
 
@@ -77,7 +77,7 @@ describe('env.js API namespace registration', () => {
 
 	it('should prefer __diminaApiNamespaces over self.name', async () => {
 		globalThis.__diminaApiNamespaces = ['qd']
-		self.name = JSON.stringify({ apiNamespaces: ['myapp'] })
+		globalThis.name = JSON.stringify({ apiNamespaces: ['myapp'] })
 
 		await import('../src/core/env.js')
 
