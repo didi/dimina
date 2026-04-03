@@ -60,4 +60,4 @@ function mergeSourcemap(compileRes) {
 	return { bundleCode, sourcemap: smg.toString() }
 }
 
-export { wrapModDefine, mergeSourcemap }
+export { mergeSourcemap }
