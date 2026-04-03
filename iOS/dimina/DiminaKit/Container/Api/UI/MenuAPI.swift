@@ -20,7 +20,7 @@ public class MenuAPI: DMPContainerApi {
     @BridgeMethod(GET_MENU_BUTTON_BOUNDING_CLIENT_RECT)
     var getMenuButtonBoundingClientRect: DMPBridgeMethodHandler = { param, env, callback in
         let menuButtonInfo = MenuAPI.getMenuButtonBoundingClientRect()
-        return menuButtonInfo
+        return DMPSyncResult(menuButtonInfo.toDictionary())
     }
     
     static func getMenuButtonBoundingClientRect() -> DMPMap {

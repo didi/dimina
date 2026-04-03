@@ -28,12 +28,6 @@ public class DMPEngineInvoke {
 
             if let syncResult = result as? DMPSyncResult {
                 return DMPBridgeParam.from(rawValue: syncResult.value).getJSValue(context: context)
-            } else if result is DMPAsyncResult || result is DMPNoneResult {
-                return JSValue(nullIn: context)
-            } else if let validResult = result as? DMPMap {
-                return JSValue(object: validResult.toDictionary(), in: context)
-            } else if let param = result as? DMPBridgeParam {
-                return param.getJSValue(context: context)
             } else {
                 return JSValue(nullIn: context)
             }

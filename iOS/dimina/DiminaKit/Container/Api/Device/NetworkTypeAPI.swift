@@ -27,7 +27,7 @@ public class NetworkTypeAPI: DMPContainerApi {
         result.set("errMsg", "\(NetworkTypeAPI.GET_NETWORK_TYPE):ok")
         result.set("networkType", networkType)
         DMPContainerApi.invokeSuccess(callback: callback, param: result)
-        return nil
+        return DMPAsyncResult()
     }
     
     // Helper method to get network type

@@ -24,30 +24,30 @@ public class ClipboardAPI: DMPContainerApi {
             let errorMap = DMPMap()
             errorMap.set("errMsg", "\(ClipboardAPI.SET_CLIPBOARD_DATA):fail data is required")
             DMPContainerApi.invokeFailure(callback: callback, param: errorMap, errMsg: "data is required")
-            return
+            return DMPAsyncResult()
         }
-        
+
         // 直接设置剪贴板内容
         UIPasteboard.general.string = data
-        
+
         let result = DMPMap()
         result.set("errMsg", "\(ClipboardAPI.SET_CLIPBOARD_DATA):ok")
         DMPContainerApi.invokeSuccess(callback: callback, param: result)
-        return nil
+        return DMPAsyncResult()
     }
-    
+
     // Get clipboard data
     @BridgeMethod(GET_CLIPBOARD_DATA)
     var getClipboardData: DMPBridgeMethodHandler = { param, env, callback in
         // 直接获取剪贴板内容
         let clipboardData = UIPasteboard.general.string
-        
+
         let result = DMPMap()
         if let clipboardData = clipboardData {
             result.set("data", clipboardData)
         }
         result.set("errMsg", "\(ClipboardAPI.GET_CLIPBOARD_DATA):ok")
         DMPContainerApi.invokeSuccess(callback: callback, param: result)
-        return nil
+        return DMPAsyncResult()
     }
 }

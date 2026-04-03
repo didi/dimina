@@ -28,14 +28,14 @@ public class SystemAPI: DMPContainerApi {
     @BridgeMethod(GET_WINDOW_INFO)
     var getWindowInfo: DMPBridgeMethodHandler = { param, env, callback in
         let windowInfo = DMPMap(DMPUIManager.shared.getDeviceDisplayInfo())
-        return windowInfo
+        return DMPSyncResult(windowInfo.toDictionary())
     }
-    
+
     // Get system settings
     @BridgeMethod(GET_SYSTEM_SETTING)
     var getSystemSetting: DMPBridgeMethodHandler = { param, env, callback in
         let result = DMPMap()
-        
+
         // 蓝牙开关状态
         let bluetoothEnabled: Bool
         if #available(iOS 10.0, *) {
@@ -44,7 +44,7 @@ public class SystemAPI: DMPContainerApi {
             // 对于低版本 iOS，可能需要其他方式检测
             bluetoothEnabled = false
         }
-        
+
         // 地理位置开关状态
         let locationEnabled: Bool
         let locationManager = CLLocationManager()
@@ -58,7 +58,7 @@ public class SystemAPI: DMPContainerApi {
 
         // Wi-Fi 开关状态（iOS 无法直接获取）
         let wifiEnabled = false
-        
+
         // 设备方向
         let deviceOrientation: String
         let orientation = UIDevice.current.orientation
@@ -71,37 +71,37 @@ public class SystemAPI: DMPContainerApi {
             // 默认为竖屏
             deviceOrientation = "portrait"
         }
-        
+
         // 填充结果
         result["bluetoothEnabled"] = bluetoothEnabled
         result["locationEnabled"] = locationEnabled
         result["wifiEnabled"] = wifiEnabled
         result["deviceOrientation"] = deviceOrientation
-                
-        return result
+
+        return DMPSyncResult(result.toDictionary())
     }
-    
+
     // Get system information synchronously
     @BridgeMethod(GET_SYSTEM_INFO_SYNC)
     var getSystemInfoSync: DMPBridgeMethodHandler = { param, env, callback in
         let systemInfo = SystemAPI.getSystemInfo()
-        return systemInfo
+        return DMPSyncResult(systemInfo.toDictionary())
     }
-    
+
     // Get system information asynchronously
     @BridgeMethod(GET_SYSTEM_INFO_ASYNC)
     var getSystemInfoAsync: DMPBridgeMethodHandler = { param, env, callback in
         let systemInfo = SystemAPI.getSystemInfo()
         DMPContainerApi.invokeSuccess(callback: callback, param: systemInfo)
-        return nil
+        return DMPAsyncResult()
     }
-    
+
     // Get system information
     @BridgeMethod(GET_SYSTEM_INFO)
     var getSystemInfo: DMPBridgeMethodHandler = { param, env, callback in
         let systemInfo = SystemAPI.getSystemInfo()
         DMPContainerApi.invokeSuccess(callback: callback, param: systemInfo)
-        return systemInfo
+        return DMPSyncResult(systemInfo.toDictionary())
     }
 
     static func getSystemInfo() -> DMPMap {

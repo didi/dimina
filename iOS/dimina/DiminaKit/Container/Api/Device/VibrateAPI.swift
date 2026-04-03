@@ -29,23 +29,23 @@ public class VibrateAPI: DMPContainerApi {
         let result = DMPMap()
         result.set("errMsg", "\(VIBRATE_SHORT):ok")
         DMPContainerApi.invokeSuccess(callback: callback, param: result)
-        
-        return nil
+
+        return DMPAsyncResult()
     }
-    
+
     // Vibrate long
     @BridgeMethod(VIBRATE_LONG)
     var vibrateLong: DMPBridgeMethodHandler = { param, env, callback in
         DispatchQueue.main.async {
             AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
         }
-        
+
         // Return success response
         let result = DMPMap()
         result.set("errMsg", "\(VIBRATE_LONG):ok")
         DMPContainerApi.invokeSuccess(callback: callback, param: result)
-        
-        return nil
+
+        return DMPAsyncResult()
     }
     
     // Helper method to get vibration pattern

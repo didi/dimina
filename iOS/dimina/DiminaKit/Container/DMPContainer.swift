@@ -186,6 +186,7 @@ public class DMPContainer {
 
         print("Bridge invoke error: 未找到方法: \(methodName)")
         return DMPSyncResult(["error": "未找到方法: \(methodName)"])
+    }
 
     /// 处理 extOnBridge：启动持续订阅，保存取消函数
     private func handleExtOnBridge(
