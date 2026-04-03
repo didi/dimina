@@ -8,7 +8,7 @@ import MagicString from 'magic-string'
 import { transform } from 'esbuild'
 import ts from 'typescript'
 import { hasCompileInfo } from '../common/utils.js'
-import { wrapModDefine, mergeSourcemap } from './sourcemap.js'
+import { mergeSourcemap } from './sourcemap.js'
 import { getAppConfigInfo, getComponent, getContentByPath, getTargetPath, getWorkPath, resetStoreInfo } from '../env.js'
 
 // 用于缓存已处理的模块
