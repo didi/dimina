@@ -82,6 +82,11 @@ async function writeCompileRes(compileRes, root) {
 		fs.mkdirSync(outputDir, { recursive: true })
 	}
 
+	/*
+	 * sourcemap 模式跳过 minify：
+	 * 当前 mergeSourcemap 只做单层行偏移拼接，
+	 * 若再对 bundle 整体 minify 则需用 remapping 串联两份 map，暂未实现
+	 */
 	if (enableSourcemap) {
 		const { bundleCode, sourcemap } = mergeSourcemap(compileRes)
 		const sourcemapFileName = 'logic.js.map'
@@ -402,6 +407,14 @@ async function buildJSByPath(packageName, module, compileRes, mainCompileRes, ad
 			platform: 'neutral',
 			loader: 'js',
 		}
+		/*
+		 * 当前 sourcemap 精度为行级别：
+		 * - JS 文件：MagicString 路径重写和 esbuild 之后的 require 路径修正
+		 *   仅影响列偏移，行映射保持准确
+		 * - TS 文件：esbuild 之前的 ts.transpileModule 和 oxc-transform 类型擦除
+		 *   会改变行号，导致行映射不准确，暂未处理
+		 * 后续可通过 MagicString.generateMap() + remapping 串联多步 map 来提升精度
+		 */
 		if (enableSourcemap && compileInfo.sourceFile) {
 			esbuildOpts.sourcemap = true
 			esbuildOpts.sourcefile = compileInfo.sourceFile
