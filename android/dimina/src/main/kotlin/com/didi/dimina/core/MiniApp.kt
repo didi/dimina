@@ -7,6 +7,7 @@ import com.didi.dimina.api.ApiRegistry
 import com.didi.dimina.api.AsyncResult
 import com.didi.dimina.api.BaseApiHandler
 import com.didi.dimina.api.SyncResult
+import com.didi.dimina.api.ext.ExtModuleHandler
 import com.didi.dimina.api.base.AppEventApi
 import com.didi.dimina.api.base.BaseAPI
 import com.didi.dimina.api.base.SystemApi
@@ -199,6 +200,19 @@ class MiniApp private constructor() {
     }
 
     /**
+     * 注册第三方扩展 bridge 模块。
+     *
+     * 宿主在 SDK 初始化后调用此方法，向框架注册 native 模块处理器。
+     * 小程序侧通过 `wx.extBridge` / `wx.extOnBridge` / `wx.extOffBridge` 触发对应模块。
+     *
+     * @param moduleName 模块名，与 JS 侧 `module` 参数一致
+     * @param handler    模块处理器，参见 [ExtModuleHandler]
+     */
+    fun registerExtModule(moduleName: String, handler: ExtModuleHandler) {
+        apiRegistry.registerExtModule(moduleName, handler)
+    }
+
+    /**
      * Gets a set of all available API names from registered handlers
      *
      * @return Set of all available API names
@@ -331,6 +345,9 @@ class MiniApp private constructor() {
      * @param appId The ID of the MiniProgram to clear resources for
      */
     fun clear(appId: String) {
+        // 清理第三方扩展的持续订阅
+        apiRegistry.clearExtSubscriptions()
+
         // Clear JsCore for this appId
         jsCoreMap[appId]?.let { jsCore ->
             LogUtils.d(tag, "Destroying JsCore for appId: $appId")

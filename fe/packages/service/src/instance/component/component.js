@@ -3,7 +3,7 @@ import { createSelectorQuery } from '../../api/core/wxml/selector-query'
 import { createIntersectionObserver } from '../../api/core/wxml/intersection-observer'
 import message from '../../core/message'
 import runtime from '../../core/runtime'
-import { addComputedData, filterData, filterInvokeObserver, isChildComponent, matchComponent, syncUpdateChildrenProps } from '../../core/utils'
+import { addComputedData, filterData, filterInvokeObserver, invokeObserversOnce, isChildComponent, matchComponent, syncUpdateChildrenProps } from '../../core/utils'
 
 // 组件生命周期
 const componentLifetimes = ['created', 'attached', 'ready', 'moved', 'detached', 'error']
@@ -359,9 +359,16 @@ export class Component {
 	setData(data) {
 		const fData = filterData(data)
 		
-		// 更新数据
+		// 更新数据并收集旧值（用于触发 observers）
+		const oldValues = {}
 		for (const key in fData) {
+			oldValues[key] = this.data[key]
 			set(this.data, key, fData[key])
+		}
+
+		// 触发 observers（微信小程序规范：setData 后应触发对应的 observers，一次 setData 每个监听器最多触发一次）
+		if (this.__info__.observers) {
+			invokeObserversOnce(Object.keys(fData), this.__info__.observers, this.data, this, oldValues)
 		}
 
 		if (!this.initd) {

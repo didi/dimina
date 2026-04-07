@@ -1,0 +1,5 @@
+<custom-comp>
+  <view mark:myMark="{{ myMarkValue }}" bindtap="bindViewTap">
+    <button mark:anotherMark="{{ anotherMarkValue }}" bindtap="bindButtonTap"> 点击这里触发按钮 tap 事件 </button>
+  </view>
+</custom-comp>

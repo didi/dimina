@@ -1,0 +1,11 @@
+{
+  "usingComponents": {
+    "my-button": "../../commonPackage/components/button",
+    "list": "../../subPackageB/components/full-list",
+    "simple-list": "../components/simple-list"
+  },
+  "componentPlaceholder": {
+    "my-button": "view",
+    "list": "simple-list"
+  }
+}

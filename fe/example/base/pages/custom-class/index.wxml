@@ -1,0 +1,2 @@
+<!-- 页面的 WXML -->
+<my-component my-class="red-text" />

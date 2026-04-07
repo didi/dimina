@@ -1,0 +1,20 @@
+.detail {
+	color: red;
+	font-size: 40rem;
+	margin-top: 20rpx;
+}
+
+.testImg {
+  height: 100rpx;
+  width: 100rpx;
+}
+
+.con {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: 200rpx 0;
+  box-sizing: border-box;
+}

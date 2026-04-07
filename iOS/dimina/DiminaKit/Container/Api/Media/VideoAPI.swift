@@ -35,12 +35,12 @@ public class VideoAPI: DMPContainerApi {
         // 检查参数有效性
         if count <= 0 || count > 20 {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "count must be between 1 and 20")
-            return
+            return DMPAsyncResult()
         }
-        
+
         if maxDuration < 3 || maxDuration > 60 {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "maxDuration must be between 3 and 60 seconds")
-            return
+            return DMPAsyncResult()
         }
         
         // 如果sourceTypes包含多种选择，则显示ActionSheet让用户选择
@@ -86,10 +86,10 @@ public class VideoAPI: DMPContainerApi {
         } else {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "Invalid sourceType")
         }
-        
-        return nil
+
+        return DMPAsyncResult()
     }
-    
+
     // Choose video
     @BridgeMethod(CHOOSE_VIDEO)
     var chooseVideo: DMPBridgeMethodHandler = { param, env, callback in
@@ -142,10 +142,10 @@ public class VideoAPI: DMPContainerApi {
         } else {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "Invalid sourceType")
         }
-        
-        return nil
+
+        return DMPAsyncResult()
     }
-    
+
     // MARK: - Helper methods for chooseMedia
     
     // 检查并请求相册权限 (用于 chooseMedia)

@@ -1,0 +1,9 @@
+{
+	"usingComponents": {
+		"navigation-bar": "/pages/custom-component/components/navigation-bar/navigation-bar"
+	},
+	"window": {
+		"navigationBarTextStyle": "black",
+		"navigationStyle": "custom"
+	}
+}

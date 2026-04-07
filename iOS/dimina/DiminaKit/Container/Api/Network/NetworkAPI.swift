@@ -40,7 +40,7 @@ public class NetworkAPI: DMPContainerApi {
         // 验证URL
         guard let _ = URL(string: url) else {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "request:fail invalid url")
-            return
+            return DMPAsyncResult()
         }
         
         // 转换header
@@ -120,9 +120,9 @@ public class NetworkAPI: DMPContainerApi {
             }
         )
         
-        return nil
+        return DMPAsyncResult()
     }
-    
+
     /**
      * Bridge method for file download
      * Mimics wx.downloadFile API from WeChat Mini Program
@@ -140,7 +140,7 @@ public class NetworkAPI: DMPContainerApi {
         // 验证URL
         guard let _ = URL(string: url) else {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "downloadFile:fail invalid url")
-            return
+            return DMPAsyncResult()
         }
         
         // 转换header
@@ -186,9 +186,9 @@ public class NetworkAPI: DMPContainerApi {
             }
         )
         
-        return nil
+        return DMPAsyncResult()
     }
-    
+
     /**
      * Bridge method for file upload
      * Mimics wx.uploadFile API from WeChat Mini Program
@@ -209,19 +209,19 @@ public class NetworkAPI: DMPContainerApi {
         if url.isEmpty || filePath.isEmpty || name.isEmpty {
             let errMsg = "uploadFile:fail missing required parameters"
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: errMsg)
-            return
+            return DMPAsyncResult()
         }
-        
+
         // 验证URL
         guard let _ = URL(string: url) else {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "uploadFile:fail invalid url")
-            return
+            return DMPAsyncResult()
         }
-        
+
         // 验证文件路径
         if !FileManager.default.fileExists(atPath: filePath) {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "uploadFile:fail file does not exist")
-            return
+            return DMPAsyncResult()
         }
         
         // 转换header
@@ -275,6 +275,6 @@ public class NetworkAPI: DMPContainerApi {
             }
         )
         
-        return nil
+        return DMPAsyncResult()
     }
 }

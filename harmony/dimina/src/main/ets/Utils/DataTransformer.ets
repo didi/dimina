@@ -22,7 +22,8 @@ export class DataTransformer {
     const msg: DMPMap = new DMPMap({
       type: 'triggerCallback',
       body: {
-        args: backDic.toJSON()
+        args: backDic.toJSON(),
+        id: method
       }
     })
     return msg

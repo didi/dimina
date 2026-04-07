@@ -1,0 +1,16 @@
+.intro {
+  margin: 30px;
+  text-align: center;
+}
+page {
+  margin-top: 80px;
+}
+.checkbox, checkbox {
+  display: flex;
+  flex-direction: row;
+  height: 30px;
+  line-height: 30px;
+}
+.checkbox {
+  justify-content: center;
+}

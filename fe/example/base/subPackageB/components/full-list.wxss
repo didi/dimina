@@ -1,0 +1,13 @@
+.list {
+  text-align: start;
+  width: 200px;
+  border: 1px solid #07c160;
+  margin-top: 10px;
+  box-sizing: border-box;
+  padding: 6px;
+}
+.item::before {
+  content: '-';
+  color: #aaa;
+  margin-right: 5px;
+}

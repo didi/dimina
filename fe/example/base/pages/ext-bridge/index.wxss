@@ -1,0 +1,87 @@
+.page {
+  padding: 20rpx;
+  background: #f5f5f5;
+  min-height: 100vh;
+}
+
+.section {
+  background: #fff;
+  border-radius: 16rpx;
+  padding: 24rpx 28rpx;
+  margin-bottom: 24rpx;
+}
+
+.section__title {
+  font-size: 32rpx;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 10rpx;
+}
+
+.section__desc {
+  font-size: 26rpx;
+  color: #888;
+  line-height: 1.5;
+  margin-bottom: 20rpx;
+}
+
+button {
+  margin-bottom: 16rpx;
+  font-size: 28rpx;
+}
+
+.btn-row {
+  display: flex;
+  gap: 20rpx;
+}
+
+.btn-row button {
+  flex: 1;
+}
+
+.result-box {
+  margin-top: 20rpx;
+  background: #f9f9f9;
+  border-radius: 12rpx;
+  padding: 20rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 10rpx;
+}
+
+.label {
+  font-size: 26rpx;
+  color: #555;
+}
+
+.tag {
+  display: inline-block;
+  padding: 4rpx 16rpx;
+  border-radius: 20rpx;
+  font-size: 24rpx;
+  font-weight: 500;
+}
+
+.tag--ok {
+  background: #e6f7ee;
+  color: #1a7a3c;
+}
+
+.tag--err {
+  background: #fde8e8;
+  color: #c0392b;
+}
+
+.tag--idle {
+  background: #f0f0f0;
+  color: #666;
+}
+
+.result-text {
+  font-size: 24rpx;
+  color: #444;
+  word-break: break-all;
+  white-space: pre-wrap;
+  font-family: monospace;
+  margin-top: 8rpx;
+}

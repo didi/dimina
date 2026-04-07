@@ -14,9 +14,9 @@ class Env {
 	init() {
 		// Register API namespaces (dd, wx are built-in; custom ones from config)
 		let customNamespaces = globalThis.__diminaApiNamespaces || []
-		if (customNamespaces.length === 0 && typeof self !== 'undefined' && self.name) {
+		if (customNamespaces.length === 0 && globalThis.name) {
 			try {
-				const config = JSON.parse(self.name)
+				const config = JSON.parse(globalThis.name)
 				customNamespaces = config.apiNamespaces || []
 			} catch (e) {}
 		}

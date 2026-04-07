@@ -1,0 +1,2 @@
+<!-- 组件 custom-component.wxml -->
+<custom-component class="my-class">这段文本的颜色由组件外的 class 决定</custom-component>

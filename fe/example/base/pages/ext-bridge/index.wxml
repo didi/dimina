@@ -1,0 +1,38 @@
+<view class="page">
+  <!-- extBridge -->
+  <view class="section">
+    <view class="section__title">extBridge — 一次性调用</view>
+    <view class="section__desc">向 DemoNativeModule 发起 getUserInfo 请求，成功时返回用户信息对象。</view>
+    <button type="primary" bindtap="callExtBridge">callExtBridge（成功）</button>
+    <button type="warn" bindtap="callExtBridgeFail">callExtBridge（模块未注册·预期失败）</button>
+    <view wx:if="{{bridgeStatus}}" class="result-box">
+      <text class="label">状态：</text>
+      <text class="{{bridgeStatus === 'success' ? 'tag tag--ok' : 'tag tag--err'}}">{{bridgeStatus}}</text>
+      <text class="result-text">{{bridgeResult}}</text>
+    </view>
+  </view>
+
+  <!-- extOnBridge / extOffBridge -->
+  <view class="section">
+    <view class="section__title">extOnBridge / extOffBridge — 持续订阅</view>
+    <view class="section__desc">订阅 DemoNativeModule 的 onTickEvent 事件，Mock 模块每 1s 推送一次心跳数据。</view>
+    <view class="btn-row">
+      <button
+        type="primary"
+        disabled="{{isSubscribed}}"
+        bindtap="startSubscribe"
+      >开始订阅</button>
+      <button
+        type="warn"
+        disabled="{{!isSubscribed}}"
+        bindtap="stopSubscribe"
+      >取消订阅</button>
+    </view>
+    <view class="result-box">
+      <text class="label">状态：</text>
+      <text class="{{isSubscribed ? 'tag tag--ok' : 'tag tag--idle'}}">{{subscribeStatus}}</text>
+      <text class="label">收到事件次数：{{subscribeCount}}</text>
+      <text wx:if="{{lastEvent}}" class="result-text">最新事件：{{lastEvent}}</text>
+    </view>
+  </view>
+</view>

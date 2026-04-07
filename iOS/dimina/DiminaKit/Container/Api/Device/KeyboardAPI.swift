@@ -24,17 +24,18 @@ public class KeyboardAPI: DMPContainerApi {
         DispatchQueue.main.async {
             UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         }
-        
+
         let result = DMPMap()
         result.set("errMsg", "\(KeyboardAPI.HIDE_KEYBOARD):ok")
         DMPContainerApi.invokeSuccess(callback: callback, param: result)
-        return nil
+        return DMPAsyncResult()
     }
-    
+
     // Adjust position
     @BridgeMethod(ADJUST_POSITION)
     var adjustPosition: DMPBridgeMethodHandler = { param, env, callback in
         // Empty implementation for adjusting the keyboard position
+        return DMPNoneResult()
     }
     
 }

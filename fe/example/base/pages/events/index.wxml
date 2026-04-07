@@ -1,0 +1,6 @@
+<!-- 引用组件的页面模版 -->
+<view>
+  <another-component bindcustomevent="pageEventListener1">
+    <my-component bindcustomevent="pageEventListener2"></my-component>
+  </another-component>
+</view>

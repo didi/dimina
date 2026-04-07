@@ -1,0 +1,4 @@
+<!-- redirect.wxml -->
+<view class="page">
+  <view style="text-align:center"> {{title}} </view>
+</view>

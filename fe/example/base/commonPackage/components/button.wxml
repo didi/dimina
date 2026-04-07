@@ -1,0 +1,3 @@
+<view class="button" hover-class="hover" bindtap="clicked">
+  <slot></slot>
+</view>

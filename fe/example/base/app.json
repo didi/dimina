@@ -1,0 +1,72 @@
+{
+	"pages": [
+		"pages/index",
+		"pages/scroll-view/index",
+		"pages/input/index",
+		"pages/image/index",
+		"pages/icon/index",
+		"pages/button/index",
+		"pages/switch/index",
+		"pages/radio/index",
+		"pages/checkbox/index",
+		"pages/slider/index",
+		"pages/form/index",
+		"pages/textarea/index",
+		"pages/progress/index",
+		"pages/navigator/index/index",
+		"pages/navigator/navigate/navigate",
+		"pages/navigator/redirect/redirect",
+		"pages/cover-view/index",
+		"pages/movable-view/index",
+		"pages/picker/index",
+		"pages/picker-view/index",
+		"pages/swiper/index",
+		"pages/rich-text/index",
+		"pages/custom-component/index",
+		"pages/events/index",
+		"pages/mark/index",
+		"pages/intersection-observer/index",
+		"pages/api/index",
+		"pages/project-mixed/pages/home/index",
+		"pages/project-mixed/pages/detail/index",
+		"pages/package/index",
+		"pages/data-observer/index",
+		"pages/behaviors/index",
+		"pages/animation/index",
+		"pages/custom-class/index",
+		"pages/ext-bridge/index"
+	],
+	"subPackages": [
+    {
+      "root": "subPackageA",
+      "pages": [
+        "pages/index"
+      ]
+    },
+    {
+      "root": "subPackageB",
+      "pages": []
+    },
+    {
+      "root": "commonPackage",
+      "pages": []
+    }
+  ],
+	"window": {
+		"backgroundTextStyle": "light",
+		"navigationBarBackgroundColor": "#fff",
+		"navigationBarTitleText": "WeChat",
+		"navigationBarTextStyle": "black"
+  },
+  "permission": {
+    "scope.userLocation": {
+      "desc": "你的位置信息将用于小程序位置接口的效果展示"
+    }
+  },
+  "requiredPrivateInfos": [
+    "onLocationChange",
+    "startLocationUpdate",
+    "chooseLocation",
+    "getLocation"
+  ]
+}

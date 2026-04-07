@@ -1,0 +1,7 @@
+<!-- navigator.wxml -->
+<view class="page">
+  <view style="text-align:center"> {{title}} </view>
+  <view>
+    <navigator open-type="navigateBack">点击返回到之前页面</navigator>
+  </view>
+</view>

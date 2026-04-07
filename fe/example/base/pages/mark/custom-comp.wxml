@@ -1,0 +1,3 @@
+<view mark:markInComponent="{{ { key: 'value' } }}" bindtap="bindComponentTap">
+  <slot />
+</view>

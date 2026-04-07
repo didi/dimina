@@ -6,6 +6,7 @@ import { DMPLogger } from '../EventTrack/DMPLogger';
 import { Tags } from '../EventTrack/Tags';
 import { DMPApp } from '../DApp/DMPApp';
 import { DMPModuleManager } from './DMPModuleManager';
+import { DMPContainerBridgesModuleExt } from './DMPContainerBridgesModule+Ext';
 
 export class DMPBridges {
   static callWebViewMethods(methodName: string, webViewId: number,
@@ -108,6 +109,43 @@ export class DMPBridges {
       }
       invokeParams = DMPMap.createFromObject(params.get('data'))
     }
+
+    // extBridge：params 中含 module 且该模块在 extModules 中注册
+    // 直接委托给 DMPContainerBridgesModuleExt.handleExtBridge
+    if (params instanceof DMPMap && params.get('module')) {
+      const extMod = moduleManager.getExtBridgeModule();
+      if (extMod && extMod.hasModule(moduleName)) {
+        DMPLogger.d(Tags.BRIDGE, `extBridge: moduleName=${moduleName} event=${methodName}`);
+        extMod.handleExtBridge(methodName, invokeParams instanceof DMPMap ? invokeParams : new DMPMap(),
+          callback, moduleName);
+        return new Object();
+      }
+    }
+
+    // extOnBridge / extOffBridge：methodName 形如 `${module}_${event}`
+    // FE 侧 extOnBridge 不传 module，而是将 apiName 设为 `${module}_${event}`
+    if (!(params instanceof DMPMap && params.get('module'))) {
+      const extMod = moduleManager.getExtBridgeModule();
+      if (extMod) {
+        const parsed = DMPBridges.parseExtEventName(methodName, extMod);
+        if (parsed) {
+          const mod = parsed.mod;
+          const evt = parsed.evt;
+          const isOff = params instanceof DMPMap && !params.hasKey('success') && !params.hasKey('keep');
+          if (isOff) {
+            DMPLogger.d(Tags.BRIDGE, `extOffBridge: module=${mod} event=${evt}`);
+            extMod.handleExtOffBridge(methodName);
+          } else {
+            DMPLogger.d(Tags.BRIDGE, `extOnBridge: module=${mod} event=${evt}`);
+            extMod.handleExtOnBridge(methodName,
+              params instanceof DMPMap ? params : new DMPMap(),
+              callback, mod, evt);
+          }
+          return new Object();
+        }
+      }
+    }
+
     DMPLogger.d(Tags.BRIDGE, `moduleName=${moduleName}   methodName=${methodName} `)
     let result: object = new Object();
     let obj = moduleManager?.getModuleObjectByMethodNameAndModuleName(methodName, moduleName)
@@ -122,6 +160,35 @@ export class DMPBridges {
     }
     return result;
   }
+
+  /**
+   * 尝试将 `${module}_${event}` 格式的 apiName 解析为模块名与事件名。
+   * 仅当模块名在 extModules 中注册时才返回解析结果，否则返回 null。
+   */
+  private static parseExtEventName(
+    apiName: string,
+    extMod: DMPContainerBridgesModuleExt
+  ): DMPExtParsedEvent | null {
+    const sep = apiName.indexOf('_');
+    if (sep <= 0) {
+      return null;
+    }
+    const mod = apiName.substring(0, sep);
+    const evt = apiName.substring(sep + 1);
+    if (!evt || !extMod.hasModule(mod)) {
+      return null;
+    }
+    const result = new DMPExtParsedEvent();
+    result.mod = mod;
+    result.evt = evt;
+    return result;
+  }
+}
+
+/** parseExtEventName 解析结果，ArkTS 要求使用 class 而非对象字面量类型 */
+class DMPExtParsedEvent {
+  mod: string = '';
+  evt: string = '';
 }
 
 

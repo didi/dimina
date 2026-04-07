@@ -1,0 +1,6 @@
+/* navigate/navigate.wxss */
+
+.page view {
+  height: 40px;
+  line-height: 40px;
+}

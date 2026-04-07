@@ -1,0 +1,1 @@
+<button bindtap="navigate">Go to subPackage A</button>

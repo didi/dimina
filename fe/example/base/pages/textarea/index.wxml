@@ -1,0 +1,37 @@
+<view class="page-body">
+  <view class="page-section">
+    <view class="page-section-title">输入区域高度自适应，不会出现滚动条</view>
+    <view class="textarea-wrp">
+      <textarea bindblur="bindTextAreaBlur" auto-height />
+    </view>
+  </view>
+
+  <view class="page-section">
+    <view class="page-section-title">这是一个可以自动聚焦的textarea</view>
+    <view class="textarea-wrp">
+      <textarea auto-focus="true" style="height: 3em" />
+    </view>
+  </view>
+</view>
+
+<view class="section">
+  <textarea bindblur="bindTextAreaBlur" auto-height placeholder="自动变高" />
+</view>
+<view class="section">
+  <textarea placeholder="placeholder颜色是红色的" placeholder-style="color:red;"  />
+</view>
+<view class="section">
+  <textarea placeholder="这是一个可以自动聚焦的textarea" auto-focus />
+</view>
+<view class="section">
+  <textarea placeholder="这个只有在按钮点击的时候才聚焦" focus="{{focus}}" />
+  <view class="btn-area">
+    <button bindtap="bindButtonTap">使得输入框获取焦点</button>
+  </view>
+</view>
+<view class="section">
+  <form bindsubmit="bindFormSubmit">
+    <textarea placeholder="form 中的 textarea" name="textarea"/>
+    <button form-type="submit"> 提交 </button>
+  </form>
+</view>

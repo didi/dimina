@@ -1,0 +1,7 @@
+.intro {
+  margin: 30px;
+  text-align: center;
+}
+.page {
+  margin-top: 80px;
+}

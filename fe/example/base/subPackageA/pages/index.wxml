@@ -1,0 +1,5 @@
+<view>SubPackage A</view>
+<view class="container">
+  <my-button class="button" bindclicked="buttonClicked" bindattached="buttonAttached">{{ buttonLoaded ? '点击显示列表' : '请稍候' }}</my-button>
+  <list wx:if="{{ showList }}" items="{{ items }}"></list>
+</view>

@@ -1,0 +1,6 @@
+{
+  "usingComponents": {
+    "my-component": "./components/component-tag-name",
+    "another-component": "./components/custom-another-component"
+  }
+}

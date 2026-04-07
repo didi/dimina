@@ -25,13 +25,13 @@ public class ScrollAPI: DMPContainerApi {
         
         guard let app = DMPAppManager.sharedInstance().getApp(appIndex: env.appIndex) else {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "invalid app")
-            return
+            return DMPAsyncResult()
         }
-        
+
         guard let render = app.render,
               let webview = render.getWebView(byId: env.webViewId) else {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "invalid render or webview")
-            return
+            return DMPAsyncResult()
         }
         
         let wkWebView = webview.getWebView()
@@ -44,6 +44,6 @@ public class ScrollAPI: DMPContainerApi {
             }
         }
         
-        return nil
+        return DMPAsyncResult()
     }
 }

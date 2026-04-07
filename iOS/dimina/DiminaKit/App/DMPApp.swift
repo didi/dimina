@@ -138,9 +138,24 @@ public class DMPApp {
         print("hideLoading")
     } 
 
+    /// 注册第三方扩展 bridge 模块。
+    ///
+    /// 小程序通过 `wx.extBridge` / `wx.extOnBridge` / `wx.extOffBridge` 与 native 模块通信，
+    /// 宿主通过此方法（或 `DMPAppManager.registerExtModule`）向框架注册对应处理器。
+    ///
+    /// - Parameters:
+    ///   - moduleName: 模块名，与小程序侧 `module` 参数一致
+    ///   - handler:    处理器，详见 `DMPExtModuleHandler`
+    public func registerExtModule(_ moduleName: String, handler: @escaping DMPExtModuleHandler) {
+        container?.registerExtModule(moduleName, handler: handler)
+    }
+
     public func destroy() {
         print("app destroy")
-        
+
+        // 清理第三方扩展的持续订阅，防止内存泄漏
+        container?.clearExtSubscriptions()
+
         // Clear WebView cache pool (execute on main thread)
         Task { @MainActor in
             DMPWebViewPool.shared.clearPool()

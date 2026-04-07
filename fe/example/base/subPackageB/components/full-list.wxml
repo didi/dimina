@@ -1,0 +1,3 @@
+<view class="list">
+  <view class="item" wx:for="{{ items }}" bindtap="show" data-content="{{ item }}">{{ item }}</view>
+</view>

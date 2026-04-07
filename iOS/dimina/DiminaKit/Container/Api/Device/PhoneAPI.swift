@@ -27,15 +27,15 @@ public class PhoneAPI: DMPContainerApi {
             let result = DMPMap()
             result.set("errMsg", "\(PhoneAPI.MAKE_PHONE_CALL):fail phoneNumber is required")
             DMPContainerApi.invokeFailure(callback: callback, param: result, errMsg: "phoneNumber is required")
-            return
+            return DMPAsyncResult()
         }
-        
+
         // 构建电话 URL
         guard let url = URL(string: "tel:\(phoneNumber)") else {
             let result = DMPMap()
             result.set("errMsg", "\(PhoneAPI.MAKE_PHONE_CALL):fail invalid phone number")
             DMPContainerApi.invokeFailure(callback: callback, param: result, errMsg: "invalid phone number")
-            return
+            return DMPAsyncResult()
         }
 
         // 检查设备是否支持拨号
@@ -43,7 +43,7 @@ public class PhoneAPI: DMPContainerApi {
             let result = DMPMap()
             result.set("errMsg", "\(PhoneAPI.MAKE_PHONE_CALL):fail device does not support phone calls")
             DMPContainerApi.invokeFailure(callback: callback, param: result, errMsg: "device does not support phone calls")
-            return
+            return DMPAsyncResult()
         }
 
         // 在主线程上打开 URL
@@ -59,6 +59,6 @@ public class PhoneAPI: DMPContainerApi {
                 }
             }
         }
-        return nil
+        return DMPAsyncResult()
     }
 }

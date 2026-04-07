@@ -1,0 +1,27 @@
+<view class="home">
+	<image class="anima-view" src="{{imageList}}"></image>
+	<text>{{a.b.c[0].text}}</text>
+	<view class="already-upload" style="background:url('{{imageLi}}') no-repeat;background-size: 100% auto;"></view>
+
+	<view>
+		<text wx:if="{{condition === 1}}">1</text>
+		<text wx:elif="{{condition === 2}}">2</text>
+		<text wx:else>NaN</text>
+	</view>
+	<view class="text" wx:if="{{show}}">
+		<text user-select="{{true}}">123</text>
+	</view>
+	<view class="btn" bindtap="show">显示和修改嵌套数据</view>
+	<view class="btn" bindtap="hide">隐藏</view>
+	<view class="btn" bindtap="goDetail">{{text}}</view>
+	<view class="btn" bindtap="sumRes">{{res}}</view>
+
+	<view class="btn" bindtap="addItem">add item</view>
+	<view class="btn" bindtap="changeColor">change color</view>
+	<view class="btn" bindtap="showToast">toast</view>
+
+	<view class="list-item" style="color:{{color}}" wx:for="{{list}}">
+		{{index}}: {{item.message}}
+	</view>
+
+</view>

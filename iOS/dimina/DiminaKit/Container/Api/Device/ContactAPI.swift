@@ -27,7 +27,7 @@ public class ContactAPI: DMPContainerApi {
             let result = DMPMap()
             result.set("errMsg", "\(CHOOSE_CONTACT):fail")
             DMPContainerApi.invokeFailure(callback: callback, param: result, errMsg: "无法获取导航控制器")
-            return nil
+            return DMPAsyncResult()
         }
         
         DispatchQueue.main.async {
@@ -70,9 +70,9 @@ public class ContactAPI: DMPContainerApi {
             navController.present(contactPicker, animated: true)
         }
         
-        return nil
+        return DMPAsyncResult()
     }
-    
+
     // Add phone contact
     @BridgeMethod(ADD_PHONE_CONTACT)
     var addPhoneContact: DMPBridgeMethodHandler = { param, env, callback in
@@ -94,8 +94,8 @@ public class ContactAPI: DMPContainerApi {
         } else {
             ContactAPI.createContact(param: param.getMap(), callback: callback)
         }
-        
-        return nil
+
+        return DMPAsyncResult()
     }
     
     // 辅助方法：创建联系人
