@@ -8,7 +8,7 @@ import MagicString from 'magic-string'
 import { transform } from 'esbuild'
 import ts from 'typescript'
 import { hasCompileInfo } from '../common/utils.js'
-import { wrapModDefine, mergeSourcemap } from './sourcemap.js'
+import { mergeSourcemap } from './sourcemap.js'
 import { getAppConfigInfo, getComponent, getContentByPath, getTargetPath, getWorkPath, resetStoreInfo } from '../env.js'
 
 // 用于缓存已处理的模块
@@ -74,44 +74,40 @@ if (!isMainThread) {
 }
 
 async function writeCompileRes(compileRes, root) {
-	let mergeCode = ''
-	for (const module of compileRes) {
-		const amdFormat = `modDefine('${module.path}', function(require, module, exports) {
-${module.code}
-});`
-		//TODO: 替换成 https://oxc.rs/docs/guide/usage/minifier.html
-		const { code: minifiedCode } = await transform(amdFormat, {
-			minify: true,
-			target: ['es2023'], // quickjs 支持版本
-			platform: 'neutral',
-		})
-		mergeCode += minifiedCode
+	const outputDir = root
+		? `${getTargetPath()}/${root}`
+		: `${getTargetPath()}/main`
+
+	if (!fs.existsSync(outputDir)) {
+		fs.mkdirSync(outputDir, { recursive: true })
 	}
 
-	if (root) {
-		const subDir = `${getTargetPath()}/${root}`
-		if (!fs.existsSync(subDir)) {
-			fs.mkdirSync(subDir, { recursive: true })
-		}
-		fs.writeFileSync(`${subDir}/logic.js`, mergeCode)
-	}
-	else {
-		const mainDir = `${getTargetPath()}/main`
-		if (!fs.existsSync(mainDir)) {
-			fs.mkdirSync(mainDir, { recursive: true })
-		}
-		fs.writeFileSync(`${mainDir}/logic.js`, mergeCode)
-	}
-
-	// sourcemap 模式：用未压缩的代码重新生成 logic.js 并附带 sourcemap
+	/*
+	 * sourcemap 模式跳过 minify：
+	 * 当前 mergeSourcemap 只做单层行偏移拼接，
+	 * 若再对 bundle 整体 minify 则需用 remapping 串联两份 map，暂未实现
+	 */
 	if (enableSourcemap) {
-		const outputDir = root
-			? `${getTargetPath()}/${root}`
-			: `${getTargetPath()}/main`
 		const { bundleCode, sourcemap } = mergeSourcemap(compileRes)
 		const sourcemapFileName = 'logic.js.map'
 		fs.writeFileSync(`${outputDir}/logic.js`, `${bundleCode}//# sourceMappingURL=${sourcemapFileName}\n`)
 		fs.writeFileSync(`${outputDir}/${sourcemapFileName}`, sourcemap)
+	}
+	else {
+		let mergeCode = ''
+		for (const module of compileRes) {
+			const amdFormat = `modDefine('${module.path}', function(require, module, exports) {
+${module.code}
+});`
+			//TODO: 替换成 https://oxc.rs/docs/guide/usage/minifier.html
+			const { code: minifiedCode } = await transform(amdFormat, {
+				minify: true,
+				target: ['es2023'], // quickjs 支持版本
+				platform: 'neutral',
+			})
+			mergeCode += minifiedCode
+		}
+		fs.writeFileSync(`${outputDir}/logic.js`, mergeCode)
 	}
 }
 
@@ -433,6 +429,14 @@ async function buildJSByPath(packageName, module, compileRes, mainCompileRes, ad
 			platform: 'neutral',
 			loader: 'js',
 		}
+		/*
+		 * 当前 sourcemap 精度为行级别：
+		 * - JS 文件：MagicString 路径重写和 esbuild 之后的 require 路径修正
+		 *   仅影响列偏移，行映射保持准确
+		 * - TS 文件：esbuild 之前的 ts.transpileModule 和 oxc-transform 类型擦除
+		 *   会改变行号，导致行映射不准确，暂未处理
+		 * 后续可通过 MagicString.generateMap() + remapping 串联多步 map 来提升精度
+		 */
 		if (enableSourcemap && compileInfo.sourceFile) {
 			esbuildOpts.sourcemap = true
 			esbuildOpts.sourcefile = compileInfo.sourceFile
