@@ -29,6 +29,7 @@ import {
 	Suspense,
 	toDisplayString,
 	watch,
+	watchEffect,
 	withCtx,
 	withDirectives,
 } from 'vue'
@@ -104,17 +105,13 @@ class Runtime {
 				},
 				setup(props) {
 					const state = reactive({})
-					watch(
-						() => props.data,
-						(newData) => {
-							if (newData) {
-								for (const key in newData) {
-									state[key] = newData[key]
-								}
-							}
-						},
-						{ immediate: true },
-					)
+					watchEffect(() => {
+						const newData = props.data || {}
+						for (const key in state) {
+							if (!(key in newData)) delete state[key]
+						}
+						Object.assign(state, newData)
+					})
 					return state
 				},
 				render,
