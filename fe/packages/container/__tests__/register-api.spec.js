@@ -1,9 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 
 /**
- * Test the registerApi/invokeApi mechanism in isolation.
- * We replicate the logic from MiniApp to avoid importing the full class
- * which has heavy DOM/Worker dependencies.
+ * 测试 registerApi / invokeApi 机制。
+ * 由于 MiniApp 依赖 DOM / Worker，这里复刻核心逻辑进行单元测试。
  */
 function createMiniAppStub() {
 	const app = {
@@ -13,6 +12,9 @@ function createMiniAppStub() {
 			this.apiRegistry[name] = handler
 		},
 
+		// 模拟第三方扩展路由
+		_handleExtCall: vi.fn(),
+
 		invokeApi(name, params) {
 			const handler = this.apiRegistry[name]
 			if (handler) {
@@ -20,6 +22,10 @@ function createMiniAppStub() {
 			}
 			else if (typeof this[name] === 'function') {
 				this[name](params)
+			}
+			else {
+				// 未命中已知方法，转发给第三方扩展路由处理
+				this._handleExtCall(name, params)
 			}
 		},
 	}
@@ -58,10 +64,12 @@ describe('MiniApp registerApi', () => {
 		expect(app.request).not.toHaveBeenCalled()
 	})
 
-	it('should not throw when invoking an unknown API', () => {
+	it('should fall back to _handleExtCall for unknown API', () => {
 		const app = createMiniAppStub()
 
-		expect(() => app.invokeApi('nonExistentApi', {})).not.toThrow()
+		app.invokeApi('nonExistentApi', { key: 'value' })
+
+		expect(app._handleExtCall).toHaveBeenCalledWith('nonExistentApi', { key: 'value' })
 	})
 
 	it('should support registering multiple custom APIs', () => {

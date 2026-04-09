@@ -16,6 +16,7 @@ import android.provider.Settings
 import android.util.DisplayMetrics
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import com.didi.dimina.BuildConfig
 import com.didi.dimina.api.APIResult
 import com.didi.dimina.api.AsyncResult
 import com.didi.dimina.api.BaseApiHandler
@@ -179,6 +180,7 @@ class SystemApi : BaseApiHandler() {
             put("version", Build.VERSION.RELEASE)
             put("system", "Android ${Build.VERSION.RELEASE}")  // 操作系统及版本
             put("platform", "android")
+            put("SDKVersion", BuildConfig.SDK_VERSION)
             put("deviceOrientation", currentActivity.resources.configuration.orientation.let {
                 when (it) {
                     Configuration.ORIENTATION_PORTRAIT -> "portrait"

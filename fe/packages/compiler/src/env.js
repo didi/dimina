@@ -244,6 +244,11 @@ function storeComponentConfig(pageJsonContent, pageFilePath) {
  * @param {string} src
  */
 function getModuleId(src, pageFilePath) {
+	const resolvedAlias = resolveAppAlias(src)
+	if (resolvedAlias) {
+		return resolvedAlias
+	}
+
 	if (!npmResolver) {
 		// 如果 npm 解析器未初始化，使用原有逻辑
 		const lastIndex = pageFilePath.lastIndexOf('/')
@@ -255,6 +260,28 @@ function getModuleId(src, pageFilePath) {
 
 	// 使用 npm 解析器处理组件路径
 	return npmResolver.resolveComponentPath(src, pageFilePath)
+}
+
+function resolveAppAlias(src) {
+	const resolveAlias = configInfo.appInfo?.resolveAlias
+	if (!resolveAlias || typeof src !== 'string') {
+		return null
+	}
+
+	for (const [alias, target] of Object.entries(resolveAlias)) {
+		if (alias.endsWith('/*') && target.endsWith('/*')) {
+			const aliasPrefix = alias.slice(0, -1)
+			const targetPrefix = target.slice(0, -1)
+			if (src.startsWith(aliasPrefix)) {
+				return src.replace(aliasPrefix, targetPrefix)
+			}
+		}
+		else if (src === alias) {
+			return target
+		}
+	}
+
+	return null
 }
 
 function getTargetPath() {
@@ -356,6 +383,7 @@ export {
 	getTargetPath,
 	getWorkPath,
 	resetStoreInfo,
+	resolveAppAlias,
 	storeInfo,
 	storeProjectConfig,
 }

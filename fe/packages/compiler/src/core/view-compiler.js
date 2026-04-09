@@ -35,6 +35,55 @@ function generateCodeFromAst(ast) {
 	return generateCode(ast, { comments: false }).code
 }
 
+/**
+ * 为模板表达式中的成员访问补充空值保护，避免生成的 render 函数直接访问 null/undefined 属性
+ * 例如: stickyProps.zIndex -> stickyProps?.zIndex
+ * @param {string} expression
+ * @returns {string}
+ */
+function addOptionalChaining(expression) {
+	if (!expression || typeof expression !== 'string') {
+		return expression
+	}
+
+	try {
+		const ast = babel.parseSync(`(${expression})`, {
+			parserOpts: {
+				plugins: [
+					'optionalChaining',
+					'nullishCoalescingOperator',
+				],
+			},
+		})
+
+		traverse(ast, {
+			MemberExpression: {
+				exit(astPath) {
+					if (astPath.node.optional) {
+						return
+					}
+					astPath.replaceWith(
+						types.optionalMemberExpression(
+							astPath.node.object,
+							astPath.node.property,
+							astPath.node.computed,
+							true,
+						),
+					)
+				},
+			},
+		})
+
+		return generateCodeFromAst(ast)
+	} catch (error) {
+		return expression
+	}
+}
+
+function parseSafeBraceExp(exp) {
+	return addOptionalChaining(parseBraceExp(exp))
+}
+
 // 页面文件编译内容缓存
 const compileResCache = new Map()
 
@@ -1176,13 +1225,13 @@ function getProps(attrs, tag, components) {
 		if (name.endsWith(':if')) {
 			attrsList.push({
 				name: 'v-if',
-				value: parseBraceExp(value),
+				value: parseSafeBraceExp(value),
 			})
 		}
 		else if (name.endsWith(':elif')) {
 			attrsList.push({
 				name: 'v-else-if',
-				value: parseBraceExp(value),
+				value: parseSafeBraceExp(value),
 			})
 		}
 		else if (name.endsWith(':else')) {
@@ -1211,7 +1260,7 @@ function getProps(attrs, tag, components) {
 			// 内联样式
 			attrsList.push({
 				name: 'v-c-style',
-				value: transformRpx(parseBraceExp(value)),
+				value: transformRpx(parseSafeBraceExp(value)),
 			})
 		}
 		else if (name === 'class') {
@@ -1236,7 +1285,7 @@ function getProps(attrs, tag, components) {
 		else if (name === 'is' && tag === 'component') {
 			attrsList.push({
 				name: ':is',
-				value: '\'dd-\'+' + `${parseBraceExp(value)}`,
+				value: '\'dd-\'+' + `${parseSafeBraceExp(value)}`,
 			})
 		}
 		else if (name === 'animation' && (tag !== 'movable-view' && tagWhiteList.includes(tag))) {
@@ -1244,13 +1293,13 @@ function getProps(attrs, tag, components) {
 			// 自定义组件的属性有可能是 animation，所以只在普通组件节点生效
 			attrsList.push({
 				name: 'v-c-animation',
-				value: parseBraceExp(value),
+				value: parseSafeBraceExp(value),
 			})
 		}
 		else if ((name === 'value' && (tag === 'input' || tag === 'textarea'))
 			|| ((name === 'x' || name === 'y') && tag === 'movable-view')
 		) {
-			const parsedValue = parseBraceExp(value)
+			const parsedValue = parseSafeBraceExp(value)
 			const conditionExp = generateVModelTemplate(parsedValue)
 			if (conditionExp) {
 				// v-model 不支持表达式
@@ -1280,7 +1329,7 @@ function getProps(attrs, tag, components) {
 
 				attrsList.push({
 					name: `:${name}`,
-					value: parseBraceExp(value),
+					value: parseSafeBraceExp(value),
 				})
 			}
 			else {
@@ -1291,10 +1340,9 @@ function getProps(attrs, tag, components) {
 			}
 		}
 		else if (isWrappedByBraces(value)) {
-			let pVal = parseBraceExp(value)
-			if (tag === 'template' && name === 'data') {
-				pVal = `{${pVal}}`
-			}
+			const pVal = tag === 'template' && name === 'data'
+				? parseTemplateDataExp(value)
+				: parseSafeBraceExp(value)
 			
 			// 如果是自定义组件的属性绑定，记录绑定关系
 			if (components && components[tag]) {
@@ -1464,6 +1512,11 @@ function getViewPath(workPath, src) {
 		if (fs.existsSync(mlFullPath)) {
 			return mlFullPath
 		}
+
+		const indexMlFullPath = `${workPath}${aSrc}/index${mlType}`
+		if (fs.existsSync(indexMlFullPath)) {
+			return indexMlFullPath
+		}
 	}
 }
 
@@ -1614,6 +1667,19 @@ function parseBraceExp(exp) {
 	}
 	// 去掉字符串首尾的加号，返回转换后的字符串
 	return group.join('').replace(/^\+|\+$/g, '')
+}
+
+/**
+ * 解析 template 的 data 对象表达式，保留对象字面量和内部三元表达式
+ * @param {string} exp
+ * @returns {string} 解析后的对象表达式字符串
+ */
+function parseTemplateDataExp(exp) {
+	const matchResult = exp.trim().match(/^\{\{([\s\S]*)\}\}$/)
+	if (matchResult) {
+		return `{${matchResult[1].trim()}}`
+	}
+	return `{${parseBraceExp(exp)}}`
 }
 
 function transTagWxs($, scriptModule, filePath) {
@@ -1822,7 +1888,9 @@ function extractWxsDependencies(moduleCode) {
 }
 
 function insertWxsToRenderAst(ast, scriptModule, scriptRes) {
-	for (const sm of scriptModule) {
+	const replacements = []
+
+	for (const [index, sm] of scriptModule.entries()) {
 		if (!scriptRes.has(sm.path)) {
 			scriptRes.set(sm.path, sm.code)
 		}
@@ -1830,28 +1898,46 @@ function insertWxsToRenderAst(ast, scriptModule, scriptRes) {
 		// 使用原始模块名作为模板中的属性名，唯一模块名作为 require 的参数
 		const templatePropertyName = sm.originalName || sm.path
 		const requireModuleName = sm.path
-		
-		const assignmentExpression = types.assignmentExpression(
-			'=',
-			// 创建赋值表达式
-			types.memberExpression(
-				types.identifier('_ctx'), // 对象标识符
-				types.identifier(templatePropertyName), // 使用原始模块名作为属性名
-				false, // 是否是计算属性
+		const localIdentifier = `__wxs_${index}`
+
+		replacements.push({
+			localIdentifier,
+			templatePropertyName,
+		})
+
+		const variableDeclaration = types.variableDeclaration('const', [
+			types.variableDeclarator(
+				types.identifier(localIdentifier),
+				types.callExpression(
+					types.identifier('require'),
+					[types.stringLiteral(requireModuleName)],
+				),
 			),
+		])
 
-			// 创建require调用表达式
-			types.callExpression(
-				types.identifier('require'), // 函数标识符
-				[types.stringLiteral(requireModuleName)], // 使用唯一模块名作为 require 参数
-			),
-		)
-
-		// 将这个赋值表达式包装在一个表达式语句中
-		const expressionStatement = types.expressionStatement(assignmentExpression)
-
-		ast.program.body[0].expression.body.body.unshift(expressionStatement)
+		ast.program.body[0].expression.body.body.unshift(variableDeclaration)
 	}
+
+	if (replacements.length === 0) {
+		return
+	}
+
+	traverse(ast, {
+		MemberExpression(astPath) {
+			const { node } = astPath
+			if (
+				node.object?.type === 'Identifier'
+				&& node.object.name === '_ctx'
+				&& !node.computed
+				&& node.property?.type === 'Identifier'
+			) {
+				const replacement = replacements.find(item => item.templatePropertyName === node.property.name)
+				if (replacement) {
+					astPath.replaceWith(types.identifier(replacement.localIdentifier))
+				}
+			}
+		},
+	})
 }
 
 export {
@@ -1861,6 +1947,7 @@ export {
 	parseBraceExp,
 	parseClassRules,
 	parseKeyExpression,
+	parseTemplateDataExp,
 	processIncludeConditionalAttrs,
 	processWxsContent,
 	splitWithBraces,

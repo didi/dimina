@@ -6,6 +6,7 @@ import com.didi.dimina.bean.PathInfo
 import com.didi.dimina.common.LogUtils
 import com.didi.dimina.common.PathUtils
 import com.didi.dimina.common.Utils
+import com.didi.dimina.common.VersionUtils
 import com.didi.dimina.engine.qjs.JSValue
 import com.didi.dimina.ui.container.DiminaActivity
 import com.didi.dimina.ui.view.DiminaRenderBridge
@@ -49,7 +50,9 @@ class Bridge(
                 ), DiminaRenderBridge.TAG)
         }
         // 加载模版页面
-        options.webview.loadUrl("${PathUtils.FILE_PROTOCOL}/pageFrame.html")
+        options.webview.loadUrl(
+            "${PathUtils.WEBVIEW_JSSDK_BASE_URL}${VersionUtils.getJSVersion()}/main/pageFrame.html"
+        )
     }
 
     /**
@@ -63,7 +66,8 @@ class Bridge(
                 "bridgeId" to id,
                 "appId" to options.appId,
                 "pagePath" to options.pathInfo.pagePath,
-                "root" to options.root
+                "root" to options.root,
+                "baseUrl" to PathUtils.WEBVIEW_JSAPP_BASE_URL
             )
         )
 
@@ -85,7 +89,8 @@ class Bridge(
                         "bridgeId" to id,
                         "appId" to options.appId,
                         "pagePath" to options.pathInfo.pagePath,
-                        "root" to options.root
+                        "root" to options.root,
+                        "baseUrl" to PathUtils.WEBVIEW_JSAPP_BASE_URL
                     )
                 )
 

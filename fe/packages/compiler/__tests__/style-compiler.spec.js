@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ensureImportSemicolons, removeBaseComponentScope } from '../src/core/style-compiler'
+import { ensureImportSemicolons, normalizeRootStyleImports, removeBaseComponentScope, resolveStyleImportPath } from '../src/core/style-compiler'
 
 describe('ensureImportSemicolons', () => {
 	it('should add semicolons to @import statements that do not have them', () => {
@@ -218,5 +218,19 @@ describe('removeBaseComponentScope', () => {
 		
 		const result = await removeBaseComponentScope(input, moduleId)
 		expect(result).toEqual(expected)
+	})
+})
+
+describe('style import path helpers', () => {
+	it('应该将根路径 import 解析到小程序项目根目录', () => {
+		const result = resolveStyleImportPath('/tmp/app/pages/home/index.less', '/variable.less', '/tmp/app')
+		expect(result.endsWith('/variable.less')).toBe(true)
+		expect(result.includes('/pages/home/')).toBe(false)
+	})
+
+	it('应该将根路径 less import 重写为绝对路径', () => {
+		const result = normalizeRootStyleImports('@import "/variable.less";', '/tmp/app')
+		expect(result).toContain('/variable.less')
+		expect(result).not.toContain('@import "/variable.less";')
 	})
 })

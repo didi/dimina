@@ -3,7 +3,7 @@ import { createSelectorQuery } from '../../api/core/wxml/selector-query'
 import { createIntersectionObserver } from '../../api/core/wxml/intersection-observer'
 import message from '../../core/message'
 import runtime from '../../core/runtime'
-import { addComputedData, filterData, filterInvokeObserver, invokeObserversOnce, isChildComponent, matchComponent, syncUpdateChildrenProps } from '../../core/utils'
+import { addComputedData, deepEqual, filterData, filterInvokeObserver, invokeObserversOnce, isChildComponent, matchComponent, syncUpdateChildrenProps } from '../../core/utils'
 
 // 组件生命周期
 const componentLifetimes = ['created', 'attached', 'ready', 'moved', 'detached', 'error']
@@ -60,6 +60,7 @@ export class Component {
 		// 保存子组件 properties 绑定关系（用于同步更新）
 		// 格式：{ childModuleId: { childPropName: parentDataKey } }
 		this.__childPropsBindings__ = {}
+		this.__pendingSyncedProps__ = {}
 	}
 
 	init() {
@@ -461,37 +462,55 @@ export class Component {
 	 * 触发观察者函数
 	 * triggerObserver
 	 */
-	tO(data, triggerObservers = true) {
+	tO(data) {
+		const nextData = {}
+		for (const [prop, val] of Object.entries(data)) {
+			if (
+				this.__pendingSyncedProps__
+				&& Object.hasOwn(this.__pendingSyncedProps__, prop)
+				&& deepEqual(this.__pendingSyncedProps__[prop], val)
+			) {
+				delete this.__pendingSyncedProps__[prop]
+				continue
+			}
+			nextData[prop] = val
+		}
+
+		if (Object.keys(nextData).length === 0) {
+			return
+		}
+
 		// 收集需要执行的观察者函数
 		const observersToExecute = []
+		const propertyObserversToExecute = []
 		
 		// 保存旧值并更新数据，收集观察者
-		for (const [prop, val] of Object.entries(data)) {
+		for (const [prop, val] of Object.entries(nextData)) {
 			// 保存旧值
 			const oldVal = this.data[prop]
 
 			// 更新数据
 			this.data[prop] = val
 
-			if (triggerObservers) {
-				// 收集 observers
-				if (this.__info__.observers) {
-					observersToExecute.push(() => filterInvokeObserver(prop, this.__info__.observers, data, this, oldVal))
-				}
-				
-				// 收集属性观察器
-				const observer = this.__info__.properties?.[prop]?.observer
-				if (isString(observer)) {
-					observersToExecute.push(() => this[observer]?.(val, oldVal))
-				}
-				else if (isFunction(observer)) {
-					observersToExecute.push(() => observer.call(this, val, oldVal))
-				}
+			// 收集 observers
+			if (this.__info__.observers) {
+				observersToExecute.push(() => filterInvokeObserver(prop, this.__info__.observers, this.data, this, oldVal))
+			}
+			
+			// 收集属性观察器
+			const observer = this.__info__.properties?.[prop]?.observer
+			if (isString(observer)) {
+				propertyObserversToExecute.push(() => this[observer]?.(val, oldVal))
+			}
+			else if (isFunction(observer)) {
+				propertyObserversToExecute.push(() => observer.call(this, val, oldVal))
 			}
 		}
 		
-		// 执行所有观察者函数
-		observersToExecute.forEach(fn => fn())
+		observersToExecute.forEach(run => run())
+
+		// 同批次 props 更新时，优先让后写入的属性观察器完成派生状态计算
+		propertyObserversToExecute.reverse().forEach(run => run())
 	}
 
 	getPageId() {

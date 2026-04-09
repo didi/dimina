@@ -10,19 +10,7 @@ export default defineConfig(({ mode }) => {
 			},
 		},
 		build: {
-			minify: mode === 'production' ? 'terser' : false,
-			terserOptions: {
-				compress: {
-					drop_console: true,
-					drop_debugger: true,
-					keep_fargs: false,
-					reduce_vars: true,
-					booleans: true,
-				},
-				format: {
-					comments: false,
-				},
-			},
+			minify: mode === 'production',
 			lib: {
 				name: 'service', // 暴露的全局变量
 				entry: resolve(__dirname, 'src/index.js'),

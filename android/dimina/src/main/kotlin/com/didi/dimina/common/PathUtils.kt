@@ -8,7 +8,10 @@ import java.io.File
  * Author: Doslin
  */
 object PathUtils {
-    const val FILE_PROTOCOL = "file://"
+    const val WEBVIEW_ASSET_DOMAIN = "appassets.androidplatform.net"
+    const val WEBVIEW_BASE_URL = "https://$WEBVIEW_ASSET_DOMAIN"
+    const val WEBVIEW_JSAPP_BASE_URL = "$WEBVIEW_BASE_URL/jsapp/"
+    const val WEBVIEW_JSSDK_BASE_URL = "$WEBVIEW_BASE_URL/jssdk/"
     private const val VIRTUAL_DOMAIN_URL = "difile://"
 
     fun isLegalPath(path: String): Boolean {

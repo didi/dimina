@@ -115,7 +115,7 @@ public class SystemAPI: DMPContainerApi {
             "version": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "",
             "system": UIDevice.current.systemName + " " + UIDevice.current.systemVersion,
             "platform": "ios",
-            "SDKVersion": "1.0.0",
+            "SDKVersion": DiminaVersion.sdkVersion,
             
             "albumAuthorized": false,
             "cameraAuthorized": false,

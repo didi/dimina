@@ -217,4 +217,49 @@ describe('Import Statement Support', () => {
 		expect(indexModule.code).toContain('/utils/api')
 		expect(indexModule.code).toContain('/miniprogram_npm/@vant/weapp/dialog/dialog')
 	})
-}) 
+
+	it('should include re-exported dependencies from export declarations', async () => {
+		fs.mkdirSync('pages/index', { recursive: true })
+		fs.mkdirSync('miniprogram_npm/tdesign-miniprogram/common/src', { recursive: true })
+
+		fs.writeFileSync('app.json', JSON.stringify({
+			pages: ['pages/index/index'],
+		}))
+
+		fs.writeFileSync('miniprogram_npm/tdesign-miniprogram/common/src/superComponent.js', `
+			export class SuperComponent {}
+		`)
+
+		fs.writeFileSync('miniprogram_npm/tdesign-miniprogram/common/src/index.js', `
+			export * from './superComponent'
+		`)
+
+		fs.writeFileSync('pages/index/index.js', `
+			import { SuperComponent } from 'tdesign-miniprogram/common/src/index'
+
+			Page({
+				onLoad() {
+					console.log(SuperComponent)
+				}
+			})
+		`)
+
+		fs.writeFileSync('pages/index/index.json', JSON.stringify({
+			navigationBarTitleText: '首页',
+		}))
+
+		storeInfo(tempDir)
+
+		const progress = { completedTasks: 0 }
+		const result = await compileJS([{ path: 'pages/index/index' }], null, null, progress)
+
+		const modulePaths = result.map(module => module.path)
+		expect(modulePaths).toContain('pages/index/index')
+		expect(modulePaths).toContain('/miniprogram_npm/tdesign-miniprogram/common/src/index')
+		expect(modulePaths).toContain('/miniprogram_npm/tdesign-miniprogram/common/src/superComponent')
+
+		const indexModule = result.find(module => module.path === '/miniprogram_npm/tdesign-miniprogram/common/src/index')
+		expect(indexModule).toBeDefined()
+		expect(indexModule.code).toContain('/miniprogram_npm/tdesign-miniprogram/common/src/superComponent')
+	})
+})

@@ -14,11 +14,11 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.webkit.WebViewAssetLoader
 import com.didi.dimina.common.LogUtils
-import com.didi.dimina.common.PathUtils.FILE_PROTOCOL
+import com.didi.dimina.common.PathUtils
 import com.didi.dimina.common.VersionUtils
 import java.io.File
-import java.io.FileInputStream
 import java.lang.ref.WeakReference
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.LinkedBlockingQueue
@@ -276,7 +276,7 @@ object WebViewCacheManager : ComponentCallbacks2 {
             webView.clearCache(true)
             
             // 重新设置WebViewClient
-            webView.webViewClient = createWebViewClientWithInterceptor { onPageLoadFinished() }
+            webView.webViewClient = createWebViewClientWithInterceptor(webView.context) { onPageLoadFinished() }
             
         } catch (e: Exception) {
             LogUtils.e(TAG, "Failed to reset WebView", e)
@@ -474,39 +474,68 @@ object WebViewCacheManager : ComponentCallbacks2 {
 }
 
 // 文件级别的TAG常量，用于日志记录
-private const val WEBVIEW_TAG = "WebViewInterceptor"
+private const val WEBVIEW_TAG = "WebViewAssetLoader"
 
-/**
- * 根据给定的URL获取文件对象
- * 此函数用于区分jsapp和jssdk类型的URL，并返回相应的文件对象
- *
- * @param context 上下文对象，用于访问应用程序的文件目录
- * @param url 需要解析的URL，用于确定文件路径
- * @return 返回一个File对象，表示解析后的文件路径
- */
-internal fun getFilesFile(context: Context, url: String): File {
-    val filesDir = context.filesDir
-    val appIdRegex = "(wx|dd)[0-9a-zA-Z]{16}".toRegex()
-    val matchResult = appIdRegex.find(url)
-    return if (matchResult != null) {
-        // jsapp url，使用 appId 并构造路径
-        File(filesDir, "jsapp/$url")
-    } else {
-        // jssdk url，使用版本号构造路径
-        File(filesDir, "jssdk/${VersionUtils.getJSVersion()}/main/$url")
+private class DiminaPathHandler(
+    private val filesDir: File,
+    private val currentJsVersion: Int
+) : WebViewAssetLoader.PathHandler {
+    override fun handle(path: String): WebResourceResponse? {
+        val normalizedPath = path.trimStart('/')
+        if (normalizedPath.isEmpty()) {
+            return null
+        }
+
+        val targetFile = when {
+            normalizedPath.startsWith("assets/") -> {
+                File(filesDir, "jssdk/$currentJsVersion/main/$normalizedPath")
+            }
+            normalizedPath.startsWith("jssdk/") -> {
+                File(filesDir, normalizedPath)
+            }
+            normalizedPath.startsWith("jsapp/") -> {
+                File(filesDir, normalizedPath)
+            }
+            else -> {
+                // 编译产物中的资源常以 /<appId>/... 的绝对路径输出。
+                File(filesDir, "jsapp/$normalizedPath")
+            }
+        }
+
+        val filesCanonical = filesDir.canonicalFile
+        val targetCanonical = targetFile.canonicalFile
+        if (!targetCanonical.path.startsWith(filesCanonical.path) || !targetCanonical.exists()) {
+            return null
+        }
+
+        val mimeType = MimeTypeMap.getSingleton()
+            .getMimeTypeFromExtension(targetCanonical.extension)
+            ?: "application/octet-stream"
+        return WebResourceResponse(mimeType, "UTF-8", targetCanonical.inputStream())
     }
 }
 
+private fun createWebViewAssetLoader(context: Context): WebViewAssetLoader {
+    val appContext = context.applicationContext
+    val currentJsVersion = VersionUtils.getJSVersion()
+    return WebViewAssetLoader.Builder()
+        .setDomain(PathUtils.WEBVIEW_ASSET_DOMAIN)
+        .addPathHandler(
+            "/",
+            DiminaPathHandler(appContext.filesDir, currentJsVersion)
+        )
+        .build()
+}
+
 /**
- * 创建统一的文件拦截处理器
- * 用于拦截WebView的文件协议请求，从本地文件系统加载资源
- *
- * @param onPageFinished 页面加载完成的回调
- * @return WebViewClient实例
+ * 创建统一的资源拦截处理器。
+ * 使用 WebViewAssetLoader 暴露 app 私有目录中的 jssdk/jsapp 资源，统一通过 https 域访问。
  */
 internal fun createWebViewClientWithInterceptor(
+    context: Context,
     onPageFinished: (String) -> Unit = {}
 ): WebViewClient {
+    val assetLoader = createWebViewAssetLoader(context)
     return object : WebViewClient() {
         override fun onPageFinished(view: WebView, url: String) {
             super.onPageFinished(view, url)
@@ -515,83 +544,12 @@ internal fun createWebViewClientWithInterceptor(
                 onPageFinished(url)
             }
         }
-        
+
         override fun shouldInterceptRequest(
             view: WebView,
             request: WebResourceRequest
-        ): WebResourceResponse? {
-            return handleFileInterceptRequest(view.context, request)
-        }
+        ) = assetLoader.shouldInterceptRequest(request.url)
     }
-}
-
-/**
- * 统一处理文件拦截请求的逻辑
- * 拦截file://协议的请求，优先从本地文件系统加载资源
- * 
- * 处理策略：
- * 1. 优先尝试作为本地文件加载
- * 2. 如果文件不存在，则判断可能是被错误解析的协议相对URL，转换为https://协议加载
- * 
- * 这样可以兼容两种情况：
- * - 真正的本地文件：直接加载
- * - 被错误解析的网络资源：自动转换为https加载
- *
- * @param context 上下文对象
- * @param request WebView资源请求
- * @return 如果是文件协议请求且文件存在，返回WebResourceResponse；如果文件不存在则尝试网络加载；否则返回null
- */
-internal fun handleFileInterceptRequest(
-    context: Context,
-    request: WebResourceRequest
-): WebResourceResponse? {
-    val url = request.url.toString()
-    
-    if (url.startsWith(FILE_PROTOCOL)) {
-        try {
-            // 提取file://协议后的路径部分
-            val pathAfterProtocol = url.substring(FILE_PROTOCOL.length)
-            
-            // 优先尝试作为本地文件加载
-            val localFile = getFilesFile(context, pathAfterProtocol)
-            if (localFile.exists()) {
-                LogUtils.d(WEBVIEW_TAG, "Loading file from local: $url")
-                val mimeType = MimeTypeMap.getSingleton()
-                    .getMimeTypeFromExtension(MimeTypeMap.getFileExtensionFromUrl(url))
-                    ?: "text/html" // Fallback MIME type
-                return WebResourceResponse(mimeType, "UTF-8", FileInputStream(localFile))
-            }
-            
-            // 文件不存在，可能是被错误解析的协议相对URL，尝试转换为https://协议加载网络资源
-            LogUtils.d(WEBVIEW_TAG, "Local file not found: $url")
-            LogUtils.d(WEBVIEW_TAG, "Attempting to load as network resource via https")
-            
-            val correctedUrl = "https:/${pathAfterProtocol}" // 转换为 https://domain/path
-            LogUtils.d(WEBVIEW_TAG, "Corrected URL: $correctedUrl")
-            
-            try {
-                val connection = java.net.URL(correctedUrl).openConnection()
-                connection.connectTimeout = 5000
-                connection.readTimeout = 10000
-                val inputStream = connection.getInputStream()
-                val mimeType = connection.contentType?.split(";")?.firstOrNull()?.trim() 
-                    ?: MimeTypeMap.getSingleton()
-                        .getMimeTypeFromExtension(MimeTypeMap.getFileExtensionFromUrl(correctedUrl))
-                    ?: "application/octet-stream"
-                
-                LogUtils.d(WEBVIEW_TAG, "Successfully loaded network resource: $correctedUrl")
-                return WebResourceResponse(mimeType, "UTF-8", inputStream)
-            } catch (e: Exception) {
-                LogUtils.e(WEBVIEW_TAG, "Failed to load network resource: $correctedUrl", e)
-                // 返回null，让WebView按默认方式处理
-                return null
-            }
-        } catch (e: Exception) {
-            LogUtils.e(WEBVIEW_TAG, "Error intercepting file: $url", e)
-        }
-    }
-    
-    return null
 }
 
 /**
@@ -630,7 +588,7 @@ internal fun createWebView(context: Context, onPageLoadFinished: () -> Unit): We
         }
 
         // Configure WebViewClient with file interceptor
-        webViewClient = createWebViewClientWithInterceptor { onPageLoadFinished() }
+        webViewClient = createWebViewClientWithInterceptor(context) { onPageLoadFinished() }
     }
 }
 

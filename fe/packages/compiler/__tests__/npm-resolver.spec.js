@@ -113,6 +113,44 @@ describe('NpmResolver', () => {
 		})
 	})
 
+	describe('resolveScriptModule', () => {
+		it('应该优先解析最近目录下的 npm 脚本模块', () => {
+			const localPackagePath = path.join(tempDir, 'pages/feature/miniprogram_npm/westore')
+			const rootPackagePath = path.join(tempDir, 'miniprogram_npm/westore')
+			const pageFilePath = path.join(tempDir, 'pages/feature/index.js')
+
+			fs.mkdirSync(localPackagePath, { recursive: true })
+			fs.mkdirSync(rootPackagePath, { recursive: true })
+			fs.writeFileSync(path.join(localPackagePath, 'package.json'), JSON.stringify({ main: 'local.js' }))
+			fs.writeFileSync(path.join(localPackagePath, 'local.js'), 'module.exports = "local"')
+			fs.writeFileSync(path.join(rootPackagePath, 'package.json'), JSON.stringify({ main: 'root.js' }))
+			fs.writeFileSync(path.join(rootPackagePath, 'root.js'), 'module.exports = "root"')
+
+			const result = npmResolver.resolveScriptModule('westore', pageFilePath, moduleId => {
+				for (const ext of ['.js', '.ts']) {
+					if (fs.existsSync(path.join(tempDir, `${moduleId}${ext}`))) {
+						return moduleId
+					}
+				}
+
+				const packageJsonPath = path.join(tempDir, moduleId, 'package.json')
+				if (fs.existsSync(packageJsonPath)) {
+					const packageInfo = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'))
+					const entryModuleId = npmResolver.normalizeModuleId(path.resolve(moduleId, packageInfo.main))
+					for (const ext of ['.js', '.ts']) {
+						if (fs.existsSync(path.join(tempDir, `${entryModuleId}${ext}`))) {
+							return entryModuleId
+						}
+					}
+				}
+
+				return null
+			})
+
+			expect(result).toBe('/pages/feature/miniprogram_npm/westore/local')
+		})
+	})
+
 	describe('isValidComponent', () => {
 		it('应该验证有效的组件', () => {
 			const componentPath = path.join(tempDir, 'test-component')

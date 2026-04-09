@@ -9,7 +9,7 @@ import { transform } from 'esbuild'
 import ts from 'typescript'
 import { hasCompileInfo } from '../common/utils.js'
 import { mergeSourcemap } from './sourcemap.js'
-import { getAppConfigInfo, getComponent, getContentByPath, getTargetPath, getWorkPath, resetStoreInfo } from '../env.js'
+import { getAppConfigInfo, getComponent, getContentByPath, getNpmResolver, getTargetPath, getWorkPath, resetStoreInfo, resolveAppAlias } from '../env.js'
 
 // 用于缓存已处理的模块
 const processedModules = new Set()
@@ -294,32 +294,7 @@ async function buildJSByPath(packageName, module, compileRes, mainCompileRes, ad
 					const requirePath = arg.value
 					
 					if (requirePath) {
-						let id
-						let shouldProcess = true
-						
-						// 处理不同类型的 require 路径
-						if (requirePath.startsWith('@') || requirePath.startsWith('miniprogram_npm/')) {
-							// 处理 npm 包导入（如 @vant/weapp/toast/toast）
-							if (requirePath.startsWith('@')) {
-								// 转换为 miniprogram_npm 路径
-								id = `/miniprogram_npm/${requirePath}`
-							} else {
-								// 已经是 miniprogram_npm 路径
-								id = requirePath.startsWith('/') ? requirePath : `/${requirePath}`
-							}
-						} else {
-							// 其他所有路径（相对路径、绝对路径等）都进行解析
-							// 这与 Babel 原版逻辑保持一致
-							const requireFullPath = resolve(modulePath, `../${requirePath}`)
-							// 依赖的模块相对路径转换为绝对路径
-							id = requireFullPath.split(`${getWorkPath()}${sep}`)[1]
-							// 移除文件扩展名（.js 或 .ts）
-							id = id.replace(/\.(js|ts)$/, '').replace(/\\/g, '/')
-							// 确保路径以 '/' 开头，保持一致性
-							if (!id.startsWith('/')) {
-								id = '/' + id
-							}
-						}
+						const { id, shouldProcess } = resolveDependencyId(requirePath, modulePath, false)
 						
 						if (shouldProcess) {
 							pathReplacements.push({
@@ -340,36 +315,7 @@ async function buildJSByPath(packageName, module, compileRes, mainCompileRes, ad
 			if (node.type === 'ImportDeclaration') {
 				const importPath = node.source.value
 				if (importPath) {
-					let id
-					let shouldProcess = false
-					
-					if (importPath.startsWith('@') || importPath.startsWith('miniprogram_npm/')) {
-						// 处理 npm 包导入（如 @vant/weapp/toast/toast）
-						if (importPath.startsWith('@')) {
-							// 转换为 miniprogram_npm 路径
-							id = `/miniprogram_npm/${importPath}`
-						} else {
-							// 已经是 miniprogram_npm 路径
-							id = importPath.startsWith('/') ? importPath : `/${importPath}`
-						}
-						shouldProcess = true
-					} else if (importPath.startsWith('./') || importPath.startsWith('../') || !importPath.startsWith('/')) {
-						// 处理相对路径导入
-						const importFullPath = resolve(modulePath, `../${importPath}`)
-						// 依赖的模块相对路径转换为绝对路径
-						id = importFullPath.split(`${getWorkPath()}${sep}`)[1]
-						// 移除文件扩展名（.js 或 .ts）
-						id = id.replace(/\.(js|ts)$/, '').replace(/\\/g, '/')
-						// 确保路径以 '/' 开头，保持一致性
-						if (!id.startsWith('/')) {
-							id = '/' + id
-						}
-						shouldProcess = true
-					} else {
-						// 绝对路径直接使用
-						id = importPath
-						shouldProcess = true
-					}
+					const { id, shouldProcess } = resolveDependencyId(importPath, modulePath, true)
 					
 					if (shouldProcess) {
 						pathReplacements.push({
@@ -378,6 +324,30 @@ async function buildJSByPath(packageName, module, compileRes, mainCompileRes, ad
 							newValue: id
 						})
 						
+						if (!processedModules.has(packageName + id)) {
+							dependenciesToProcess.push(id)
+						}
+					}
+				}
+			}
+
+			// 处理 re-export 语句，如 export * from './foo'
+			// 这类语句不会出现在运行时 require 中，必须在这里提前收集依赖。
+			if (
+				(node.type === 'ExportAllDeclaration' || node.type === 'ExportNamedDeclaration')
+				&& node.source
+			) {
+				const exportPath = node.source.value
+				if (exportPath) {
+					const { id, shouldProcess } = resolveDependencyId(exportPath, modulePath, true)
+
+					if (shouldProcess) {
+						pathReplacements.push({
+							start: node.source.start,
+							end: node.source.end,
+							newValue: id,
+						})
+
 						if (!processedModules.has(packageName + id)) {
 							dependenciesToProcess.push(id)
 						}
@@ -476,21 +446,7 @@ async function buildJSByPath(packageName, module, compileRes, mainCompileRes, ad
 						
 						// 只处理仍然是相对路径的 require（说明没有被正确转换）
 						if (requirePath && (requirePath.startsWith('./') || requirePath.startsWith('../'))) {
-							let id
-							if (requirePath.startsWith('@') || requirePath.startsWith('miniprogram_npm/')) {
-								if (requirePath.startsWith('@')) {
-									id = `/miniprogram_npm/${requirePath}`
-								} else {
-									id = requirePath.startsWith('/') ? requirePath : `/${requirePath}`
-								}
-							} else {
-								const requireFullPath = resolve(modulePath, `../${requirePath}`)
-								id = requireFullPath.split(`${getWorkPath()}${sep}`)[1]
-								id = id.replace(/\.(js|ts)$/, '').replace(/\\/g, '/')
-								if (!id.startsWith('/')) {
-									id = '/' + id
-								}
-							}
+							const { id } = resolveDependencyId(requirePath, modulePath, false)
 							
 							postEsbuildReplacements.push({
 								start: arg.start,
@@ -530,15 +486,129 @@ async function buildJSByPath(packageName, module, compileRes, mainCompileRes, ad
  */
 function getJSAbsolutePath(modulePath) {
 	const workPath = getWorkPath()
+	const resolvedModuleId = resolveModuleIdToExistingPath(modulePath)
+	if (!resolvedModuleId) {
+		return null
+	}
+
 	const fileTypes = ['.js', '.ts']
-	
 	for (const ext of fileTypes) {
-		const fullPath = `${workPath}${modulePath}${ext}`
+		const fullPath = `${workPath}${resolvedModuleId}${ext}`
 		if (fs.existsSync(fullPath)) {
 			return fullPath
 		}
 	}
-	
+
+	return null
+}
+
+function resolveDependencyId(specifier, modulePath, allowAbsolute) {
+	if (!specifier) {
+		return { id: specifier, shouldProcess: false }
+	}
+
+	if (specifier.startsWith('miniprogram_npm/')) {
+		const npmModuleId = normalizeModuleId(`/${specifier}`)
+		return {
+			id: resolveModuleIdToExistingPath(npmModuleId) || npmModuleId,
+			shouldProcess: true,
+		}
+	}
+
+	if (specifier.startsWith('./') || specifier.startsWith('../')) {
+		return {
+			id: resolveRelativeModuleId(specifier, modulePath),
+			shouldProcess: true,
+		}
+	}
+
+	if (specifier.startsWith('/')) {
+		return {
+			id: allowAbsolute ? normalizeModuleId(specifier) : resolveRelativeModuleId(specifier, modulePath),
+			shouldProcess: true,
+		}
+	}
+
+	const aliasResolved = resolveAppAlias(specifier)
+	if (aliasResolved) {
+		return {
+			id: normalizeModuleId(aliasResolved),
+			shouldProcess: true,
+		}
+	}
+
+	if (specifier.startsWith('@') || isBareModuleSpecifier(specifier)) {
+		const npmModuleId = resolveNpmModuleId(specifier, modulePath)
+		return {
+			id: npmModuleId || specifier,
+			shouldProcess: Boolean(npmModuleId),
+		}
+	}
+
+	return { id: specifier, shouldProcess: false }
+}
+
+function isBareModuleSpecifier(specifier) {
+	return !specifier.startsWith('.') && !specifier.startsWith('/')
+}
+
+function resolveRelativeModuleId(specifier, modulePath) {
+	const requireFullPath = resolve(modulePath, `../${specifier}`)
+	const relativeId = requireFullPath.split(`${getWorkPath()}${sep}`)[1]
+	return normalizeModuleId(relativeId)
+}
+
+function normalizeModuleId(moduleId) {
+	let normalized = moduleId.replace(/\.(js|ts)$/, '').replace(/\\/g, '/')
+	if (!normalized.startsWith('/')) {
+		normalized = `/${normalized}`
+	}
+	return normalized
+}
+
+function resolveNpmModuleId(specifier, modulePath) {
+	const npmResolver = getNpmResolver()
+	if (!npmResolver) {
+		return null
+	}
+	return npmResolver.resolveScriptModule(specifier, modulePath, resolveModuleIdToExistingPath)
+}
+
+function resolveModuleIdToExistingPath(moduleId) {
+	const normalizedModuleId = normalizeModuleId(moduleId)
+	const workPath = getWorkPath()
+
+	for (const ext of ['.js', '.ts']) {
+		if (fs.existsSync(`${workPath}${normalizedModuleId}${ext}`)) {
+			return normalizedModuleId
+		}
+	}
+
+	for (const ext of ['.js', '.ts']) {
+		if (fs.existsSync(`${workPath}${normalizedModuleId}/index${ext}`)) {
+			return `${normalizedModuleId}/index`
+		}
+	}
+
+	const packageJsonPath = `${workPath}${normalizedModuleId}/package.json`
+	if (fs.existsSync(packageJsonPath)) {
+		try {
+			const packageInfo = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'))
+			for (const entryField of ['miniprogram', 'main']) {
+				if (typeof packageInfo[entryField] === 'string' && packageInfo[entryField]) {
+					const entryModuleId = normalizeModuleId(resolve(normalizedModuleId, packageInfo[entryField]))
+					const resolvedEntry = resolveModuleIdToExistingPath(entryModuleId)
+					if (resolvedEntry) {
+						return resolvedEntry
+					}
+				}
+			}
+		}
+		catch (error) {
+			console.warn('[logic]', `解析 package.json 失败: ${packageJsonPath}`, error.message)
+		}
+	}
+
 	return null
 }
 

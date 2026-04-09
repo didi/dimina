@@ -136,19 +136,19 @@ async function enhanceCSS(module) {
 	}
 
 	// 预处理器编译
-	let processedCSS = inputCSS
+	let processedCSS = normalizeRootStyleImports(inputCSS)
 	const ext = path.extname(absolutePath).toLowerCase()
 	
 	try {
 		if (ext === '.less') {
-			const result = await less.render(inputCSS, {
+			const result = await less.render(processedCSS, {
 				filename: absolutePath,
-				paths: [path.dirname(absolutePath)],
+				paths: [path.dirname(absolutePath), getWorkPath()],
 			})
 			processedCSS = result.css
 		} else if (ext === '.scss' || ext === '.sass') {
-			const result = sass.compileString(inputCSS, {
-				loadPaths: [path.dirname(absolutePath)],
+			const result = sass.compileString(processedCSS, {
+				loadPaths: [path.dirname(absolutePath), getWorkPath()],
 				syntax: ext === '.sass' ? 'indented' : 'scss',
 			})
 			processedCSS = result.css
@@ -175,7 +175,7 @@ async function enhanceCSS(module) {
 			// @import 样式导入
 			// 替换字符串首尾的引号
 			const str = node.params.replace(/^['"]|['"]$/g, '')
-			const importFullPath = path.resolve(absolutePath, `../${str}`)
+			const importFullPath = resolveStyleImportPath(absolutePath, str)
 
 			node.remove()
 
@@ -264,7 +264,25 @@ function getAbsolutePath(modulePath) {
 		if (fs.existsSync(ssFullPath)) {
 			return ssFullPath
 		}
+
+		const indexSsFullPath = `${workPath}${src}/index${ssType}`
+		if (fs.existsSync(indexSsFullPath)) {
+			return indexSsFullPath
+		}
 	}
+}
+
+function resolveStyleImportPath(absolutePath, importPath, workPath = getWorkPath()) {
+	if (importPath.startsWith('/')) {
+		return path.join(workPath, importPath)
+	}
+	return path.resolve(path.dirname(absolutePath), importPath)
+}
+
+function normalizeRootStyleImports(source, workPath = getWorkPath()) {
+	return source.replace(/(@import\s+(?:\(.*?\)\s*)?(?:url\()?['"])(\/[^'")]+)(['"]\)?)/g, (_, prefix, importPath, suffix) => {
+		return `${prefix}${path.join(workPath, importPath)}${suffix}`
+	})
 }
 
 /**
@@ -332,4 +350,4 @@ function processHostSelector(selector, moduleId) {
 		.replace(/:host(?=\.|#|:)/g, `[data-v-${moduleId}]`)
 }
 
-export { compileSS, ensureImportSemicolons, processHostSelector, removeBaseComponentScope }
+export { compileSS, ensureImportSemicolons, normalizeRootStyleImports, processHostSelector, removeBaseComponentScope, resolveStyleImportPath }

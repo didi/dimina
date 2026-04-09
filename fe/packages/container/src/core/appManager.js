@@ -22,7 +22,7 @@ export class AppManager {
 	/**
 	 * 获取已注册的第三方扩展模块处理器
 	 * @param {string} moduleName
-	 * @returns {Function|undefined}
+	 * @returns {Function|undefined} 指定模块的处理函数，若未注册则返回 undefined
 	 */
 	static getExtModule(moduleName) {
 		return this._extModules[moduleName]
@@ -30,7 +30,7 @@ export class AppManager {
 
 	/**
 	 * 获取所有已注册的第三方扩展模块
-	 * @returns {Record<string, Function>}
+	 * @returns {Record<string, Function>} 以模块名为键、处理函数为值的对象
 	 */
 	static getExtModules() {
 		return this._extModules

@@ -127,19 +127,18 @@ export class MiniApp {
 	}
 
 	/**
-	 * Register a custom API handler
-	 * @param {string} name API name
-	 * @param {function} handler Handler function receiving (params)
+	 * 注册自定义 API 处理函数
+	 * @param {string} name API 名称
+	 * @param {function} handler 处理函数，接收 (params)
 	 */
 	registerApi(name, handler) {
 		this.apiRegistry[name] = handler
 	}
 
 	/**
-	 * Invoke an API by name, checking registry first, then built-in methods,
-	 * then falling back to third-party extension routing.
-	 * @param {string} name API name
-	 * @param {object} params API parameters
+	 * 按名称调用 API，优先查找自定义注册 → 内置方法 → 第三方扩展路由
+	 * @param {string} name API 名称
+	 * @param {object} params API 参数
 	 */
 	invokeApi(name, params) {
 		const handler = this.apiRegistry[name]
@@ -1165,7 +1164,7 @@ export class MiniApp {
 	 * 从 `${module}_${event}` 格式的 key 中还原 module 与 event。
 	 * 通过遍历已注册模块名做前缀匹配，支持模块名含下划线的场景。
 	 * @param {string} eventKey
-	 * @returns {{ module: string|null, event: string|null }}
+	 * @returns {{ module: string|null, event: string|null }} 包含解析出的模块名和事件名的对象，若解析失败则均为 null
 	 */
 	_parseExtEventKey(eventKey) {
 		const modules = AppManager.getExtModules()
