@@ -89,5 +89,22 @@ describe('runtime template components', () => {
 		expect(root.textContent).not.toContain('Charlie')
 
 		app.unmount()
+		})
+
+		it('waits for module render readiness without fixed delays', async () => {
+			const waitReady = runtime.ensureModuleRenderReady('module-ready-test')
+			let resolved = false
+			waitReady.then(() => {
+				resolved = true
+			})
+
+			await Promise.resolve()
+			expect(resolved).toBe(false)
+
+			runtime.markModuleRenderReady('module-ready-test')
+			await waitReady
+
+			expect(resolved).toBe(true)
+			await expect(runtime.ensureModuleRenderReady('module-ready-test')).resolves.toBeUndefined()
+		})
 	})
-})

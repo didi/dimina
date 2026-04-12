@@ -69,6 +69,9 @@ class Runtime {
 		this.initializedModules = new Set()
 		this.preInitUpdates = new Map()
 		this.intersectionObservers = new Map()
+		this.moduleRenderReadyPromises = new Map()
+		this.moduleRenderReadyResolvers = new Map()
+		this.renderReadyModules = new Set()
 		this.handleBeforeUnload = this.handleBeforeUnload.bind(this)
 
 		this.installVueRuntimeHelpers()
@@ -254,6 +257,7 @@ class Runtime {
 											moduleId: self.pageId,
 										},
 									})
+									self.markModuleRenderReady(self.pageId)
 								})
 							})
 
@@ -340,6 +344,34 @@ class Runtime {
 			this.moduleIds.delete(instance)
 		}
 		this.instance.delete(moduleId)
+	}
+
+	ensureModuleRenderReady(moduleId) {
+		if (!moduleId || this.renderReadyModules.has(moduleId)) {
+			return Promise.resolve()
+		}
+
+		if (!this.moduleRenderReadyPromises.has(moduleId)) {
+			this.moduleRenderReadyPromises.set(moduleId, new Promise((resolve) => {
+				this.moduleRenderReadyResolvers.set(moduleId, resolve)
+			}))
+		}
+
+		return this.moduleRenderReadyPromises.get(moduleId)
+	}
+
+	markModuleRenderReady(moduleId) {
+		if (!moduleId || this.renderReadyModules.has(moduleId)) {
+			return
+		}
+
+		this.renderReadyModules.add(moduleId)
+		const resolve = this.moduleRenderReadyResolvers.get(moduleId)
+		if (resolve) {
+			resolve()
+		}
+		this.moduleRenderReadyResolvers.delete(moduleId)
+		this.moduleRenderReadyPromises.delete(moduleId)
 	}
 
 	createComponent(path, bridgeId, usingComponents, depthChain = []) {
@@ -448,6 +480,7 @@ class Runtime {
 									propBindings, // 传递从指令中读取的绑定信息
 								},
 							})
+							self.markModuleRenderReady(moduleId)
 						})
 						// 自定义组件上绑定了点击事件
 						if (eventAttr.tap) {
@@ -1050,8 +1083,10 @@ class Runtime {
 	}
 
 	addIntersectionObserver(opts) {
-		setTimeout(async () => {
-			const { bridgeId, params: { targetSelector, relativeInfo, moduleId, options, success } } = opts
+		const { bridgeId, params: { targetSelector, relativeInfo, moduleId, options, success } } = opts
+
+		;(async () => {
+			await this.ensureModuleRenderReady(moduleId)
 
 			const el = await this.waitForEl(this.instance.get(moduleId))
 			if (!el) {
@@ -1183,8 +1218,7 @@ class Runtime {
 					args: { observerId },
 				},
 			})
-		// Fixme: 延迟为了解决当前父组件 watch 触发的 nextTick 优先于组件的 created 生命周期导致异常，eg: emit 事件发送先于注册事件执行导致没有回调
-		}, 300)
+		})()
 	}
 
 	removeIntersectionObserver({ params: { observerId } }) {
