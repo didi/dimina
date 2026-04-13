@@ -478,4 +478,49 @@ describe('syncUpdateChildrenProps', () => {
 			name: 'fade',
 		})
 	})
+
+	it('marks synced props after the immediate service-side child update', () => {
+		const child = {
+			__id__: 'child-1',
+			__parentId__: 'parent-1',
+			__pendingSyncedProps__: {},
+			__info__: {
+				properties: {
+					show: {},
+				},
+			},
+			tO: vi.fn(function tO(data) {
+				expect(this.__pendingSyncedProps__).toEqual({})
+				this.data.show = data.show
+			}),
+			data: {
+				show: false,
+			},
+		}
+		const parent = {
+			__id__: 'parent-1',
+			data: {
+				show: true,
+			},
+			__childPropsBindings__: {
+				'child-1': {
+					show: {
+						expression: 'show',
+						dependencies: ['show'],
+						isSimple: true,
+					},
+				},
+			},
+		}
+
+		const syncedChildren = syncUpdateChildrenProps(parent, {
+			'child-1': child,
+		}, {
+			show: true,
+		})
+
+		expect(child.data.show).toBe(true)
+		expect(child.__pendingSyncedProps__).toEqual({ show: true })
+		expect(syncedChildren).toEqual([{ child, data: { show: true } }])
+	})
 })

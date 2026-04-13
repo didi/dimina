@@ -19,8 +19,8 @@
     "preview:container": "pnpm --dir ./packages/container preview",
     "generate:sdk": "node ./scripts/generate-sdk.js",
     "generate:app": "node ./scripts/generate-app.js",
-    "test": "pnpm --filter compiler --filter common --filter service test",
-    "coverage": "pnpm --filter compiler --filter common --filter service coverage",
+    "test": "pnpm --filter compiler --filter common --filter service --filter render test",
+    "coverage": "pnpm --filter compiler --filter common --filter service --filter render coverage",
     "lint": "oxlint",
     "lint:fix": "oxlint --fix"
   },

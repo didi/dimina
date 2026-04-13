@@ -1,4 +1,4 @@
-import { getDataAttributes, set, uuid } from '@dimina/common'
+import { deepEqual, getDataAttributes, set, uuid } from '@dimina/common'
 import { Components, deepToRaw, triggerEvent } from '@dimina/components'
 import {
 	createApp,
@@ -29,48 +29,73 @@ import {
 	Suspense,
 	toDisplayString,
 	watch,
+	watchEffect,
 	withCtx,
 	withDirectives,
 } from 'vue'
 import loader from './loader'
 import message from './message'
 
+// Keep these aliases in sync with @vue/compiler-core helperNameMap/aliasHelper output.
+const VUE_RUNTIME_HELPERS = {
+	_Fragment: Fragment,
+	_createTextVNode: createTextVNode,
+	_createVNode: createVNode,
+	_createBlock: createBlock,
+	_createCommentVNode: createCommentVNode,
+	_createElementBlock: createElementBlock,
+	_createElementVNode: createElementVNode,
+	_createSlots: createSlots,
+	_normalizeClass: normalizeClass,
+	_normalizeStyle: normalizeStyle,
+	_openBlock: openBlock,
+	_renderList: renderList,
+	_renderSlot: renderSlot,
+	_resolveComponent: resolveComponent,
+	_resolveDirective: resolveDirective,
+	_resolveDynamicComponent: resolveDynamicComponent,
+	_toDisplayString: toDisplayString,
+	_withCtx: withCtx,
+	_withDirectives: withDirectives,
+}
+
 class Runtime {
 	constructor() {
 		this.app = null
 		this.pageId = null
 		this.instance = new Map()
+		this.moduleIds = new WeakMap()
 		this.setupData = new Map()
+		this.initializedModules = new Set()
+		this.preInitUpdates = new Map()
 		this.intersectionObservers = new Map()
+		this.handleBeforeUnload = this.handleBeforeUnload.bind(this)
 
-		window._Fragment = Fragment
-		window._createTextVNode = createTextVNode
-		window._createVNode = createVNode
-		window._createBlock = createBlock
-		window._createCommentVNode = createCommentVNode
-		window._createElementBlock = createElementBlock
-		window._createElementVNode = createElementVNode
-		window._createSlots = createSlots
-		window._normalizeClass = normalizeClass
-		window._normalizeStyle = normalizeStyle
-		window._openBlock = openBlock
-		window._renderList = renderList
-		window._renderSlot = renderSlot
-		window._resolveComponent = resolveComponent
-		window._resolveDirective = resolveDirective
-		window._resolveDynamicComponent = resolveDynamicComponent
-		window._toDisplayString = toDisplayString
-		window._withCtx = withCtx
-		window._withDirectives = withDirectives
+		this.installVueRuntimeHelpers()
+		window.addEventListener('beforeunload', this.handleBeforeUnload)
+	}
 
-		window.addEventListener('beforeunload', () => {
-			if (this.intersectionObservers.size > 0) {
-				for (const observers of this.intersectionObservers.values()) {
-					observers.forEach(observer => observer.disconnect())
-				}
-				this.intersectionObservers.clear()
+	installVueRuntimeHelpers(target = window) {
+		Object.assign(target, VUE_RUNTIME_HELPERS)
+	}
+
+	handleBeforeUnload() {
+		if (this.intersectionObservers.size > 0) {
+			for (const observers of this.intersectionObservers.values()) {
+				observers.forEach(observer => observer.disconnect())
 			}
-		})
+			this.intersectionObservers.clear()
+		}
+	}
+
+	syncReactiveState(state, nextState = {}) {
+		for (const key in state) {
+			if (!(key in nextState)) {
+				delete state[key]
+			}
+		}
+
+		Object.assign(state, nextState)
 	}
 
 	/**
@@ -95,33 +120,57 @@ class Runtime {
 		// 全量加载基础组件，是否有必要可优化为按需加载组件
 		this.app.use(Components)
 
-		// 注册页面模板
-		for (const [tplName, render] of Object.entries(options.tplComponents)) {
-			this.app.component(`dd-${tplName}`, {
-				__scopeId: `data-v-${options.id}`,
-				props: {
-					data: Object,
-				},
-				setup(props) {
-					const state = reactive({})
-					watch(
-						() => props.data,
-						(newData) => {
-							if (newData) {
-								for (const key in newData) {
-									state[key] = newData[key]
-								}
-							}
-						},
-						{ immediate: true },
-					)
-					return state
-				},
-				render,
-			})
-		}
+		this.registerTplComponentsByPath(opts.pagePath, bridgeId)
 
 		this.app.mount(document.body)
+	}
+
+	registerTplComponentsByPath(path, bridgeId, visited = new Set()) {
+		if (visited.has(path)) {
+			return
+		}
+		visited.add(path)
+
+		const module = loader.getModuleByPath(path)
+		if (!module?.moduleInfo) {
+			return
+		}
+
+		const { id, tplComponents = {}, usingComponents = {} } = module.moduleInfo
+		const components = this.createComponent(path, bridgeId, usingComponents)
+		for (const [tplName, render] of Object.entries(tplComponents)) {
+			this.app.component(`dd-${tplName}`, this.createTplComponent({
+				id,
+				components,
+				render,
+			}))
+		}
+
+		for (const componentPath of Object.values(usingComponents)) {
+			this.registerTplComponentsByPath(componentPath, bridgeId, visited)
+		}
+	}
+
+	createTplComponent({ id, components, render }) {
+		return {
+			__scopeId: `data-v-${id}`,
+			components,
+			props: {
+				data: Object,
+			},
+			setup(props) {
+				const state = reactive({})
+				watchEffect(() => {
+					const newData = props.data || {}
+					for (const key in state) {
+						if (!(key in newData)) delete state[key]
+					}
+					Object.assign(state, newData)
+				})
+				return state
+			},
+			render,
+		}
 	}
 
 	// Component create -> Page create -> Page attached -> Component attached -> Component ready -> Page ready
@@ -173,7 +222,7 @@ class Runtime {
 
 							const instance = getCurrentInstance().proxy
 							instance.__page__ = true
-							self.instance.set(self.pageId, instance)
+							self.setModuleInstance(self.pageId, instance)
 
 							let ticking = false
 							const handleScroll = () => {
@@ -215,11 +264,7 @@ class Runtime {
 						const data = reactive({})
 						self.setupData.set(self.pageId, data)
 						const initData = await message.wait(self.pageId)
-						const entries = Object.entries(initData)
-						for (let i = 0; i < entries.length; i++) {
-							const [key, value] = entries[i]
-							set(data, key, value)
-						}
+						self.applyInitialData(self.pageId, data, initData)
 						return data
 					},
 					components,
@@ -231,13 +276,73 @@ class Runtime {
 		}
 	}
 
-	createComponent(path, bridgeId, usingComponents, depthChain = []) {
-		// 循环依赖检测（A -> B -> A）
-		if (depthChain.includes(path)) {
-			console.warn('[render]', `检测到循环依赖: ${[...depthChain, path].join(' -> ')}`)
-			return {}
+	getParentModuleId(vueInstance) {
+		let parent = vueInstance?.parent
+		while (parent) {
+			const moduleId = this.moduleIds.get(parent.proxy)
+			if (moduleId) {
+				return moduleId
+			}
+			parent = parent.parent
+		}
+	}
+
+	applyInitialData(moduleId, data, initData) {
+		const entries = Object.entries(initData)
+		for (let i = 0; i < entries.length; i++) {
+			const [key, value] = entries[i]
+			set(data, key, value)
 		}
 
+		const pendingUpdate = this.preInitUpdates.get(moduleId)
+		if (pendingUpdate) {
+			for (const [key, value] of Object.entries(pendingUpdate)) {
+				set(data, key, value)
+			}
+			this.preInitUpdates.delete(moduleId)
+		}
+
+		this.initializedModules.add(moduleId)
+		return pendingUpdate
+	}
+
+	refreshProxyAccess(moduleId, changedData) {
+		const instance = this.instance.get(moduleId)
+		const internal = instance?.$
+		if (!internal) {
+			return
+		}
+
+		const { accessCache, ctx } = internal
+		for (const [key, value] of Object.entries(changedData)) {
+			if (accessCache && Object.hasOwn(accessCache, key)) {
+				delete accessCache[key]
+			}
+			if (ctx && !Object.hasOwn(ctx, key)) {
+				ctx[key] = value
+			}
+		}
+
+		internal.update?.()
+	}
+
+	setModuleInstance(moduleId, instance) {
+		if (!instance) {
+			return
+		}
+		this.instance.set(moduleId, instance)
+		this.moduleIds.set(instance, moduleId)
+	}
+
+	deleteModuleInstance(moduleId) {
+		const instance = this.instance.get(moduleId)
+		if (instance) {
+			this.moduleIds.delete(instance)
+		}
+		this.instance.delete(moduleId)
+	}
+
+	createComponent(path, bridgeId, usingComponents, depthChain = []) {
 		if (!usingComponents || Object.keys(usingComponents).length === 0) {
 			return
 		}
@@ -247,7 +352,16 @@ class Runtime {
 		const newDepthChain = [...depthChain, path]
 
 		for (const [componentName, componentPath] of Object.entries(usingComponents)) {
+			// 循环依赖检测（A -> B -> A）
+			if (newDepthChain.includes(componentPath)) {
+				continue
+			}
+
 			const module = loader.getModuleByPath(componentPath)
+			if (!module?.moduleInfo) {
+				continue
+			}
+
 			const { id, usingComponents: subUsing } = module.moduleInfo
 			const subComponents = this.createComponent(componentPath, bridgeId, subUsing, newDepthChain)
 			const sId = `data-v-${id}`
@@ -264,7 +378,9 @@ class Runtime {
 						props,
 						sId: parentInfo.sId,
 					})
-					const parentId = parentInfo.id
+					const vueInstance = getCurrentInstance()
+					const vueParentId = self.getParentModuleId(vueInstance)
+					const parentId = vueParentId || parentInfo.id
 					const pageInfo = inject(path)
 					const pageId = pageInfo.id
 					const moduleId = `${id}_${uuid()}`
@@ -279,8 +395,8 @@ class Runtime {
 						pageId,
 					})
 
-					const instance = getCurrentInstance().proxy
-					self.instance.set(moduleId, instance)
+					const instance = vueInstance.proxy
+					self.setModuleInstance(moduleId, instance)
 
 					const externalClasses = []
 					for (const [k, v] of Object.entries(module.props ?? {})) {
@@ -322,7 +438,7 @@ class Runtime {
 						nextTick(() => {
 							// 从 DOM 元素读取属性绑定信息
 							const propBindings = instance.$el?._propBindings
-							
+
 							message.send({
 								type: 'mR',
 								target: 'service',
@@ -357,17 +473,36 @@ class Runtime {
 							moduleId,
 						},
 					})
-					self.instance.delete(moduleId)
+					self.deleteModuleInstance(moduleId)
 					self.setupData.delete(moduleId)
+					self.initializedModules.delete(moduleId)
+					self.preInitUpdates.delete(moduleId)
 				})
 
 			const data = reactive({})
 			self.setupData.set(moduleId, data)
+			let skipInitialPropsNotify = true
 			
 		watch(
-				props,
-				(newProps) => {
+				() => deepToRaw(props),
+				(newProps, oldProps = {}) => {
 					Object.assign(data, newProps)
+					if (skipInitialPropsNotify) {
+						skipInitialPropsNotify = false
+						return
+					}
+
+					const changedProps = Object.entries(newProps).reduce((acc, [key, value]) => {
+						if (!deepEqual(value, oldProps[key])) {
+							acc[key] = value
+						}
+						return acc
+					}, {})
+
+					if (Object.keys(changedProps).length === 0) {
+						return
+					}
+
 					message.send({
 						type: 't',
 						target: 'service',
@@ -375,7 +510,7 @@ class Runtime {
 							bridgeId,
 							moduleId,
 							methodName: 'tO', // triggerObserver
-							event: deepToRaw(newProps),
+							event: changedProps,
 						},
 					})
 				},
@@ -385,11 +520,7 @@ class Runtime {
 			)
 					
 					const initData = await message.wait(moduleId)
-					const entries = Object.entries(initData)
-					for (let i = 0; i < entries.length; i++) {
-						const [key, value] = entries[i]
-						set(data, key, value)
-					}
+					self.applyInitialData(moduleId, data, initData)
 					return data
 				},
 				render: module.moduleInfo.render,
@@ -403,12 +534,47 @@ class Runtime {
 		const setupData = this.setupData.get(moduleId)
 
 		if (setupData) {
+			let hasNewReactiveKey = false
+			const newKeys = {}
+
+			if (!this.initializedModules.has(moduleId)) {
+				const pendingUpdate = this.preInitUpdates.get(moduleId) || {}
+				Object.assign(pendingUpdate, data)
+				this.preInitUpdates.set(moduleId, pendingUpdate)
+			}
 			for (const key in data) {
+				if (!Object.hasOwn(setupData, key)) {
+					hasNewReactiveKey = true
+					newKeys[key] = data[key]
+				}
 				set(setupData, key, data[key])
+			}
+			if (hasNewReactiveKey) {
+				this.refreshProxyAccess(moduleId, newKeys)
 			}
 		}
 		else {
 			console.warn('[system]', '[render]', `module ${moduleId} is not exist.`)
+		}
+	}
+
+	updateModules(opts) {
+		const { bridgeId, updates = [], callbackIds = [] } = opts
+		updates.forEach(update => this.updateModule(update))
+
+		if (callbackIds.length > 0) {
+			nextTick(() => {
+				callbackIds.forEach((id) => {
+					message.send({
+						type: 'triggerCallback',
+						target: 'service',
+						body: {
+							bridgeId,
+							id,
+						},
+					})
+				})
+			})
 		}
 	}
 
@@ -454,13 +620,13 @@ class Runtime {
 			return null
 		}
 		const elements = parent[method](selector)
-		if (elements) {
+		if (this.hasMatchedElements(elements)) {
 			return elements
 		}
 		return new Promise((resolve) => {
 			const observer = new MutationObserver((_, obs) => {
 				const elements = parent[method](selector)
-				if (elements) {
+				if (this.hasMatchedElements(elements)) {
 					obs.disconnect()
 					resolve(elements)
 				}
@@ -473,6 +639,16 @@ class Runtime {
 				resolve()
 			}, timeout)
 		})
+	}
+
+	hasMatchedElements(elements) {
+		if (!elements) {
+			return false
+		}
+		if (elements instanceof NodeList || Array.isArray(elements)) {
+			return elements.length > 0
+		}
+		return true
 	}
 
 	async selectorQuery(opts) {
@@ -597,7 +773,7 @@ class Runtime {
 		}
 
 		if (fields.rect) {
-			const { left, top, right, bottom, width, height } = targetElement.getBoundingClientRect()
+			const { left, top, right, bottom, width, height } = this.getElementRect(targetElement)
 			data.left = left
 			data.top = top
 			data.right = right
@@ -607,8 +783,15 @@ class Runtime {
 		}
 
 		if (fields.size) {
-			data.width = targetElement.offsetWidth
-			data.height = targetElement.offsetHeight
+			if (fields.rect) {
+				const { width, height } = this.getElementRect(targetElement)
+				data.width = width
+				data.height = height
+			}
+			else {
+				data.width = targetElement.offsetWidth
+				data.height = targetElement.offsetHeight
+			}
 		}
 
 		if (fields.scrollOffset) {
@@ -647,6 +830,215 @@ class Runtime {
 		// }
 
 		return data
+	}
+
+	getElementRect(element) {
+		return element.getBoundingClientRect()
+	}
+
+	triggerCallback(bridgeId, id, args = [], data) {
+		if (!id) {
+			return
+		}
+		const body = {
+			bridgeId,
+			id,
+		}
+		if (args !== undefined) {
+			body.args = args
+		}
+		if (data !== undefined) {
+			body.data = data
+		}
+		message.send({
+			type: 'triggerCallback',
+			target: 'service',
+			body,
+		})
+	}
+
+	triggerCanvasFailure(bridgeId, params, errMsg) {
+		const result = { errMsg }
+		this.triggerCallback(bridgeId, params.fail, [result], result)
+		this.triggerCallback(bridgeId, params.complete, [result], result)
+	}
+
+	async getCanvasElement(canvasId, moduleId) {
+		const selector = `canvas[canvas-id="${canvasId}"]`
+		const scope = moduleId ? await this.waitForEl(this.instance.get(moduleId)) : document.body
+		if (scope?.querySelector) {
+			const scopedCanvas = await this.waitForElement(scope, selector, 'querySelector')
+			if (scopedCanvas) {
+				return scopedCanvas
+			}
+		}
+		return document.querySelector(selector)
+	}
+
+	ensureCanvasResolution(canvas) {
+		const rect = canvas.getBoundingClientRect()
+		const width = Math.max(Math.round(rect.width), 1)
+		const height = Math.max(Math.round(rect.height), 1)
+
+		if (canvas.width !== width) {
+			canvas.width = width
+		}
+		if (canvas.height !== height) {
+			canvas.height = height
+		}
+	}
+
+	loadCanvasImage(src) {
+		return new Promise((resolve, reject) => {
+			const image = new Image()
+			image.crossOrigin = 'anonymous'
+			image.onload = () => resolve(image)
+			image.onerror = () => reject(new Error(`Failed to load image: ${src}`))
+			image.src = src
+		})
+	}
+
+	async replayCanvasActions(context, actions = []) {
+		const state = {
+			fontSize: 10,
+		}
+
+		const applyFont = () => {
+			context.font = `${state.fontSize}px sans-serif`
+		}
+		applyFont()
+
+		for (const action of actions) {
+			const { type, args = [] } = action || {}
+			switch (type) {
+				case 'beginPath':
+				case 'closePath':
+				case 'moveTo':
+				case 'lineTo':
+				case 'rect':
+				case 'arc':
+				case 'quadraticCurveTo':
+				case 'bezierCurveTo':
+				case 'fill':
+				case 'stroke':
+				case 'clearRect':
+				case 'save':
+				case 'restore':
+				case 'translate':
+				case 'rotate':
+				case 'scale':
+					context[type](...args)
+					break
+				case 'fillText':
+					context.fillText(args[0], args[1], args[2], args[3])
+					break
+				case 'drawImage': {
+					const [src, ...drawArgs] = args
+					const image = await this.loadCanvasImage(src)
+					context.drawImage(image, ...drawArgs)
+					break
+				}
+				case 'setFillStyle':
+					context.fillStyle = args[0]
+					break
+				case 'setStrokeStyle':
+					context.strokeStyle = args[0]
+					break
+				case 'setGlobalAlpha':
+					context.globalAlpha = args[0]
+					break
+				case 'setLineCap':
+					context.lineCap = args[0]
+					break
+				case 'setLineJoin':
+					context.lineJoin = args[0]
+					break
+				case 'setLineWidth':
+					context.lineWidth = args[0]
+					break
+				case 'setMiterLimit':
+					context.miterLimit = args[0]
+					break
+				case 'setFontSize':
+					state.fontSize = args[0]
+					applyFont()
+					break
+				case 'setShadow':
+					context.shadowOffsetX = args[0]
+					context.shadowOffsetY = args[1]
+					context.shadowBlur = args[2]
+					context.shadowColor = args[3]
+					break
+				default:
+					console.warn('[system]', '[render]', `Unsupported canvas action: ${type}`)
+			}
+		}
+	}
+
+	async drawCanvas({ bridgeId, params }) {
+		const { canvasId, actions = [], reserve = false } = params
+		const canvas = await this.getCanvasElement(canvasId, params.moduleId)
+		if (!canvas) {
+			this.triggerCanvasFailure(bridgeId, params, `drawCanvas:fail canvas ${canvasId} not found`)
+			return
+		}
+
+		try {
+			this.ensureCanvasResolution(canvas)
+			const context = canvas.getContext('2d')
+			if (!reserve) {
+				context.clearRect(0, 0, canvas.width, canvas.height)
+			}
+			await this.replayCanvasActions(context, actions)
+			const result = { errMsg: 'drawCanvas:ok' }
+			this.triggerCallback(bridgeId, params.success, [result], result)
+			this.triggerCallback(bridgeId, params.complete, [result], result)
+		}
+		catch (error) {
+			this.triggerCanvasFailure(bridgeId, params, `drawCanvas:fail ${error.message}`)
+		}
+	}
+
+	async canvasToTempFilePath({ bridgeId, params }) {
+		const { canvasId, x = 0, y = 0, width, height, destWidth, destHeight, fileType = 'png', quality = 1 } = params
+		const canvas = await this.getCanvasElement(canvasId, params.moduleId)
+		if (!canvas) {
+			this.triggerCanvasFailure(bridgeId, params, `canvasToTempFilePath:fail canvas ${canvasId} not found`)
+			return
+		}
+
+		try {
+			this.ensureCanvasResolution(canvas)
+			const exportWidth = width || canvas.width
+			const exportHeight = height || canvas.height
+			const outputCanvas = document.createElement('canvas')
+			outputCanvas.width = destWidth || exportWidth
+			outputCanvas.height = destHeight || exportHeight
+			const outputContext = outputCanvas.getContext('2d')
+			outputContext.drawImage(
+				canvas,
+				x,
+				y,
+				exportWidth,
+				exportHeight,
+				0,
+				0,
+				outputCanvas.width,
+				outputCanvas.height,
+			)
+
+			const mimeType = fileType === 'jpg' || fileType === 'jpeg' ? 'image/jpeg' : 'image/png'
+			const tempFilePath = outputCanvas.toDataURL(mimeType, quality)
+			const result = {
+				errMsg: 'canvasToTempFilePath:ok',
+				tempFilePath,
+			}
+			this.triggerCallback(bridgeId, params.success, [result], result)
+			this.triggerCallback(bridgeId, params.complete, [result], result)
+		}
+		catch (error) {
+			this.triggerCanvasFailure(bridgeId, params, `canvasToTempFilePath:fail ${error.message}`)
+		}
 	}
 
 	showToast({ params }) {

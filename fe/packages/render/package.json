@@ -15,7 +15,10 @@
 	},
 	"scripts": {
 		"dev": "vite build",
-		"build": "vite build"
+		"build": "vite build",
+		"test": "vitest run",
+		"test:dev": "vitest",
+		"coverage": "vitest run --coverage"
 	},
 	"dependencies": {
 		"@dimina/common": "workspace:^",
@@ -24,6 +27,7 @@
 		"vue": "^3.5.32"
 	},
 	"devDependencies": {
-		"@vitejs/plugin-vue": "^6.0.5"
+		"@vitejs/plugin-vue": "^6.0.5",
+		"jsdom": "^26.1.0"
 	}
 }

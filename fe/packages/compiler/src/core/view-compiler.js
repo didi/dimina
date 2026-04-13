@@ -39,7 +39,7 @@ function generateCodeFromAst(ast) {
  * 为模板表达式中的成员访问补充空值保护，避免生成的 render 函数直接访问 null/undefined 属性
  * 例如: stickyProps.zIndex -> stickyProps?.zIndex
  * @param {string} expression
- * @returns {string}
+ * @returns {string} 添加了可选链操作符的表达式字符串
  */
 function addOptionalChaining(expression) {
 	if (!expression || typeof expression !== 'string') {
@@ -82,6 +82,23 @@ function addOptionalChaining(expression) {
 
 function parseSafeBraceExp(exp) {
 	return addOptionalChaining(parseBraceExp(exp))
+}
+
+function transformTextInterpolation(text) {
+	if (!text || typeof text !== 'string' || !isWrappedByBraces(text)) {
+		return text
+	}
+
+	return text.replace(braceRegex, (match, bracePart) => {
+		if (!bracePart) {
+			return match
+		}
+		const matchResult = bracePart.match(noBraceRegex)
+		if (!matchResult) {
+			return match
+		}
+		return `{{${addOptionalChaining(matchResult[1].trim())}}}`
+	})
 }
 
 // 页面文件编译内容缓存
@@ -152,7 +169,7 @@ async function compileML(pages, root, progress) {
 	
 	for (const page of pages) {
 		const scriptRes = new Map()
-		buildCompileView(page, false, scriptRes, [])
+		buildCompileView(page, false, scriptRes, [], new Set())
 
 		let mergeRender = ''
 
@@ -254,7 +271,7 @@ function isRegisteredWxsModule(modulePath) {
 	return wxsModuleRegistry.has(modulePath)
 }
 
-function buildCompileView(module, isComponent = false, scriptRes, depthChain = []) {
+function buildCompileView(module, isComponent = false, scriptRes, depthChain = [], inheritedTemplatePaths = new Set()) {
 	const currentPath = module.path
 
 	// Circular dependency detected
@@ -273,9 +290,15 @@ function buildCompileView(module, isComponent = false, scriptRes, depthChain = [
 	const allScriptModules = []
 	
 	// 首先编译当前模块
-	const currentInstruction = compileModule(module, isComponent, scriptRes)
+	const currentInstruction = compileModule(module, isComponent, scriptRes, {
+		skipTemplatePaths: isComponent ? inheritedTemplatePaths : new Set(),
+	})
 	if (currentInstruction && currentInstruction.scriptModule) {
 		allScriptModules.push(...currentInstruction.scriptModule)
+	}
+	const childInheritedTemplatePaths = new Set(inheritedTemplatePaths)
+	for (const tm of currentInstruction?.templateModule || []) {
+		childInheritedTemplatePaths.add(tm.path)
 	}
 
 	if (module.usingComponents) {
@@ -291,7 +314,7 @@ function buildCompileView(module, isComponent = false, scriptRes, depthChain = [
 			}
 			
 			// 递归编译组件，并收集其 wxs 模块
-			const componentInstruction = buildCompileView(componentModule, true, scriptRes, depthChain)
+			const componentInstruction = buildCompileView(componentModule, true, scriptRes, depthChain, childInheritedTemplatePaths)
 			if (componentInstruction && componentInstruction.scriptModule) {
 				// 将组件的 wxs 模块添加到当前模块的 wxs 模块列表中
 				for (const sm of componentInstruction.scriptModule) {
@@ -318,7 +341,7 @@ function buildCompileView(module, isComponent = false, scriptRes, depthChain = [
 	}
 	
 	// 返回当前模块的指令信息（包含 wxs 模块）
-	return { scriptModule: allScriptModules }
+	return { scriptModule: allScriptModules, templateModule: currentInstruction?.templateModule || [] }
 }
 
 /**
@@ -326,17 +349,25 @@ function buildCompileView(module, isComponent = false, scriptRes, depthChain = [
  * https://developers.weixin.qq.com/miniprogram/dev/framework/custom-component/
  * @param {*} module
  */
-function compileModule(module, isComponent, scriptRes) {
+function compileModule(module, isComponent, scriptRes, options = {}) {
+	const skipTemplatePaths = options.skipTemplatePaths || new Set()
 	const { tpl, instruction } = toCompileTemplate(isComponent, module.path, module.usingComponents, module.componentPlaceholder)
 	if (!tpl) {
 		return null
+	}
+	const templateModule = instruction.templateModule || []
+	const templateModuleForCompile = templateModule.filter(tm => !skipTemplatePaths.has(tm.path))
+	const compileInstruction = {
+		...instruction,
+		templateModule: templateModuleForCompile,
 	}
 
 	// 检查是否有缓存的模板编译结果
 	let useCache = false
 	let cachedCode = null
-	
-	if (!scriptRes.has(module.path) && compileResCache.has(module.path)) {
+	const canUseCache = skipTemplatePaths.size === 0
+
+	if (canUseCache && !scriptRes.has(module.path) && compileResCache.has(module.path)) {
 		const cacheData = compileResCache.get(module.path)
 		// 如果缓存数据包含完整的编译信息，则使用缓存
 		if (cacheData && typeof cacheData === 'object' && cacheData.code && cacheData.instruction) {
@@ -405,7 +436,7 @@ function compileModule(module, isComponent, scriptRes) {
 	})
 
 	let tplComponents = '{'
-	for (const tm of instruction.templateModule) {
+	for (const tm of compileInstruction.templateModule) {
 		let { code } = compileTemplate({
 			source: tm.tpl,
 			filename: tm.path,
@@ -422,7 +453,7 @@ function compileModule(module, isComponent, scriptRes) {
 		})
 
 		const ast = babel.parseSync(code)
-		insertWxsToRenderAst(ast, instruction.scriptModule, scriptRes)
+		insertWxsToRenderAst(ast, compileInstruction.scriptModule, scriptRes)
 		code = generateCodeFromAst(ast)
 
 		tplComponents
@@ -431,7 +462,7 @@ function compileModule(module, isComponent, scriptRes) {
 	tplComponents += '}'
 
 	const tplAst = babel.parseSync(tplCode.code)
-	insertWxsToRenderAst(tplAst, instruction.scriptModule, scriptRes)
+	insertWxsToRenderAst(tplAst, compileInstruction.scriptModule, scriptRes)
 	const transCode = generateCodeFromAst(tplAst)
 
 	// 通过 component 字段标记该页面 以 Component 形式进行渲染或着以 Page 形式进行渲染
@@ -446,12 +477,12 @@ function compileModule(module, isComponent, scriptRes) {
 		});`
 
 	// 收集所有在 scriptRes 中的 wxs 模块（包括依赖模块）
-	const allWxsModules = collectAllWxsModules(scriptRes, new Set(), instruction.scriptModule || [])
+	const allWxsModules = collectAllWxsModules(scriptRes, new Set(), compileInstruction.scriptModule || [])
 	
 	// 将收集到的 wxs 模块添加到 instruction 中
 	if (allWxsModules.length > 0) {
 		// 合并现有的 scriptModule 和新收集的 wxs 模块
-		const existingModules = instruction.scriptModule || []
+		const existingModules = compileInstruction.scriptModule || []
 		const mergedModules = [...existingModules]
 		
 		for (const wxsModule of allWxsModules) {
@@ -461,18 +492,23 @@ function compileModule(module, isComponent, scriptRes) {
 			}
 		}
 		
-		instruction.scriptModule = mergedModules
+		compileInstruction.scriptModule = mergedModules
 	}
 
 	// 缓存编译结果，包含代码和更新后的指令信息
 	const cacheData = {
 		code: code,
-		instruction: instruction
+		instruction: compileInstruction
 	}
-	compileResCache.set(module.path, cacheData)
+	if (canUseCache) {
+		compileResCache.set(module.path, cacheData)
+	}
 	scriptRes.set(module.path, code)
-	
-	return instruction
+
+	return {
+		...compileInstruction,
+		templateModule,
+	}
 }
 
 /**
@@ -1094,7 +1130,7 @@ function transHtmlTag(html, res, components, componentPlaceholder) {
 				res.push(transTag({ isStart: true, tag, attrs, components, componentPlaceholder }))
 			},
 			ontext(text) {
-				res.push(text)
+				res.push(transformTextInterpolation(text))
 			},
 			onclosetag(tag) {
 				res.push(transTag({ tag, attrs: attrsList.pop(), components }))

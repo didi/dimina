@@ -18,7 +18,9 @@
 	},
 	"scripts": {
 		"dev": "vite build",
-		"build": "vite build"
+		"build": "vite build",
+		"test": "vitest run",
+		"test:dev": "vitest"
 	},
 	"dependencies": {
 		"@dimina/common": "workspace:^",

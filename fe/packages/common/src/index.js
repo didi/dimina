@@ -9,6 +9,7 @@ export {
 	animationToStyle,
 	camelCaseToUnderscore,
 	cloneDeep,
+	deepEqual,
 	get,
 	getDataAttributes,
 	isAndroid,

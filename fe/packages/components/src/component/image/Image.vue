@@ -9,6 +9,10 @@ const props = defineProps({
 		type: String,
 		default: '',
 	},
+	lazyLoad: {
+		type: Boolean,
+		default: false,
+	},
 	mode: {
 		type: String,
 		validator: (val) => {
@@ -40,6 +44,7 @@ const imgRef = ref(null)
 const conRef = ref(null)
 
 const info = useInfo()
+let lastCompletedSrc = ''
 
 onMounted(() => {
 	if (props.mode === 'widthFix') {
@@ -48,9 +53,20 @@ onMounted(() => {
 	else if (props.mode === 'heightFix') {
 		conRef.value.style.width = 'auto'
 	}
+	checkCompletedImage()
 })
 
+watch(
+	() => props.src,
+	async () => {
+		lastCompletedSrc = ''
+		await nextTick()
+		checkCompletedImage()
+	},
+)
+
 function handleLoaded(event) {
+	lastCompletedSrc = props.src
 	triggerEvent('load', {
 		event,
 		info,
@@ -59,6 +75,15 @@ function handleLoaded(event) {
 			height: imgRef.value?.height,
 		},
 	})
+}
+
+function checkCompletedImage() {
+	const img = imgRef.value
+	if (!img || !props.src || !img.complete || img.naturalWidth <= 0 || lastCompletedSrc === props.src) {
+		return
+	}
+
+	handleLoaded(new Event('load'))
 }
 
 function handleError(event) {
@@ -98,7 +123,7 @@ if (hasTouchEvents) {
 <template>
 	<span ref="conRef" v-bind="$attrs" class="dd-image">
 		<img
-			ref="imgRef" :class="dynamicClass" :src="src" alt="" decoding="async" loading="lazy" @load="handleLoaded"
+			ref="imgRef" :class="dynamicClass" :src="src" alt="" decoding="async" :loading="props.lazyLoad ? 'lazy' : 'eager'" @load="handleLoaded"
 			@error="handleError"
 		/>
 	</span>

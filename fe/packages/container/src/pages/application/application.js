@@ -1,10 +1,11 @@
+import { WAIT_TRANSITION_TIMEOUT_MS } from '@/constants/animation'
 import './application.scss'
 
 // 等待下一帧，确保 class 变化触发浏览器重新计算样式后再启动 transition
 const nextFrame = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
 
 // 等待元素上指定 transition property 结束，带超时兜底防止动画未触发时永久阻塞
-const waitTransitionEnd = (el, property, timeout = 600) =>
+const waitTransitionEnd = (el, property, timeout = WAIT_TRANSITION_TIMEOUT_MS) =>
 	new Promise(resolve => {
 		const timer = setTimeout(resolve, timeout)
 		const handler = (e) => {
@@ -26,6 +27,7 @@ export class Application {
 		this.rootView = null
 		this.parent = null
 		this.done = true
+		this.isSleeping = false
 		this._queue = Promise.resolve() // 操作队列，保证动画串行
 		this.init()
 	}
@@ -212,6 +214,30 @@ export class Application {
 			return statusBar.getBoundingClientRect()
 		}
 		return { height: 0 }
+	}
+
+	getActiveView() {
+		return this.views[this.views.length - 1] || this.rootView
+	}
+
+	sleepActiveView() {
+		if (this.isSleeping) {
+			return
+		}
+
+		this.isSleeping = true
+		this.getActiveView()?.onPresentOut?.()
+	}
+
+	wakeActiveView() {
+		if (!this.isSleeping) {
+			return
+		}
+
+		this.isSleeping = false
+		const activeView = this.getActiveView()
+		activeView?.restoreColorStyle?.()
+		activeView?.onPresentIn?.()
 	}
 
 	updateStatusBarColor(color) {

@@ -44,6 +44,12 @@ class Render {
 			})
 		})
 
+		this.message.on('ub', (msg) => {
+			queueMicrotask(() => {
+				runtime.updateModules(msg)
+			})
+		})
+
 		this.message.on('invokeAPI', (msg) => {
 			runtime[msg.name](msg)
 		})

@@ -92,4 +92,10 @@
   <navigator class="intro" url="ext-bridge/index">
     <view class="weui-cell__bd">ExtBridge 第三方扩展</view>
   </navigator>
+  <navigator class="intro" url="canvas/index">
+    <view class="weui-cell__bd">2D Canvas</view>
+  </navigator>
+  <navigator class="intro" url="web-gl/index">
+    <view class="weui-cell__bd">WebGL</view>
+  </navigator>
 </view>

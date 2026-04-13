@@ -47,8 +47,8 @@
 
 .dimina-native-view--enter-anima {
 	transition:
-		transform 540ms cubic-bezier(0.32, 0.72, 0, 1),
-		border-radius 540ms cubic-bezier(0.32, 0.72, 0, 1);
+		transform var(--dimina-present-transition-ms) cubic-bezier(0.32, 0.72, 0, 1),
+		border-radius var(--dimina-present-transition-ms) cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 .dimina-native-view--instage {
@@ -60,7 +60,7 @@
 }
 
 .dimina-native-view--linear-anima {
-	transition: transform 540ms linear;
+	transition: transform var(--dimina-present-transition-ms) linear;
 }
 
 .dimina-native-view--before-present {

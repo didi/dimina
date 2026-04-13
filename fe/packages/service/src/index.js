@@ -1,6 +1,7 @@
 import { callback, uuid } from '@dimina/common'
 import { navigateBack, navigateTo, redirectTo, reLaunch, switchTab } from './api/core/route'
 import env from './core/env'
+import hostEnv from './core/host-env'
 import loader from './core/loader'
 import message from './core/message'
 import runtime from './core/runtime'
@@ -20,8 +21,10 @@ class Service {
 
 	init() {
 		this.message.on('loadResource', (msg) => {
-			const { appId, bridgeId, pagePath, root = '.', baseUrl = '/', injectInfo } = msg
-			globalThis.injectInfo = injectInfo
+			const { appId, bridgeId, pagePath, root = '.', baseUrl = '/', hostEnv: hostEnvSnapshot } = msg
+			if (hostEnvSnapshot) {
+				hostEnv.init(hostEnvSnapshot)
+			}
 			loader.loadResource({ appId, bridgeId, pagePath, root, baseUrl })
 		})
 

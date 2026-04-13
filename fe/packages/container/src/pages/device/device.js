@@ -4,6 +4,8 @@ import './device.scss'
 export class Device {
 	constructor() {
 		this.appContainer = null
+		this.application = null
+		this.isScreenSleeping = false
 		this.root = document.querySelector('#root')
 		this.init()
 	}
@@ -15,6 +17,7 @@ export class Device {
 		this.updateDeviceBarColor('black')
 		this.updateStatusBarTime()
 		this.outerGlow()
+		this.bindPowerButton()
 	}
 
 	updateStatusBarTime() {
@@ -65,6 +68,39 @@ export class Device {
 		document.body.addEventListener('pointermove', syncPointer)
 	}
 
+	bindPowerButton() {
+		const powerButton = this.root.querySelector('.power-btn')
+
+		powerButton?.addEventListener('click', () => {
+			if (this.isScreenSleeping) {
+				this.wakeScreen()
+			}
+			else {
+				this.sleepScreen()
+			}
+		})
+	}
+
+	sleepScreen() {
+		if (this.isScreenSleeping) {
+			return
+		}
+
+		this.isScreenSleeping = true
+		this.root.querySelector('.iphone__screen')?.classList.add('iphone__screen--sleeping')
+		this.application?.sleepActiveView?.()
+	}
+
+	wakeScreen() {
+		if (!this.isScreenSleeping) {
+			return
+		}
+
+		this.isScreenSleeping = false
+		this.root.querySelector('.iphone__screen')?.classList.remove('iphone__screen--sleeping')
+		this.application?.wakeActiveView?.()
+	}
+
 	// black white
 	updateDeviceBarColor(color) {
 		const statusBar = this.root.querySelector('.iphone__status-bar')
@@ -87,6 +123,7 @@ export class Device {
 	}
 
 	open(app) {
+		this.application = app
 		app.parent = this
 		this.appContainer.appendChild(app.el)
 	}

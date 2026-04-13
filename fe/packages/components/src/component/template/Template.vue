@@ -14,8 +14,14 @@ const props = defineProps({
 const tplCom = computed(() => {
 	return `dd-tpl-${props.is}`
 })
+
+const bindProps = computed(() => {
+	return {
+		...(props.data || {}),
+	}
+})
 </script>
 
 <template>
-	<component :is="tplCom" v-bind="$attrs" :data="data" />
+	<component :is="tplCom" v-bind="{ ...$attrs, data: bindProps }" />
 </template>

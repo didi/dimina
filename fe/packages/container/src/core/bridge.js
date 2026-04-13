@@ -129,11 +129,7 @@ export class Bridge {
 				pagePath: this.opts.pagePath,
 				root: this.opts.root,
 				baseUrl: import.meta.env.BASE_URL,
-				injectInfo: {
-					// 注入同步 API 信息
-					menuRect: this.parent.getMenuButtonBoundingClientRect(),
-					systemInfo: this.parent.getSystemInfoSync(),
-				},
+				hostEnv: this.parent.getHostEnvSnapshot(),
 			},
 		})
 	}

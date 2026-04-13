@@ -1,3 +1,4 @@
+import { LAUNCH_SCREEN_MIN_MS, WAIT_TRANSITION_TIMEOUT_MS } from '@/constants/animation'
 import { AppManager } from '@/core/appManager'
 import { Bridge } from '@/core/bridge'
 import { JSCore } from '@/core/jscore'
@@ -5,7 +6,7 @@ import { HashRouter } from '@/utils/hashRouter'
 import { mergePageConfig, queryPath, readFile, sleep, uuid } from '@/utils/util'
 
 // 等待元素上指定 transition property 结束，带超时兜底防止动画未触发时永久阻塞
-const waitTransitionEnd = (el, property, timeout = 600) =>
+const waitTransitionEnd = (el, property, timeout = WAIT_TRANSITION_TIMEOUT_MS) =>
 	new Promise(resolve => {
 		const timer = setTimeout(resolve, timeout)
 		const handler = (e) => {
@@ -126,6 +127,129 @@ export class MiniApp {
 		this._extSubscriptions = new Map()
 	}
 
+	getCurrentPagePath() {
+		const currentBridge = this.bridgeList[this.bridgeList.length - 1]
+		return currentBridge?.opts?.pagePath || this.appInfo.pagePath || this.appConfig?.app?.entryPagePath || ''
+	}
+
+	getCurrentPageQuery() {
+		const currentBridge = this.bridgeList[this.bridgeList.length - 1]
+		return currentBridge?.opts?.query || this.appInfo.query || {}
+	}
+
+	getEntryPagePath() {
+		return this.appInfo.pagePath || this.appConfig?.app?.entryPagePath || ''
+	}
+
+	async copyText(text, successText) {
+		try {
+			if (navigator.clipboard?.writeText) {
+				await navigator.clipboard.writeText(text)
+			}
+			else {
+				const textarea = document.createElement('textarea')
+				textarea.value = text
+				textarea.setAttribute('readonly', 'readonly')
+				textarea.style.position = 'fixed'
+				textarea.style.opacity = '0'
+				document.body.appendChild(textarea)
+				textarea.select()
+				document.execCommand('copy')
+				document.body.removeChild(textarea)
+			}
+			this.showToast({
+				title: successText,
+				icon: 'success',
+			})
+		}
+		catch {
+			this.showToast({
+				title: '复制失败',
+				icon: 'none',
+			})
+		}
+	}
+
+	closeMiniProgram() {
+		HashRouter.clear()
+		this.closeMiniAppMenu()
+		AppManager.closeApp(this)
+	}
+
+	renderMiniAppMenu() {
+		const name = this.el.querySelector('.dimina-mini-app-menu__app-name')
+		const appId = this.el.querySelector('.dimina-mini-app-menu__app-id')
+		const desc = this.el.querySelector('.dimina-mini-app-menu__app-desc')
+		const logo = this.el.querySelector('.dimina-mini-app-menu__app-logo-img')
+		const quickActions = this.el.querySelector('.dimina-mini-app-menu__quick-actions')
+		const currentPagePath = this.getCurrentPagePath()
+		const entryPagePath = this.getEntryPagePath()
+		const currentPageQuery = this.getCurrentPageQuery()
+		const pagePath = currentPagePath || entryPagePath || ''
+		const pageWithQuery = `${pagePath}${Object.keys(currentPageQuery).length ? `?${new URLSearchParams(currentPageQuery).toString()}` : ''}`
+		const addressUrl = `${window.location.origin}${window.location.pathname}#${this.appId}|${pageWithQuery}`
+
+		name.textContent = this.appInfo.name || '未命名小程序'
+		appId.textContent = `AppID：${this.appId || '--'}`
+		desc.textContent = `当前页面：${pagePath || '--'}`
+		logo.src = this.appInfo.logo || ''
+
+		const quickActionItems = [
+			{
+				label: '复制链接',
+				icon: '↗',
+				handler: () => this.copyText(addressUrl, '链接已复制'),
+			},
+			{
+				label: '重新进入',
+				icon: '↻',
+				handler: () => {
+					this.closeMiniAppMenu()
+					this.reLaunch({
+						url: entryPagePath || currentPagePath,
+					})
+				},
+			},
+			{
+				label: '关闭小程序',
+				icon: '×',
+				danger: true,
+				handler: () => this.closeMiniProgram(),
+			},
+		]
+
+		quickActions.innerHTML = quickActionItems
+			.map((item, index) => `
+				<button type="button" class="dimina-mini-app-menu__quick-action${item.danger ? ' is-danger' : ''}" data-quick-index="${index}">
+					<span class="dimina-mini-app-menu__quick-action-icon">${item.icon}</span>
+					<span class="dimina-mini-app-menu__quick-action-label">${item.label}</span>
+				</button>
+			`)
+			.join('')
+
+		quickActions.querySelectorAll('[data-quick-index]').forEach((node, index) => {
+			node.onclick = () => quickActionItems[index].handler()
+		})
+	}
+
+	openMiniAppMenu() {
+		const overlay = this.el.querySelector('.dimina-mini-app-menu__mask')
+		const menu = this.el.querySelector('.dimina-mini-app-menu')
+		this.renderMiniAppMenu()
+		overlay.style.display = 'block'
+		requestAnimationFrame(() => {
+			overlay.classList.add('show')
+			menu.classList.add('show')
+		})
+	}
+
+	closeMiniAppMenu() {
+		const overlay = this.el.querySelector('.dimina-mini-app-menu__mask')
+		const menu = this.el.querySelector('.dimina-mini-app-menu')
+		overlay.classList.remove('show')
+		menu.classList.remove('show')
+	}
+
 	/**
 	 * 注册自定义 API 处理函数
 	 * @param {string} name API 名称
@@ -167,12 +291,12 @@ export class MiniApp {
 		// 1. 等待逻辑线程初始化
 		await this.jscore.init()
 
-		// 2. 读取配置文件，同时保证 LaunchScreen 最少展示 220ms
+		// 2. 读取配置文件，同时保证 LaunchScreen 最少展示一个略长于 present 的时长
 		const root = 'main'
 		const configPath = `${this.appId}/${root}/app-config.json`
 		const [configContent] = await Promise.all([
 			readFile(`${import.meta.env.BASE_URL}${configPath}`),
-			sleep(220),
+			sleep(LAUNCH_SCREEN_MIN_MS),
 		])
 
 		if (!configContent) {
@@ -617,35 +741,27 @@ export class MiniApp {
 
 	bindMoreEvent() {
 		const moreBtn = this.el.querySelector('.dimina-mini-app-navigation__actions-variable')
-		const dialog = this.el.querySelector('.dimina-mini-app_dialog-content')
-		const overlay = this.el.querySelector('.dimina-mini-app_dialog-bg')
-		const info = this.el.querySelector('.dimina-mini-app_dialog-info')
-		info.innerHTML = `app id: ${this.appId}`
+		const overlay = this.el.querySelector('.dimina-mini-app-menu__mask')
+		const menu = this.el.querySelector('.dimina-mini-app-menu')
+		const cancelBtn = this.el.querySelector('.dimina-mini-app-menu__footer-btn--cancel')
 
 		overlay.addEventListener('transitionend', () => {
-			if (overlay.style.opacity === '0') {
+			if (!overlay.classList.contains('show')) {
 				overlay.style.display = 'none'
 			}
 		})
 
-		moreBtn.onclick = () => {
-			overlay.style.display = 'block'
-			overlay.style.opacity = 1
-			dialog.classList.add('show')
-		}
-
-		overlay.onclick = () => {
-			overlay.style.opacity = 0
-			dialog.classList.remove('show')
-		}
+		moreBtn.onclick = () => this.openMiniAppMenu()
+		overlay.onclick = () => this.closeMiniAppMenu()
+		cancelBtn.onclick = () => this.closeMiniAppMenu()
+		menu.onclick = e => e.stopPropagation()
 	}
 
 	bindCloseEvent() {
 		const closeBtn = this.el.querySelector('.dimina-mini-app-navigation__actions-close')
 
 		closeBtn.onclick = () => {
-			HashRouter.clear()
-			AppManager.closeApp(this)
+			this.closeMiniProgram()
 		}
 	}
 
@@ -705,16 +821,60 @@ export class MiniApp {
 	}
 
 	getMenuButtonBoundingClientRect() {
-		return this.el.querySelector('.dimina-mini-app-navigation__actions').getBoundingClientRect()
+		const rect = this.el.querySelector('.dimina-mini-app-navigation__actions').getBoundingClientRect()
+		const statusBar = this.parent.parent.root.querySelector('.iphone__status-bar')
+		const statusBarHeight = statusBar?.getBoundingClientRect().height || 20
+		// 对齐到小程序导航栏的几何模型：
+		// navbar 总高约等于 statusBarHeight + 40px，胶囊在内容区内垂直居中
+		const normalizedTop = statusBarHeight + 4
+		const normalizedBottom = normalizedTop + rect.height
+		return {
+			top: normalizedTop,
+			right: rect.right,
+			bottom: normalizedBottom,
+			left: rect.left,
+			width: rect.width,
+			height: rect.height,
+			x: rect.x,
+			y: normalizedTop,
+		}
+	}
+
+	getHostEnvSnapshot() {
+		return {
+			menuRect: this.getMenuButtonBoundingClientRect(),
+			systemInfo: this.getSystemInfoSync(),
+		}
 	}
 
 	getSystemInfoSync() {
+		const statusBar = this.parent.parent.root.querySelector('.iphone__status-bar')
+		const viewport = this.parent.el.querySelector('.dimina-native-webview__root')
+		const viewportRect = viewport?.getBoundingClientRect()
+		const width = viewportRect?.width || this.el.clientWidth || 375
+		const height = viewportRect?.height || this.el.clientHeight || 667
+		const statusBarHeight = statusBar?.getBoundingClientRect().height || 20
+
 		return {
 			brand: 'devtools',
 			model: 'web',
 			platform: 'devtools',
 			system: 'web',
 			SDKVersion: '3.0.0', // vant组件库 判断  canIUseModel version 需要大于 2.9.3
+			pixelRatio: globalThis.devicePixelRatio || 1,
+			screenWidth: width,
+			screenHeight: height,
+			windowWidth: width,
+			windowHeight: height,
+			statusBarHeight,
+			safeArea: {
+				left: 0,
+				right: width,
+				top: statusBarHeight,
+				bottom: height,
+				width,
+				height: Math.max(height - statusBarHeight, 0),
+			},
 		}
 	}
 

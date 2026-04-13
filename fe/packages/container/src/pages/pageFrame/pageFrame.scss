@@ -13,6 +13,13 @@
     margin: 0;
     padding: 0;
     vertical-align: baseline;
+    scrollbar-width: none;
+}
+
+*::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
 }
 
 img {

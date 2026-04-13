@@ -7,9 +7,9 @@ import { transformSync } from 'oxc-transform'
 import MagicString from 'magic-string'
 import { transform } from 'esbuild'
 import ts from 'typescript'
-import { hasCompileInfo } from '../common/utils.js'
+import { collectAssets, hasCompileInfo } from '../common/utils.js'
 import { mergeSourcemap } from './sourcemap.js'
-import { getAppConfigInfo, getComponent, getContentByPath, getNpmResolver, getTargetPath, getWorkPath, resetStoreInfo, resolveAppAlias } from '../env.js'
+import { getAppConfigInfo, getAppId, getComponent, getContentByPath, getNpmResolver, getTargetPath, getWorkPath, resetStoreInfo, resolveAppAlias } from '../env.js'
 
 // 用于缓存已处理的模块
 const processedModules = new Set()
@@ -248,7 +248,7 @@ async function buildJSByPath(packageName, module, compileRes, mainCompileRes, ad
 				continue
 			}
 
-			await buildJSByPath(packageName, componentModule, compileRes, mainCompileRes, true, depthChain, toMainSubPackage)
+			await buildJSByPath(packageName, componentModule, compileRes, mainCompileRes, true, depthChain, putMain || toMainSubPackage)
 
 			componentsObj[name] = path
 		}
@@ -279,6 +279,14 @@ async function buildJSByPath(packageName, module, compileRes, mainCompileRes, ad
 
 	walk(ast, {
 		enter(node, parent) {
+			if ((node.type === 'StringLiteral' || node.type === 'Literal') && isLocalAssetString(node.value)) {
+				pathReplacements.push({
+					start: node.start,
+					end: node.end,
+					newValue: collectAssets(getWorkPath(), modulePath, node.value, getTargetPath(), getAppId()),
+				})
+			}
+
 			// 处理 require() 调用
 			if (node.type === 'CallExpression') {
 				// 检查是否是 require() 调用
@@ -359,7 +367,7 @@ async function buildJSByPath(packageName, module, compileRes, mainCompileRes, ad
 
 	// 处理所有依赖模块（异步）
 	for (const depId of dependenciesToProcess) {
-		await buildJSByPath(packageName, { path: depId }, compileRes, mainCompileRes, false, depthChain)
+		await buildJSByPath(packageName, { path: depId }, compileRes, mainCompileRes, false, depthChain, putMain)
 	}
 
 	// 反向遍历修改，避免位置偏移
@@ -477,6 +485,14 @@ async function buildJSByPath(packageName, module, compileRes, mainCompileRes, ad
 	
 	// 将当前模块标记为已处理
 	processedModules.add(packageName + currentPath)
+}
+
+function isLocalAssetString(value) {
+	return typeof value === 'string'
+		&& !value.startsWith('http')
+		&& !value.startsWith('//')
+		&& (value.startsWith('/') || value.startsWith('./') || value.startsWith('../'))
+		&& /\.(?:png|jpe?g|gif|svg)(?:\?.*)?$/.test(value)
 }
 
 /**
