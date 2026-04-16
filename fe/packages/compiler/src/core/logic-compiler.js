@@ -177,37 +177,42 @@ async function buildJSByPath(packageName, module, compileRes, mainCompileRes, ad
 			? modulePath.slice(workPath.length)
 			: src
 	}
-	
-	// 如果是 TypeScript 文件，先编译为 JavaScript
-	let jsCode = sourceCode
-	if (modulePath.endsWith('.ts')) {
+
+	const isTsFile = modulePath.endsWith('.ts')
+	const sourceLang = isTsFile ? 'ts' : 'js'
+	const useLegacyTransformPipeline = !enableSourcemap && isTsFile
+	let codeForTransform = sourceCode
+	let parserLang = sourceLang
+
+	if (useLegacyTransformPipeline) {
 		try {
 			const result = ts.transpileModule(sourceCode, {
 				compilerOptions: {
 					target: ts.ScriptTarget.ES2020,
-					module: ts.ModuleKind.ESNext, // 保持 ES6 模块语法，让 oxc-transform 后续处理
+					module: ts.ModuleKind.ESNext,
 					strict: false,
 					esModuleInterop: true,
 					skipLibCheck: true,
 				},
 			})
-			jsCode = result.outputText
+			codeForTransform = result.outputText
+			parserLang = 'js'
 		} catch (error) {
 			console.error(`[logic] TypeScript 编译失败 ${modulePath}:`, error.message)
-			// 如果 TypeScript 编译失败，尝试使用原始代码
-			jsCode = sourceCode
+			codeForTransform = sourceCode
+			parserLang = sourceLang
 		}
 	}
-	
+
 	// 使用 oxc-parser 解析代码
-	const parseResult = parseSync(modulePath, jsCode, {
+	const parseResult = parseSync(modulePath, codeForTransform, {
 		sourceType: 'module',
-		lang: modulePath.endsWith('.ts') ? 'ts' : 'js'
+		lang: parserLang
 	})
 	const ast = parseResult.program
 	
 	// 使用 MagicString 进行代码修改
-	const s = new MagicString(jsCode)
+	const s = new MagicString(codeForTransform)
 
 	// 构建 extraInfo 对象（使用 JSON 而不是 AST）
 	const extraInfo = {
@@ -320,7 +325,7 @@ async function buildJSByPath(packageName, module, compileRes, mainCompileRes, ad
 			}
 			
 			// 处理 ES6 import 语句
-			if (node.type === 'ImportDeclaration') {
+			if (node.type === 'ImportDeclaration' && hasRuntimeImport(node)) {
 				const importPath = node.source.value
 				if (importPath) {
 					const { id, shouldProcess } = resolveDependencyId(importPath, modulePath, true)
@@ -344,6 +349,7 @@ async function buildJSByPath(packageName, module, compileRes, mainCompileRes, ad
 			if (
 				(node.type === 'ExportAllDeclaration' || node.type === 'ExportNamedDeclaration')
 				&& node.source
+				&& hasRuntimeExport(node)
 			) {
 				const exportPath = node.source.value
 				if (exportPath) {
@@ -375,52 +381,48 @@ async function buildJSByPath(packageName, module, compileRes, mainCompileRes, ad
 		s.overwrite(replacement.start, replacement.end, `'${replacement.newValue}'`)
 	}
 
-	// 使用 oxc-transform 进行 TypeScript 和 JSX 转换
 	const modifiedCode = s.toString()
-	let transformedCode = modifiedCode
-	
-	// 如果是 TypeScript 文件，使用 oxc-transform 进行类型擦除
-	if (modulePath.endsWith('.ts') || modulePath.endsWith('.tsx')) {
+	let codeForEsbuild = modifiedCode
+	let esbuildLoader = sourceLang
+
+	if (useLegacyTransformPipeline) {
 		try {
 			const result = transformSync(modulePath, modifiedCode, {
 				sourceType: 'module',
-				lang: modulePath.endsWith('.tsx') ? 'tsx' : 'ts',
+				lang: sourceLang,
 				target: 'es2020',
 				typescript: {
-					onlyRemoveTypeImports: true
-				}
+					onlyRemoveTypeImports: true,
+				},
 			})
-			transformedCode = result.code
+			codeForEsbuild = result.code
+			esbuildLoader = 'js'
 		} catch (error) {
 			console.error(`[logic] oxc-transform 转换失败 ${modulePath}:`, error.message)
-			// 如果转换失败，使用修改后的代码
-			transformedCode = modifiedCode
+			codeForEsbuild = modifiedCode
+			esbuildLoader = sourceLang
 		}
 	}
-	
+
 	// 使用 esbuild 进行最终的 CommonJS 转换和压缩
-	// 这是必需的，因为 oxc-transform 不支持模块格式转换
 	try {
 		const esbuildOpts = {
 			format: 'cjs',
 			target: 'es2020',
 			platform: 'neutral',
-			loader: 'js',
+			loader: esbuildLoader,
 		}
 		/*
-		 * 当前 sourcemap 精度为行级别：
-		 * - JS 文件：MagicString 路径重写和 esbuild 之后的 require 路径修正
-		 *   仅影响列偏移，行映射保持准确
-		 * - TS 文件：esbuild 之前的 ts.transpileModule 和 oxc-transform 类型擦除
-		 *   会改变行号，导致行映射不准确，暂未处理
-		 * 后续可通过 MagicString.generateMap() + remapping 串联多步 map 来提升精度
+		 * sourcemap 路径保留在源码级输入上：
+		 * 先对原始 JS/TS 做路径重写，再交给 esbuild 直接输出 CJS + map，
+		 * 避免额外的 TS 预转译链路破坏原始行号。
 		 */
 		if (enableSourcemap && compileInfo.sourceFile) {
 			esbuildOpts.sourcemap = true
 			esbuildOpts.sourcefile = compileInfo.sourceFile
 			esbuildOpts.sourcesContent = true
 		}
-		const esbuildResult = await transform(transformedCode, esbuildOpts)
+		const esbuildResult = await transform(codeForEsbuild, esbuildOpts)
 
 		if (enableSourcemap && esbuildResult.map) {
 			compileInfo.map = esbuildResult.map
@@ -479,8 +481,7 @@ async function buildJSByPath(packageName, module, compileRes, mainCompileRes, ad
 		}
 	} catch (error) {
 		console.error(`[logic] esbuild 转换失败 ${modulePath}:`, error.message)
-		// 如果 esbuild 转换失败，使用 oxc 转换后的代码
-		compileInfo.code = transformedCode
+		compileInfo.code = codeForEsbuild
 	}
 	
 	// 将当前模块标记为已处理
@@ -493,6 +494,36 @@ function isLocalAssetString(value) {
 		&& !value.startsWith('//')
 		&& (value.startsWith('/') || value.startsWith('./') || value.startsWith('../'))
 		&& /\.(?:png|jpe?g|gif|svg)(?:\?.*)?$/.test(value)
+}
+
+function hasRuntimeImport(node) {
+	if (node.importKind === 'type') {
+		return false
+	}
+
+	if (!node.specifiers?.length) {
+		return true
+	}
+
+	return node.specifiers.some((specifier) => {
+		return specifier.type !== 'ImportSpecifier' || specifier.importKind !== 'type'
+	})
+}
+
+function hasRuntimeExport(node) {
+	if (node.exportKind === 'type') {
+		return false
+	}
+
+	if (node.type === 'ExportAllDeclaration') {
+		return true
+	}
+
+	if (!node.specifiers?.length) {
+		return false
+	}
+
+	return node.specifiers.some((specifier) => specifier.exportKind !== 'type')
 }
 
 /**
