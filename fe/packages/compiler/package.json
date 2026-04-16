@@ -1,6 +1,6 @@
 {
 	"name": "@dimina/compiler",
-	"version": "1.0.12",
+	"version": "1.0.13",
 	"description": "星河编译工具",
 	"main": "./dist/index.cjs",
 	"module": "./dist/index.js",

@@ -69,6 +69,12 @@ class Runtime {
 		this.initializedModules = new Set()
 		this.preInitUpdates = new Map()
 		this.intersectionObservers = new Map()
+		// 追踪"mC 已发出但 service 侧 created 尚未完成"的组件 setup
+		// key: moduleId, value: Promise（created 完成时 resolve）
+		this._pendingSetups = new Map()
+		// 等待特定 moduleId 的 instance 注册到 instance map 的 resolvers
+		// key: moduleId, value: resolve[]
+		this._instanceWaiters = new Map()
 		this.handleBeforeUnload = this.handleBeforeUnload.bind(this)
 
 		this.installVueRuntimeHelpers()
@@ -219,7 +225,6 @@ class Runtime {
 								id: self.pageId,
 								sId,
 							})
-
 							const instance = getCurrentInstance().proxy
 							instance.__page__ = true
 							self.setModuleInstance(self.pageId, instance)
@@ -332,6 +337,10 @@ class Runtime {
 		}
 		this.instance.set(moduleId, instance)
 		this.moduleIds.set(instance, moduleId)
+		if (this._instanceWaiters.has(moduleId)) {
+			this._instanceWaiters.get(moduleId).forEach(resolve => resolve(instance))
+			this._instanceWaiters.delete(moduleId)
+		}
 	}
 
 	deleteModuleInstance(moduleId) {
@@ -394,11 +403,10 @@ class Runtime {
 						pagePath: path, // 引入该组件的页面信息
 						pageId,
 					})
-
 					const instance = vueInstance.proxy
 					self.setModuleInstance(moduleId, instance)
 
-					const externalClasses = []
+				const externalClasses = []
 					for (const [k, v] of Object.entries(module.props ?? {})) {
 						if (v.cls) {
 							// 自定义组件的外部样式类，通过 v-c-class 自定义指令处理
@@ -414,7 +422,7 @@ class Runtime {
 					}
 				}
 
-				message.send({
+			message.send({
 					type: 'mC', // createInstance + componentAttached
 					target: 'service',
 					body: {
@@ -434,7 +442,20 @@ class Runtime {
 					},
 				})
 
-					onMounted(() => {
+				// mC 发出，service 侧开始异步执行 created；记录此 moduleId 为 pending 状态，
+				// message.wait 解除后（service created 完成）才从 pending 中移除
+				let _pendingResolved = false
+				let _resolvePending
+				const _pendingResolve = () => {
+					if (_pendingResolved) {
+						return
+					}
+					_pendingResolved = true
+					_resolvePending?.()
+				}
+				self._pendingSetups.set(moduleId, new Promise(r => (_resolvePending = r)))
+
+				onMounted(() => {
 						nextTick(() => {
 							// 从 DOM 元素读取属性绑定信息
 							const propBindings = instance.$el?._propBindings
@@ -477,6 +498,8 @@ class Runtime {
 					self.setupData.delete(moduleId)
 					self.initializedModules.delete(moduleId)
 					self.preInitUpdates.delete(moduleId)
+					self._pendingSetups.delete(moduleId)
+					_pendingResolve()
 				})
 
 			const data = reactive({})
@@ -520,6 +543,8 @@ class Runtime {
 			)
 					
 					const initData = await message.wait(moduleId)
+					self._pendingSetups.delete(moduleId)
+					_pendingResolve()
 					self.applyInitialData(moduleId, data, initData)
 					return data
 				},
@@ -576,6 +601,32 @@ class Runtime {
 				})
 			})
 		}
+	}
+
+	/**
+	 * 等待特定 moduleId 的 Vue instance 注册到 this.instance map，
+	 * 用于 addIntersectionObserver 调用早于 setup 执行的场景（如 Page.onLoad）
+	 */
+	_waitForInstance(moduleId, timeout = 500) {
+		const existing = this.instance.get(moduleId)
+		if (existing) {
+			return Promise.resolve(existing)
+		}
+		return new Promise((resolve) => {
+			const waiters = this._instanceWaiters.get(moduleId) || []
+			waiters.push(resolve)
+			this._instanceWaiters.set(moduleId, waiters)
+			setTimeout(() => {
+				// 超时：从等待队列中移除并 resolve undefined
+				const w = this._instanceWaiters.get(moduleId)
+				if (w) {
+					const idx = w.indexOf(resolve)
+					if (idx !== -1) w.splice(idx, 1)
+					if (w.length === 0) this._instanceWaiters.delete(moduleId)
+				}
+				resolve(undefined)
+			}, timeout)
+		})
 	}
 
 	async waitForEl(instance, timeout = 500) {
@@ -1050,10 +1101,12 @@ class Runtime {
 	}
 
 	addIntersectionObserver(opts) {
-		setTimeout(async () => {
+		(async () => {
 			const { bridgeId, params: { targetSelector, relativeInfo, moduleId, options, success } } = opts
 
-			const el = await this.waitForEl(this.instance.get(moduleId))
+			// 先等 moduleId 对应的 Vue instance 注册（处理 Page.onLoad 等早于 setup 执行的场景）
+			const instance = await this._waitForInstance(moduleId)
+			const el = await this.waitForEl(instance)
 			if (!el) {
 				console.error('[system]', '[render]', 'Failed to find element for intersection observer')
 				return
@@ -1122,6 +1175,17 @@ class Runtime {
 				return
 			}
 
+			// 目标 DOM 已出现，等待所有 pending setup 完成（service 侧 created/attached 执行完毕），
+			// 但排除 observer 调用方自身（moduleId），避免在 created/onLoad 内调用时产生循环等待。
+			// 这保证了：IntersectionObserver 首次回调到达 service 时，目标 DOM 内子组件的
+			// 生命周期钩子（如 EventBus.once 注册）已就绪。
+			const pendingExceptSelf = Array.from(this._pendingSetups.entries())
+				.filter(([id]) => id !== moduleId)
+				.map(([, promise]) => promise)
+			if (pendingExceptSelf.length > 0) {
+				await Promise.all(pendingExceptSelf)
+			}
+
 			const allObservers = observers.map(({ options }) => {
 				let initRatio = options.initialRatio
 				const observer = new IntersectionObserver((entries) => {
@@ -1183,8 +1247,7 @@ class Runtime {
 					args: { observerId },
 				},
 			})
-		// Fixme: 延迟为了解决当前父组件 watch 触发的 nextTick 优先于组件的 created 生命周期导致异常，eg: emit 事件发送先于注册事件执行导致没有回调
-		}, 300)
+		})()
 	}
 
 	removeIntersectionObserver({ params: { observerId } }) {
