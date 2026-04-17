@@ -33,7 +33,12 @@ describe('logic sourcemap', () => {
 		fs.writeFileSync(path.join(workDir, 'app.js'), 'App({});\n')
 		fs.writeFileSync(path.join(workDir, 'pages/index/index.json'), JSON.stringify({}))
 		fs.writeFileSync(path.join(workDir, 'pages/index/index.wxml'), '<view>hello</view>\n')
+		fs.writeFileSync(path.join(workDir, 'pages/index/helper.ts'), [
+			'export const helper = "ok"',
+			'',
+		].join('\n'))
 		fs.writeFileSync(path.join(workDir, 'pages/index/index.ts'), [
+			'import { helper } from "./helper"',
 			'interface PageData {',
 			'\tmsg: string',
 			'}',
@@ -41,7 +46,7 @@ describe('logic sourcemap', () => {
 			'Page<PageData>({',
 			'\tdata: { msg: "hi" },',
 			'\tonLoad(): void {',
-			'\t\tconsole.log(value)',
+			'\t\tconsole.log(helper, value)',
 			'\t}',
 			'})',
 			'',
@@ -61,17 +66,24 @@ describe('logic sourcemap', () => {
 		const sourcemap = JSON.parse(fs.readFileSync(sourcemapPath, 'utf-8'))
 		const sourceIndex = sourcemap.sources.indexOf('/pages/index/index.ts')
 		expect(sourceIndex).toBeGreaterThan(-1)
+		expect(sourcemap.sourcesContent[sourceIndex]).toContain('import { helper } from "./helper"')
 		expect(sourcemap.sourcesContent[sourceIndex]).toContain('const value: number = 1')
 		expect(sourcemap.sourcesContent[sourceIndex]).toContain('Page<PageData>({')
+		expect(sourcemap.sourcesContent[sourceIndex]).not.toContain('from "/pages/index/helper"')
 		expect(sourcemap.sourcesContent[sourceIndex]).not.toContain('"use strict"')
 
-		const generatedLine = logicCode.split('\n').findIndex(line => line.includes('const value = 1;')) + 1
-		expect(generatedLine).toBeGreaterThan(0)
+		const importLine = logicCode.split('\n').findIndex(line => line.includes('require("/pages/index/helper")')) + 1
+		expect(importLine).toBeGreaterThan(0)
+		const valueLine = logicCode.split('\n').findIndex(line => line.includes('const value = 1;')) + 1
+		expect(valueLine).toBeGreaterThan(0)
 
 		const smc = new SourceMapConsumer(sourcemap)
-		const originalPos = smc.originalPositionFor({ line: generatedLine, column: 0 })
+		const importPos = smc.originalPositionFor({ line: importLine, column: 0 })
+		const valuePos = smc.originalPositionFor({ line: valueLine, column: 0 })
 
-		expect(originalPos.source).toBe('/pages/index/index.ts')
-		expect(originalPos.line).toBe(4)
+		expect(importPos.source).toBe('/pages/index/index.ts')
+		expect(importPos.line).toBe(1)
+		expect(valuePos.source).toBe('/pages/index/index.ts')
+		expect(valuePos.line).toBe(5)
 	})
 })

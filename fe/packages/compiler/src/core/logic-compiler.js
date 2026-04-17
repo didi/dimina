@@ -7,7 +7,7 @@ import MagicString from 'magic-string'
 import { transform } from 'esbuild'
 import { collectAssets, hasCompileInfo } from '../common/utils.js'
 import { getAppConfigInfo, getAppId, getComponent, getContentByPath, getNpmResolver, getTargetPath, getWorkPath, resetStoreInfo, resolveAppAlias } from '../env.js'
-import { mergeSourcemap } from './sourcemap.js'
+import { mergeSourcemap, remapSourcemap } from './sourcemap.js'
 
 // 用于缓存已处理的模块
 const processedModules = new Set()
@@ -354,6 +354,19 @@ async function buildJSByPath(packageName, module, compileRes, mainCompileRes, ad
 	}
 
 	const modifiedCode = s.toString()
+	let preEsbuildMap = null
+	if (enableSourcemap && compileInfo.sourceFile) {
+		const generatedMap = JSON.parse(s.generateMap({
+			file: compileInfo.sourceFile,
+			source: compileInfo.sourceFile,
+			includeContent: true,
+			hires: true,
+		}).toString())
+		generatedMap.file = compileInfo.sourceFile
+		generatedMap.sources = [compileInfo.sourceFile]
+		generatedMap.sourcesContent = [sourceCode]
+		preEsbuildMap = JSON.stringify(generatedMap)
+	}
 	
 	// 使用 esbuild 进行最终的 CommonJS 转换和压缩
 	try {
@@ -377,60 +390,11 @@ async function buildJSByPath(packageName, module, compileRes, mainCompileRes, ad
 		const esbuildResult = await transform(modifiedCode, esbuildOpts)
 
 		if (enableSourcemap && esbuildResult.map) {
-			compileInfo.map = esbuildResult.map
+			compileInfo.map = preEsbuildMap
+				? remapSourcemap(esbuildResult.map, preEsbuildMap)
+				: esbuildResult.map
 		}
-
-		// esbuild 转换后，需要再次处理生成的 require 调用
-		// 因为 esbuild 可能生成新的 require 调用（从 import 转换而来）
-		const esbuildCode = esbuildResult.code
-		
-		// 解析 esbuild 输出的代码
-		const esbuildAst = parseSync(modulePath, esbuildCode, {
-			sourceType: 'module',
-			lang: 'js'
-		})
-		
-		// 再次收集需要修改的 require 路径
-		const postEsbuildReplacements = []
-		walk(esbuildAst.program, {
-			enter(node) {
-				if (node.type === 'CallExpression') {
-					const isRequire = node.callee.type === 'Identifier' && node.callee.name === 'require'
-					const isRequireProperty = node.callee.type === 'MemberExpression' && 
-						node.callee.object?.type === 'Identifier' && 
-						node.callee.object?.name === 'require'
-					
-					if ((isRequire || isRequireProperty) && 
-						node.arguments.length > 0 && 
-						(node.arguments[0].type === 'StringLiteral' || node.arguments[0].type === 'Literal')) {
-						const arg = node.arguments[0]
-						const requirePath = arg.value
-						
-						// 只处理仍然是相对路径的 require（说明没有被正确转换）
-						if (requirePath && (requirePath.startsWith('./') || requirePath.startsWith('../'))) {
-							const { id } = resolveDependencyId(requirePath, modulePath, false)
-							
-							postEsbuildReplacements.push({
-								start: arg.start,
-								end: arg.end,
-								newValue: id
-							})
-						}
-					}
-				}
-			}
-		})
-		
-		// 如果有需要修改的路径，应用修改
-		if (postEsbuildReplacements.length > 0) {
-			const finalMagicString = new MagicString(esbuildCode)
-			for (const replacement of postEsbuildReplacements.reverse()) {
-				finalMagicString.overwrite(replacement.start, replacement.end, `"${replacement.newValue}"`)
-			}
-			compileInfo.code = finalMagicString.toString()
-		} else {
-			compileInfo.code = esbuildCode
-		}
+		compileInfo.code = esbuildResult.code
 	} catch (error) {
 		console.error(`[logic] esbuild 转换失败 ${modulePath}:`, error.message)
 		// 如果 esbuild 转换失败，使用路径改写后的源码

@@ -60,4 +60,55 @@ function mergeSourcemap(compileRes) {
 	return { bundleCode, sourcemap: smg.toString() }
 }
 
-export { mergeSourcemap }
+// 将两步 sourcemap 串联，nextMap 的 original 会继续映射回 prevMap 的 original
+function remapSourcemap(nextMap, prevMap) {
+	if (!nextMap) {
+		return prevMap
+	}
+	if (!prevMap) {
+		return nextMap
+	}
+
+	const nextMapObj = typeof nextMap === 'string' ? JSON.parse(nextMap) : nextMap
+	const prevMapObj = typeof prevMap === 'string' ? JSON.parse(prevMap) : prevMap
+	const smg = new SourceMapGenerator({ file: nextMapObj.file || prevMapObj.file || '' })
+	const prevSmc = new SourceMapConsumer(prevMapObj)
+	const nextSmc = new SourceMapConsumer(nextMapObj)
+
+	nextSmc.eachMapping((mapping) => {
+		if (mapping.source == null || mapping.originalLine == null || mapping.originalColumn == null) {
+			return
+		}
+
+		const original = prevSmc.originalPositionFor({
+			line: mapping.originalLine,
+			column: mapping.originalColumn,
+		})
+		if (original.source == null || original.line == null || original.column == null) {
+			return
+		}
+
+		smg.addMapping({
+			generated: {
+				line: mapping.generatedLine,
+				column: mapping.generatedColumn,
+			},
+			original: {
+				line: original.line,
+				column: original.column,
+			},
+			source: original.source,
+			name: original.name || mapping.name,
+		})
+	})
+
+	if (prevMapObj.sourcesContent) {
+		prevMapObj.sources.forEach((src, i) => {
+			smg.setSourceContent(src, prevMapObj.sourcesContent[i])
+		})
+	}
+
+	return smg.toString()
+}
+
+export { mergeSourcemap, remapSourcemap }
