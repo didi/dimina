@@ -28,6 +28,6 @@
 	},
 	"devDependencies": {
 		"@vitejs/plugin-vue": "^6.0.5",
-		"jsdom": "^26.1.0"
+		"jsdom": "^29.0.2"
 	}
 }
