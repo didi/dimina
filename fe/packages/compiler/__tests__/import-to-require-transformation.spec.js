@@ -177,4 +177,46 @@ describe('Import to Require Transformation', () => {
 		expect(compiledCode).toContain('upload')
 		expect(compiledCode).toContain('api')
 	})
-}) 
+
+	it('should rewrite TypeScript import equals require paths', async () => {
+		fs.mkdirSync('pages/ts-import-equals', { recursive: true })
+		fs.mkdirSync('utils', { recursive: true })
+
+		fs.writeFileSync('app.json', JSON.stringify({
+			pages: ['pages/ts-import-equals/index'],
+		}))
+
+		fs.writeFileSync('utils/ts-helper.ts', `
+			export = {
+				value: 'helper'
+			}
+		`)
+
+		fs.writeFileSync('pages/ts-import-equals/index.ts', `
+			import helper = require('../../utils/ts-helper')
+
+			Page({
+				onLoad() {
+					console.log(helper.value)
+				}
+			})
+		`)
+
+		fs.writeFileSync('pages/ts-import-equals/index.json', JSON.stringify({
+			navigationBarTitleText: 'TS Import Equals'
+		}))
+
+		storeInfo(tempDir)
+
+		const progress = { completedTasks: 0 }
+		const result = await compileJS([{ path: 'pages/ts-import-equals/index' }], null, null, progress)
+
+		const modulePaths = result.map(module => module.path)
+		expect(modulePaths).toContain('/utils/ts-helper')
+
+		const pageModule = result.find(module => module.path === 'pages/ts-import-equals/index')
+		expect(pageModule).toBeDefined()
+		expect(pageModule.code).toContain('require("/utils/ts-helper")')
+		expect(pageModule.code).not.toContain('require("../../utils/ts-helper")')
+	})
+})

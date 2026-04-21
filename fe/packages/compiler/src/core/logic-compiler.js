@@ -269,26 +269,28 @@ async function buildJSByPath(packageName, module, compileRes, mainCompileRes, ad
 			if (node.type === 'CallExpression') {
 				// 检查是否是 require() 调用
 				const isRequire = node.callee.type === 'Identifier' && node.callee.name === 'require'
-				const isRequireProperty = node.callee.type === 'MemberExpression' && 
-					node.callee.object?.type === 'Identifier' && 
-					node.callee.object?.name === 'require'
-				
-				if ((isRequire || isRequireProperty) && 
-					node.arguments.length > 0 && 
-					(node.arguments[0].type === 'StringLiteral' || node.arguments[0].type === 'Literal')) {
+				const isRequireProperty = node.callee.type === 'MemberExpression'
+					&& node.callee.object?.type === 'Identifier'
+					&& node.callee.object?.name === 'require'
+
+				if (
+					(isRequire || isRequireProperty)
+					&& node.arguments.length > 0
+					&& (node.arguments[0].type === 'StringLiteral' || node.arguments[0].type === 'Literal')
+				) {
 					const arg = node.arguments[0]
 					const requirePath = arg.value
-					
+
 					if (requirePath) {
 						const { id, shouldProcess } = resolveDependencyId(requirePath, modulePath, false)
-						
+
 						if (shouldProcess) {
 							pathReplacements.push({
 								start: arg.start,
 								end: arg.end,
-								newValue: id
+								newValue: id,
 							})
-							
+
 							if (!processedModules.has(packageName + id)) {
 								dependenciesToProcess.push(id)
 							}
@@ -296,20 +298,44 @@ async function buildJSByPath(packageName, module, compileRes, mainCompileRes, ad
 					}
 				}
 			}
-			
+
 			// 处理 ES6 import 语句
 			if (node.type === 'ImportDeclaration') {
 				const importPath = node.source.value
 				if (importPath) {
 					const { id, shouldProcess } = resolveDependencyId(importPath, modulePath, true)
-					
+
 					if (shouldProcess) {
 						pathReplacements.push({
 							start: node.source.start,
 							end: node.source.end,
-							newValue: id
+							newValue: id,
 						})
-						
+
+						if (!processedModules.has(packageName + id)) {
+							dependenciesToProcess.push(id)
+						}
+					}
+				}
+			}
+
+			// 处理 TypeScript import equals，如 import helper = require('./helper')
+			if (
+				node.type === 'TSImportEqualsDeclaration'
+				&& node.moduleReference?.type === 'TSExternalModuleReference'
+			) {
+				const importPathNode = node.moduleReference.expression
+				const importPath = importPathNode?.value
+				if (importPath) {
+					const { id, shouldProcess } = resolveDependencyId(importPath, modulePath, false)
+
+					if (shouldProcess) {
+						pathReplacements.push({
+							start: importPathNode.start,
+							end: importPathNode.end,
+							newValue: id,
+						})
+
 						if (!processedModules.has(packageName + id)) {
 							dependenciesToProcess.push(id)
 						}
@@ -367,7 +393,7 @@ async function buildJSByPath(packageName, module, compileRes, mainCompileRes, ad
 		generatedMap.sourcesContent = [sourceCode]
 		preEsbuildMap = JSON.stringify(generatedMap)
 	}
-	
+
 	// 使用 esbuild 进行最终的 CommonJS 转换和压缩
 	try {
 		const esbuildOpts = {
@@ -377,10 +403,10 @@ async function buildJSByPath(packageName, module, compileRes, mainCompileRes, ad
 			loader: isTypeScript ? 'ts' : 'js',
 		}
 		/*
-		 * 当前 sourcemap 仍是单步产出：
+		 * 当前 sourcemap 会串联 MagicString 和 esbuild 两步 map：
 		 * - JS / TS 都先经过 MagicString 路径重写，再交给 esbuild 生成 map
 		 * - 这样可避免 TS 先被 transpile 成 JS 后再伪装为 .ts 输出 sourcemap
-		 * - 若要精确映射回“路径重写前”的原始源码列号，仍需串联 MagicString.generateMap() 做 remapping
+		 * - bundle 阶段只做 modDefine 包裹和模块拼接，因此 sourcemap 模式会跳过最终 minify
 		 */
 		if (enableSourcemap && compileInfo.sourceFile) {
 			esbuildOpts.sourcemap = true
