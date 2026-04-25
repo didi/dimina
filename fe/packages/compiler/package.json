@@ -63,7 +63,7 @@
 		"less": "^4.6.4",
 		"listr2": "^9.0.5",
 		"magic-string": "^0.30.21",
-		"oxc-parser": "^0.126.0",
+		"oxc-parser": "^0.127.0",
 		"oxc-walker": "^0.7.0",
 		"postcss": "^8.5.9",
 		"source-map-js": "^1.2.1",
