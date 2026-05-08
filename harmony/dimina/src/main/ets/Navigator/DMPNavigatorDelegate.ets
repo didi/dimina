@@ -47,6 +47,10 @@ export class DMPNavigatorDelegate {
     await this._navigator.navigateBack(delta, animated, canDestroy,isReLaunch);
   }
 
+  async switchTab(params: DMPMap) {
+    await this._navigator.switchTab(params);
+  }
+
   getPageCount(): number {
     return this._navigator.pageCount()
   }

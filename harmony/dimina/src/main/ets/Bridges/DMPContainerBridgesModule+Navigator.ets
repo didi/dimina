@@ -18,7 +18,8 @@ export class DMPContainerBridgesModuleNavigator extends DMPContainerBridgesModul
       'getLocalFilePath',
       'redirectTo',
       'reLaunch',
-      'loadSubPackage'
+      'loadSubPackage',
+      'switchTab'
     ];
   }
 
@@ -112,6 +113,17 @@ export class DMPContainerBridgesModuleNavigator extends DMPContainerBridgesModul
     this.invokeSuccessCallback(callback, null);
   }
 
+  switchTab(data: DMPMap, callback: DMPBridgeCallback) {
+    DMPLogger.d("switchTab", data.toStr())
+    const navigator = this.app.navigatorManager.getCurNavigator()
+    if (navigator) {
+      let url: string = data.get('url')
+      let routerParam = DataTransformer.parse(url)
+      navigator.switchTab(routerParam)
+    }
+    this.invokeSuccessCallback(callback, null);
+  }
+
   applyUpdate(data: DMPMap, callback: DMPBridgeCallback) {
     const app: DMPApp = this.app!
     app.updateApp()
@@ -125,6 +137,4 @@ export class DMPContainerBridgesModuleNavigator extends DMPContainerBridgesModul
     }
   }
 }
-
-
 
