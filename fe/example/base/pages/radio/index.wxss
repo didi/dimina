@@ -1,0 +1,16 @@
+.page {
+    margin-top: 80px;
+}
+.radio-group {
+    border-bottom: 1px solid #ddd;
+}
+.radio {
+    display: flex;
+    flex-direction: column;
+    border-top: 1px solid #ddd;
+    padding: 5px;
+}
+.radio text {
+    display: flex;
+    flex-direction: row;
+}

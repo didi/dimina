@@ -42,8 +42,8 @@ export class DMPContainerBridgesModuleStorage extends DMPContainerBridgesModule 
     return mgr.encode(key, value)
   }
 
-  getStorageSync(data: DMPMap, callback: DMPBridgeCallback): number | string | boolean | Date | object {
-    const key: string = data.toObject()
+  getStorageSync(data: string, callback: DMPBridgeCallback): number | string | boolean | Date | object {
+    const key: string = data
     return this._getStorage(key);
   }
 
@@ -53,9 +53,8 @@ export class DMPContainerBridgesModuleStorage extends DMPContainerBridgesModule 
     this.invokeSuccessCallback(callback, result);
   }
 
-  removeStorageSync(data: DMPMap, callback: DMPBridgeCallback): boolean {
-    const params: object = data.toObject()
-    const key: string = params[0]
+  removeStorageSync(data: string, callback: DMPBridgeCallback): boolean {
+    const key: string = data
     const mgr = DMPMMKVManager.sharedInstance()
     mgr.remove(key)
     return true

@@ -1,0 +1,42 @@
+.home {
+	font-size: 40rpx;
+}
+
+.text {
+	color: red;
+	font-size: 40rpx;
+	margin-bottom: 10rpx;
+}
+
+.btn {
+	width: 400rpx;
+	height: 100rpx;
+	background-color: #1452dd;
+	margin: 10rpx;
+	font-size: 40rpx;
+	color: #fff;
+	text-align: center;
+	line-height: 100rpx;
+}
+
+.list-item {
+	font-size: 40rpx;
+	padding-left: 10rpx;
+}
+
+@keyframes rotate {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.anima-view {
+	width: 100rpx;
+	height: 100rpx;
+	background-color: #000;
+	animation: rotate 5s linear infinite;
+	position: relative;
+}

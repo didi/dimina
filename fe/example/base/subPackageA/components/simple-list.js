@@ -1,0 +1,5 @@
+Component({
+  properties: {
+    items: Array
+  }
+})

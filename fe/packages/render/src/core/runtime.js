@@ -1,4 +1,4 @@
-import { getDataAttributes, set, uuid } from '@dimina/common'
+import { deepEqual, getDataAttributes, set, uuid } from '@dimina/common'
 import { Components, deepToRaw, triggerEvent } from '@dimina/components'
 import {
 	createApp,
@@ -21,7 +21,6 @@ import {
 	openBlock,
 	provide,
 	reactive,
-	ref,
 	renderList,
 	renderSlot,
 	resolveComponent,
@@ -30,47 +29,79 @@ import {
 	Suspense,
 	toDisplayString,
 	watch,
+	watchEffect,
 	withCtx,
 	withDirectives,
 } from 'vue'
 import loader from './loader'
 import message from './message'
 
+// Keep these aliases in sync with @vue/compiler-core helperNameMap/aliasHelper output.
+const VUE_RUNTIME_HELPERS = {
+	_Fragment: Fragment,
+	_createTextVNode: createTextVNode,
+	_createVNode: createVNode,
+	_createBlock: createBlock,
+	_createCommentVNode: createCommentVNode,
+	_createElementBlock: createElementBlock,
+	_createElementVNode: createElementVNode,
+	_createSlots: createSlots,
+	_normalizeClass: normalizeClass,
+	_normalizeStyle: normalizeStyle,
+	_openBlock: openBlock,
+	_renderList: renderList,
+	_renderSlot: renderSlot,
+	_resolveComponent: resolveComponent,
+	_resolveDirective: resolveDirective,
+	_resolveDynamicComponent: resolveDynamicComponent,
+	_toDisplayString: toDisplayString,
+	_withCtx: withCtx,
+	_withDirectives: withDirectives,
+}
+
 class Runtime {
 	constructor() {
 		this.app = null
 		this.pageId = null
 		this.instance = new Map()
+		this.moduleIds = new WeakMap()
+		this.setupData = new Map()
+		this.initializedModules = new Set()
+		this.preInitUpdates = new Map()
 		this.intersectionObservers = new Map()
+		// 追踪"mC 已发出但 service 侧 created 尚未完成"的组件 setup
+		// key: moduleId, value: Promise（created 完成时 resolve）
+		this._pendingSetups = new Map()
+		// 等待特定 moduleId 的 instance 注册到 instance map 的 resolvers
+		// key: moduleId, value: resolve[]
+		this._instanceWaiters = new Map()
+		this.handleBeforeUnload = this.handleBeforeUnload.bind(this)
 
-		window._Fragment = Fragment
-		window._createTextVNode = createTextVNode
-		window._createVNode = createVNode
-		window._createBlock = createBlock
-		window._createCommentVNode = createCommentVNode
-		window._createElementBlock = createElementBlock
-		window._createElementVNode = createElementVNode
-		window._createSlots = createSlots
-		window._normalizeClass = normalizeClass
-		window._normalizeStyle = normalizeStyle
-		window._openBlock = openBlock
-		window._renderList = renderList
-		window._renderSlot = renderSlot
-		window._resolveComponent = resolveComponent
-		window._resolveDirective = resolveDirective
-		window._resolveDynamicComponent = resolveDynamicComponent
-		window._toDisplayString = toDisplayString
-		window._withCtx = withCtx
-		window._withDirectives = withDirectives
+		this.installVueRuntimeHelpers()
+		window.addEventListener('beforeunload', this.handleBeforeUnload)
+	}
 
-		window.addEventListener('beforeunload', () => {
-			if (this.intersectionObservers.size > 0) {
-				for (const observers of this.intersectionObservers.values()) {
-					observers.forEach(observer => observer.disconnect())
-				}
-				this.intersectionObservers.clear()
+	installVueRuntimeHelpers(target = window) {
+		Object.assign(target, VUE_RUNTIME_HELPERS)
+	}
+
+	handleBeforeUnload() {
+		if (this.intersectionObservers.size > 0) {
+			for (const observers of this.intersectionObservers.values()) {
+				observers.forEach(observer => observer.disconnect())
 			}
-		})
+			this.intersectionObservers.clear()
+		}
+	}
+
+	syncReactiveState(state, nextState = {}) {
+		for (const key in state) {
+			if (!(key in nextState)) {
+				delete state[key]
+			}
+		}
+
+		Object.assign(state, nextState)
 	}
 
 	/**
@@ -95,23 +126,57 @@ class Runtime {
 		// 全量加载基础组件，是否有必要可优化为按需加载组件
 		this.app.use(Components)
 
-		// 注册页面模板
-		for (const [tplName, render] of Object.entries(options.tplComponents)) {
-			this.app.component(`dd-${tplName}`, {
-				__scopeId: `data-v-${options.id}`,
-				props: {
-					data: Object,
-				},
-				data() {
-					return {
-						...this.data,
-					}
-				},
-				render,
-			})
-		}
+		this.registerTplComponentsByPath(opts.pagePath, bridgeId)
 
 		this.app.mount(document.body)
+	}
+
+	registerTplComponentsByPath(path, bridgeId, visited = new Set()) {
+		if (visited.has(path)) {
+			return
+		}
+		visited.add(path)
+
+		const module = loader.getModuleByPath(path)
+		if (!module?.moduleInfo) {
+			return
+		}
+
+		const { id, tplComponents = {}, usingComponents = {} } = module.moduleInfo
+		const components = this.createComponent(path, bridgeId, usingComponents)
+		for (const [tplName, render] of Object.entries(tplComponents)) {
+			this.app.component(`dd-${tplName}`, this.createTplComponent({
+				id,
+				components,
+				render,
+			}))
+		}
+
+		for (const componentPath of Object.values(usingComponents)) {
+			this.registerTplComponentsByPath(componentPath, bridgeId, visited)
+		}
+	}
+
+	createTplComponent({ id, components, render }) {
+		return {
+			__scopeId: `data-v-${id}`,
+			components,
+			props: {
+				data: Object,
+			},
+			setup(props) {
+				const state = reactive({})
+				watchEffect(() => {
+					const newData = props.data || {}
+					for (const key in state) {
+						if (!(key in newData)) delete state[key]
+					}
+					Object.assign(state, newData)
+				})
+				return state
+			},
+			render,
+		}
 	}
 
 	// Component create -> Page create -> Page attached -> Component attached -> Component ready -> Page ready
@@ -160,10 +225,9 @@ class Runtime {
 								id: self.pageId,
 								sId,
 							})
-
 							const instance = getCurrentInstance().proxy
 							instance.__page__ = true
-							self.instance.set(self.pageId, instance)
+							self.setModuleInstance(self.pageId, instance)
 
 							let ticking = false
 							const handleScroll = () => {
@@ -202,17 +266,14 @@ class Runtime {
 								window.removeEventListener('scroll', handleScroll)
 							})
 
-							const data = reactive({})
-							const initData = await message.wait(self.pageId)
-							const entries = Object.entries(initData)
-							for (let i = 0; i < entries.length; i++) {
-								const [key, value] = entries[i]
-								set(data, key, value)
-							}
-							return data
-						},
-						components,
-						render: pageModule.moduleInfo.render,
+						const data = reactive({})
+						self.setupData.set(self.pageId, data)
+						const initData = await message.wait(self.pageId)
+						self.applyInitialData(self.pageId, data, initData)
+						return data
+					},
+					components,
+					render: pageModule.moduleInfo.render,
 					},
 				},
 
@@ -220,13 +281,77 @@ class Runtime {
 		}
 	}
 
-	createComponent(path, bridgeId, usingComponents, depthChain = []) {
-		// 循环依赖检测（A -> B -> A）
-		if (depthChain.includes(path)) {
-			console.warn('[render]', `检测到循环依赖: ${[...depthChain, path].join(' -> ')}`)
-			return {}
+	getParentModuleId(vueInstance) {
+		let parent = vueInstance?.parent
+		while (parent) {
+			const moduleId = this.moduleIds.get(parent.proxy)
+			if (moduleId) {
+				return moduleId
+			}
+			parent = parent.parent
+		}
+	}
+
+	applyInitialData(moduleId, data, initData) {
+		const entries = Object.entries(initData)
+		for (let i = 0; i < entries.length; i++) {
+			const [key, value] = entries[i]
+			set(data, key, value)
 		}
 
+		const pendingUpdate = this.preInitUpdates.get(moduleId)
+		if (pendingUpdate) {
+			for (const [key, value] of Object.entries(pendingUpdate)) {
+				set(data, key, value)
+			}
+			this.preInitUpdates.delete(moduleId)
+		}
+
+		this.initializedModules.add(moduleId)
+		return pendingUpdate
+	}
+
+	refreshProxyAccess(moduleId, changedData) {
+		const instance = this.instance.get(moduleId)
+		const internal = instance?.$
+		if (!internal) {
+			return
+		}
+
+		const { accessCache, ctx } = internal
+		for (const [key, value] of Object.entries(changedData)) {
+			if (accessCache && Object.hasOwn(accessCache, key)) {
+				delete accessCache[key]
+			}
+			if (ctx && !Object.hasOwn(ctx, key)) {
+				ctx[key] = value
+			}
+		}
+
+		internal.update?.()
+	}
+
+	setModuleInstance(moduleId, instance) {
+		if (!instance) {
+			return
+		}
+		this.instance.set(moduleId, instance)
+		this.moduleIds.set(instance, moduleId)
+		if (this._instanceWaiters.has(moduleId)) {
+			this._instanceWaiters.get(moduleId).forEach(resolve => resolve(instance))
+			this._instanceWaiters.delete(moduleId)
+		}
+	}
+
+	deleteModuleInstance(moduleId) {
+		const instance = this.instance.get(moduleId)
+		if (instance) {
+			this.moduleIds.delete(instance)
+		}
+		this.instance.delete(moduleId)
+	}
+
+	createComponent(path, bridgeId, usingComponents, depthChain = []) {
 		if (!usingComponents || Object.keys(usingComponents).length === 0) {
 			return
 		}
@@ -236,7 +361,16 @@ class Runtime {
 		const newDepthChain = [...depthChain, path]
 
 		for (const [componentName, componentPath] of Object.entries(usingComponents)) {
+			// 循环依赖检测（A -> B -> A）
+			if (newDepthChain.includes(componentPath)) {
+				continue
+			}
+
 			const module = loader.getModuleByPath(componentPath)
+			if (!module?.moduleInfo) {
+				continue
+			}
+
 			const { id, usingComponents: subUsing } = module.moduleInfo
 			const subComponents = this.createComponent(componentPath, bridgeId, subUsing, newDepthChain)
 			const sId = `data-v-${id}`
@@ -253,7 +387,9 @@ class Runtime {
 						props,
 						sId: parentInfo.sId,
 					})
-					const parentId = parentInfo.id
+					const vueInstance = getCurrentInstance()
+					const vueParentId = self.getParentModuleId(vueInstance)
+					const parentId = vueParentId || parentInfo.id
 					const pageInfo = inject(path)
 					const pageId = pageInfo.id
 					const moduleId = `${id}_${uuid()}`
@@ -267,11 +403,10 @@ class Runtime {
 						pagePath: path, // 引入该组件的页面信息
 						pageId,
 					})
+					const instance = vueInstance.proxy
+					self.setModuleInstance(moduleId, instance)
 
-					const instance = getCurrentInstance().proxy
-					self.instance.set(moduleId, instance)
-
-					const externalClasses = []
+				const externalClasses = []
 					for (const [k, v] of Object.entries(module.props ?? {})) {
 						if (v.cls) {
 							// 自定义组件的外部样式类，通过 v-c-class 自定义指令处理
@@ -287,7 +422,7 @@ class Runtime {
 					}
 				}
 
-				message.send({
+			message.send({
 					type: 'mC', // createInstance + componentAttached
 					target: 'service',
 					body: {
@@ -307,11 +442,24 @@ class Runtime {
 					},
 				})
 
-					onMounted(() => {
+				// mC 发出，service 侧开始异步执行 created；记录此 moduleId 为 pending 状态，
+				// message.wait 解除后（service created 完成）才从 pending 中移除
+				let _pendingResolved = false
+				let _resolvePending
+				const _pendingResolve = () => {
+					if (_pendingResolved) {
+						return
+					}
+					_pendingResolved = true
+					_resolvePending?.()
+				}
+				self._pendingSetups.set(moduleId, new Promise(r => (_resolvePending = r)))
+
+				onMounted(() => {
 						nextTick(() => {
 							// 从 DOM 元素读取属性绑定信息
 							const propBindings = instance.$el?._propBindings
-							
+
 							message.send({
 								type: 'mR',
 								target: 'service',
@@ -337,24 +485,47 @@ class Runtime {
 						}
 					})
 
-					onUnmounted(() => {
-						message.send({
-							type: 'mU',
-							target: 'service',
-							body: {
-								bridgeId,
-								moduleId,
-							},
-						})
-						self.instance.delete(moduleId)
+				onUnmounted(() => {
+					message.send({
+						type: 'mU',
+						target: 'service',
+						body: {
+							bridgeId,
+							moduleId,
+						},
 					})
+					self.deleteModuleInstance(moduleId)
+					self.setupData.delete(moduleId)
+					self.initializedModules.delete(moduleId)
+					self.preInitUpdates.delete(moduleId)
+					self._pendingSetups.delete(moduleId)
+					_pendingResolve()
+				})
 
-				const data = reactive({})
-				
-			watch(
-				props,
-				(newProps) => {
+			const data = reactive({})
+			self.setupData.set(moduleId, data)
+			let skipInitialPropsNotify = true
+			
+		watch(
+				() => deepToRaw(props),
+				(newProps, oldProps = {}) => {
 					Object.assign(data, newProps)
+					if (skipInitialPropsNotify) {
+						skipInitialPropsNotify = false
+						return
+					}
+
+					const changedProps = Object.entries(newProps).reduce((acc, [key, value]) => {
+						if (!deepEqual(value, oldProps[key])) {
+							acc[key] = value
+						}
+						return acc
+					}, {})
+
+					if (Object.keys(changedProps).length === 0) {
+						return
+					}
+
 					message.send({
 						type: 't',
 						target: 'service',
@@ -362,7 +533,7 @@ class Runtime {
 							bridgeId,
 							moduleId,
 							methodName: 'tO', // triggerObserver
-							event: deepToRaw(newProps),
+							event: changedProps,
 						},
 					})
 				},
@@ -372,11 +543,9 @@ class Runtime {
 			)
 					
 					const initData = await message.wait(moduleId)
-					const entries = Object.entries(initData)
-					for (let i = 0; i < entries.length; i++) {
-						const [key, value] = entries[i]
-						set(data, key, value)
-					}
+					self._pendingSetups.delete(moduleId)
+					_pendingResolve()
+					self.applyInitialData(moduleId, data, initData)
 					return data
 				},
 				render: module.moduleInfo.render,
@@ -387,35 +556,77 @@ class Runtime {
 
 	updateModule(opts) {
 		const { moduleId, data } = opts
-		const viewModule = this.instance.get(moduleId)
+		const setupData = this.setupData.get(moduleId)
 
-		if (viewModule) {
+		if (setupData) {
+			let hasNewReactiveKey = false
+			const newKeys = {}
+
+			if (!this.initializedModules.has(moduleId)) {
+				const pendingUpdate = this.preInitUpdates.get(moduleId) || {}
+				Object.assign(pendingUpdate, data)
+				this.preInitUpdates.set(moduleId, pendingUpdate)
+			}
 			for (const key in data) {
-				viewModule.$nextTick(() => {
-					// 检查属性是否已经存在于组件上
-					if (!key.includes('.') && !key.includes('[') && !(key in viewModule)) {
-						const refValue = ref(data[key])
-						Object.defineProperty(viewModule, key, {
-							get() {
-								return refValue.value
-							},
-							set(newValue) {
-								refValue.value = newValue
-							},
-							enumerable: true,
-							configurable: true,
-						})
-					}
-					else {
-						// 如果属性已存在，直接设置新值
-						set(viewModule, key, data[key])
-					}
-				})
+				if (!Object.hasOwn(setupData, key)) {
+					hasNewReactiveKey = true
+					newKeys[key] = data[key]
+				}
+				set(setupData, key, data[key])
+			}
+			if (hasNewReactiveKey) {
+				this.refreshProxyAccess(moduleId, newKeys)
 			}
 		}
 		else {
 			console.warn('[system]', '[render]', `module ${moduleId} is not exist.`)
 		}
+	}
+
+	updateModules(opts) {
+		const { bridgeId, updates = [], callbackIds = [] } = opts
+		updates.forEach(update => this.updateModule(update))
+
+		if (callbackIds.length > 0) {
+			nextTick(() => {
+				callbackIds.forEach((id) => {
+					message.send({
+						type: 'triggerCallback',
+						target: 'service',
+						body: {
+							bridgeId,
+							id,
+						},
+					})
+				})
+			})
+		}
+	}
+
+	/**
+	 * 等待特定 moduleId 的 Vue instance 注册到 this.instance map，
+	 * 用于 addIntersectionObserver 调用早于 setup 执行的场景（如 Page.onLoad）
+	 */
+	_waitForInstance(moduleId, timeout = 500) {
+		const existing = this.instance.get(moduleId)
+		if (existing) {
+			return Promise.resolve(existing)
+		}
+		return new Promise((resolve) => {
+			const waiters = this._instanceWaiters.get(moduleId) || []
+			waiters.push(resolve)
+			this._instanceWaiters.set(moduleId, waiters)
+			setTimeout(() => {
+				// 超时：从等待队列中移除并 resolve undefined
+				const w = this._instanceWaiters.get(moduleId)
+				if (w) {
+					const idx = w.indexOf(resolve)
+					if (idx !== -1) w.splice(idx, 1)
+					if (w.length === 0) this._instanceWaiters.delete(moduleId)
+				}
+				resolve(undefined)
+			}, timeout)
+		})
 	}
 
 	async waitForEl(instance, timeout = 500) {
@@ -460,13 +671,13 @@ class Runtime {
 			return null
 		}
 		const elements = parent[method](selector)
-		if (elements) {
+		if (this.hasMatchedElements(elements)) {
 			return elements
 		}
 		return new Promise((resolve) => {
 			const observer = new MutationObserver((_, obs) => {
 				const elements = parent[method](selector)
-				if (elements) {
+				if (this.hasMatchedElements(elements)) {
 					obs.disconnect()
 					resolve(elements)
 				}
@@ -479,6 +690,16 @@ class Runtime {
 				resolve()
 			}, timeout)
 		})
+	}
+
+	hasMatchedElements(elements) {
+		if (!elements) {
+			return false
+		}
+		if (elements instanceof NodeList || Array.isArray(elements)) {
+			return elements.length > 0
+		}
+		return true
 	}
 
 	async selectorQuery(opts) {
@@ -603,7 +824,7 @@ class Runtime {
 		}
 
 		if (fields.rect) {
-			const { left, top, right, bottom, width, height } = targetElement.getBoundingClientRect()
+			const { left, top, right, bottom, width, height } = this.getElementRect(targetElement)
 			data.left = left
 			data.top = top
 			data.right = right
@@ -613,8 +834,15 @@ class Runtime {
 		}
 
 		if (fields.size) {
-			data.width = targetElement.offsetWidth
-			data.height = targetElement.offsetHeight
+			if (fields.rect) {
+				const { width, height } = this.getElementRect(targetElement)
+				data.width = width
+				data.height = height
+			}
+			else {
+				data.width = targetElement.offsetWidth
+				data.height = targetElement.offsetHeight
+			}
 		}
 
 		if (fields.scrollOffset) {
@@ -655,6 +883,215 @@ class Runtime {
 		return data
 	}
 
+	getElementRect(element) {
+		return element.getBoundingClientRect()
+	}
+
+	triggerCallback(bridgeId, id, args = [], data) {
+		if (!id) {
+			return
+		}
+		const body = {
+			bridgeId,
+			id,
+		}
+		if (args !== undefined) {
+			body.args = args
+		}
+		if (data !== undefined) {
+			body.data = data
+		}
+		message.send({
+			type: 'triggerCallback',
+			target: 'service',
+			body,
+		})
+	}
+
+	triggerCanvasFailure(bridgeId, params, errMsg) {
+		const result = { errMsg }
+		this.triggerCallback(bridgeId, params.fail, [result], result)
+		this.triggerCallback(bridgeId, params.complete, [result], result)
+	}
+
+	async getCanvasElement(canvasId, moduleId) {
+		const selector = `canvas[canvas-id="${canvasId}"]`
+		const scope = moduleId ? await this.waitForEl(this.instance.get(moduleId)) : document.body
+		if (scope?.querySelector) {
+			const scopedCanvas = await this.waitForElement(scope, selector, 'querySelector')
+			if (scopedCanvas) {
+				return scopedCanvas
+			}
+		}
+		return document.querySelector(selector)
+	}
+
+	ensureCanvasResolution(canvas) {
+		const rect = canvas.getBoundingClientRect()
+		const width = Math.max(Math.round(rect.width), 1)
+		const height = Math.max(Math.round(rect.height), 1)
+
+		if (canvas.width !== width) {
+			canvas.width = width
+		}
+		if (canvas.height !== height) {
+			canvas.height = height
+		}
+	}
+
+	loadCanvasImage(src) {
+		return new Promise((resolve, reject) => {
+			const image = new Image()
+			image.crossOrigin = 'anonymous'
+			image.onload = () => resolve(image)
+			image.onerror = () => reject(new Error(`Failed to load image: ${src}`))
+			image.src = src
+		})
+	}
+
+	async replayCanvasActions(context, actions = []) {
+		const state = {
+			fontSize: 10,
+		}
+
+		const applyFont = () => {
+			context.font = `${state.fontSize}px sans-serif`
+		}
+		applyFont()
+
+		for (const action of actions) {
+			const { type, args = [] } = action || {}
+			switch (type) {
+				case 'beginPath':
+				case 'closePath':
+				case 'moveTo':
+				case 'lineTo':
+				case 'rect':
+				case 'arc':
+				case 'quadraticCurveTo':
+				case 'bezierCurveTo':
+				case 'fill':
+				case 'stroke':
+				case 'clearRect':
+				case 'save':
+				case 'restore':
+				case 'translate':
+				case 'rotate':
+				case 'scale':
+					context[type](...args)
+					break
+				case 'fillText':
+					context.fillText(args[0], args[1], args[2], args[3])
+					break
+				case 'drawImage': {
+					const [src, ...drawArgs] = args
+					const image = await this.loadCanvasImage(src)
+					context.drawImage(image, ...drawArgs)
+					break
+				}
+				case 'setFillStyle':
+					context.fillStyle = args[0]
+					break
+				case 'setStrokeStyle':
+					context.strokeStyle = args[0]
+					break
+				case 'setGlobalAlpha':
+					context.globalAlpha = args[0]
+					break
+				case 'setLineCap':
+					context.lineCap = args[0]
+					break
+				case 'setLineJoin':
+					context.lineJoin = args[0]
+					break
+				case 'setLineWidth':
+					context.lineWidth = args[0]
+					break
+				case 'setMiterLimit':
+					context.miterLimit = args[0]
+					break
+				case 'setFontSize':
+					state.fontSize = args[0]
+					applyFont()
+					break
+				case 'setShadow':
+					context.shadowOffsetX = args[0]
+					context.shadowOffsetY = args[1]
+					context.shadowBlur = args[2]
+					context.shadowColor = args[3]
+					break
+				default:
+					console.warn('[system]', '[render]', `Unsupported canvas action: ${type}`)
+			}
+		}
+	}
+
+	async drawCanvas({ bridgeId, params }) {
+		const { canvasId, actions = [], reserve = false } = params
+		const canvas = await this.getCanvasElement(canvasId, params.moduleId)
+		if (!canvas) {
+			this.triggerCanvasFailure(bridgeId, params, `drawCanvas:fail canvas ${canvasId} not found`)
+			return
+		}
+
+		try {
+			this.ensureCanvasResolution(canvas)
+			const context = canvas.getContext('2d')
+			if (!reserve) {
+				context.clearRect(0, 0, canvas.width, canvas.height)
+			}
+			await this.replayCanvasActions(context, actions)
+			const result = { errMsg: 'drawCanvas:ok' }
+			this.triggerCallback(bridgeId, params.success, [result], result)
+			this.triggerCallback(bridgeId, params.complete, [result], result)
+		}
+		catch (error) {
+			this.triggerCanvasFailure(bridgeId, params, `drawCanvas:fail ${error.message}`)
+		}
+	}
+
+	async canvasToTempFilePath({ bridgeId, params }) {
+		const { canvasId, x = 0, y = 0, width, height, destWidth, destHeight, fileType = 'png', quality = 1 } = params
+		const canvas = await this.getCanvasElement(canvasId, params.moduleId)
+		if (!canvas) {
+			this.triggerCanvasFailure(bridgeId, params, `canvasToTempFilePath:fail canvas ${canvasId} not found`)
+			return
+		}
+
+		try {
+			this.ensureCanvasResolution(canvas)
+			const exportWidth = width || canvas.width
+			const exportHeight = height || canvas.height
+			const outputCanvas = document.createElement('canvas')
+			outputCanvas.width = destWidth || exportWidth
+			outputCanvas.height = destHeight || exportHeight
+			const outputContext = outputCanvas.getContext('2d')
+			outputContext.drawImage(
+				canvas,
+				x,
+				y,
+				exportWidth,
+				exportHeight,
+				0,
+				0,
+				outputCanvas.width,
+				outputCanvas.height,
+			)
+
+			const mimeType = fileType === 'jpg' || fileType === 'jpeg' ? 'image/jpeg' : 'image/png'
+			const tempFilePath = outputCanvas.toDataURL(mimeType, quality)
+			const result = {
+				errMsg: 'canvasToTempFilePath:ok',
+				tempFilePath,
+			}
+			this.triggerCallback(bridgeId, params.success, [result], result)
+			this.triggerCallback(bridgeId, params.complete, [result], result)
+		}
+		catch (error) {
+			this.triggerCanvasFailure(bridgeId, params, `canvasToTempFilePath:fail ${error.message}`)
+		}
+	}
+
 	showToast({ params }) {
 		window.__globalAPI.showToast(params)
 	}
@@ -664,10 +1101,12 @@ class Runtime {
 	}
 
 	addIntersectionObserver(opts) {
-		setTimeout(async () => {
+		(async () => {
 			const { bridgeId, params: { targetSelector, relativeInfo, moduleId, options, success } } = opts
 
-			const el = await this.waitForEl(this.instance.get(moduleId))
+			// 先等 moduleId 对应的 Vue instance 注册（处理 Page.onLoad 等早于 setup 执行的场景）
+			const instance = await this._waitForInstance(moduleId)
+			const el = await this.waitForEl(instance)
 			if (!el) {
 				console.error('[system]', '[render]', 'Failed to find element for intersection observer')
 				return
@@ -736,6 +1175,17 @@ class Runtime {
 				return
 			}
 
+			// 目标 DOM 已出现，等待所有 pending setup 完成（service 侧 created/attached 执行完毕），
+			// 但排除 observer 调用方自身（moduleId），避免在 created/onLoad 内调用时产生循环等待。
+			// 这保证了：IntersectionObserver 首次回调到达 service 时，目标 DOM 内子组件的
+			// 生命周期钩子（如 EventBus.once 注册）已就绪。
+			const pendingExceptSelf = Array.from(this._pendingSetups.entries())
+				.filter(([id]) => id !== moduleId)
+				.map(([, promise]) => promise)
+			if (pendingExceptSelf.length > 0) {
+				await Promise.all(pendingExceptSelf)
+			}
+
 			const allObservers = observers.map(({ options }) => {
 				let initRatio = options.initialRatio
 				const observer = new IntersectionObserver((entries) => {
@@ -797,8 +1247,7 @@ class Runtime {
 					args: { observerId },
 				},
 			})
-		// Fixme: 延迟为了解决当前父组件 watch 触发的 nextTick 优先于组件的 created 生命周期导致异常，eg: emit 事件发送先于注册事件执行导致没有回调
-		}, 300)
+		})()
 	}
 
 	removeIntersectionObserver({ params: { observerId } }) {

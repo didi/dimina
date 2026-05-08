@@ -1,8 +1,23 @@
+import { LAUNCH_SCREEN_MIN_MS, WAIT_TRANSITION_TIMEOUT_MS } from '@/constants/animation'
 import { AppManager } from '@/core/appManager'
 import { Bridge } from '@/core/bridge'
 import { JSCore } from '@/core/jscore'
 import { HashRouter } from '@/utils/hashRouter'
 import { mergePageConfig, queryPath, readFile, sleep, uuid } from '@/utils/util'
+
+// 等待元素上指定 transition property 结束，带超时兜底防止动画未触发时永久阻塞
+const waitTransitionEnd = (el, property, timeout = WAIT_TRANSITION_TIMEOUT_MS) =>
+	new Promise(resolve => {
+		const timer = setTimeout(resolve, timeout)
+		const handler = (e) => {
+			if (!property || e.propertyName === property) {
+				clearTimeout(timer)
+				el.removeEventListener('transitionend', handler)
+				resolve()
+			}
+		}
+		el.addEventListener('transitionend', handler)
+	})
 import tpl from './miniApp.html?raw'
 import './miniApp.scss'
 

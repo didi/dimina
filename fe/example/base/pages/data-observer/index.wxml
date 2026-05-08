@@ -1,0 +1,1 @@
+<view> {{numberA}} + {{numberB}} = {{sum}} </view>

@@ -1,6 +1,6 @@
 {
   "name": "@didi-dimina/dimina",
-  "version": "1.0.2",
+  "version": "1.2.0",
   "description": "星河小程序鸿蒙容器sdk,可以快速帮助微信小程序迁移到鸿蒙应用中",
   "main": "Index.ets",
   "author": "ucodeustory",

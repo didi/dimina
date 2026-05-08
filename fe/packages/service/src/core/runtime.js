@@ -13,6 +13,39 @@ class Runtime {
 		this.instances = {}
 	}
 
+	queuePendingEvent(instance, payload) {
+		instance.__pendingRuntimeEvents__ = instance.__pendingRuntimeEvents__ || []
+		return new Promise((resolve, reject) => {
+			instance.__pendingRuntimeEvents__.push({
+				...payload,
+				resolve,
+				reject,
+			})
+		})
+	}
+
+	async flushPendingEvents(instance) {
+		const pendingEvents = instance?.__pendingRuntimeEvents__ || []
+		instance.__pendingRuntimeEvents__ = []
+
+		for (const pendingEvent of pendingEvents) {
+			try {
+				const result = await this.dispatchEvent(pendingEvent)
+				pendingEvent.resolve(result)
+			}
+			catch (error) {
+				pendingEvent.reject(error)
+			}
+		}
+	}
+
+	async dispatchEvent({ instance, bridgeId, moduleId, methodName, event }) {
+		if (isFunction(instance[methodName])) {
+			return await instance[methodName](event)
+		}
+		console.warn(`[service] triggerEvent ${bridgeId} ${moduleId}, is: ${instance.is}, method: ${methodName} is not exist`)
+	}
+
 	createApp(opts) {
 		// app 实例只有一个，避免重复创建
 		if (this.app) {
@@ -133,6 +166,8 @@ class Runtime {
 			instance.componentReadied()
 			// 标记组件已准备就绪
 			instance.__componentReadied__ = true
+			this.flushPendingEvents(instance)
+			instance.flushInitSetDataCallbacks?.()
 			
 			// 检查是否可以调用页面的 onReady
 			const pageInstance = this.getPageInstance(bridgeId)
@@ -204,6 +239,7 @@ class Runtime {
 		// 标记页面准备就绪，但延迟调用 onReady
 		// 等待所有组件的 ready 执行完毕后再调用
 		instance.__pageReadyPending__ = true
+		instance.flushInitSetDataCallbacks?.()
 		
 		// 检查是否所有组件都已经准备就绪
 		this.checkAndCallPageReady(bridgeId, moduleId)
@@ -326,14 +362,29 @@ class Runtime {
 	}
 
 	pageResize(opts) {
-		const { bridgeId, moduleId } = opts
-		const instance = this.instances[bridgeId][moduleId]
+		const { bridgeId, size } = opts
+		const instances = this.instances[bridgeId]
 
-		if (!instance) {
+		if (!instances) {
 			return
 		}
 
-		instance.pageResize()
+		Object.values(instances).forEach((instance) => {
+			if (!instance) {
+				return
+			}
+			if (instance.__type__ === PageModule.type) {
+				instance.pageResize(size)
+			}
+			else if (instance.__type__ === ComponentModule.type) {
+				if (!instance.__isComponent__) {
+					instance.pageResize(size)
+				}
+				else {
+					instance.pageResize(size)
+				}
+			}
+		})
 	}
 
 	componentError(opts) {
@@ -350,16 +401,18 @@ class Runtime {
 	}
 
 	componentRouteDone(opts) {
-		const { bridgeId, moduleId } = opts
-		const instance = this.instances[bridgeId][moduleId]
+		const { bridgeId } = opts
+		const instances = this.instances[bridgeId]
 
-		if (!instance) {
+		if (!instances) {
 			return
 		}
 
-		if (instance.__type__ === ComponentModule.type) {
-			instance.componentRouteDone()
-		}
+		Object.values(instances).forEach((instance) => {
+			if (instance?.__type__ === ComponentModule.type) {
+				instance.componentRouteDone()
+			}
+		})
 	}
 
 	/**
@@ -385,12 +438,27 @@ class Runtime {
 			return
 		}
 
-		if (isFunction(instance[methodName])) {
-			return await instance[methodName](event)
+		if (
+			instance.__type__ === ComponentModule.type
+			&& instance.__isComponent__
+			&& !instance.__componentReadied__
+		) {
+			return this.queuePendingEvent(instance, {
+				instance,
+				bridgeId,
+				moduleId,
+				methodName,
+				event,
+			})
 		}
-		else {
-			console.warn(`[service] triggerEvent ${bridgeId} ${moduleId}, is: ${instance.is}, method: ${methodName} is not exist`)
-		}
+
+		return this.dispatchEvent({
+			instance,
+			bridgeId,
+			moduleId,
+			methodName,
+			event,
+		})
 	}
 }
 

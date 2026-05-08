@@ -35,8 +35,15 @@ export class App {
 	initCustomMethods() {
 		const moduleInfo = this.appModule.moduleInfo
 		for (const attr in moduleInfo) {
-			if (!lifecycleMethods.includes(attr) && !reservedProperties.includes(attr) && isFunction(moduleInfo[attr])) {
+			if (lifecycleMethods.includes(attr) || reservedProperties.includes(attr)) {
+				continue
+			}
+
+			if (isFunction(moduleInfo[attr])) {
 				this[attr] = moduleInfo[attr].bind(this)
+			}
+			else {
+				this[attr] = moduleInfo[attr]
 			}
 		}
 	}

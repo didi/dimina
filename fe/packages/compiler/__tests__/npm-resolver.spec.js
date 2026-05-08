@@ -38,6 +38,15 @@ describe('NpmResolver', () => {
 			expect(result).toBe('/components/button')
 		})
 
+		it('应该在 Windows 风格路径下将小程序绝对路径解析到项目根目录', () => {
+			const winWorkPath = 'E:\\WeChatProjects\\Demo'
+			const winResolver = new NpmResolver(winWorkPath)
+			const pageFilePath = 'E:\\WeChatProjects\\Demo\\pages\\index\\index.json'
+
+			const result = winResolver.resolveComponentPath('/components/navigation-bar/navigation-bar', pageFilePath)
+			expect(result).toBe('/components/navigation-bar/navigation-bar')
+		})
+
 		it('应该尝试解析 npm 包组件', () => {
 			// 创建 miniprogram_npm 目录结构
 			const miniprogramNpmPath = path.join(tempDir, 'miniprogram_npm')
@@ -78,6 +87,19 @@ describe('NpmResolver', () => {
 				'miniprogram_npm'
 			])
 		})
+
+		it('应该兼容 Windows 风格路径的 miniprogram_npm 逐级查找', () => {
+			const winWorkPath = 'E:\\WeChatProjects\\Demo'
+			const winResolver = new NpmResolver(winWorkPath)
+			const pageFilePath = 'E:\\WeChatProjects\\Demo\\pages\\subpackage\\detail\\index.js'
+
+			expect(winResolver.generateSearchPaths(pageFilePath)).toEqual([
+				'pages/subpackage/detail/miniprogram_npm',
+				'pages/subpackage/miniprogram_npm',
+				'pages/miniprogram_npm',
+				'miniprogram_npm',
+			])
+		})
 	})
 
 	describe('findComponentInMiniprogramNpm', () => {
@@ -110,6 +132,44 @@ describe('NpmResolver', () => {
 		it('应该返回 null 如果组件不存在', () => {
 			const result = npmResolver.findComponentInMiniprogramNpm('non-existent', 'miniprogram_npm')
 			expect(result).toBeNull()
+		})
+	})
+
+	describe('resolveScriptModule', () => {
+		it('应该优先解析最近目录下的 npm 脚本模块', () => {
+			const localPackagePath = path.join(tempDir, 'pages/feature/miniprogram_npm/westore')
+			const rootPackagePath = path.join(tempDir, 'miniprogram_npm/westore')
+			const pageFilePath = path.join(tempDir, 'pages/feature/index.js')
+
+			fs.mkdirSync(localPackagePath, { recursive: true })
+			fs.mkdirSync(rootPackagePath, { recursive: true })
+			fs.writeFileSync(path.join(localPackagePath, 'package.json'), JSON.stringify({ main: 'local.js' }))
+			fs.writeFileSync(path.join(localPackagePath, 'local.js'), 'module.exports = "local"')
+			fs.writeFileSync(path.join(rootPackagePath, 'package.json'), JSON.stringify({ main: 'root.js' }))
+			fs.writeFileSync(path.join(rootPackagePath, 'root.js'), 'module.exports = "root"')
+
+			const result = npmResolver.resolveScriptModule('westore', pageFilePath, moduleId => {
+				for (const ext of ['.js', '.ts']) {
+					if (fs.existsSync(path.join(tempDir, `${moduleId}${ext}`))) {
+						return moduleId
+					}
+				}
+
+				const packageJsonPath = path.join(tempDir, moduleId, 'package.json')
+				if (fs.existsSync(packageJsonPath)) {
+					const packageInfo = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'))
+					const entryModuleId = npmResolver.normalizeModuleId(path.resolve(moduleId, packageInfo.main))
+					for (const ext of ['.js', '.ts']) {
+						if (fs.existsSync(path.join(tempDir, `${entryModuleId}${ext}`))) {
+							return entryModuleId
+						}
+					}
+				}
+
+				return null
+			})
+
+			expect(result).toBe('/pages/feature/miniprogram_npm/westore/local')
 		})
 	})
 

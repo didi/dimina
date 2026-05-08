@@ -1,0 +1,58 @@
+<button type="primary" bindtap="openSystemBluetoothSetting">openSystemBluetoothSetting</button>
+<button type="primary" bindtap="getMenuButtonBoundingClientRect">getMenuButtonBoundingClientRect</button>
+
+<button type="primary" bindtap="getWindowInfo">getWindowInfo</button>
+<button type="primary" bindtap="getSystemSetting">getSystemSetting</button>
+<button type="primary" bindtap="getSystemInfoSync">getSystemInfoSync</button>
+<button type="primary" bindtap="getSystemInfoAsync">getSystemInfoAsync</button>
+<button type="primary" bindtap="getSystemInfo">getSystemInfo</button>
+<button type="primary" bindtap="getNetworkType">getNetworkType</button>
+<button type="primary" bindtap="startLocationUpdate">startLocationUpdate</button>
+<button type="primary" bindtap="stopLocationUpdate">stopLocationUpdate</button>
+
+<button type="primary" bindtap="reLaunch">reLaunch</button>
+
+<button type="primary" bindtap="showToast">showToast</button>
+<button type="primary" bindtap="hideToast">hideToast</button>
+<button type="primary" bindtap="showLoading">showLoading</button>
+<button type="primary" bindtap="showModal">showModal</button>
+<button type="primary" bindtap="pageScrollTo">pageScrollTo</button>
+
+<button type="primary" bindtap="setNavigationBarTitle">setNavigationBarTitle</button>
+<button type="primary" bindtap="setNavigationBarColor">setNavigationBarColor</button>
+
+<button type="primary" bindtap="request">request</button>
+<button type="primary" bindtap="downloadFile">downloadFile</button>
+<button type="primary" bindtap="uploadFile">uploadFile</button>
+
+<button type="primary" bindtap="setStorageSync">setStorageSync</button>
+<button type="primary" bindtap="getStorageSync">getStorageSync</button>
+<button type="primary" bindtap="removeStorageSync">removeStorageSync</button>
+<button type="primary" bindtap="clearStorageSync">clearStorageSync</button>
+<button type="primary" bindtap="setStorage">setStorage</button>
+<button type="primary" bindtap="getStorage">getStorage</button>
+<button type="primary" bindtap="removeStorage">removeStorage</button>
+<button type="primary" bindtap="clearStorage">clearStorage</button>
+<button type="primary" bindtap="getStorageInfoSync">getStorageInfoSync</button>
+<button type="primary" bindtap="getStorageInfo">getStorageInfo</button>
+
+<button type="primary" bindtap="saveImageToPhotosAlbum">saveImageToPhotosAlbum</button>
+<button type="primary" bindtap="previewImage">previewImage</button>
+<button type="primary" bindtap="compressImage">compressImage</button>
+<button type="primary" bindtap="chooseImage">chooseImage</button>
+<button type="primary" bindtap="chooseMedia">chooseMedia</button>
+
+<button type="primary" bindtap="chooseContact">chooseContact</button>
+<button type="primary" bindtap="addPhoneContact">addPhoneContact</button>
+
+<button type="primary" bindtap="setClipboardData">setClipboardData</button>
+<button type="primary" bindtap="getClipboardData">getClipboardData</button>
+
+<button type="primary" bindtap="hideKeyboard">hideKeyboard</button>
+<button type="primary" bindtap="makePhoneCall">makePhoneCall</button>
+
+<button type="primary" bindtap="vibrateShort">vibrateShort</button>
+<button type="primary" bindtap="vibrateLong">vibrateLong</button>
+
+<button type="primary" bindtap="showActionSheet">showActionSheet</button>
+<button type="primary" bindtap="scanCode">scanCode</button>

@@ -1,0 +1,36 @@
+<template name="odd">
+  <view> odd </view>
+  <image src="./ui.png" class="testImg"></image>
+</template>
+<template name="even">
+  <view> even </view>
+</template>
+
+<view class="detail" bindtap="back">
+  {{text}}
+</view>
+
+<block wx:for="{{[1, 2, 3, 4, 5]}}">
+  <template is="{{item % 2 == 0 ? 'even' : 'odd'}}"/>
+</block>
+
+<import src="./msgItem.wxml"/>
+<template is="msgItem" data="{{...item}}" />
+
+<wxs module="utils" src="../../utils/format.wxs" />
+
+<wxs module="foo">
+var some_msg = "some msg";
+module.exports = {
+  msg : some_msg,
+}
+</wxs>
+
+<view>hello {{ utils.formatTime(myTime) }}</view>
+<view> {{foo.msg}} </view>
+
+<include src="./msgItem.wxml"/>
+
+<import src="item.wxml"/>
+
+<template is="item" data="{{text: 'I am template'}}"/>

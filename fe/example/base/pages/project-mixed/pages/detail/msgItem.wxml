@@ -1,0 +1,11 @@
+<template name="msgItem">
+  <view class="con">
+    <text>start</text>
+    <text> {{index}}: {{msg}} </text>
+    <text> Time: {{time}} </text>
+    <text>end</text>
+  </view>
+</template>
+
+<view>msg start</view>
+<view>msg end</view>

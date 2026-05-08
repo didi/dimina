@@ -69,7 +69,9 @@ class StorageApi : BaseApiHandler() {
                     is Double -> SyncResult(JSValue.createNumber(value))
                     is Float -> SyncResult(JSValue.createNumber(value.toDouble()))
                     is Boolean -> SyncResult(JSValue.createBoolean(value))
-                    else -> SyncResult(JSValue.createNull())
+                    is JSONArray -> SyncResult(JSValue.createObject(value.toString()))
+                    is JSONObject -> SyncResult(JSValue.createObject(value.toString()))
+                    else -> SyncResult(JSValue.createString(""))
                 }
             }
 
@@ -192,6 +194,11 @@ class StorageApi : BaseApiHandler() {
                     storage.encode(typeKey, "Array")
                 }
 
+                is JSONObject -> {
+                    storage.encode(key, data.toString())
+                    storage.encode(typeKey, "Object")
+                }
+
                 is Any -> try {
                     // For JSON-serializable objects
                     storage.encode(key, data.toString())
@@ -220,6 +227,11 @@ class StorageApi : BaseApiHandler() {
                 "Double" -> storage.decodeDouble(key, 0.0)
                 "Array" -> try {
                     JSONArray(storage.decodeString(key))
+                } catch (_: Exception) {
+                    storage.decodeString(key) // Fallback to String if parsing fails
+                }
+                "Object" -> try {
+                    JSONObject(storage.decodeString(key))
                 } catch (_: Exception) {
                     storage.decodeString(key) // Fallback to String if parsing fails
                 }

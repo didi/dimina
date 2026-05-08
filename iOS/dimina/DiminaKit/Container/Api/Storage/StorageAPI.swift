@@ -32,47 +32,38 @@ public class StorageAPI: DMPContainerApi {
         DMPStorage.shared.initialize()
     }
     
-    // Set storage synchronously
+    // wx.setStorageSync(key, data) → params: [key, data]
     @BridgeMethod(SET_STORAGE_SYNC)
     var setStorageSync: DMPBridgeMethodHandler = { param, env, callback in
-        let param = param.getMap()
-        guard let key = param.get("key") as? String else { return false }
-        let data = param.get("data")
-        let encrypt = param.get("encrypt") as? Bool ?? false
-        
-        guard let data = data else { return false }
-        
-        let result = DMPStorage.shared.set(key: key, value: data, encrypted: encrypt)
-        return result
+        guard let array = param.getValue() as? [Any], array.count >= 2,
+              let key = array[0] as? String else { return DMPSyncResult(false) }
+        return DMPSyncResult(DMPStorage.shared.set(key: key, value: array[1], encrypted: false))
     }
-    
-    // Get storage synchronously
+
+    // wx.getStorageSync(key) → params: key string
     @BridgeMethod(GET_STORAGE_SYNC)
     var getStorageSync: DMPBridgeMethodHandler = { param, env, callback in
-        guard let key = param.getValue() as? String else { return }
+        guard let key = param.getValue() as? String else { return DMPNoneResult() }
         let value = DMPStorage.shared.get(key: key, encrypted: false)
-        return DMPBridgeParam(value: value)
+        return DMPSyncResult(value ?? "")
     }
-    
-    // Remove storage synchronously
+
+    // wx.removeStorageSync(key) → params: key string
     @BridgeMethod(REMOVE_STORAGE_SYNC)
     var removeStorageSync: DMPBridgeMethodHandler = { param, env, callback in
-        let param = param.getMap()
-        guard let key = param.get("key") as? String else { return false }
-        let encrypt = param.get("encrypt") as? Bool ?? false
-        
-        DMPStorage.shared.remove(key: key, encrypted: encrypt)
-        return true
+        guard let key = param.getValue() as? String else { return DMPSyncResult(false) }
+        DMPStorage.shared.remove(key: key, encrypted: false)
+        return DMPSyncResult(true)
     }
-    
+
     // Clear storage synchronously
     @BridgeMethod(CLEAR_STORAGE_SYNC)
     var clearStorageSync: DMPBridgeMethodHandler = { param, env, callback in
         // 清除所有存储（包括加密和非加密）
         DMPStorage.shared.clearAllStorage()
-        return true
+        return DMPSyncResult(true)
     }
-    
+
     // Set storage
     @BridgeMethod(SET_STORAGE)
     var setStorage: DMPBridgeMethodHandler = { param, env, callback in
@@ -80,22 +71,22 @@ public class StorageAPI: DMPContainerApi {
         guard let key = param.get("key") as? String else {
             let errMsg = "\(SET_STORAGE):fail missing parameter key"
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: errMsg)
-            return nil
+            return DMPAsyncResult()
         }
-        
+
         let data = param.get("data")
         let encrypt = param.get("encrypt") as? Bool ?? false
-        
+
         guard let data = data else {
             let errMsg = "\(SET_STORAGE):fail missing parameter data"
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: errMsg)
-            return nil
+            return DMPAsyncResult()
         }
-        
+
         // 在后台线程执行存储操作
         DispatchQueue.global().async {
             let success = DMPStorage.shared.set(key: key, value: data, encrypted: encrypt)
-            
+
             DispatchQueue.main.async {
                 if success {
                     let resultMap = DMPMap()
@@ -106,10 +97,10 @@ public class StorageAPI: DMPContainerApi {
                 }
             }
         }
-        
-        return nil
+
+        return DMPAsyncResult()
     }
-    
+
     // Get storage
     @BridgeMethod(GET_STORAGE)
     var getStorage: DMPBridgeMethodHandler = { param, env, callback in
@@ -117,15 +108,15 @@ public class StorageAPI: DMPContainerApi {
         guard let key = param.get("key") as? String else {
             let errMsg = "\(GET_STORAGE):fail missing parameter key"
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: errMsg)
-            return nil
+            return DMPAsyncResult()
         }
-        
+
         let encrypt = param.get("encrypt") as? Bool ?? false
-        
+
         // 在后台线程执行获取操作
         DispatchQueue.global().async {
             let value = DMPStorage.shared.get(key: key, encrypted: encrypt)
-            
+
             DispatchQueue.main.async {
                 if let value = value {
                     let resultMap = DMPMap()
@@ -137,10 +128,10 @@ public class StorageAPI: DMPContainerApi {
                 }
             }
         }
-        
-        return nil
+
+        return DMPAsyncResult()
     }
-    
+
     // Remove storage
     @BridgeMethod(REMOVE_STORAGE)
     var removeStorage: DMPBridgeMethodHandler = { param, env, callback in
@@ -148,73 +139,73 @@ public class StorageAPI: DMPContainerApi {
         guard let key = param.get("key") as? String else {
             let errMsg = "\(REMOVE_STORAGE):fail missing parameter key"
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: errMsg)
-            return nil
+            return DMPAsyncResult()
         }
-        
+
         let encrypt = param.get("encrypt") as? Bool ?? false
-        
+
         // 在后台线程执行删除操作
         DispatchQueue.global().async {
             DMPStorage.shared.remove(key: key, encrypted: encrypt)
-            
+
             DispatchQueue.main.async {
                 let resultMap = DMPMap()
                 resultMap.set("errMsg", "\(REMOVE_STORAGE):ok")
                 DMPContainerApi.invokeSuccess(callback: callback, param: resultMap)
             }
         }
-        
-        return nil
+
+        return DMPAsyncResult()
     }
-    
+
     // Clear storage
     @BridgeMethod(CLEAR_STORAGE)
     var clearStorage: DMPBridgeMethodHandler = { param, env, callback in
         // 在后台线程执行清除操作
         DispatchQueue.global().async {
             DMPStorage.shared.clearAllStorage()
-            
+
             DispatchQueue.main.async {
                 let resultMap = DMPMap()
                 resultMap.set("errMsg", "\(CLEAR_STORAGE):ok")
                 DMPContainerApi.invokeSuccess(callback: callback, param: resultMap)
             }
         }
-        
-        return nil
+
+        return DMPAsyncResult()
     }
-    
+
     // Get storage info synchronously
     @BridgeMethod(GET_STORAGE_INFO_SYNC)
     var getStorageInfoSync: DMPBridgeMethodHandler = { param, env, callback in
         let storageInfo = DMPStorage.shared.getAllStorageInfo()
-        
+
         let result = DMPMap()
         result.set("keys", storageInfo.keys)
         result.set("currentSize", storageInfo.currentSize)
         result.set("limitSize", storageInfo.limitSize)
-        
-        return result
+
+        return DMPSyncResult(result.toDictionary())
     }
-    
+
     // Get storage info
     @BridgeMethod(GET_STORAGE_INFO)
     var getStorageInfo: DMPBridgeMethodHandler = { param, env, callback in
         // 在后台线程执行获取存储信息操作
         DispatchQueue.global().async {
             let storageInfo = DMPStorage.shared.getAllStorageInfo()
-            
+
             DispatchQueue.main.async {
                 let resultMap = DMPMap()
                 resultMap.set("keys", storageInfo.keys)
                 resultMap.set("currentSize", storageInfo.currentSize)
                 resultMap.set("limitSize", storageInfo.limitSize)
                 resultMap.set("errMsg", "\(GET_STORAGE_INFO):ok")
-                
+
                 DMPContainerApi.invokeSuccess(callback: callback, param: resultMap)
             }
         }
-        
-        return nil
+
+        return DMPAsyncResult()
     }
 }

@@ -1,0 +1,23 @@
+.icon-box {
+    margin-bottom: 20px;
+    padding: 0 37px;
+    display: flex;
+    align-items: center;
+}
+
+.icon-box-img {
+    margin-right: 23px;
+}
+
+.icon-box-ctn {
+    flex-shrink: 100;
+}
+
+.icon-small-wrp {
+    margin-right: 23px;
+    width: 93px;
+    height: 93px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
