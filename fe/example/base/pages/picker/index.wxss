@@ -1,0 +1,8 @@
+@import "../lib/weui.wxss";
+.picker{
+    padding: 13px;
+    background-color: #FFFFFF;
+}
+.page {
+    padding-top: 80px;
+}

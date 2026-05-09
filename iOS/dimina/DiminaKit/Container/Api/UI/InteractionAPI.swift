@@ -30,7 +30,7 @@ public class InteractionAPI: DMPContainerApi {
             let errorMap = DMPMap()
             errorMap.set("errMsg", "\(InteractionAPI.SHOW_TOAST):fail title is required")
             DMPContainerApi.invokeFailure(callback: callback, param: errorMap, errMsg: "title is required")
-            return
+            return DMPAsyncResult()
         }
         
         // 获取可选参数
@@ -63,7 +63,7 @@ public class InteractionAPI: DMPContainerApi {
         let result = DMPMap()
         result.set("errMsg", "\(InteractionAPI.SHOW_TOAST):ok")
         DMPContainerApi.invokeSuccess(callback: callback, param: result)
-        return nil
+        return DMPAsyncResult()
     }
     
     // Show modal
@@ -99,7 +99,7 @@ public class InteractionAPI: DMPContainerApi {
                 DMPContainerApi.invokeSuccess(callback: callback, param: result)
             }
         }
-        return nil
+        return DMPAsyncResult()
     }
     
     // Show loading
@@ -111,7 +111,7 @@ public class InteractionAPI: DMPContainerApi {
             let errorMap = DMPMap()
             errorMap.set("errMsg", "\(InteractionAPI.SHOW_LOADING):fail title is required")
             DMPContainerApi.invokeFailure(callback: callback, param: errorMap, errMsg: "title is required")
-            return
+            return DMPAsyncResult()
         }
         
         // 获取可选参数
@@ -127,7 +127,7 @@ public class InteractionAPI: DMPContainerApi {
         let result = DMPMap()
         result.set("errMsg", "\(InteractionAPI.SHOW_LOADING):ok")
         DMPContainerApi.invokeSuccess(callback: callback, param: result)
-        return nil
+        return DMPAsyncResult()
     }
     
     // Hide toast
@@ -142,7 +142,7 @@ public class InteractionAPI: DMPContainerApi {
         let result = DMPMap()
         result.set("errMsg", "\(InteractionAPI.HIDE_TOAST):ok")
         DMPContainerApi.invokeSuccess(callback: callback, param: result)
-        return nil
+        return DMPAsyncResult()
     }
     
     // Hide loading
@@ -158,7 +158,7 @@ public class InteractionAPI: DMPContainerApi {
         let result = DMPMap()
         result.set("errMsg", "\(InteractionAPI.HIDE_LOADING):ok")
         DMPContainerApi.invokeSuccess(callback: callback, param: result)
-        return nil
+        return DMPAsyncResult()
     }
     
     // Show action sheet
@@ -186,7 +186,7 @@ public class InteractionAPI: DMPContainerApi {
             let errorMap = DMPMap()
             errorMap.set("errMsg", "\(InteractionAPI.SHOW_ACTION_SHEET):fail itemList is empty")
             DMPContainerApi.invokeFailure(callback: callback, param: errorMap, errMsg: "itemList is empty")
-            return
+            return DMPAsyncResult()
         }
         
         // 在主线程上显示操作表
@@ -203,7 +203,7 @@ public class InteractionAPI: DMPContainerApi {
                 DMPContainerApi.invokeSuccess(callback: callback, param: result)
             }
         }
-        return nil
+        return DMPAsyncResult()
     }
     
 }

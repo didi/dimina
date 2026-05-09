@@ -2,7 +2,8 @@ import { cloneDeep, isFunction, set } from '@dimina/common'
 import { createSelectorQuery } from '../../api/core/wxml/selector-query'
 import message from '../../core/message'
 import runtime from '../../core/runtime'
-import { addComputedData, filterData, isChildComponent, matchComponent, syncUpdateChildrenProps } from '../../core/utils'
+import { createUpdateCallback, enqueueUpdate } from '../../core/update-queue'
+import { addComputedData, filterData, invokeBehaviorObservers, invokeObserversOnce, isChildComponent, matchComponent, syncUpdateChildrenProps } from '../../core/utils'
 
 // https://developers.weixin.qq.com/miniprogram/dev/reference/api/Page.html
 // const lifecycleMethods = ['onLoad', 'onShow', 'onReady', 'onHide', 'onUnload',
@@ -27,11 +28,12 @@ export class Page {
 		// 保存子组件 properties 绑定关系（用于同步更新）
 		// 格式：{ childModuleId: { childPropName: parentDataKey } }
 		this.__childPropsBindings__ = {}
+		this.__pendingInitSetDataCallbacks__ = []
 	}
 
 	init() {
 		this.#initMembers()
-		this.#invokeInitLifecycle().then(() => {
+		return this.#invokeInitLifecycle().then(() => {
 			addComputedData(this)
 			message.send({
 				type: this.__id__,
@@ -45,29 +47,46 @@ export class Page {
 		})
 	}
 
-	setData(data) {
+	flushInitSetDataCallbacks() {
+		if (this.__pendingInitSetDataCallbacks__.length === 0) {
+			return
+		}
+
+		const callbacks = this.__pendingInitSetDataCallbacks__
+		this.__pendingInitSetDataCallbacks__ = []
+		enqueueUpdate(this.bridgeId, this.__id__, {}, createUpdateCallback(this, callbacks))
+	}
+
+	setData(data, callback) {
 		const fData = filterData(data)
+		const oldValues = {}
+		const info = this.__info__ || {}
 		
 		// 更新数据
 		for (const key in fData) {
+			oldValues[key] = this.data[key]
 			set(this.data, key, fData[key])
 		}
 
+		if (info.observers) {
+			invokeObserversOnce(Object.keys(fData), info.observers, this.data, this, oldValues)
+		}
+		invokeBehaviorObservers(this, Object.keys(fData), oldValues)
+
 		if (!this.initd) {
+			if (isFunction(callback)) {
+				this.__pendingInitSetDataCallbacks__.push(callback)
+			}
 			return
 		}
 
 		// 同步更新子组件的 properties，确保与微信小程序时序一致
-		syncUpdateChildrenProps(this, runtime.instances[this.bridgeId], fData)
+		const syncedChildren = syncUpdateChildrenProps(this, runtime.instances[this.bridgeId], fData)
 
-		message.send({
-			type: 'u',
-			target: 'render',
-			body: {
-				bridgeId: this.bridgeId,
-				moduleId: this.__id__,
-				data: fData,
-			},
+		enqueueUpdate(this.bridgeId, this.__id__, fData, createUpdateCallback(this, callback))
+
+		syncedChildren.forEach(({ child, data }) => {
+			enqueueUpdate(this.bridgeId, child.__id__, data)
 		})
 	}
 
@@ -138,6 +157,11 @@ export class Page {
 	}
 
 	async #invokeInitLifecycle() {
+		this.__info__.behaviorLifetimes?.created?.forEach(method => method.call(this))
+		await this.created?.()
+		this.__info__.behaviorLifetimes?.attached?.forEach(method => method.call(this))
+		await this.attached?.()
+
 		// 页面创建时执行
 		await this.onLoad?.(this.opts.query || {})
 		this.initd = true
@@ -147,18 +171,24 @@ export class Page {
 	 * 页面显示/切入前台时触发。该时机不能保证页面渲染完成，如有页面/组件元素相关操作建议在 onReady 中处理
 	 */
 	pageShow() {
+		this.__info__.behaviorPageLifetimes?.show?.forEach(method => method.call(this))
 		this.onShow?.()
 	}
 
 	pageHide() {
+		this.__info__.behaviorPageLifetimes?.hide?.forEach(method => method.call(this))
 		this.onHide?.()
 	}
 
 	pageReady() {
+		this.__info__.behaviorLifetimes?.ready?.forEach(method => method.call(this))
+		this.ready?.()
 		this.onReady?.()
 	}
 
 	pageUnload() {
+		this.__info__.behaviorLifetimes?.detached?.forEach(method => method.call(this))
+		this.detached?.()
 		this.onUnload?.()
 		this.initd = false
 	}
@@ -166,5 +196,10 @@ export class Page {
 	pageScrollTop(opts) {
 		const { scrollTop } = opts
 		this.onPageScroll?.({ scrollTop })
+	}
+
+	pageResize(size) {
+		this.__info__.behaviorPageLifetimes?.resize?.forEach(method => method.call(this, size))
+		this.onResize?.(size)
 	}
 }

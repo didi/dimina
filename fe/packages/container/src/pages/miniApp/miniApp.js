@@ -1,8 +1,23 @@
+import { LAUNCH_SCREEN_MIN_MS, WAIT_TRANSITION_TIMEOUT_MS } from '@/constants/animation'
 import { AppManager } from '@/core/appManager'
 import { Bridge } from '@/core/bridge'
 import { JSCore } from '@/core/jscore'
 import { HashRouter } from '@/utils/hashRouter'
 import { mergePageConfig, queryPath, readFile, sleep, uuid } from '@/utils/util'
+
+// 等待元素上指定 transition property 结束，带超时兜底防止动画未触发时永久阻塞
+const waitTransitionEnd = (el, property, timeout = WAIT_TRANSITION_TIMEOUT_MS) =>
+	new Promise(resolve => {
+		const timer = setTimeout(resolve, timeout)
+		const handler = (e) => {
+			if (!property || e.propertyName === property) {
+				clearTimeout(timer)
+				el.removeEventListener('transitionend', handler)
+				resolve()
+			}
+		}
+		el.addEventListener('transitionend', handler)
+	})
 import tpl from './miniApp.html?raw'
 import './miniApp.scss'
 
@@ -24,6 +39,160 @@ export class MiniApp {
 			timer: null,
 		}
 		this.color = null
+		this.apiRegistry = {}
+		// 维护第三方扩展的持续订阅，key: `${module}_${event}`，value: unsubscribe 函数
+		this._extSubscriptions = new Map()
+	}
+
+	getCurrentPagePath() {
+		const currentBridge = this.bridgeList[this.bridgeList.length - 1]
+		return currentBridge?.opts?.pagePath || this.appInfo.pagePath || this.appConfig?.app?.entryPagePath || ''
+	}
+
+	getCurrentPageQuery() {
+		const currentBridge = this.bridgeList[this.bridgeList.length - 1]
+		return currentBridge?.opts?.query || this.appInfo.query || {}
+	}
+
+	getEntryPagePath() {
+		return this.appInfo.pagePath || this.appConfig?.app?.entryPagePath || ''
+	}
+
+	async copyText(text, successText) {
+		try {
+			if (navigator.clipboard?.writeText) {
+				await navigator.clipboard.writeText(text)
+			}
+			else {
+				const textarea = document.createElement('textarea')
+				textarea.value = text
+				textarea.setAttribute('readonly', 'readonly')
+				textarea.style.position = 'fixed'
+				textarea.style.opacity = '0'
+				document.body.appendChild(textarea)
+				textarea.select()
+				document.execCommand('copy')
+				document.body.removeChild(textarea)
+			}
+			this.showToast({
+				title: successText,
+				icon: 'success',
+			})
+		}
+		catch {
+			this.showToast({
+				title: '复制失败',
+				icon: 'none',
+			})
+		}
+	}
+
+	closeMiniProgram() {
+		HashRouter.clear()
+		this.closeMiniAppMenu()
+		AppManager.closeApp(this)
+	}
+
+	renderMiniAppMenu() {
+		const name = this.el.querySelector('.dimina-mini-app-menu__app-name')
+		const appId = this.el.querySelector('.dimina-mini-app-menu__app-id')
+		const desc = this.el.querySelector('.dimina-mini-app-menu__app-desc')
+		const logo = this.el.querySelector('.dimina-mini-app-menu__app-logo-img')
+		const quickActions = this.el.querySelector('.dimina-mini-app-menu__quick-actions')
+		const currentPagePath = this.getCurrentPagePath()
+		const entryPagePath = this.getEntryPagePath()
+		const currentPageQuery = this.getCurrentPageQuery()
+		const pagePath = currentPagePath || entryPagePath || ''
+		const pageWithQuery = `${pagePath}${Object.keys(currentPageQuery).length ? `?${new URLSearchParams(currentPageQuery).toString()}` : ''}`
+		const addressUrl = `${window.location.origin}${window.location.pathname}#${this.appId}|${pageWithQuery}`
+
+		name.textContent = this.appInfo.name || '未命名小程序'
+		appId.textContent = `AppID：${this.appId || '--'}`
+		desc.textContent = `当前页面：${pagePath || '--'}`
+		logo.src = this.appInfo.logo || ''
+
+		const quickActionItems = [
+			{
+				label: '复制链接',
+				icon: '↗',
+				handler: () => this.copyText(addressUrl, '链接已复制'),
+			},
+			{
+				label: '重新进入',
+				icon: '↻',
+				handler: () => {
+					this.closeMiniAppMenu()
+					this.reLaunch({
+						url: entryPagePath || currentPagePath,
+					})
+				},
+			},
+			{
+				label: '关闭小程序',
+				icon: '×',
+				danger: true,
+				handler: () => this.closeMiniProgram(),
+			},
+		]
+
+		quickActions.innerHTML = quickActionItems
+			.map((item, index) => `
+				<button type="button" class="dimina-mini-app-menu__quick-action${item.danger ? ' is-danger' : ''}" data-quick-index="${index}">
+					<span class="dimina-mini-app-menu__quick-action-icon">${item.icon}</span>
+					<span class="dimina-mini-app-menu__quick-action-label">${item.label}</span>
+				</button>
+			`)
+			.join('')
+
+		quickActions.querySelectorAll('[data-quick-index]').forEach((node, index) => {
+			node.onclick = () => quickActionItems[index].handler()
+		})
+	}
+
+	openMiniAppMenu() {
+		const overlay = this.el.querySelector('.dimina-mini-app-menu__mask')
+		const menu = this.el.querySelector('.dimina-mini-app-menu')
+		this.renderMiniAppMenu()
+		overlay.style.display = 'block'
+		requestAnimationFrame(() => {
+			overlay.classList.add('show')
+			menu.classList.add('show')
+		})
+	}
+
+	closeMiniAppMenu() {
+		const overlay = this.el.querySelector('.dimina-mini-app-menu__mask')
+		const menu = this.el.querySelector('.dimina-mini-app-menu')
+		overlay.classList.remove('show')
+		menu.classList.remove('show')
+	}
+
+	/**
+	 * 注册自定义 API 处理函数
+	 * @param {string} name API 名称
+	 * @param {function} handler 处理函数，接收 (params)
+	 */
+	registerApi(name, handler) {
+		this.apiRegistry[name] = handler
+	}
+
+	/**
+	 * 按名称调用 API，优先查找自定义注册 → 内置方法 → 第三方扩展路由
+	 * @param {string} name API 名称
+	 * @param {object} params API 参数
+	 */
+	invokeApi(name, params) {
+		const handler = this.apiRegistry[name]
+		if (handler) {
+			handler.call(this, params)
+		}
+		else if (typeof this[name] === 'function') {
+			this[name](params)
+		}
+		else {
+			// 未命中已知方法，转发给第三方扩展路由处理
+			this._handleExtCall(name, params)
+		}
 	}
 
 	viewDidLoad() {
@@ -39,13 +208,13 @@ export class MiniApp {
 		// 1. 等待逻辑线程初始化
 		await this.jscore.init()
 
-		// 2. 模拟拉取小程序资源
-		await sleep(260)
-
-		// 3. 读取配置文件
+		// 2. 读取配置文件，同时保证 LaunchScreen 最少展示一个略长于 present 的时长
 		const root = 'main'
 		const configPath = `${this.appInfo.appId}/${root}/app-config.json`
-		const configContent = await readFile(`${import.meta.env.BASE_URL}${configPath}`)
+		const [configContent] = await Promise.all([
+			readFile(`${import.meta.env.BASE_URL}${configPath}`),
+			sleep(LAUNCH_SCREEN_MIN_MS),
+		])
 
 		if (!configContent) {
 			return
@@ -77,10 +246,86 @@ export class MiniApp {
 
 		this.bridgeList.push(entryPageBridge)
 		entryPageBridge.start()
-		HashRouter.sync(this.appId, entryPagePath, this.appInfo.query)
 
-		// 6.隐藏 loading
+		// 7. 若携带额外的恢复栈（刷新后恢复场景），静默重建后续页面
+		if (this.appInfo.restoreStack && this.appInfo.restoreStack.length > 1) {
+			await this.restorePageStack(this.appInfo.restoreStack.slice(1))
+		}
+
+		this._syncHash()
+
+		// 8. 隐藏 loading
 		this.hideLaunchScreen()
+	}
+
+	/**
+	 * 静默恢复页面栈中根页之后的页面。
+	 * 这些页面的 bridge 会被初始化并推入 bridgeList，但不播放入场动画，
+	 * 当前页显示在最顶层，之前的页面以 slide-out 状态保留在 DOM 中，
+	 * 使后退按钮可以正常工作。
+	 * @param {Array<{pagePath: string, query: object}>} pages
+	 */
+	async restorePageStack(pages) {
+		for (let i = 0; i < pages.length; i++) {
+			const { pagePath: rawPagePath, query } = pages[i]
+			const isTop = i === pages.length - 1
+
+			// 规范化路径：去掉前导 /，与 app-config.json modules key 保持一致
+			const pagePath = rawPagePath.startsWith('/') ? rawPagePath.slice(1) : rawPagePath
+			// pageConfig 可能为空（该小程序所有页面共用 app.window 默认配置），
+			// mergePageConfig 支持 pageConfig 为 undefined，直接降级到 app 全局配置
+			const pageConfig = this.appConfig.modules[pagePath]
+			const mergeConfig = mergePageConfig(this.appConfig.app, pageConfig)
+
+			const bridge = await this.createBridge({
+				pagePath,
+				query,
+				scene: this.appInfo.scene,
+				jscore: this.jscore,
+				isRoot: false,
+				root: pageConfig?.root || 'main',
+				appId: this.appInfo.appId,
+				pages: this.appConfig.app.pages,
+				configInfo: mergeConfig,
+			})
+
+			// 将上一个页面移到 slide-out 状态（不可见但保留在栈中，支持后退）
+			const prevBridge = this.bridgeList[this.bridgeList.length - 1]
+			prevBridge.webview.el.classList.remove('dimina-native-view--instage')
+			prevBridge.webview.el.classList.add('dimina-native-view--slide-out')
+
+			this.bridgeList.push(bridge)
+			bridge.webview.el.style.zIndex = this.bridgeList.length + 1
+
+			// 移除 before-enter（translateX 100%），让页面回到正常位置
+			bridge.webview.el.classList.remove('dimina-native-view--before-enter')
+			if (!isTop) {
+				// 中间页面再叠加 slide-out，被上层页面覆盖
+				bridge.webview.el.classList.add('dimina-native-view--slide-out')
+			}
+
+			bridge.start()
+		}
+
+		if (pages.length > 0) {
+			// 最顶层页面更新状态栏颜色
+			const topBridge = this.bridgeList[this.bridgeList.length - 1]
+			const topPageConfig = this.appConfig.modules[topBridge.opts.pagePath]
+			const topMergeConfig = mergePageConfig(this.appConfig.app, topPageConfig)
+			this.updateTargetPageColorStyle(topMergeConfig)
+		}
+	}
+
+	/**
+	 * 将当前 bridgeList 序列化到 URL hash，用于刷新后恢复完整页面栈。
+	 * pagePath 统一去掉前导 /，与 app-config.json modules key 保持一致。
+	 */
+	_syncHash() {
+		const stack = this.bridgeList.map((b) => {
+			const pagePath = b.opts.pagePath.startsWith('/') ? b.opts.pagePath.slice(1) : b.opts.pagePath
+			return { pagePath, query: b.opts.query || {} }
+		})
+		HashRouter.syncStack(this.appId, stack)
 	}
 
 	// 创建一个bridge对象
@@ -108,9 +353,6 @@ export class MiniApp {
 		// 首次异步创建时， bridge 不存在，会在[Service]自行调用 invokeInitLifecycle
 		currentBridge?.appShow()
 		currentBridge?.pageShow()
-		if (currentBridge) {
-			HashRouter.sync(this.appId, currentBridge.opts.pagePath, currentBridge.opts.query)
-		}
 	}
 
 	onPresentOut() {
@@ -217,7 +459,7 @@ export class MiniApp {
 
 		// 触发新页面的初始化逻辑
 		bridge.start()
-		HashRouter.sync(this.appId, pagePath, query)
+		this._syncHash()
 
 		// 上一个页面推出
 		preWebview.el.classList.remove('dimina-native-view--instage')
@@ -229,7 +471,7 @@ export class MiniApp {
 		bridge.webview.el.style.zIndex = this.bridgeList.length + 1
 		bridge.webview.el.classList.add('dimina-native-view--enter-anima')
 		bridge.webview.el.classList.add('dimina-native-view--instage')
-		await sleep(540)
+		await waitTransitionEnd(bridge.webview.el, 'transform')
 
 		// 页面进入后移出动画相关class
 		this.webviewAnimaEnd = true
@@ -294,7 +536,7 @@ export class MiniApp {
 
 				// 启动新页面
 				bridge.start()
-				HashRouter.sync(this.appId, pagePath, query)
+				this._syncHash()
 
 				// 设置 z-index
 				bridge.webview.el.style.zIndex = 1
@@ -345,7 +587,7 @@ export class MiniApp {
 		}
 		curBridge.resetStatus()
 		curBridge.start()
-		HashRouter.sync(this.appId, pagePath, query)
+		this._syncHash()
 
 		this.webviewAnimaEnd = true
 		onSuccess?.()
@@ -385,8 +627,8 @@ export class MiniApp {
 
 		// 触发上一个页面的生命周期函数
 		preBridge?.pageShow()
-		HashRouter.sync(this.appId, preBridge.opts.pagePath, preBridge.opts.query)
-		await sleep(540)
+		this._syncHash()
+		await waitTransitionEnd(preBridge.webview.el, 'transform')
 		this.webviewAnimaEnd = true
 
 		// 页面进入后移出动画相关class
@@ -409,39 +651,37 @@ export class MiniApp {
 
 	bindMoreEvent() {
 		const moreBtn = this.el.querySelector('.dimina-mini-app-navigation__actions-variable')
-		const dialog = this.el.querySelector('.dimina-mini-app_dialog-content')
-		const overlay = this.el.querySelector('.dimina-mini-app_dialog-bg')
-		const info = this.el.querySelector('.dimina-mini-app_dialog-info')
-		info.innerHTML = `app id: ${this.appId}`
+		const overlay = this.el.querySelector('.dimina-mini-app-menu__mask')
+		const menu = this.el.querySelector('.dimina-mini-app-menu')
+		const cancelBtn = this.el.querySelector('.dimina-mini-app-menu__footer-btn--cancel')
 
 		overlay.addEventListener('transitionend', () => {
-			if (overlay.style.opacity === '0') {
+			if (!overlay.classList.contains('show')) {
 				overlay.style.display = 'none'
 			}
 		})
 
-		moreBtn.onclick = () => {
-			overlay.style.display = 'block'
-			overlay.style.opacity = 1
-			dialog.classList.add('show')
-		}
-
-		overlay.onclick = () => {
-			overlay.style.opacity = 0
-			dialog.classList.remove('show')
-		}
+		moreBtn.onclick = () => this.openMiniAppMenu()
+		overlay.onclick = () => this.closeMiniAppMenu()
+		cancelBtn.onclick = () => this.closeMiniAppMenu()
+		menu.onclick = e => e.stopPropagation()
 	}
 
 	bindCloseEvent() {
 		const closeBtn = this.el.querySelector('.dimina-mini-app-navigation__actions-close')
 
 		closeBtn.onclick = () => {
-			HashRouter.clear()
-			AppManager.closeApp(this)
+			this.closeMiniProgram()
 		}
 	}
 
 	destroy() {
+		// 清理所有第三方扩展订阅
+		for (const unsubscribe of this._extSubscriptions.values()) {
+			unsubscribe?.()
+		}
+		this._extSubscriptions.clear()
+
 		AppManager.popView()
 		this.jscore.destroy()
 	}
@@ -569,16 +809,60 @@ export class MiniApp {
 	}
 
 	getMenuButtonBoundingClientRect() {
-		return this.el.querySelector('.dimina-mini-app-navigation__actions').getBoundingClientRect()
+		const rect = this.el.querySelector('.dimina-mini-app-navigation__actions').getBoundingClientRect()
+		const statusBar = this.parent.parent.root.querySelector('.iphone__status-bar')
+		const statusBarHeight = statusBar?.getBoundingClientRect().height || 20
+		// 对齐到小程序导航栏的几何模型：
+		// navbar 总高约等于 statusBarHeight + 40px，胶囊在内容区内垂直居中
+		const normalizedTop = statusBarHeight + 4
+		const normalizedBottom = normalizedTop + rect.height
+		return {
+			top: normalizedTop,
+			right: rect.right,
+			bottom: normalizedBottom,
+			left: rect.left,
+			width: rect.width,
+			height: rect.height,
+			x: rect.x,
+			y: normalizedTop,
+		}
+	}
+
+	getHostEnvSnapshot() {
+		return {
+			menuRect: this.getMenuButtonBoundingClientRect(),
+			systemInfo: this.getSystemInfoSync(),
+		}
 	}
 
 	getSystemInfoSync() {
+		const statusBar = this.parent.parent.root.querySelector('.iphone__status-bar')
+		const viewport = this.parent.el.querySelector('.dimina-native-webview__root')
+		const viewportRect = viewport?.getBoundingClientRect()
+		const width = viewportRect?.width || this.el.clientWidth || 375
+		const height = viewportRect?.height || this.el.clientHeight || 667
+		const statusBarHeight = statusBar?.getBoundingClientRect().height || 20
+
 		return {
 			brand: 'devtools',
 			model: 'web',
 			platform: 'devtools',
 			system: 'web',
 			SDKVersion: '3.0.0', // vant组件库 判断  canIUseModel version 需要大于 2.9.3
+			pixelRatio: globalThis.devicePixelRatio || 1,
+			screenWidth: width,
+			screenHeight: height,
+			windowWidth: width,
+			windowHeight: height,
+			statusBarHeight,
+			safeArea: {
+				left: 0,
+				right: width,
+				top: statusBarHeight,
+				bottom: height,
+				width,
+				height: Math.max(height - statusBarHeight, 0),
+			},
 		}
 	}
 
@@ -669,11 +953,11 @@ export class MiniApp {
 
 		this.webviewsContainer.appendChild(mask)
 		this.webviewsContainer.appendChild(dialog)
-		// 动画效果可选
-		setTimeout(() => {
+		// 动画效果：等浏览器 paint 后再加 show class，触发 CSS transition
+		requestAnimationFrame(() => requestAnimationFrame(() => {
 			mask.classList.add('show')
 			dialog.classList.add('show')
-		}, 10)
+		}))
 	}
 
 	showActionSheet(opts) {
@@ -723,11 +1007,11 @@ export class MiniApp {
 		// 挂载到 webviewsContainer
 		this.webviewsContainer.appendChild(mask)
 		this.webviewsContainer.appendChild(sheet)
-		// 动画效果
-		setTimeout(() => {
+		// 动画效果：等浏览器 paint 后再加 show class，触发 CSS transition
+		requestAnimationFrame(() => requestAnimationFrame(() => {
 			sheet.classList.add('show')
 			mask.classList.add('show')
-		}, 10)
+		}))
 	}
 
 	setNavigationBarTitle(opts) {
@@ -1021,6 +1305,142 @@ export class MiniApp {
 		}
 		finally {
 			onComplete?.()
+		}
+	}
+
+	/**
+	 * 从 `${module}_${event}` 格式的 key 中还原 module 与 event。
+	 * 通过遍历已注册模块名做前缀匹配，支持模块名含下划线的场景。
+	 * @param {string} eventKey
+	 * @returns {{ module: string|null, event: string|null }} 包含解析出的模块名和事件名的对象，若解析失败则均为 null
+	 */
+	_parseExtEventKey(eventKey) {
+		const modules = AppManager.getExtModules()
+		for (const moduleName of Object.keys(modules)) {
+			const prefix = `${moduleName}_`
+			if (eventKey.startsWith(prefix)) {
+				return { module: moduleName, event: eventKey.slice(prefix.length) }
+			}
+		}
+		return { module: null, event: null }
+	}
+
+	/**
+	 * 第三方扩展调用的统一入口
+	 *
+	 * service 侧 extBridge/extOnBridge/extOffBridge 的 invokeAPI 名称规则：
+	 *   extBridge   → name = event,              params = { module, data, success, fail, complete }
+	 *   extOnBridge → name = `${module}_${event}`, params = { success(callBack), evtId }
+	 *   extOffBridge→ name = `${module}_${event}`, params = { success(undefined) }（无 evtId，keep=false）
+	 *
+	 * 区分方式：
+	 *   - extBridge：params 中携带 module 字段
+	 *   - extOnBridge vs extOffBridge：evtId 存在且 success 有值 → on；否则 → off
+	 */
+	_handleExtCall(name, params = {}) {
+		if (params.module !== undefined) {
+			// ── extBridge ─────────────────────────────────────────────
+			this._extBridgeCall(name, params)
+		}
+		else if (params.success) {
+			// ── extOnBridge：name = `${module}_${event}` ──────────────
+			this._extOnBridgeCall(name, params)
+		}
+		else {
+			// ── extOffBridge：name = `${module}_${event}` ─────────────
+			this._extOffBridgeCall(name)
+		}
+	}
+
+	/**
+	 * 对应 service 侧 extBridge
+	 * invokeAPI(event, { module, data, success, fail, complete, keep })
+	 * → container: name=event, params={ module, data, success, fail, complete }
+	 */
+	_extBridgeCall(event, params) {
+		const { module, data = {}, success, fail, complete } = params
+		const onSuccess = this.createCallbackFunction(success)
+		const onFail = this.createCallbackFunction(fail)
+		const onComplete = this.createCallbackFunction(complete)
+
+		const handler = AppManager.getExtModule(module)
+		if (!handler) {
+			const errMsg = `extBridge:fail module "${module}" not registered`
+			console.error(`[container] ${errMsg}`)
+			onFail?.({ errMsg })
+			onComplete?.()
+			return
+		}
+
+		try {
+			handler({
+				event,
+				data,
+				success: (res) => {
+					onSuccess?.(res)
+					onComplete?.()
+				},
+				fail: (err) => {
+					onFail?.(err)
+					onComplete?.()
+				},
+			})
+		}
+		catch (error) {
+			onFail?.({ errMsg: `extBridge:fail ${error.message}` })
+			onComplete?.()
+		}
+	}
+
+	/**
+	 * 对应 service 侧 extOnBridge
+	 * invokeAPI(`${module}_${event}`, { evtId, keep:true, success:callBack })
+	 * → container: name=`${module}_${event}`, params={ success, evtId }
+	 *
+	 * 通过遍历已注册模块名匹配前缀来还原 module 与 event，
+	 * 避免模块名本身含下划线时解析出错。
+	 */
+	_extOnBridgeCall(eventKey, params) {
+		const { success } = params
+		const onCallback = this.createCallbackFunction(success)
+
+		const { module, event } = this._parseExtEventKey(eventKey)
+		if (!module) {
+			console.error(`[container] extOnBridge:fail no registered module matched for key "${eventKey}"`)
+			return
+		}
+
+		const handler = AppManager.getExtModule(module)
+
+		// 若已有相同订阅，先清理旧的
+		const prev = this._extSubscriptions.get(eventKey)
+		prev?.()
+
+		try {
+			const unsubscribe = handler({
+				event,
+				data: { isSustain: true },
+				success: res => onCallback?.(res),
+				fail: err => console.error(`[container] extOnBridge error (${eventKey}):`, err),
+			})
+
+			this._extSubscriptions.set(eventKey, unsubscribe ?? null)
+		}
+		catch (error) {
+			console.error(`[container] extOnBridge:fail ${error.message}`)
+		}
+	}
+
+	/**
+	 * 对应 service 侧 extOffBridge
+	 * invokeAPI(`${module}_${event}`, { success:undefined })
+	 * → container: name=`${module}_${event}`, params={ success:undefined }
+	 */
+	_extOffBridgeCall(eventKey) {
+		const unsubscribe = this._extSubscriptions.get(eventKey)
+		if (unsubscribe) {
+			unsubscribe()
+			this._extSubscriptions.delete(eventKey)
 		}
 	}
 }

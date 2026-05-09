@@ -30,7 +30,7 @@ public class DMPBridgeEnv {
 public typealias DMPBridgeCallback = (_ args: DMPMap, _ cbType: DMPBridgeCallbackType) -> Void
 
 // 定义桥接方法处理程序类型
-public typealias DMPBridgeMethodHandler = (_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> Any?
+public typealias DMPBridgeMethodHandler = (_ param: DMPBridgeParam, _ env: DMPBridgeEnv, _ callback: DMPBridgeCallback?) -> DMPAPIResult
 
 // 自定义属性
 @propertyWrapper
@@ -40,7 +40,7 @@ struct BridgeMethod {
     
     init(_ name: String) {
         self.name = name
-        self.wrappedValue = { _, _, _ in }
+        self.wrappedValue = { _, _, _ in DMPNoneResult() }
         DMPContainerApi.registerMethod(name: name)
     }
     
@@ -105,12 +105,12 @@ public class DMPContainerApi: NSObject {
         return Array(bridgeHandlerMap.keys)
     }
     
-    public func invokeBridgeMethod(name: String, data: DMPBridgeParam, env: DMPBridgeEnv, callback: DMPBridgeCallback? = nil) -> Any? {
+    public func invokeBridgeMethod(name: String, data: DMPBridgeParam, env: DMPBridgeEnv, callback: DMPBridgeCallback? = nil) -> DMPAPIResult {
         if let handler = Self.getHandler(for: name) {
             return handler(data, env, callback)
         }
         print("未找到方法: \(name)")
-        return nil
+        return DMPNoneResult()
     }
     
     // 统一的回调处理方法

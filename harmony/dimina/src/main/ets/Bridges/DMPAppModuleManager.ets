@@ -1,4 +1,6 @@
 import { DMPExportModule } from './DMPExportModule';
+import { DMPContainerBridgesModuleExt } from './DMPContainerBridgesModule+Ext';
+import { DMPExtModuleHandler } from './DMPExtModuleHandler';
 import { DMPContainerBridgesModuleActionSheet } from './DMPContainerBridgesModule+ActionSheet';
 import { DMPContainerBridgesModulePopUp } from './DMPContainerBridgesModule+Popup';
 import { DMPContainerBridgesModuleNavigator } from './DMPContainerBridgesModule+Navigator';
@@ -35,7 +37,24 @@ import { DMPContainerBridgesModuleVideo } from './DMPContainerBridgesModule+Vide
 
 export class DMPAppModuleManager extends DMPModuleManager {
   exportModules: Map<string, DMPExportModule>;
-  app: DMPApp
+  app: DMPApp;
+
+  /** 宿主注册的第三方扩展模块表 */
+  private extModules: Map<string, DMPExtModuleHandler> = new Map();
+  /** 懒创建的 Ext Bridge 模块实例 */
+  private extBridgeModule: DMPContainerBridgesModuleExt | null = null;
+
+  registerExtModule(moduleName: string, handler: DMPExtModuleHandler): void {
+    this.extModules.set(moduleName, handler);
+    // 若已有实例则直接更新模块表（extModules 是同一引用，自动生效）
+    if (!this.extBridgeModule) {
+      this.extBridgeModule = new DMPContainerBridgesModuleExt(this.app, this.extModules);
+    }
+  }
+
+  getExtBridgeModule(): DMPContainerBridgesModuleExt | null {
+    return this.extBridgeModule;
+  }
 
   constructor(app: DMPApp) {
     super();

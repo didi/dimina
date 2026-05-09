@@ -13,12 +13,14 @@ program
 	.option('-s, --target-path <path>', '编译产物存放路径')
 	.option('-w, --watch', '启用监听文件改动')
 	.option('--no-app-id-dir', '产物根目录不包含appId')
+	.option('--sourcemap', '生成 sourcemap 文件用于调试')
 	.action(async (options) => {
 		const workPath = options.workPath ? path.resolve(options.workPath) : process.cwd()
 		const targetPath = options.targetPath ? path.resolve(options.targetPath) : process.cwd()
 		const useAppIdDir = options.appIdDir !== false
+		const sourcemap = !!options.sourcemap
 
-		await build(targetPath, workPath, useAppIdDir)
+		await build(targetPath, workPath, useAppIdDir, { sourcemap })
 		const watch = options.watch
 		if (watch) {
 			chokidar
@@ -29,7 +31,7 @@ program
 				.on('all', async (event, path) => {
 					if (event === 'change') {
 						console.log(`${path} 改动，重新编译`)
-						await build(targetPath, workPath, useAppIdDir)
+						await build(targetPath, workPath, useAppIdDir, { sourcemap })
 					}
 				})
 		}

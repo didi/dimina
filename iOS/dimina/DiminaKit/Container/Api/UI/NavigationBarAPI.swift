@@ -24,7 +24,7 @@ public class NavigationBarAPI: DMPContainerApi {
         guard let title = param.get("title") as? String else {
             let errorMsg = "\(SET_NAVIGATION_BAR_TITLE):fail missing parameter title"
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: errorMsg)
-            return nil
+            return DMPAsyncResult()
         }
         
         
@@ -33,7 +33,7 @@ public class NavigationBarAPI: DMPContainerApi {
         guard let navigationController = app?.getNavigator()?.navigationController else {
             let errorMsg = "\(SET_NAVIGATION_BAR_TITLE):fail navigation controller not found"
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: errorMsg)
-            return nil
+            return DMPAsyncResult()
         }
         
         DispatchQueue.main.async {
@@ -44,7 +44,7 @@ public class NavigationBarAPI: DMPContainerApi {
             DMPContainerApi.invokeSuccess(callback: callback, param: result)
         }
         
-        return nil
+        return DMPAsyncResult()
     }
     
     // Set navigation bar color
@@ -55,13 +55,13 @@ public class NavigationBarAPI: DMPContainerApi {
               let backgroundColor = param.get("backgroundColor") as? String else {
             let errorMsg = "\(SET_NAVIGATION_BAR_COLOR):fail missing required parameters"
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: errorMsg)
-            return nil
+            return DMPAsyncResult()
         }
         
         guard frontColor == "#ffffff" || frontColor == "#000000" else {
             let errorMsg = "\(SET_NAVIGATION_BAR_COLOR):fail frontColor only supports #ffffff or #000000"
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: errorMsg)
-            return nil
+            return DMPAsyncResult()
         }
         
         let animation = param.getDMPMap(key: "animation")
@@ -133,6 +133,6 @@ public class NavigationBarAPI: DMPContainerApi {
             DMPContainerApi.invokeSuccess(callback: callback, param: result)
         }
         
-        return nil
+        return DMPAsyncResult()
     }
 }

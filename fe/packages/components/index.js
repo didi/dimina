@@ -1,6 +1,6 @@
 import { animationToStyle, getDataAttributes, toCamelCase, transformRpx } from '@dimina/common'
 import { triggerEvent, useInfo } from '@/common/events'
-import { deepToRaw, install } from '@/common/utils'
+import { deepToRaw, install, replaceExternalClassTokens } from '@/common/utils'
 import components from './src/index'
 
 export * from './src/index'
@@ -56,7 +56,7 @@ function parseExternalClass(el, instance, vnode) {
 		for(const externalClass of ctx.provides.externalClasses) {
 			const clsName = instance.props[toCamelCase(externalClass)]
 			if (clsName) {
-				el.className = el.className.replace(externalClass, clsName)
+				el.className = replaceExternalClassTokens(el.className, externalClass, clsName)
 				if (!el.hasAttribute(instance.sId)) {
 					el.setAttribute(instance.sId, '')
 				}

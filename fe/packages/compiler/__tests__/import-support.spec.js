@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
-import { storeInfo } from '../src/env.js'
+import { getPages, storeInfo } from '../src/env.js'
 import { compileJS } from '../src/core/logic-compiler.js'
 
 describe('Import Statement Support', () => {
@@ -217,4 +217,113 @@ describe('Import Statement Support', () => {
 		expect(indexModule.code).toContain('/utils/api')
 		expect(indexModule.code).toContain('/miniprogram_npm/@vant/weapp/dialog/dialog')
 	})
-}) 
+
+	it('should include re-exported dependencies from export declarations', async () => {
+		fs.mkdirSync('pages/index', { recursive: true })
+		fs.mkdirSync('miniprogram_npm/tdesign-miniprogram/common/src', { recursive: true })
+
+		fs.writeFileSync('app.json', JSON.stringify({
+			pages: ['pages/index/index'],
+		}))
+
+		fs.writeFileSync('miniprogram_npm/tdesign-miniprogram/common/src/superComponent.js', `
+			export class SuperComponent {}
+		`)
+
+		fs.writeFileSync('miniprogram_npm/tdesign-miniprogram/common/src/index.js', `
+			export * from './superComponent'
+		`)
+
+		fs.writeFileSync('pages/index/index.js', `
+			import { SuperComponent } from 'tdesign-miniprogram/common/src/index'
+
+			Page({
+				onLoad() {
+					console.log(SuperComponent)
+				}
+			})
+		`)
+
+		fs.writeFileSync('pages/index/index.json', JSON.stringify({
+			navigationBarTitleText: '首页',
+		}))
+
+		storeInfo(tempDir)
+
+		const progress = { completedTasks: 0 }
+		const result = await compileJS([{ path: 'pages/index/index' }], null, null, progress)
+
+		const modulePaths = result.map(module => module.path)
+		expect(modulePaths).toContain('pages/index/index')
+		expect(modulePaths).toContain('/miniprogram_npm/tdesign-miniprogram/common/src/index')
+		expect(modulePaths).toContain('/miniprogram_npm/tdesign-miniprogram/common/src/superComponent')
+
+		const indexModule = result.find(module => module.path === '/miniprogram_npm/tdesign-miniprogram/common/src/index')
+		expect(indexModule).toBeDefined()
+		expect(indexModule.code).toContain('/miniprogram_npm/tdesign-miniprogram/common/src/superComponent')
+	})
+
+	it('should keep npm component entry and its script dependencies in the same main bundle when used from a subpackage', async () => {
+		fs.mkdirSync('pages/home', { recursive: true })
+		fs.mkdirSync('pages/feature/detail', { recursive: true })
+		fs.mkdirSync('miniprogram_npm/tdesign-miniprogram/textarea', { recursive: true })
+
+		fs.writeFileSync('app.json', JSON.stringify({
+			pages: ['pages/home/index'],
+			subpackages: [{
+				root: 'pages/feature/detail',
+				pages: ['index'],
+			}],
+		}))
+
+		fs.writeFileSync('pages/home/index.js', 'Page({})')
+		fs.writeFileSync('pages/home/index.json', JSON.stringify({
+			navigationBarTitleText: 'home',
+		}))
+
+		fs.writeFileSync('pages/feature/detail/index.js', 'Page({})')
+		fs.writeFileSync('pages/feature/detail/index.json', JSON.stringify({
+			navigationBarTitleText: 'detail',
+			usingComponents: {
+				't-textarea': 'tdesign-miniprogram/textarea/textarea',
+			},
+		}))
+
+		fs.writeFileSync('miniprogram_npm/tdesign-miniprogram/textarea/textarea.json', JSON.stringify({
+			component: true,
+			usingComponents: {},
+		}))
+
+		fs.writeFileSync('miniprogram_npm/tdesign-miniprogram/textarea/textarea.js', `
+			import props from './props'
+
+			Component({
+				properties: props
+			})
+		`)
+
+		fs.writeFileSync('miniprogram_npm/tdesign-miniprogram/textarea/props.js', `
+			export default {
+				value: {
+					type: String,
+					value: ''
+				}
+			}
+		`)
+
+		storeInfo(tempDir)
+
+		const pages = getPages()
+		const progress = { completedTasks: 0 }
+		const mainCompileRes = await compileJS(pages.mainPages, null, null, progress)
+		const subCompileRes = await compileJS(pages.subPages['sub_pages/feature/detail'].info, 'sub_pages/feature/detail', mainCompileRes, progress)
+
+		const mainModulePaths = mainCompileRes.map(module => module.path)
+		const subModulePaths = subCompileRes.map(module => module.path)
+
+		expect(mainModulePaths).toContain('/miniprogram_npm/tdesign-miniprogram/textarea/textarea')
+		expect(mainModulePaths).toContain('/miniprogram_npm/tdesign-miniprogram/textarea/props')
+		expect(subModulePaths).not.toContain('/miniprogram_npm/tdesign-miniprogram/textarea/textarea')
+		expect(subModulePaths).not.toContain('/miniprogram_npm/tdesign-miniprogram/textarea/props')
+	})
+})

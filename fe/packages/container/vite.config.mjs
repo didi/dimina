@@ -31,19 +31,7 @@ export default defineConfig(({ mode }) => {
 		},
 		build: {
 			modulePreload: false,
-			minify: mode === 'production' ? 'terser' : false,
-			terserOptions: {
-				compress: {
-					drop_console: true,
-					drop_debugger: true,
-					keep_fargs: false,
-					reduce_vars: true,
-					booleans: true,
-				},
-				format: {
-					comments: false,
-				},
-			},
+			minify: mode === 'production',
 			rollupOptions: {
 				input: {
 					index: resolve(__dirname, 'index.html'),

@@ -99,7 +99,7 @@ export class Bridge {
 			if (type === 'invokeAPI') {
 				const { name, params } = body
 				// parent 是 miniApp 对象
-				this.parent[name]?.(params)
+				this.parent.invokeApi(name, params)
 			}
 		}
 	}
@@ -129,11 +129,7 @@ export class Bridge {
 				pagePath: this.opts.pagePath,
 				root: this.opts.root,
 				baseUrl: import.meta.env.BASE_URL,
-				injectInfo: {
-					// 注入同步 API 信息
-					menuRect: this.parent.getMenuButtonBoundingClientRect(),
-					systemInfo: this.parent.getSystemInfoSync(),
-				},
+				hostEnv: this.parent.getHostEnvSnapshot(),
 			},
 		})
 	}

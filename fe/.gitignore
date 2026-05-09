@@ -9,6 +9,7 @@ package-lock.json
 pnpm-lock.yaml
 coverage
 example/*
+!example/base
 !example/subpackages
 !example/weui
 !example/vant

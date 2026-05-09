@@ -2,6 +2,7 @@
 // 视图容器
 // https://developers.weixin.qq.com/miniprogram/dev/component/view.html
 import { hasEvent, triggerEvent, useInfo } from '@/common/events'
+import { useNativeEvents } from '@/common/useNativeEvents'
 import { useTapEvents } from '@/common/useTapEvents'
 import { useTouchEvents } from '@/common/useTouchEvents'
 
@@ -25,6 +26,8 @@ const hasTouchEvents = hasEvent(info, 'touchstart') || hasEvent(info, 'touchmove
 if (hasTouchEvents) {
 	useTouchEvents(info, viewRef)
 }
+
+useNativeEvents(info, viewRef, ['transitionend', 'animationend'])
 </script>
 
 <template>

@@ -20,14 +20,14 @@ public class BaseAPI: DMPContainerApi {
     var canIUse: DMPBridgeMethodHandler = { param, env, callback in
         guard let schema = param.getMap().get("schema") as? String else {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "canIUse:fail missing parameter schema")
-            return false
+            return DMPSyncResult(false)
         }
-        
+
         let registeredMethods = DMPContainerApi.getAllRegisteredMethods()
-        
+
         let isAvailable = registeredMethods.contains(schema)
-                
-        return isAvailable
+
+        return DMPSyncResult(isAvailable)
     }
     
 }

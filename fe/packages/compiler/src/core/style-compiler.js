@@ -64,7 +64,7 @@ if (!isMainThread) {
 async function compileSS(pages, root, progress) {
 	// page 样式
 	for (const page of pages) {
-		const code = await buildCompileCss(page, []) || ''
+		const code = await buildCompileCss(page, [], new Set()) || ''
 		const filename = `${page.path.replace(/\//g, '_')}`
 		if (root) {
 			const subDir = `${getTargetPath()}/${root}`
@@ -87,8 +87,8 @@ async function compileSS(pages, root, progress) {
 	}
 }
 
-async function buildCompileCss(module, depthChain = []) {
-	const currentPath = module.path
+async function buildCompileCss(module, depthChain = [], compiledPaths = new Set()) {
+	const currentPath = module.path || module.absolutePath
 
 	// Circular dependency detected
 	if (depthChain.includes(currentPath)) {
@@ -100,6 +100,10 @@ async function buildCompileCss(module, depthChain = []) {
 		console.warn('[style]', `检测到深度依赖: ${[...depthChain, currentPath].join(' -> ')}`)
 		return
 	}
+	if (compiledPaths.has(currentPath)) {
+		return ''
+	}
+	compiledPaths.add(currentPath)
 	depthChain = [...depthChain, currentPath]
 	let result = await enhanceCSS(module) || ''
 
@@ -112,7 +116,7 @@ async function buildCompileCss(module, depthChain = []) {
 			if (!componentModule) {
 				continue
 			}
-			result += await buildCompileCss(componentModule, depthChain)
+			result += await buildCompileCss(componentModule, depthChain, compiledPaths)
 		}
 	}
 
@@ -136,19 +140,19 @@ async function enhanceCSS(module) {
 	}
 
 	// 预处理器编译
-	let processedCSS = inputCSS
+	let processedCSS = normalizeRootStyleImports(inputCSS)
 	const ext = path.extname(absolutePath).toLowerCase()
 	
 	try {
 		if (ext === '.less') {
-			const result = await less.render(inputCSS, {
+			const result = await less.render(processedCSS, {
 				filename: absolutePath,
-				paths: [path.dirname(absolutePath)],
+				paths: [path.dirname(absolutePath), getWorkPath()],
 			})
 			processedCSS = result.css
 		} else if (ext === '.scss' || ext === '.sass') {
-			const result = sass.compileString(inputCSS, {
-				loadPaths: [path.dirname(absolutePath)],
+			const result = sass.compileString(processedCSS, {
+				loadPaths: [path.dirname(absolutePath), getWorkPath()],
 				syntax: ext === '.sass' ? 'indented' : 'scss',
 			})
 			processedCSS = result.css
@@ -175,11 +179,11 @@ async function enhanceCSS(module) {
 			// @import 样式导入
 			// 替换字符串首尾的引号
 			const str = node.params.replace(/^['"]|['"]$/g, '')
-			const importFullPath = path.resolve(absolutePath, `../${str}`)
+			const importFullPath = resolveStyleImportPath(absolutePath, str)
 
 			node.remove()
 
-			promises.push(buildCompileCss({ absolutePath: importFullPath, id: module.id }))
+			promises.push(buildCompileCss({ absolutePath: importFullPath, id: module.id }, [], new Set()))
 		}
 		else if (node.type === 'rule') {
 			// 处理 ::v-deep
@@ -200,28 +204,16 @@ async function enhanceCSS(module) {
 					}
 				})
 			}).processSync(node.selector)
-
-			// 处理样式声明
-			node.walkDecls((decl) => {
-				const match = decl.value.match(/url\("([^"]*)"\)/)
-				if (match) {
-					const imgSrc = match[1].trim()
-					// Skip processing if it's a data:image resource
-					if (imgSrc.startsWith('data:image')) {
-						return
-					}
-					const realSrc = collectAssets(getWorkPath(), absolutePath, imgSrc, getTargetPath(), getAppId())
-					decl.value = `url(${realSrc})`
-				}
-				else {
-					decl.value = transformRpx(decl.value)
-				}
-			})
 		}
 		else if (node.type === 'comment') {
 			// 移除注释
 			node.remove()
 		}
+	})
+
+	ast.walkDecls((decl) => {
+		decl.value = normalizeCssUrlValue(decl.value, absolutePath)
+		decl.value = transformRpx(decl.value)
 	})
 
 	const cssCode = ast.toResult().css
@@ -255,6 +247,27 @@ async function enhanceCSS(module) {
 	return result
 }
 
+function normalizeCssUrlValue(value, absolutePath) {
+	return value.replace(/url\(([^)]+)\)/g, (fullMatch, rawUrl) => {
+		const cleanedUrl = rawUrl.trim().replace(/^['"]|['"]$/g, '')
+
+		if (!cleanedUrl || cleanedUrl.startsWith('data:image')) {
+			return fullMatch
+		}
+
+		if (cleanedUrl.startsWith('//')) {
+			return `url(https:${cleanedUrl})`
+		}
+
+		if (/^(https?:|blob:|data:)/.test(cleanedUrl)) {
+			return fullMatch
+		}
+
+		const realSrc = collectAssets(getWorkPath(), absolutePath, cleanedUrl, getTargetPath(), getAppId())
+		return `url(${realSrc})`
+	})
+}
+
 function getAbsolutePath(modulePath) {
 	const workPath = getWorkPath()
 	const src = modulePath.startsWith('/') ? modulePath : `/${modulePath}`
@@ -264,7 +277,25 @@ function getAbsolutePath(modulePath) {
 		if (fs.existsSync(ssFullPath)) {
 			return ssFullPath
 		}
+
+		const indexSsFullPath = `${workPath}${src}/index${ssType}`
+		if (fs.existsSync(indexSsFullPath)) {
+			return indexSsFullPath
+		}
 	}
+}
+
+function resolveStyleImportPath(absolutePath, importPath, workPath = getWorkPath()) {
+	if (importPath.startsWith('/')) {
+		return path.join(workPath, importPath)
+	}
+	return path.resolve(path.dirname(absolutePath), importPath)
+}
+
+function normalizeRootStyleImports(source, workPath = getWorkPath()) {
+	return source.replace(/(@import\s+(?:\(.*?\)\s*)?(?:url\()?['"])(\/[^'")]+)(['"]\)?)/g, (_, prefix, importPath, suffix) => {
+		return `${prefix}${path.join(workPath, importPath)}${suffix}`
+	})
 }
 
 /**
@@ -332,4 +363,4 @@ function processHostSelector(selector, moduleId) {
 		.replace(/:host(?=\.|#|:)/g, `[data-v-${moduleId}]`)
 }
 
-export { compileSS, ensureImportSemicolons, processHostSelector, removeBaseComponentScope }
+export { compileSS, ensureImportSemicolons, normalizeCssUrlValue, normalizeRootStyleImports, processHostSelector, removeBaseComponentScope, resolveStyleImportPath }
