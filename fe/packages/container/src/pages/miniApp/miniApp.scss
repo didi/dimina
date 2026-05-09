@@ -539,8 +539,8 @@
 	flex-direction: row;
 	align-items: center;
 	justify-content: space-around;
-	height: 49px; // 微信小程序 TabBar 高度 98rpx = 49px
-	padding-bottom: env(safe-area-inset-bottom); // 适配 iPhone X 等刘海屏
+	height: 98px;
+	padding-bottom: env(safe-area-inset-bottom);
 }
 
 .dimina-tabbar-item {

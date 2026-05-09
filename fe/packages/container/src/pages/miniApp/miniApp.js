@@ -41,8 +41,7 @@ export class MiniApp {
 		this.color = null
 		this.apiRegistry = {}
 		// 维护第三方扩展的持续订阅，key: `${module}_${event}`，value: unsubscribe 函数
-		this._extSubscriptions = new Map()
-		// TabBar：参考鸿蒙 DMPTabBarContainerView 的"按需创建 + 持久缓存"模型
+		this._extSubscriptions = new Map();
 		this.tabBarConfig = null            // app.tabBar 配置
 		this.tabBarPaths = []               // 与 list 等长，pagePath 数组（已规范化、无前导 /）
 		this.tabBarBridges = new Map()      // pagePath -> Bridge：懒加载的持久 tab 池
