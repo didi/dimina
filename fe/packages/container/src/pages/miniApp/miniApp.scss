@@ -394,4 +394,59 @@
 	  transform: translateY(0);
 	}
   }
-  
+
+// TabBar 样式
+.dimina-mini-app__tabbar {
+	position: absolute;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	z-index: 100;
+}
+
+.dimina-tabbar {
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	justify-content: space-around;
+	height: 49px; // 微信小程序 TabBar 高度 98rpx = 49px
+	padding-bottom: env(safe-area-inset-bottom); // 适配 iPhone X 等刘海屏
+}
+
+.dimina-tabbar-item {
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	cursor: pointer;
+	user-select: none;
+	padding: 4px 0;
+	transition: all 0.2s ease;
+
+	&:active {
+		opacity: 0.7;
+	}
+}
+
+.dimina-tabbar-icon {
+	width: 24px;
+	height: 24px;
+	margin-bottom: 2px;
+	object-fit: contain;
+}
+
+.dimina-tabbar-icon-default {
+	display: block;
+}
+
+.dimina-tabbar-icon-selected {
+	display: none;
+}
+
+.dimina-tabbar-text {
+	font-size: 10px;
+	line-height: 1.2;
+	text-align: center;
+	transition: color 0.2s ease;
+}

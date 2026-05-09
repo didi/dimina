@@ -50,6 +50,17 @@ export class DMPNavigator {
     DMPLogger.d(Tags.NAVIGATOR, 'navigateTo')
     const pagePath: string = params.get('pagePath')
 
+    // Check if target page is a tabBar page
+    const appConfig = this.app.bundleManager.getJsAppModuleConfig()
+    const tabBarPagePaths = appConfig?.getTabBarPagePaths() ?? new Set<string>()
+    if (tabBarPagePaths.has(pagePath)) {
+      const errorMsg = `[Dimina] Cannot use navigateTo to jump to tabBar page: ${pagePath}. Please use switchTab instead.`
+      DMPLogger.e(Tags.NAVIGATOR, errorMsg)
+      promptAction.showToast({ message: errorMsg, duration: 2000, alignment: Alignment.Center })
+      this.app.container.isNavigating = false
+      return
+    }
+
     const callback: DMPBridgeCallback = (_: DMPMap, cbType: DMPBridgeCallbackType) => {
       if (cbType == DMPBridgeCallbackType.Success) {
         this.openPage(stackId, pagePath, params)
@@ -215,6 +226,79 @@ export class DMPNavigator {
     this.pop(delta, animated, canDestroy, isReLaunch)
   }
 
+  /**
+   * Switch to a TabBar page
+   * Simplified logic that works with DMPTabBarContainerView's lazy loading:
+   * 1. Clear all non-tabBar pages from stack (leave only tab container)
+   * 2. Emit event to let TabBarContainerView handle lazy loading and visibility switching
+   */
+  async switchTab(params: DMPMap) {
+    const pagePath: string = params.get('pagePath')
+    DMPLogger.i(Tags.NAVIGATOR, `switchTab to: ${pagePath}`)
+
+    // Get tabBar page paths
+    const appConfig = this.app.bundleManager.getJsAppModuleConfig()
+    const tabBarPagePaths = appConfig?.getTabBarPagePaths() ?? new Set<string>()
+
+    // Validate that target path is actually a tab page
+    if (!tabBarPagePaths.has(pagePath)) {
+      DMPLogger.e(Tags.TABBAR, `Target path is not a tabBar page: ${pagePath}`)
+      return
+    }
+
+    // Trigger onHide for current page
+    this.pageLifecycle.onHide(this.app.currentWebViewId)
+
+    // Remove ALL non-tabBar pages from stack
+    // Keep popping from top until we reach a tabBar page or empty stack
+    let poppedCount = 0
+
+    while (this._stacks.data.length > 0) {
+      const topRecord = this._stacks.data[this._stacks.data.length - 1]
+
+      // If top is a tabBar page, stop
+      if (tabBarPagePaths.has(topRecord.pagePath)) {
+        DMPLogger.d(Tags.TABBAR, `Reached tabBar page: ${topRecord.pagePath}, stopping pop`)
+        break
+      }
+
+      // Pop non-tabBar page
+      DMPLogger.d(Tags.TABBAR, `Popping non-tabBar page: ${topRecord.pagePath}`)
+
+      // Unload lifecycle
+      this.pageLifecycle.onUnload(topRecord.webViewId)
+
+      // Pop from actual Navigation stack
+      DRouter.getInstance().pop(false) // animated = false for batch operations
+
+      // Remove from internal stack
+      this._stacks.data.pop()
+      this.app.navigatorManager.popGlobalPageRecord()
+
+      poppedCount++
+    }
+
+    if (this._stacks.data.length === 0) {
+      DMPLogger.e(Tags.TABBAR, `No tabBar page found in stack after clearing!`)
+      return
+    }
+
+    DMPLogger.d(Tags.TABBAR, `Cleared ${poppedCount} non-tabBar pages. Remaining stack size: ${this._stacks.data.length}`)
+
+    // Emit event to TabBarContainerView to handle:
+    // - Lazy loading the tab if not yet loaded
+    // - Switching visibility to the target tab
+    // - Calling updateTabBarSelection after loading is complete
+    try {
+      getContext(this.app).eventHub.emit('tabbar_switch_webview', {
+        'pagePath': pagePath
+      })
+      DMPLogger.d(Tags.TABBAR, `Emitted switch event for tab: ${pagePath}. TabBarContainerView will handle lazy loading.`)
+    } catch (err) {
+      DMPLogger.e(Tags.TABBAR, `Failed to emit tabbar switch event: ${err}`)
+    }
+  }
+
   //打开页面
   private openPage(stackId: number, pagePath: string, params: DMPMap,
     openType: DMPOpenType = DMPOpenType.NavigateTo,
@@ -282,5 +366,81 @@ export class DMPNavigator {
     webViewNodeController.loadResource(pagePath)
     DMPLogger.i(Tags.LAUNCH, "preLoadPage end")
     return pageRecord;
+  }
+
+  /**
+   * Find an existing page record by page path in the current navigator stack
+   */
+  public findPageRecordByPath(pagePath: string): DMPPageRecord | undefined {
+    for (let record of this._stacks.data) {
+      if (record.pagePath === pagePath) {
+        return record
+      }
+    }
+    return undefined
+  }
+
+  /**
+   * Create a page record for a tab page without adding to navigator stack
+   * Tab pages are managed by TabBarContainerView, not in navigator stack
+   * This keeps DMPStack consistent with actual Router stack
+   */
+  public createPageRecordForTab(pagePath: string): DMPPageRecord {
+    DMPLogger.i(Tags.TABBAR, `Creating page record for tab: ${pagePath}`)
+    const params = new DMPMap()
+    params.set('query', new DMPMap())
+
+    const webViewNodeController = this.app.webViewCachePool.getWebViewNodeController(pagePath, params)
+    const newWebViewId = webViewNodeController.webViewId
+
+    const currentPageRecord = this.app.navigatorManager.getTopPageRecord()
+    const pageRecord = new DMPPageRecord(
+      newWebViewId,
+      currentPageRecord?.webViewId ?? -1,
+      pagePath,
+      this.app.appIndex,
+      webViewNodeController
+    )
+    pageRecord.params = params
+    const navStyle = this.app.bundleManager.getJsAppModuleConfig()!.getPageConfigNext(pagePath)
+    pageRecord.pageStyle = new DMPPageStyle(navStyle ?? new DMPMap(), this.app.appIndex)
+
+    // IMPORTANT: Do NOT push to stack - tab pages are managed by TabBarContainerView
+    // this.pushPageRecordStack(pageRecord)  // Removed to keep stack consistent
+
+    // Register to global Map so getPageRecordById can find it
+    this.app.navigatorManager.registerTabPageRecord(pageRecord)
+
+    webViewNodeController.loadResource(pagePath)
+
+    DMPLogger.i(Tags.TABBAR, `Created and registered tab page record: ${pagePath}, webViewId: ${newWebViewId}`)
+    return pageRecord
+  }
+
+  /**
+   * Handle tab lifecycle events (onHide/onShow) for tab switching
+   * Since tab pages are NOT in navigator stack, this only manages lifecycle
+   * Called from TabBarContainerView when switching tabs
+   */
+  public updateTabBarSelection(previousWebViewId: number, currentWebViewId: number) {
+    DMPLogger.i(Tags.TABBAR, `Switching tab lifecycle: ${previousWebViewId} -> ${currentWebViewId}`)
+
+    // Trigger onHide for previous tab (if valid)
+    if (previousWebViewId >= 0) {
+      this.pageLifecycle.onHide(previousWebViewId)
+      DMPLogger.d(Tags.TABBAR, `onHide called for tab webViewId: ${previousWebViewId}`)
+    }
+
+    // Trigger onShow for current tab
+    this.pageLifecycle.onShow(currentWebViewId)
+    DMPLogger.d(Tags.TABBAR, `onShow called for tab webViewId: ${currentWebViewId}`)
+  }
+
+  /**
+   * Get the current page path (for TabBar initialization)
+   */
+  public getCurrentPagePath(): string | undefined {
+    const topRecord = this._stacks.data[this._stacks.data.length - 1]
+    return topRecord?.pagePath
   }
 }

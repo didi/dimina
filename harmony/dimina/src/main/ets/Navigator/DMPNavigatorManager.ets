@@ -101,6 +101,17 @@ export class DMPNavigatorManager {
     this.preLoadWebViewIdAndPageRecordMaps.set(record.webViewId, record)
   }
 
+  // Register tab page record (only to Map, not to stack)
+  // Tab pages are managed by TabBarContainerView, not in navigator stack
+  registerTabPageRecord(record: DMPPageRecord) {
+    this.webViewIdAndPageRecordMaps.set(record.webViewId, record)
+  }
+
+  // Unregister tab page record from Map
+  unregisterTabPageRecord(webViewId: number) {
+    this.webViewIdAndPageRecordMaps.delete(webViewId)
+  }
+
   popGlobalPageRecord() {
     const record = this.globalPageRecordStack.pop()
     if (record) {
