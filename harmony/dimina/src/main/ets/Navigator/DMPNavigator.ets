@@ -50,15 +50,15 @@ export class DMPNavigator {
     DMPLogger.d(Tags.NAVIGATOR, 'navigateTo')
     const pagePath: string = params.get('pagePath')
 
-    // Check if target page is a tabBar page
     const appConfig = this.app.bundleManager.getJsAppModuleConfig()
     const tabBarPagePaths = appConfig?.getTabBarPagePaths() ?? new Set<string>()
     if (tabBarPagePaths.has(pagePath)) {
-      const errorMsg = `[Dimina] Cannot use navigateTo to jump to tabBar page: ${pagePath}. Please use switchTab instead.`
+      const errorMsg = `navigateTo: fail can not navigateTo a tabbar page: ${pagePath}`
       DMPLogger.e(Tags.NAVIGATOR, errorMsg)
       promptAction.showToast({ message: errorMsg, duration: 2000, alignment: Alignment.Center })
       this.app.container.isNavigating = false
-      return
+      // 抛错，桥层 .catch 后调用 wx.navigateTo 的 fail 回调
+      throw new Error(errorMsg)
     }
 
     const callback: DMPBridgeCallback = (_: DMPMap, cbType: DMPBridgeCallbackType) => {
@@ -132,6 +132,16 @@ export class DMPNavigator {
   async redirectTo(stackId: number, params: DMPMap) {
     DMPLogger.d(Tags.NAVIGATOR, 'redirectTo')
     const pagePath: string = params.get('pagePath')
+
+    // 微信规范：redirectTo 不允许跳到 tabBar 页面
+    const appConfig = this.app.bundleManager.getJsAppModuleConfig()
+    const tabBarPagePaths = appConfig?.getTabBarPagePaths() ?? new Set<string>()
+    if (tabBarPagePaths.has(pagePath)) {
+      const errorMsg = `redirectTo:fail can not redirectTo a tabbar page: ${pagePath}`
+      DMPLogger.e(Tags.NAVIGATOR, errorMsg)
+      promptAction.showToast({ message: errorMsg, duration: 2000, alignment: Alignment.Center })
+      throw new Error(errorMsg)
+    }
 
     const callback: DMPBridgeCallback = (_, cbType: DMPBridgeCallbackType) => {
       if (cbType == DMPBridgeCallbackType.Success) {

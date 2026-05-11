@@ -117,15 +117,9 @@ export struct DMPTabBarContainerView {
     // Load only the initial tab page (lazy load others on demand)
     this.loadTabPageAtIndex(this.selectedIndex)
 
-    // Trigger onShow for initial tab (no previous tab, so previousWebViewId = -1)
     const initialPageRecord = this.tabPageRecords.get(this.selectedIndex)
     if (initialPageRecord) {
-      // 同步当前选中 tab 给 NavigatorManager；之后 currentWebViewId 等接口会基于此返回真实页面
       this.app.navigatorManager.setCurrentTabWebViewId(initialPageRecord.webViewId)
-      const navigator = this.app.navigatorManager.getCurNavigator()
-      if (navigator) {
-        navigator.getNavigator().updateTabBarSelection(-1, initialPageRecord.webViewId)
-      }
     }
 
     // Listen to switchTab events from JS API

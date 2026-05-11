@@ -772,31 +772,43 @@ export class MiniApp {
 		this.webviewAnimaEnd = false
 
 		try {
-			// 1. 隐藏 / 卸载非 tab 页面（从栈顶往下，遇到 tab 页停止）
-			while (this.bridgeList.length > 0) {
-				const top = this.bridgeList[this.bridgeList.length - 1]
-				if (this._isTabBarPage(top.opts.pagePath)) {
-					break
-				}
-				top.pageHide()
-				top.destroy()
-				top.webview?.el?.remove()
-				this.bridgeList.pop()
-			}
+			const prevPath = this.currentTabPath;
+            const prevTabBridge = prevPath
+                ? this.tabBarBridges.get(prevPath)
+                : null;
+            const wasPrevTabVisible =
+                !!prevTabBridge &&
+                this.bridgeList.length === 1 &&
+                this.bridgeList[0] === prevTabBridge;
 
-			// 2. 隐藏旧 tab 的 iframe（保留在 pool 中），栈顶若是旧 tab 则弹出（不销毁）
-			const prevPath = this.currentTabPath
-			const prevTabBridge = prevPath ? this.tabBarBridges.get(prevPath) : null
-			if (prevTabBridge && prevTabBridge !== this.tabBarBridges.get(targetPath)) {
-				prevTabBridge.pageHide()
-				if (prevTabBridge.webview?.el) {
-					prevTabBridge.webview.el.style.display = 'none'
-				}
-				const idx = this.bridgeList.indexOf(prevTabBridge)
-				if (idx >= 0) {
-					this.bridgeList.splice(idx, 1)
-				}
-			}
+            // 1. 隐藏 / 卸载非 tab 页面（从栈顶往下，遇到 tab 页停止）
+            while (this.bridgeList.length > 0) {
+                const top = this.bridgeList[this.bridgeList.length - 1];
+                if (this._isTabBarPage(top.opts.pagePath)) {
+                    break;
+                }
+                top.pageHide();
+                top.destroy();
+                top.webview?.el?.remove();
+                this.bridgeList.pop();
+            }
+
+            // 2. 隐藏旧 tab 的 iframe（保留在 pool 中），栈顶若是旧 tab 则弹出（不销毁）
+            if (
+                prevTabBridge &&
+                prevTabBridge !== this.tabBarBridges.get(targetPath)
+            ) {
+                if (wasPrevTabVisible) {
+                    prevTabBridge.pageHide();
+                }
+                if (prevTabBridge.webview?.el) {
+                    prevTabBridge.webview.el.style.display = "none";
+                }
+                const idx = this.bridgeList.indexOf(prevTabBridge);
+                if (idx >= 0) {
+                    this.bridgeList.splice(idx, 1);
+                }
+            }
 
 			// 3. 取出 / 懒加载目标 tab
 			let targetBridge = this.tabBarBridges.get(targetPath)

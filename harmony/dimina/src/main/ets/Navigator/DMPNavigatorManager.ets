@@ -50,11 +50,6 @@ export class DMPNavigatorManager {
     return this.globalPageRecordStack.peek()
   }
 
-  /**
-   * 标记 TabBar 当前选中 tab 的 webViewId。
-   * 由 DMPTabBarContainerView 在切换 tab / 初始化时调用，使 currentWebViewId
-   * 在 tab 模式下返回真实可见页面，而不是栈底初始 tab。
-   */
   setCurrentTabWebViewId(webViewId: number) {
     this._currentTabWebViewId = webViewId
   }
@@ -106,8 +101,6 @@ export class DMPNavigatorManager {
   clear() {
     this._navigatorDelegateStack.clear();
     this.globalPageRecordStack.clear();
-    // 仅通过 registerTabPageRecord 注册（不入栈）的 tab 记录不会被 popGlobalPageRecord 清掉，
-    // reLaunch / 退出时一并 clear 两张 Map，避免 webViewId 残留
     this.webViewIdAndPageRecordMaps.clear()
     this.preLoadWebViewIdAndPageRecordMaps.clear()
     this._currentTabWebViewId = -1
