@@ -196,6 +196,12 @@
 
 .dimina-mini-app__webviews {
 	z-index: 1;
+	// 通过 CSS 变量与 TabBar 实际高度联动，避免硬编码 49px 与样式 height 漂移
+	bottom: var(--dimina-tabbar-height, 0);
+	// 内容区底部留白 —— 移到这里以避免 per-page webview body 内部 padding-bottom 与
+	// TabBar 同时存在时出现双重空白；这里和 TabBar 是同级容器，padding 留在 TabBar 外侧
+	padding-bottom: 10px;
+	box-sizing: border-box;
 }
 
 .dimina-mini-app-menu__mask {
@@ -539,7 +545,7 @@
 	flex-direction: row;
 	align-items: center;
 	justify-content: space-around;
-	height: 98px;
+	height: calc(100vw / 750 * 120);
 	padding-bottom: env(safe-area-inset-bottom);
 }
 
@@ -549,6 +555,7 @@
 	flex-direction: column;
 	align-items: center;
 	justify-content: center;
+	gap: calc(100vw / 750 * 8);
 	cursor: pointer;
 	user-select: none;
 	padding: 4px 0;
@@ -560,9 +567,9 @@
 }
 
 .dimina-tabbar-icon {
-	width: 24px;
-	height: 24px;
-	margin-bottom: 2px;
+	width: calc(100vw / 750 * 60);
+	height: calc(100vw / 750 * 60);
+
 	object-fit: contain;
 }
 
@@ -575,7 +582,7 @@
 }
 
 .dimina-tabbar-text {
-	font-size: 10px;
+	font-size: calc(100vw / 750 * 24);
 	line-height: 1.2;
 	text-align: center;
 	transition: color 0.2s ease;

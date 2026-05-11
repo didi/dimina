@@ -116,12 +116,20 @@ export class DMPContainerBridgesModuleNavigator extends DMPContainerBridgesModul
   switchTab(data: DMPMap, callback: DMPBridgeCallback) {
     DMPLogger.d("switchTab", data.toStr())
     const navigator = this.app.navigatorManager.getCurNavigator()
-    if (navigator) {
-      let url: string = data.get('url')
-      let routerParam = DataTransformer.parse(url)
-      navigator.switchTab(routerParam)
+    if (!navigator) {
+      this.invokeFailureCallback(callback, null, 'switchTab:fail no current navigator')
+      return
     }
-    this.invokeSuccessCallback(callback, null);
+    let url: string = data.get('url')
+    let routerParam = DataTransformer.parse(url)
+    navigator.switchTab(routerParam)
+      .then(() => {
+        this.invokeSuccessCallback(callback, null)
+      })
+      .catch((err: Error) => {
+        // 错误信息源自 DMPNavigator.switchTab：目标不在 tabBar.list / 栈空 / event emit 失败
+        this.invokeFailureCallback(callback, null, err?.message ?? 'switchTab:fail')
+      })
   }
 
   applyUpdate(data: DMPMap, callback: DMPBridgeCallback) {

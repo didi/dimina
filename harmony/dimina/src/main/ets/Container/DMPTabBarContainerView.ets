@@ -20,6 +20,78 @@ export struct DMPTabBarContainerView {
   // Use Map to track loaded tab pages (index -> DMPPageRecord)
   @State tabPageRecords: Map<number, DMPPageRecord> = new Map()
 
+  aboutToDisappear() {
+    // 容器被销毁时清掉 tab 跟踪标记，避免 reLaunch / 退出后残留导致 currentWebViewId 错指
+    this.app?.navigatorManager?.clearCurrentTabWebViewId()
+  }
+
+  /**
+   * 将沙盒绝对路径包成 file:// URI。
+   * ArkUI Image 如果直接拿到 `/data/...` 这种裸绝对路径，会按 HAP rawfile 走，
+   * 报 "GetAsset failed"；包成 `file:///data/...` 才会走文件系统。
+   */
+  private toFileUri(absolutePath: string): string {
+    if (absolutePath.startsWith('file://')) {
+      return absolutePath
+    }
+    if (absolutePath.startsWith('/')) {
+      return `file://${absolutePath}`
+    }
+    return `file:///${absolutePath}`
+  }
+
+  /**
+   * 将一个 tab 图标路径解析为 ArkUI Image 可加载的绝对 file:// URI。
+   * 规则：
+   *   - 空 / 协议化 URL（http / https / file / data）→ 原样返回
+   *   - /<appId>/...（编译器输出，对应 sandbox 中相同子路径）→ ${jsAppDir} 拼接后包成 file://
+   *   - /  开头但不属于上面情况 → 包成 file://（视为绝对文件系统路径）
+   *   - 其它（相对路径，老配置或手填）→ 拼到 ${jsAppDir}/main/ 下并包成 file://
+   */
+  private resolveBundleAssetPath(rawPath: string | undefined): string | undefined {
+    if (!rawPath || rawPath.length === 0) {
+      return rawPath
+    }
+    if (rawPath.startsWith('http://') || rawPath.startsWith('https://')
+      || rawPath.startsWith('file://') || rawPath.startsWith('data:')) {
+      return rawPath
+    }
+    if (!this.app) {
+      return rawPath
+    }
+    const appId = this.app.bundleManager.getBundleInfo().appId
+    const jsAppDir = this.app.bundleManager.getCurrentJSAppDir()
+    const appIdPrefix = `/${appId}/`
+    if (rawPath.startsWith(appIdPrefix)) {
+      return this.toFileUri(`${jsAppDir}/${rawPath.substring(appIdPrefix.length)}`)
+    }
+    if (rawPath.startsWith('/')) {
+      return this.toFileUri(rawPath)
+    }
+    return this.toFileUri(`${jsAppDir}/main/${rawPath}`)
+  }
+
+  /**
+   * 把 tabBar.list 中每个 item 的 iconPath / selectedIconPath 解析为可加载路径。
+   * 解析后直接写回 item（resolveBundleAssetPath 幂等，多次调用不会重复添加前缀）。
+   */
+  private resolveTabBarIconPaths() {
+    if (!this.tabBarConfig || !this.tabBarConfig.list) {
+      return
+    }
+    for (const item of this.tabBarConfig.list) {
+      const resolvedIcon = this.resolveBundleAssetPath(item.iconPath)
+      if (resolvedIcon !== item.iconPath) {
+        item.iconPath = resolvedIcon
+      }
+      const resolvedSelected = this.resolveBundleAssetPath(item.selectedIconPath)
+      if (resolvedSelected !== item.selectedIconPath) {
+        item.selectedIconPath = resolvedSelected
+      }
+    }
+    DMPLogger.d(Tags.TABBAR, `Resolved tabBar icon paths under ${this.app?.bundleManager?.getCurrentJSAppDir()}`)
+  }
+
   aboutToAppear() {
     // Get app and tabBar config
     this.app = DMPAppManager.sharedInstance().getApp(this.appIndex)
@@ -34,6 +106,11 @@ export struct DMPTabBarContainerView {
       return
     }
 
+    // 把 list 中的 iconPath / selectedIconPath 解析为沙盒中真实的 static 文件绝对路径
+    // 编译器输出形如 /<appId>/main/static/<prefix>_<file>，需要换成 ${jsAppDir}/main/static/...
+    // 才能被 ArkUI Image 加载
+    this.resolveTabBarIconPaths()
+
     // Determine initial tab index
     this.determineInitialTabIndex()
 
@@ -43,6 +120,8 @@ export struct DMPTabBarContainerView {
     // Trigger onShow for initial tab (no previous tab, so previousWebViewId = -1)
     const initialPageRecord = this.tabPageRecords.get(this.selectedIndex)
     if (initialPageRecord) {
+      // 同步当前选中 tab 给 NavigatorManager；之后 currentWebViewId 等接口会基于此返回真实页面
+      this.app.navigatorManager.setCurrentTabWebViewId(initialPageRecord.webViewId)
       const navigator = this.app.navigatorManager.getCurNavigator()
       if (navigator) {
         navigator.getNavigator().updateTabBarSelection(-1, initialPageRecord.webViewId)
@@ -52,14 +131,17 @@ export struct DMPTabBarContainerView {
     // Listen to switchTab events from JS API
     getContext(this).eventHub.on('tabbar_switch_webview', (data: ESObject) => {
       const targetPath: string = data['pagePath']
-      DMPLogger.d(Tags.TABBAR, `Received tabbar_switch_webview event for path: ${targetPath}`)
+      // 由 DMPNavigator.switchTab 计算：旧 tab 是否之前就是可见页面
+      // (栈顶若是 navigateTo 推入页面，旧 tab 已被 onHide 过，不应再触发)
+      const wasPrevTabVisible: boolean = data['wasPrevTabVisible'] !== false
+      DMPLogger.d(Tags.TABBAR, `Received tabbar_switch_webview event for path: ${targetPath}, wasPrevTabVisible=${wasPrevTabVisible}`)
 
       // Find the index of the target tab
       if (this.tabBarConfig) {
         const index = this.tabBarConfig.list.findIndex(item => item.pagePath === targetPath)
         if (index >= 0) {
           DMPLogger.d(Tags.TABBAR, `Switching to tab index: ${index}`)
-          this.handleTabSelected(index)
+          this.handleTabSelected(index, wasPrevTabVisible)
         } else {
           DMPLogger.e(Tags.TABBAR, `Tab path not found in config: ${targetPath}`)
         }
@@ -134,14 +216,19 @@ export struct DMPTabBarContainerView {
 
   /**
    * Handle tab selection
+   *
+   * @param index 目标 tab 索引
+   * @param wasPrevTabVisible 旧 tab 是否之前就是可见页面：
+   *   - true（默认）：用户在 tab 页面上点击切换 / 初始化场景
+   *   - false：JS switchTab 来自 navigateTo 推入页面的上方，旧 tab 已 onHide 过
    */
-  private handleTabSelected(index: number) {
+  private handleTabSelected(index: number, wasPrevTabVisible: boolean = true) {
     if (!this.tabBarConfig || index >= this.tabBarConfig.list.length) {
       return
     }
 
     const targetPath = this.tabBarConfig.list[index].pagePath
-    DMPLogger.d(Tags.TABBAR, `Tab selected: ${index}, path: ${targetPath}`)
+    DMPLogger.d(Tags.TABBAR, `Tab selected: ${index}, path: ${targetPath}, wasPrevTabVisible=${wasPrevTabVisible}`)
 
     // Get previous tab's webViewId (if exists)
     const previousWebViewId = this.tabPageRecords.has(this.selectedIndex)
@@ -158,11 +245,14 @@ export struct DMPTabBarContainerView {
       return
     }
 
-    // Update lifecycle: hide previous tab, show current tab
+    // Update lifecycle: hide previous tab (if it was visible), show current tab
     if (this.app) {
+      // 在触发 onHide/onShow 之前先更新 currentTabWebViewId，
+      // 避免 lifecycle 内部再次访问 currentWebViewId 时拿到旧值
+      this.app.navigatorManager.setCurrentTabWebViewId(currentPageRecord.webViewId)
       const navigator = this.app.navigatorManager.getCurNavigator()
       if (navigator) {
-        navigator.getNavigator().updateTabBarSelection(previousWebViewId, currentPageRecord.webViewId)
+        navigator.getNavigator().updateTabBarSelection(previousWebViewId, currentPageRecord.webViewId, wasPrevTabVisible)
       }
     }
 

@@ -461,15 +461,24 @@ export class MiniApp {
 	}
 
 	async navigateTo(opts) {
+		const { url, success, fail, complete } = opts
+		const { query, pagePath } = queryPath(url)
+		const onSuccess = this.createCallbackFunction(success)
+		const onFail = this.createCallbackFunction(fail)
+		const onComplete = this.createCallbackFunction(complete)
+
+		// 微信规范：navigateTo 不允许跳转到 tabBar 页面
+		if (this._isTabBarPage(pagePath)) {
+			onFail?.({ errMsg: `navigateTo:fail can not navigateTo a tabbar page` })
+			onComplete?.()
+			return
+		}
+
 		// 防抖处理
 		if (!this.webviewAnimaEnd) {
 			return
 		}
 		this.webviewAnimaEnd = false
-
-		const { url, success } = opts
-		const { query, pagePath } = queryPath(url)
-		const onSuccess = this.createCallbackFunction(success)
 
 		const pageConfig = this.appConfig.modules[pagePath]
 		const mergeConfig = mergePageConfig(this.appConfig.app, pageConfig)
@@ -521,7 +530,8 @@ export class MiniApp {
 		// navigateTo 的目标按规范不应是 tab 页：栈顶变为非 tab 页，隐藏 TabBar
 		this._setTabBarVisible(false)
 
-		onSuccess?.()
+		onSuccess?.({ errMsg: 'navigateTo:ok' })
+		onComplete?.()
 	}
 
 	reLaunch(opts) {
@@ -615,15 +625,24 @@ export class MiniApp {
 	}
 
 	redirectTo(opts) {
+		const { url, success, fail, complete } = opts
+		const { query, pagePath } = queryPath(url)
+		const onSuccess = this.createCallbackFunction(success)
+		const onFail = this.createCallbackFunction(fail)
+		const onComplete = this.createCallbackFunction(complete)
+
+		// 微信规范：redirectTo 不允许跳转到 tabBar 页面
+		if (this._isTabBarPage(pagePath)) {
+			onFail?.({ errMsg: `redirectTo:fail can not redirectTo a tabbar page` })
+			onComplete?.()
+			return
+		}
+
 		// 防抖处理
 		if (!this.webviewAnimaEnd) {
 			return
 		}
 		this.webviewAnimaEnd = false
-
-		const { url, success } = opts
-		const { query, pagePath } = queryPath(url)
-		const onSuccess = this.createCallbackFunction(success)
 
 		// 获取当前 bridge
 		const curBridge = this.bridgeList[this.bridgeList.length - 1]
@@ -654,7 +673,8 @@ export class MiniApp {
 		this._setTabBarVisible(false)
 
 		this.webviewAnimaEnd = true
-		onSuccess?.()
+		onSuccess?.({ errMsg: 'redirectTo:ok' })
+		onComplete?.()
 	}
 
 	async navigateBack() {
@@ -857,52 +877,141 @@ export class MiniApp {
 		if (!this.tabBarEl) return
 
 		const { color, backgroundColor, borderStyle, list } = this.tabBarConfig
-		const normalColor = color || '#999999'
-		const bg = backgroundColor || '#ffffff'
+		const normalColor = this._sanitizeCssColor(color) || '#999999'
+		const bg = this._sanitizeCssColor(backgroundColor) || '#ffffff'
 		const borderColor = borderStyle === 'white' ? '#FFFFFF' : '#E0E0E0'
-		const iconBase = `${import.meta.env.BASE_URL}${this.appId}/main/`
 
-		this.tabBarEl.innerHTML = `
-			<div class="dimina-tabbar" style="background-color: ${bg}; border-top: 0.5px solid ${borderColor};">
-				${list.map((item, index) => {
-					const path = this._normalizePagePath(item.pagePath)
-					const iconHtml = item.iconPath
-						? `<img class="dimina-tabbar-icon dimina-tabbar-icon-default" src="${iconBase}${item.iconPath}" alt="" />`
-						: ''
-					const selectedIconHtml = item.selectedIconPath
-						? `<img class="dimina-tabbar-icon dimina-tabbar-icon-selected" src="${iconBase}${item.selectedIconPath}" alt="" />`
-						: ''
-					return `
-						<div class="dimina-tabbar-item" data-path="${path}" data-index="${index}">
-							${iconHtml}
-							${selectedIconHtml}
-							<span class="dimina-tabbar-text" style="color: ${normalColor};">${item.text || ''}</span>
-						</div>
-					`
-				}).join('')}
-			</div>
-		`
+		// 用 DOM API 构建，避免 innerHTML 拼接被配置中的引号 / HTML 片段污染宿主 DOM
+		this.tabBarEl.textContent = ''
+		const tabbar = document.createElement('div')
+		tabbar.className = 'dimina-tabbar'
+		tabbar.style.backgroundColor = bg
+		tabbar.style.borderTop = `0.5px solid ${borderColor}`
+
+		list.forEach((item, index) => {
+			const path = this._normalizePagePath(item.pagePath)
+
+			const itemEl = document.createElement('div')
+			itemEl.className = 'dimina-tabbar-item'
+			itemEl.dataset.path = path
+			itemEl.dataset.index = String(index)
+
+			const defaultIconUrl = this._resolveTabBarIcon(item.iconPath)
+			if (defaultIconUrl) {
+				itemEl.appendChild(this._createTabBarIcon(defaultIconUrl, 'dimina-tabbar-icon-default'))
+			}
+			const selectedIconUrl = this._resolveTabBarIcon(item.selectedIconPath)
+			if (selectedIconUrl) {
+				itemEl.appendChild(this._createTabBarIcon(selectedIconUrl, 'dimina-tabbar-icon-selected'))
+			}
+
+			const text = document.createElement('span')
+			text.className = 'dimina-tabbar-text'
+			text.style.color = normalColor
+			text.textContent = item.text || ''
+			itemEl.appendChild(text)
+
+			tabbar.appendChild(itemEl)
+		})
+
+		this.tabBarEl.appendChild(tabbar)
 
 		// 事件委托：单一监听器处理所有 tab 项点击
 		this.tabBarEl.addEventListener('click', (e) => {
 			const item = e.target.closest('.dimina-tabbar-item')
 			if (!item) return
-			const path = item.getAttribute('data-path')
+			const path = item.dataset.path
 			if (path && path !== this.currentTabPath) {
 				this.switchTab({ url: `/${path}` })
 			}
 		})
+
+		// 监听 TabBar 实际高度（含 safe-area-inset-bottom）变化，
+		// 通过 CSS 变量同步 webviews 容器底部留白，避免硬编码与样式漂移
+		if (typeof ResizeObserver !== 'undefined') {
+			this._tabBarResizeObserver?.disconnect()
+			this._tabBarResizeObserver = new ResizeObserver(() => this._syncTabBarHeightVar())
+			this._tabBarResizeObserver.observe(this.tabBarEl)
+		}
 	}
 
 	/**
-	 * 控制 TabBar 容器的显示/隐藏，并相应调整 webviews 容器底部留白。
+	 * 创建一张 tabBar 图标 <img>，带加载失败兜底（隐藏，避免破图占位）。
+	 */
+	_createTabBarIcon(src, modifierClass) {
+		const img = document.createElement('img')
+		img.className = `dimina-tabbar-icon ${modifierClass}`
+		img.src = src
+		img.alt = ''
+		img.addEventListener('error', () => {
+			img.style.display = 'none'
+		})
+		return img
+	}
+
+	/**
+	 * 简单 CSS 颜色白名单：#hex / rgb(a)/hsl(a)/常见关键字。
+	 * 拒绝包含尖括号、引号、分号、url() 等可能逃逸 style 上下文的字符；
+	 * 不命中白名单时返回空串，让调用方走默认色。
+	 */
+	_sanitizeCssColor(value) {
+		if (!value || typeof value !== 'string') return ''
+		const v = value.trim()
+		if (v.length === 0 || v.length > 64) return ''
+		// 任意 url()/expression()/HTML 注入尝试都会包含下面的字符
+		if (/[<>"';{}()\\]/.test(v)) {
+			// 兼容 rgb(a)/hsl(a) 函数：仅放行严格匹配的形态
+			if (/^(?:rgb|rgba|hsl|hsla)\(\s*[\d.,%\s/-]+\)$/i.test(v)) {
+				return v
+			}
+			return ''
+		}
+		return v
+	}
+
+	/**
+	 * 把 TabBar 当前实际高度同步到 CSS 变量，让 webviews 容器底部留白与之对齐。
+	 * - 隐藏时高度记为 0，等价于不留白
+	 * - 显示时取 getBoundingClientRect().height，含 safe-area-inset-bottom
+	 */
+	_syncTabBarHeightVar() {
+		if (!this.tabBarEl) return
+		const visible = this.tabBarEl.style.display !== 'none'
+		const height = visible ? this.tabBarEl.getBoundingClientRect().height : 0
+		this.el.style.setProperty('--dimina-tabbar-height', `${height}px`)
+	}
+
+	/**
+	 * 解析 tabBar 图标路径。
+	 * 编译期 collectAssets 已把 list 中的 iconPath/selectedIconPath 改写成
+	 * /${appId}/main/static/${prefix}_${filename}（带前导 /），
+	 * 这里只负责拼上 BASE_URL，并兼容已是完整 URL / data: 的场景。
+	 */
+	_resolveTabBarIcon(iconPath) {
+		if (!iconPath || typeof iconPath !== 'string') return null
+		// 已是完整 URL / data 协议 / 协议无关路径：保持原值
+		if (/^(?:data:|blob:|https?:|\/\/)/i.test(iconPath)) {
+			return iconPath
+		}
+		const baseUrl = import.meta.env.BASE_URL
+		// 编译产物：以 / 开头的站点根绝对路径
+		if (iconPath.startsWith('/')) {
+			return `${baseUrl.replace(/\/$/, '')}${iconPath}`
+		}
+		// 兜底：用户配置里仍是包内相对路径（未走 collectAssets 改写）
+		return `${baseUrl}${this.appId}/main/${iconPath}`
+	}
+
+	/**
+	 * 控制 TabBar 容器的显示/隐藏。底部留白通过 CSS 变量 --dimina-tabbar-height
+	 * 自动联动（由 ResizeObserver 在尺寸变化时同步），不再硬编码 49px。
 	 */
 	_setTabBarVisible(visible) {
 		if (!this.tabBarEl) return
 		this.tabBarEl.style.display = visible ? 'block' : 'none'
-		if (this.webviewsContainer) {
-			this.webviewsContainer.style.bottom = visible ? '49px' : '0'
-		}
+		// display 切换通常不会触发 ResizeObserver（隐藏 → 显示时高度从 0 → N，
+		// 但切到 display:none 浏览器对 ResizeObserver 行为各不相同），主动同步一次
+		this._syncTabBarHeightVar()
 	}
 
 	/**
@@ -971,6 +1080,10 @@ export class MiniApp {
 			unsubscribe?.()
 		}
 		this._extSubscriptions.clear()
+
+		// 释放 TabBar 高度观察器
+		this._tabBarResizeObserver?.disconnect()
+		this._tabBarResizeObserver = null
 
 		AppManager.popView()
 		this.jscore.destroy()

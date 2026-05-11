@@ -1,7 +1,7 @@
 :root {
     // 响应式字体大小: 最小 0.4px (300px 屏幕), 首选 100vw/750, 最大 2px (1500px 屏幕)
     // preferred=基准字体大小 / 屏幕宽度 * 100vw
-    font-size: clamp(0.4px, 0.13333vw, 2px);
+    font-size: clamp(14px, 2.6666vw, 32px);
     user-select: none;
     -webkit-user-select: none;
     -webkit-touch-callout: none;
