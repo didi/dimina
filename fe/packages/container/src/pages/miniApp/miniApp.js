@@ -47,6 +47,9 @@ export class MiniApp {
 		this.tabBarBridges = new Map()      // pagePath -> Bridge：懒加载的持久 tab 池
 		this.currentTabPath = null          // 当前激活的 tab 路径；null 表示当前不在任何 tab 页
 		this.tabBarEl = null                // .dimina-mini-app__tabbar 根节点
+		// showModal 用 LIFO stack：后来的 modal 压在前一个之上（z-index 递增），
+		// 关闭顶上 modal 露出下方；前后 modal 互不干扰，各自 success/complete 独立。
+		this._modalStack = []
 	}
 
 	/**
@@ -1097,6 +1100,13 @@ export class MiniApp {
 		this._tabBarResizeObserver?.disconnect()
 		this._tabBarResizeObserver = null
 
+		// 清空 modal stack（避免泄漏 DOM）
+		for (const entry of this._modalStack) {
+			entry.mask?.remove()
+			entry.dialog?.remove()
+		}
+		this._modalStack.length = 0
+
 		AppManager.popView()
 		this.jscore.destroy()
 	}
@@ -1293,14 +1303,26 @@ export class MiniApp {
 		const onSuccess = this.createCallbackFunction(success)
 		const onComplete = this.createCallbackFunction(complete)
 
-		this.toastInfo.dom = document.createElement('div')
-		this.toastInfo.dom.classList.add('dimina-toast', `dimina-toast--${icon}`)
-		this.toastInfo.dom.innerHTML = `<p>${title}</p>`
-		this.webviewsContainer.appendChild(this.toastInfo.dom)
+		const dom = document.createElement('div')
+		dom.className = `dimina-toast dimina-toast--${icon}`
+		// 没图标的 toast（icon: 'none'）：只渲染文本，不再占 120x120 大方块
+		if (icon === 'none') {
+			dom.classList.add('dimina-toast--text-only')
+		}
+		const p = document.createElement('p')
+		p.textContent = String(title)
+		dom.appendChild(p)
+
+		// 挂到 mini-app 根节点，避免被 webviewsContainer 的 tabbar 留白裁剪 / 被遮挡
+		this.el.appendChild(dom)
+		this.toastInfo.dom = dom
 
 		this.toastInfo.timer = setTimeout(() => {
-			this.webviewsContainer.removeChild(this.toastInfo.dom)
-			this.toastInfo.dom = null
+			dom.remove()
+			if (this.toastInfo.dom === dom) {
+				this.toastInfo.dom = null
+				this.toastInfo.timer = null
+			}
 		}, duration)
 
 		onSuccess?.()
@@ -1313,7 +1335,7 @@ export class MiniApp {
 		const onComplete = this.createCallbackFunction(complete)
 
 		if (this.toastInfo.dom) {
-			this.webviewsContainer.removeChild(this.toastInfo.dom)
+			this.toastInfo.dom.remove()
 			this.toastInfo.dom = null
 		}
 		if (this.toastInfo.timer) {
@@ -1332,47 +1354,124 @@ export class MiniApp {
 		this.hideLoading(opts)
 	}
 
+	/**
+	 * wx.showModal：每次调用立即在 stack 顶部压一个新 modal（LIFO）。
+	 * 后来的 modal 通过 z-index 叠在前一个之上，前一个被新 mask 挡住不可交互；
+	 * 关闭顶上 modal 后下方那个自然露出，可继续交互。
+	 *
+	 * 延迟 100ms 再挂载：
+	 *   场景—— 触发 showModal 的那次点击（mousedown→...→click）还没全部 dispatch 完，
+	 *   如果同步 mount，按钮可能正好出现在 mouseup 点上，click 直接穿透到 confirm/cancel，
+	 *   表现为 A 瞬间被 pop。延迟到下一个事件循环 + 100ms 让原始点击完整消化掉。
+	 *   连续 showModal(A) → showModal(B) → showModal(C) 同一 tick 内的多次 push 仍按
+	 *   FIFO 顺序进入 setTimeout 队列，最终入栈顺序还是 [A, B, C]（C 在顶），符合 LIFO 语义。
+	 */
 	showModal(opts) {
-		const { content = '', cancelText = '取消', confirmText = '确定', success, complete } = opts
+		setTimeout(() => {
+			const entry = this._mountModal(opts || {})
+			this._modalStack.push(entry)
+		}, 100)
+	}
+
+	/**
+	 * 构造一个 modal（mask + dialog）并挂载，返回带 mask/dialog/close 的句柄。
+	 * 用 DOM API 构造（不走 innerHTML），content / 按钮文案安全转义。
+	 */
+	_mountModal(opts) {
+		const {
+			title = '',
+			content = '',
+			showCancel = true,
+			cancelText = '取消',
+			cancelColor = '#000',
+			confirmText = '确定',
+			confirmColor = '#576b95',
+			success,
+			complete,
+		} = opts
 		const onSuccess = this.createCallbackFunction(success)
 		const onComplete = this.createCallbackFunction(complete)
 
-		// 遮罩层
 		const mask = document.createElement('div')
 		mask.className = 'dimina-dialog-mask'
-		// 弹窗内容
+
 		const dialog = document.createElement('div')
 		dialog.className = 'dimina-dialog'
-		dialog.innerHTML = `<p>${content}</p>
-		<div>
-			<a id="cancelBtn" class="dimina-dialog__button" href="javascript:">${cancelText}</a>
-			<a id="confirmBtn" class="dimina-dialog__button" style="color: #576b95;" href="javascript:">${confirmText}</a>
-    	</div>`
 
-		const cleanup = () => {
-			mask.remove()
-			dialog.remove()
+		// LIFO 栈深度：当前栈里已有 N 个 → 新 modal 是第 N+1 个（depth = N，从 0 起）
+		// 每个 modal 占 20 个 z-index 步长，避免和 toast(1050) 冲突
+		const depth = this._modalStack.length
+		mask.style.zIndex = String(1100 + depth * 20)
+		dialog.style.zIndex = String(1110 + depth * 20)
+
+		if (title) {
+			const titleEl = document.createElement('h2')
+			titleEl.className = 'dimina-dialog__title'
+			titleEl.textContent = String(title)
+			dialog.appendChild(titleEl)
 		}
 
-		dialog.querySelector('#cancelBtn').addEventListener('click', () => {
-			cleanup()
-			onSuccess?.({ cancel: true })
-			onComplete?.()
-		})
-		dialog.querySelector('#confirmBtn').addEventListener('click', () => {
-			cleanup()
-			onSuccess?.({ confirm: true })
-			onComplete?.()
-		})
-		mask.onclick = cleanup
+		const contentEl = document.createElement('p')
+		contentEl.className = 'dimina-dialog__content'
+		contentEl.textContent = String(content)
+		dialog.appendChild(contentEl)
 
-		this.webviewsContainer.appendChild(mask)
-		this.webviewsContainer.appendChild(dialog)
-		// 动画效果：等浏览器 paint 后再加 show class，触发 CSS transition
+		const btnRow = document.createElement('div')
+		btnRow.className = 'dimina-dialog__buttons'
+
+		let closed = false
+		const entry = { mask, dialog, close: null }
+		const close = (result) => {
+			if (closed) return
+			closed = true
+			mask.classList.remove('show')
+			dialog.classList.remove('show')
+			// 等动画结束再移除
+			setTimeout(() => {
+				mask.remove()
+				dialog.remove()
+			}, 200)
+			// 从 stack 中弹掉自己（可能不是栈顶，例如外部 destroy 提前关掉了下层 modal）
+			const idx = this._modalStack.indexOf(entry)
+			if (idx >= 0) this._modalStack.splice(idx, 1)
+			onSuccess?.(result)
+			onComplete?.()
+		}
+		entry.close = close
+
+		if (showCancel) {
+			const cancelBtn = document.createElement('a')
+			cancelBtn.className = 'dimina-dialog__button'
+			cancelBtn.href = 'javascript:'
+			cancelBtn.style.color = cancelColor
+			cancelBtn.textContent = String(cancelText)
+			cancelBtn.addEventListener('click', () => close({ cancel: true, confirm: false }))
+			btnRow.appendChild(cancelBtn)
+		}
+
+		const confirmBtn = document.createElement('a')
+		confirmBtn.className = 'dimina-dialog__button'
+		confirmBtn.href = 'javascript:'
+		confirmBtn.style.color = confirmColor
+		confirmBtn.textContent = String(confirmText)
+		confirmBtn.addEventListener('click', () => close({ cancel: false, confirm: true }))
+		btnRow.appendChild(confirmBtn)
+
+		dialog.appendChild(btnRow)
+
+		// 不允许点击遮罩关闭——保持和微信小程序一致，必须点按钮才会关
+		mask.addEventListener('click', (e) => e.stopPropagation())
+
+		this.el.appendChild(mask)
+		this.el.appendChild(dialog)
+
+		// 下一帧再加 show，触发 transition
 		requestAnimationFrame(() => requestAnimationFrame(() => {
 			mask.classList.add('show')
 			dialog.classList.add('show')
 		}))
+
+		return entry
 	}
 
 	showActionSheet(opts) {
