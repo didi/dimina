@@ -50,6 +50,10 @@ export class MiniApp {
 		// showModal 用 LIFO stack：后来的 modal 压在前一个之上（z-index 递增），
 		// 关闭顶上 modal 露出下方；前后 modal 互不干扰，各自 success/complete 独立。
 		this._modalStack = []
+		// showModal 100ms 延迟 mount 期间的 pending timers；destroy 时一并 clear
+		this._modalPendingTimers = new Set()
+		// destroy 标志：异步回调（modal mount、toast timer）检查后短路
+		this._destroyed = false
 	}
 
 	/**
@@ -1090,6 +1094,9 @@ export class MiniApp {
 	}
 
 	destroy() {
+		// 标记 destroyed，所有异步回调据此短路（modal 100ms mount、toast timer 等）
+		this._destroyed = true
+
 		// 清理所有第三方扩展订阅
 		for (const unsubscribe of this._extSubscriptions.values()) {
 			unsubscribe?.()
@@ -1100,12 +1107,19 @@ export class MiniApp {
 		this._tabBarResizeObserver?.disconnect()
 		this._tabBarResizeObserver = null
 
+		// 清掉所有 showModal pending 的 100ms 计时器
+		for (const t of this._modalPendingTimers) clearTimeout(t)
+		this._modalPendingTimers.clear()
+
 		// 清空 modal stack（避免泄漏 DOM）
 		for (const entry of this._modalStack) {
 			entry.mask?.remove()
 			entry.dialog?.remove()
 		}
 		this._modalStack.length = 0
+
+		// 清掉残留 toast
+		this.hideToast({})
 
 		AppManager.popView()
 		this.jscore.destroy()
@@ -1291,8 +1305,8 @@ export class MiniApp {
 		}
 	}
 
-	showToast(opts) {
-		const { title = '', duration = 1500, icon = 'success', success, complete } = opts
+	showToast(opts = {}) {
+		const { title = '', duration = 1500, icon = 'success', mask = false, success, complete } = opts
 
 		if (!title) {
 			return
@@ -1302,6 +1316,14 @@ export class MiniApp {
 
 		const onSuccess = this.createCallbackFunction(success)
 		const onComplete = this.createCallbackFunction(complete)
+
+		// 可选遮罩层：mask:true 时阻止用户点击下层内容（对齐 wx.showToast）
+		let maskEl = null
+		if (mask) {
+			maskEl = document.createElement('div')
+			maskEl.className = 'dimina-toast-mask'
+			this.el.appendChild(maskEl)
+		}
 
 		const dom = document.createElement('div')
 		dom.className = `dimina-toast dimina-toast--${icon}`
@@ -1316,11 +1338,14 @@ export class MiniApp {
 		// 挂到 mini-app 根节点，避免被 webviewsContainer 的 tabbar 留白裁剪 / 被遮挡
 		this.el.appendChild(dom)
 		this.toastInfo.dom = dom
+		this.toastInfo.maskEl = maskEl
 
 		this.toastInfo.timer = setTimeout(() => {
 			dom.remove()
+			maskEl?.remove()
 			if (this.toastInfo.dom === dom) {
 				this.toastInfo.dom = null
+				this.toastInfo.maskEl = null
 				this.toastInfo.timer = null
 			}
 		}, duration)
@@ -1329,7 +1354,7 @@ export class MiniApp {
 		onComplete?.()
 	}
 
-	hideToast(opts) {
+	hideToast(opts = {}) {
 		const { success, complete } = opts
 		const onSuccess = this.createCallbackFunction(success)
 		const onComplete = this.createCallbackFunction(complete)
@@ -1337,6 +1362,10 @@ export class MiniApp {
 		if (this.toastInfo.dom) {
 			this.toastInfo.dom.remove()
 			this.toastInfo.dom = null
+		}
+		if (this.toastInfo.maskEl) {
+			this.toastInfo.maskEl.remove()
+			this.toastInfo.maskEl = null
 		}
 		if (this.toastInfo.timer) {
 			clearTimeout(this.toastInfo.timer)
@@ -1346,12 +1375,13 @@ export class MiniApp {
 		onComplete?.()
 	}
 
-	showLoading(opts) {
+	showLoading(opts = {}) {
 		this.showToast({ ...opts, icon: 'loading' })
 	}
 
-	hideLoading(opts) {
-		this.hideLoading(opts)
+	hideLoading(opts = {}) {
+		// 修复：之前是 this.hideLoading(opts)，无限递归
+		this.hideToast(opts)
 	}
 
 	/**
@@ -1367,10 +1397,14 @@ export class MiniApp {
 	 *   FIFO 顺序进入 setTimeout 队列，最终入栈顺序还是 [A, B, C]（C 在顶），符合 LIFO 语义。
 	 */
 	showModal(opts) {
-		setTimeout(() => {
+		if (this._destroyed) return
+		const timer = setTimeout(() => {
+			this._modalPendingTimers.delete(timer)
+			if (this._destroyed) return   // 100ms 内 mini-app 已 destroy → 短路，不挂悬空节点
 			const entry = this._mountModal(opts || {})
 			this._modalStack.push(entry)
 		}, 100)
+		this._modalPendingTimers.add(timer)
 	}
 
 	/**
@@ -1411,10 +1445,13 @@ export class MiniApp {
 			dialog.appendChild(titleEl)
 		}
 
-		const contentEl = document.createElement('p')
-		contentEl.className = 'dimina-dialog__content'
-		contentEl.textContent = String(content)
-		dialog.appendChild(contentEl)
+		// content 为空就不渲染——避免空的 padding 占位
+		if (content) {
+			const contentEl = document.createElement('p')
+			contentEl.className = 'dimina-dialog__content'
+			contentEl.textContent = String(content)
+			dialog.appendChild(contentEl)
+		}
 
 		const btnRow = document.createElement('div')
 		btnRow.className = 'dimina-dialog__buttons'
@@ -1440,27 +1477,28 @@ export class MiniApp {
 		entry.close = close
 
 		if (showCancel) {
-			const cancelBtn = document.createElement('a')
+			const cancelBtn = document.createElement('button')
+			cancelBtn.type = 'button'
 			cancelBtn.className = 'dimina-dialog__button'
-			cancelBtn.href = 'javascript:'
 			cancelBtn.style.color = cancelColor
 			cancelBtn.textContent = String(cancelText)
-			cancelBtn.addEventListener('click', () => close({ cancel: true, confirm: false }))
+			cancelBtn.addEventListener('click', () => {
+				close({ cancel: true, confirm: false, errMsg: 'showModal:ok' })
+			})
 			btnRow.appendChild(cancelBtn)
 		}
 
-		const confirmBtn = document.createElement('a')
+		const confirmBtn = document.createElement('button')
+		confirmBtn.type = 'button'
 		confirmBtn.className = 'dimina-dialog__button'
-		confirmBtn.href = 'javascript:'
 		confirmBtn.style.color = confirmColor
 		confirmBtn.textContent = String(confirmText)
-		confirmBtn.addEventListener('click', () => close({ cancel: false, confirm: true }))
+		confirmBtn.addEventListener('click', () => {
+			close({ cancel: false, confirm: true, errMsg: 'showModal:ok' })
+		})
 		btnRow.appendChild(confirmBtn)
 
 		dialog.appendChild(btnRow)
-
-		// 不允许点击遮罩关闭——保持和微信小程序一致，必须点按钮才会关
-		mask.addEventListener('click', (e) => e.stopPropagation())
 
 		this.el.appendChild(mask)
 		this.el.appendChild(dialog)
@@ -1518,9 +1556,9 @@ export class MiniApp {
 		sheet.appendChild(cancelBtn)
 
 		mask.onclick = cleanup
-		// 挂载到 webviewsContainer
-		this.webviewsContainer.appendChild(mask)
-		this.webviewsContainer.appendChild(sheet)
+		// 挂载到 mini-app 根，避免被 webviewsContainer 的 tabbar 留白（bottom: var(--tabbar-height)）抬高
+		this.el.appendChild(mask)
+		this.el.appendChild(sheet)
 		// 动画效果：等浏览器 paint 后再加 show class，触发 CSS transition
 		requestAnimationFrame(() => requestAnimationFrame(() => {
 			sheet.classList.add('show')

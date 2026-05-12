@@ -372,6 +372,18 @@
 }
 
 
+// showToast / showLoading 的可选遮罩（opts.mask=true 时挂载），透明但拦点击
+.dimina-toast-mask {
+	position: absolute;
+	left: 0;
+	top: 0;
+	right: 0;
+	bottom: 0;
+	z-index: 1040;
+	background: transparent;
+	pointer-events: auto;
+}
+
 .dimina-toast {
 	position: absolute;
 	// 高于 tabbar(100) / nav actions(10)，低于 modal(1100)
@@ -518,6 +530,12 @@
 		color: #000;
 		outline: none;
 		cursor: pointer;
+		// 重置 <button> 默认 UA 样式（border/background/font），保持与 <a> 时期视觉一致
+		border: 0;
+		background: transparent;
+		font-family: inherit;
+		appearance: none;
+		-webkit-appearance: none;
 
 		// 按钮之间的 0.5px hairline 分割线
 		& + .dimina-dialog__button::before {
