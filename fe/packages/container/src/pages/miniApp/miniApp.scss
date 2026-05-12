@@ -645,8 +645,9 @@
 	flex-direction: row;
 	align-items: center;
 	justify-content: space-around;
-	height: calc(100vw / 750 * 120);
-	padding-bottom: env(safe-area-inset-bottom);
+	box-sizing: border-box;
+	height: calc($deviceWidth / 750 * 122px);
+	margin-bottom: env(safe-area-inset-bottom);
 }
 
 .dimina-tabbar-item {
@@ -655,10 +656,9 @@
 	flex-direction: column;
 	align-items: center;
 	justify-content: center;
-	gap: calc(100vw / 750 * 8);
+	gap: calc($deviceWidth / 750 * 8px);
 	cursor: pointer;
 	user-select: none;
-	padding: 4px 0;
 	transition: all 0.2s ease;
 
 	&:active {
@@ -667,8 +667,8 @@
 }
 
 .dimina-tabbar-icon {
-	width: calc(100vw / 750 * 60);
-	height: calc(100vw / 750 * 60);
+	width: calc($deviceWidth / 750 * 42px);
+	height: calc($deviceWidth / 750 * 42px);
 
 	object-fit: contain;
 }
@@ -682,7 +682,7 @@
 }
 
 .dimina-tabbar-text {
-	font-size: calc(100vw / 750 * 24);
+	font-size: calc($deviceWidth / 750 * 16px);
 	line-height: 1.2;
 	text-align: center;
 	transition: color 0.2s ease;

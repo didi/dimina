@@ -1,4 +1,4 @@
-import { LAUNCH_SCREEN_MIN_MS, WAIT_TRANSITION_TIMEOUT_MS } from '@/constants/animation'
+import { LAUNCH_SCREEN_MIN_MS, MODAL_GUARD_MS, WAIT_TRANSITION_TIMEOUT_MS } from '@/constants/animation'
 import { AppManager } from '@/core/appManager'
 import { Bridge } from '@/core/bridge'
 import { JSCore } from '@/core/jscore'
@@ -1053,6 +1053,63 @@ export class MiniApp {
 		})
 	}
 
+	/**
+	 * wx.setTabBarStyle：动态修改 TabBar 整体样式
+	 * https://developers.weixin.qq.com/miniprogram/dev/api/ui/tab-bar/wx.setTabBarStyle.html
+	 *
+	 * 入参：
+	 *   color: string           — tab 上文字默认颜色（HexColor）
+	 *   selectedColor: string   — tab 上文字选中颜色（HexColor）
+	 *   backgroundColor: string — tab 背景色（HexColor）
+	 *   borderStyle: 'black' | 'white' — 上边框颜色
+	 *   success / fail / complete: 回调
+	 *
+	 * 行为：原地更新 this.tabBarConfig 和已渲染的 DOM（背景、上边框、所有 tab 文字颜色），
+	 * 不重新构建 tabbar，保留事件绑定 / 图标 / 选中态。
+	 */
+	setTabBarStyle(opts = {}) {
+		const { color, selectedColor, backgroundColor, borderStyle, success, fail, complete } = opts
+		const onSuccess = this.createCallbackFunction(success)
+		const onFail = this.createCallbackFunction(fail)
+		const onComplete = this.createCallbackFunction(complete)
+
+		if (!this.tabBarConfig || !this.tabBarEl) {
+			onFail?.({ errMsg: 'setTabBarStyle:fail tabBar not configured' })
+			onComplete?.()
+			return
+		}
+
+		// 仅认 wechat 文档支持的 borderStyle 值
+		const validBorderStyle = borderStyle === 'black' || borderStyle === 'white' ? borderStyle : null
+
+		// 用 _sanitizeCssColor 校验颜色，命中黑名单的字符（注入风险）直接丢弃
+		const safeColor = color !== undefined ? this._sanitizeCssColor(color) : null
+		const safeSelectedColor = selectedColor !== undefined ? this._sanitizeCssColor(selectedColor) : null
+		const safeBg = backgroundColor !== undefined ? this._sanitizeCssColor(backgroundColor) : null
+
+		// 1. 更新缓存 config —— 后续 _updateTabBarSelection / _renderTabBar 都依赖它
+		if (safeColor) this.tabBarConfig.color = safeColor
+		if (safeSelectedColor) this.tabBarConfig.selectedColor = safeSelectedColor
+		if (safeBg) this.tabBarConfig.backgroundColor = safeBg
+		if (validBorderStyle) this.tabBarConfig.borderStyle = validBorderStyle
+
+		// 2. 更新已渲染的 tabbar DOM（背景 / 边框）
+		const tabbar = this.tabBarEl.querySelector('.dimina-tabbar')
+		if (tabbar) {
+			if (safeBg) tabbar.style.backgroundColor = safeBg
+			if (validBorderStyle) {
+				const borderColor = validBorderStyle === 'white' ? '#FFFFFF' : '#E0E0E0'
+				tabbar.style.borderTop = `0.5px solid ${borderColor}`
+			}
+		}
+
+		// 3. 文字颜色按当前选中态重新刷一遍（同时处理 color 和 selectedColor）
+		this._updateTabBarSelection(this.currentTabPath)
+
+		onSuccess?.({ errMsg: 'setTabBarStyle:ok' })
+		onComplete?.()
+	}
+
 	navigateToMiniProgram(opts) {
 		const { appId, path } = opts
 		AppManager.openApp(
@@ -1401,7 +1458,7 @@ export class MiniApp {
 			// 已被外部 close 出栈了就不再 show
 			if (!this._modalStack.includes(entry)) return
 			entry.dialog.classList.add('show')
-		}, 100)
+		}, MODAL_GUARD_MS)
 		this._modalPendingTimers.add(timer)
 	}
 
