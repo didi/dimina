@@ -1382,133 +1382,153 @@ export class MiniApp {
 		this.hideToast(opts)
 	}
 
-	/**
-	 * wx.showModal：每次调用立即在 stack 顶部压一个新 modal（LIFO）。
-	 * 后来的 modal 通过 z-index 叠在前一个之上，前一个被新 mask 挡住不可交互；
-	 * 关闭顶上 modal 后下方那个自然露出，可继续交互。
-	 *
-	 * 延迟 100ms 再挂载：
-	 *   场景—— 触发 showModal 的那次点击（mousedown→...→click）还没全部 dispatch 完，
-	 *   如果同步 mount，按钮可能正好出现在 mouseup 点上，click 直接穿透到 confirm/cancel，
-	 *   表现为 A 瞬间被 pop。延迟到下一个事件循环 + 100ms 让原始点击完整消化掉。
-	 *   连续 showModal(A) → showModal(B) → showModal(C) 同一 tick 内的多次 push 仍按
-	 *   FIFO 顺序进入 setTimeout 队列，最终入栈顺序还是 [A, B, C]（C 在顶），符合 LIFO 语义。
-	 */
+
 	showModal(opts) {
 		if (this._destroyed) return
+		// 同步 mount + push：栈状态立即生效（destroy / 栈深查询都能看到这条 entry）
+		const entry = this._mountModal(opts || {})
+		this._modalStack.push(entry)
+		// push 后触发一次视图更新：只展示栈顶，其它全部隐藏（不再叠加渲染）
+		this._updateModalView()
+
+		// mask 同步加 .show：立即变黑遮罩，吸收触发 showModal 那次 click 链路的 mouseup
+		// （dialog 仍 pointer-events:none 不接收点击 → click 落到 mask 被吸收，不穿透到按钮）
+		entry.mask.classList.add('show')
+
 		const timer = setTimeout(() => {
 			this._modalPendingTimers.delete(timer)
-			if (this._destroyed) return   // 100ms 内 mini-app 已 destroy → 短路，不挂悬空节点
-			const entry = this._mountModal(opts || {})
-			this._modalStack.push(entry)
+			if (this._destroyed) return
+			// 已被外部 close 出栈了就不再 show
+			if (!this._modalStack.includes(entry)) return
+			entry.dialog.classList.add('show')
 		}, 100)
 		this._modalPendingTimers.add(timer)
 	}
 
 	/**
-	 * 构造一个 modal（mask + dialog）并挂载，返回带 mask/dialog/close 的句柄。
-	 * 用 DOM API 构造（不走 innerHTML），content / 按钮文案安全转义。
+	 * 根据 _modalStack 当前状态更新视图：仅栈顶 modal 可见，其余 mask + dialog 都 display:none。
+	 * 任何改变栈结构的操作（push / pop）之后都该调一次。
 	 */
-	_mountModal(opts) {
-		const {
-			title = '',
-			content = '',
-			showCancel = true,
-			cancelText = '取消',
-			cancelColor = '#000',
-			confirmText = '确定',
-			confirmColor = '#576b95',
-			success,
-			complete,
-		} = opts
-		const onSuccess = this.createCallbackFunction(success)
-		const onComplete = this.createCallbackFunction(complete)
-
-		const mask = document.createElement('div')
-		mask.className = 'dimina-dialog-mask'
-
-		const dialog = document.createElement('div')
-		dialog.className = 'dimina-dialog'
-
-		// LIFO 栈深度：当前栈里已有 N 个 → 新 modal 是第 N+1 个（depth = N，从 0 起）
-		// 每个 modal 占 20 个 z-index 步长，避免和 toast(1050) 冲突
-		const depth = this._modalStack.length
-		mask.style.zIndex = String(1100 + depth * 20)
-		dialog.style.zIndex = String(1110 + depth * 20)
-
-		if (title) {
-			const titleEl = document.createElement('h2')
-			titleEl.className = 'dimina-dialog__title'
-			titleEl.textContent = String(title)
-			dialog.appendChild(titleEl)
+	_updateModalView() {
+		const topIdx = this._modalStack.length - 1
+		for (let i = 0; i < this._modalStack.length; i++) {
+			const e = this._modalStack[i]
+			if (i === topIdx) {
+				e.mask.classList.remove('dimina-modal--occluded')
+				e.dialog.classList.remove('dimina-modal--occluded')
+			}
+			else {
+				e.mask.classList.add('dimina-modal--occluded')
+				e.dialog.classList.add('dimina-modal--occluded')
+			}
 		}
-
-		// content 为空就不渲染——避免空的 padding 占位
-		if (content) {
-			const contentEl = document.createElement('p')
-			contentEl.className = 'dimina-dialog__content'
-			contentEl.textContent = String(content)
-			dialog.appendChild(contentEl)
-		}
-
-		const btnRow = document.createElement('div')
-		btnRow.className = 'dimina-dialog__buttons'
-
-		let closed = false
-		const entry = { mask, dialog, close: null }
-		const close = (result) => {
-			if (closed) return
-			closed = true
-			mask.classList.remove('show')
-			dialog.classList.remove('show')
-			// 等动画结束再移除
-			setTimeout(() => {
-				mask.remove()
-				dialog.remove()
-			}, 200)
-			// 从 stack 中弹掉自己（可能不是栈顶，例如外部 destroy 提前关掉了下层 modal）
-			const idx = this._modalStack.indexOf(entry)
-			if (idx >= 0) this._modalStack.splice(idx, 1)
-			onSuccess?.(result)
-			onComplete?.()
-		}
-		entry.close = close
-
-		if (showCancel) {
-			const cancelBtn = document.createElement('button')
-			cancelBtn.type = 'button'
-			cancelBtn.className = 'dimina-dialog__button'
-			cancelBtn.style.color = cancelColor
-			cancelBtn.textContent = String(cancelText)
-			cancelBtn.addEventListener('click', () => {
-				close({ cancel: true, confirm: false, errMsg: 'showModal:ok' })
-			})
-			btnRow.appendChild(cancelBtn)
-		}
-
-		const confirmBtn = document.createElement('button')
-		confirmBtn.type = 'button'
-		confirmBtn.className = 'dimina-dialog__button'
-		confirmBtn.style.color = confirmColor
-		confirmBtn.textContent = String(confirmText)
-		confirmBtn.addEventListener('click', () => {
-			close({ cancel: false, confirm: true, errMsg: 'showModal:ok' })
-		})
-		btnRow.appendChild(confirmBtn)
-
-		dialog.appendChild(btnRow)
-
-		this.el.appendChild(mask)
-		this.el.appendChild(dialog)
-
-		// 下一帧再加 show，触发 transition
-		requestAnimationFrame(() => requestAnimationFrame(() => {
-			mask.classList.add('show')
-			dialog.classList.add('show')
-		}))
-
-		return entry
 	}
+
+	_mountModal(opts) {
+        const {
+            title = "",
+            content = "",
+            showCancel = true,
+            cancelText = "取消",
+            cancelColor = "#000",
+            confirmText = "确定",
+            confirmColor = "#576b95",
+            success,
+            complete,
+        } = opts;
+        const onSuccess = this.createCallbackFunction(success);
+        const onComplete = this.createCallbackFunction(complete);
+
+        const mask = document.createElement("div");
+        mask.className = "dimina-dialog-mask";
+
+        const dialog = document.createElement("div");
+        dialog.className = "dimina-dialog";
+
+        const depth = this._modalStack.length;
+        mask.style.zIndex = String(1100 + depth * 20);
+        dialog.style.zIndex = String(1110 + depth * 20);
+
+        if (title) {
+            const titleEl = document.createElement("h2");
+            titleEl.className = "dimina-dialog__title";
+            titleEl.textContent = String(title);
+            dialog.appendChild(titleEl);
+        }
+
+        // content 为空就不渲染——避免空的 padding 占位
+        if (content) {
+            const contentEl = document.createElement("p");
+            contentEl.className = "dimina-dialog__content";
+            contentEl.textContent = String(content);
+            dialog.appendChild(contentEl);
+        }
+
+        const btnRow = document.createElement("div");
+        btnRow.className = "dimina-dialog__buttons";
+
+        let closed = false;
+        const entry = { mask, dialog, close: null };
+        const close = (result) => {
+            if (closed) return;
+            closed = true;
+            // 从 stack 中弹掉自己（可能不是栈顶，例如外部 destroy 提前关掉了下层 modal）
+            const idx = this._modalStack.indexOf(entry);
+            if (idx >= 0) this._modalStack.splice(idx, 1);
+
+            // 栈空 → 这是最后一个 modal，播放收缩淡出动画再移除
+            // 栈非空 → 下面还有 modal 要露出，直接移除当前 DOM 不播动画，让下一个立刻可见
+            if (this._modalStack.length === 0) {
+                mask.classList.remove("show");
+                dialog.classList.remove("show");
+                setTimeout(() => {
+                    mask.remove();
+                    dialog.remove();
+                }, 200);
+            } else {
+                mask.remove();
+                dialog.remove();
+            }
+
+            // pop 后触发视图更新：之前的下一层（新栈顶）显示出来
+            this._updateModalView();
+            onSuccess?.(result);
+            onComplete?.();
+        };
+        entry.close = close;
+
+        if (showCancel) {
+            const cancelBtn = document.createElement("button");
+            cancelBtn.type = "button";
+            cancelBtn.className = "dimina-dialog__button";
+            cancelBtn.style.color = cancelColor;
+            cancelBtn.textContent = String(cancelText);
+            cancelBtn.addEventListener("click", () => {
+                close({ cancel: true, confirm: false, errMsg: "showModal:ok" });
+            });
+            btnRow.appendChild(cancelBtn);
+        }
+
+        const confirmBtn = document.createElement("button");
+        confirmBtn.type = "button";
+        confirmBtn.className = "dimina-dialog__button";
+        confirmBtn.style.color = confirmColor;
+        confirmBtn.textContent = String(confirmText);
+        confirmBtn.addEventListener("click", () => {
+            close({ cancel: false, confirm: true, errMsg: "showModal:ok" });
+        });
+        btnRow.appendChild(confirmBtn);
+
+        dialog.appendChild(btnRow);
+
+        this.el.appendChild(mask);
+        this.el.appendChild(dialog);
+
+        // .show 由 showModal 在 100ms 后统一加，触发 transition + 打开 pointer-events
+        // （这里不再 rAF 自动加 show——展示和挂载已分离）
+
+        return entry;
+    }
 
 	showActionSheet(opts) {
 		const { itemList = [], itemColor = '#000', success, fail, complete } = opts || {}

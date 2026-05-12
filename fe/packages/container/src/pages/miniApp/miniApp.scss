@@ -459,6 +459,12 @@
 	}
 }
 
+// ---- 多 modal 栈：非栈顶 entry 的 mask + dialog 一律隐藏，仅渲染最顶层 ----
+// 同时压住 .dimina-dialog 的 display:flex 和 .dimina-dialog-mask 的可见状态
+.dimina-modal--occluded {
+	display: none !important;
+}
+
 // ---- showModal: 对话框 ----
 .dimina-dialog {
 	position: absolute;
@@ -482,10 +488,14 @@
 	opacity: 0;
 	transition: transform 200ms ease, opacity 200ms ease;
 	z-index: 1110;
+	// 默认不接收点击：JS 同步挂载完到 100ms 后加 .show 之前的窗口里，
+	// 拦掉触发 showModal 的那次原始 click 落到 confirm/cancel 上的穿透
+	pointer-events: none;
 
 	&.show {
 		opacity: 1;
 		transform: translate(-50%, -50%) scale(1);
+		pointer-events: auto;
 	}
 
 	.dimina-dialog__title {
@@ -536,6 +546,15 @@
 		font-family: inherit;
 		appearance: none;
 		-webkit-appearance: none;
+		// 关掉移动端点击的蓝色高亮 & 长按菜单
+		-webkit-tap-highlight-color: transparent;
+		-webkit-touch-callout: none;
+
+		// 键盘焦点框（部分浏览器为 <button> 默认蓝框）也压掉
+		&:focus,
+		&:focus-visible {
+			outline: none;
+		}
 
 		// 按钮之间的 0.5px hairline 分割线
 		& + .dimina-dialog__button::before {
