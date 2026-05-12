@@ -50,9 +50,7 @@ export class MiniApp {
 		// showModal 用 LIFO stack：后来的 modal 压在前一个之上（z-index 递增），
 		// 关闭顶上 modal 露出下方；前后 modal 互不干扰，各自 success/complete 独立。
 		this._modalStack = []
-		// showModal 100ms 延迟 mount 期间的 pending timers；destroy 时一并 clear
 		this._modalPendingTimers = new Set()
-		// destroy 标志：异步回调（modal mount、toast timer）检查后短路
 		this._destroyed = false
 	}
 
