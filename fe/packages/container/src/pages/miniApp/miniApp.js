@@ -1000,9 +1000,10 @@ export class MiniApp {
 
 	/**
 	 * 解析 tabBar 图标路径。
-	 * 编译期 collectAssets 已把 list 中的 iconPath/selectedIconPath 改写成
-	 * /${appId}/main/static/${prefix}_${filename}（带前导 /），
-	 * 这里只负责拼上 BASE_URL，并兼容已是完整 URL / data: 的场景。
+	 * 编译期 collectAssets 输出有两种形态（看 ASSETS_PATH_PREFIX 环境变量）：
+	 *   - 未设置：/${appId}/main/static/${prefix}_${filename}    ← 带前导 /
+	 *   - 已设置：${appId}/main/static/${prefix}_${filename}     ← 无前导 /（如 GitHub Pages 生产构建）
+	 * 两种都要兼容；否则在 prod 上会被兜底分支二次拼上 ${appId}/main/，URL 重复。
 	 */
 	_resolveTabBarIcon(iconPath) {
 		if (!iconPath || typeof iconPath !== 'string') return null
@@ -1011,9 +1012,16 @@ export class MiniApp {
 			return iconPath
 		}
 		const baseUrl = import.meta.env.BASE_URL
-		// 编译产物：以 / 开头的站点根绝对路径
+		// 编译产物 1：以 / 开头的站点根绝对路径
 		if (iconPath.startsWith('/')) {
 			return `${baseUrl.replace(/\/$/, '')}${iconPath}`
+		}
+		// 编译产物 2（ASSETS_PATH_PREFIX=true）：已含 appId 段的"相对路径"
+		// 例如 `wxxxxxxxxxxxx/main/static/abc_foo.png` —— 直接前缀 BASE_URL，
+		// 不要再二次拼 ${appId}/main/
+		const appIdPrefix = `${this.appId}/`
+		if (iconPath.startsWith(appIdPrefix)) {
+			return `${baseUrl}${iconPath}`
 		}
 		// 兜底：用户配置里仍是包内相对路径（未走 collectAssets 改写）
 		return `${baseUrl}${this.appId}/main/${iconPath}`
