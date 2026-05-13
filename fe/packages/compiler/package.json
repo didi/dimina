@@ -61,7 +61,7 @@
 		"cheerio": "^1.2.0",
 		"chokidar": "^4.0.3",
 		"commander": "^14.0.3",
-		"cssnano": "^7.1.9",
+		"cssnano": "^8.0.1",
 		"esbuild": "^0.27.7",
 		"htmlparser2": "^10.1.0",
 		"less": "^4.6.4",
