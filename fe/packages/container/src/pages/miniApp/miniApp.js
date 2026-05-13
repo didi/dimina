@@ -519,6 +519,8 @@ export class MiniApp {
 		preWebview.el.classList.add('dimina-native-view--linear-anima')
 		preBridge?.pageHide()
 
+		this._setTabBarVisible(false)
+
 		// 新页面推入
 		bridge.webview.el.style.zIndex = this.bridgeList.length + 1
 		bridge.webview.el.classList.add('dimina-native-view--enter-anima')
@@ -531,9 +533,6 @@ export class MiniApp {
 		bridge.webview.el.classList.remove('dimina-native-view--before-enter')
 		bridge.webview.el.classList.remove('dimina-native-view--enter-anima')
 		bridge.webview.el.classList.remove('dimina-native-view--instage')
-
-		// navigateTo 的目标按规范不应是 tab 页：栈顶变为非 tab 页，隐藏 TabBar
-		this._setTabBarVisible(false)
 
 		onSuccess?.({ errMsg: 'navigateTo:ok' })
 		onComplete?.()
@@ -1003,7 +1002,6 @@ export class MiniApp {
 	 * 编译期 collectAssets 输出有两种形态（看 ASSETS_PATH_PREFIX 环境变量）：
 	 *   - 未设置：/${appId}/main/static/${prefix}_${filename}    ← 带前导 /
 	 *   - 已设置：${appId}/main/static/${prefix}_${filename}     ← 无前导 /（如 GitHub Pages 生产构建）
-	 * 两种都要兼容；否则在 prod 上会被兜底分支二次拼上 ${appId}/main/，URL 重复。
 	 */
 	_resolveTabBarIcon(iconPath) {
 		if (!iconPath || typeof iconPath !== 'string') return null
@@ -1012,13 +1010,9 @@ export class MiniApp {
 			return iconPath
 		}
 		const baseUrl = import.meta.env.BASE_URL
-		// 编译产物 1：以 / 开头的站点根绝对路径
 		if (iconPath.startsWith('/')) {
-			return `${baseUrl.replace(/\/$/, '')}${iconPath}`
-		}
-		// 编译产物 2（ASSETS_PATH_PREFIX=true）：已含 appId 段的"相对路径"
-		// 例如 `wxxxxxxxxxxxx/main/static/abc_foo.png` —— 直接前缀 BASE_URL，
-		// 不要再二次拼 ${appId}/main/
+            return `${baseUrl.replace(/\/$/, "")}${iconPath}`;
+        }
 		const appIdPrefix = `${this.appId}/`
 		if (iconPath.startsWith(appIdPrefix)) {
 			return `${baseUrl}${iconPath}`
