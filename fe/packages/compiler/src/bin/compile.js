@@ -22,6 +22,12 @@ function saveCache(cache) {
 	fs.writeFileSync(CACHE_FILE, JSON.stringify(cache, null, 2))
 }
 
+function parseOptions(argv = process.argv.slice(2)) {
+	return {
+		force: argv.includes('--force') || argv.includes('-f') || argv.includes('force'),
+	}
+}
+
 function isModified(dirPath, lastCompileTime) {
 	const files = fs.readdirSync(dirPath)
 	for (const file of files) {
@@ -120,12 +126,13 @@ async function cleanUpOldApps(targetPath, appList) {
 	}
 }
 
-async function buildMiniApp() {
+async function buildMiniApp(options = {}) {
+	const { force = false } = options
 	const currentDirectory = `${process.cwd()}/example`
 	const cache = loadCache()
 
 	// 检查编译器是否被修改
-	const compilerModified = isCompilerModified(cache.compilerLastModified)
+	const compilerModified = force || isCompilerModified(cache.compilerLastModified)
 
 	fs.readdir(currentDirectory, async (err, files) => {
 		if (err) {
@@ -148,7 +155,7 @@ async function buildMiniApp() {
 			const lastCompileTime = cache.apps[fileName]?.lastCompileTime || 0
 
 			// 检查是否需要重新编译
-			if (compilerModified || isModified(workPath, lastCompileTime)) {
+			if (force || compilerModified || isModified(workPath, lastCompileTime)) {
 				const appInfo = await build(targetPath, workPath)
 				if (appInfo) {
 					appList.push(appInfo)
@@ -206,4 +213,4 @@ function getLastCompileTime(data, appId) {
 	return 0 // 如果找不到对应的 appId
 }
 
-buildMiniApp()
+buildMiniApp(parseOptions())

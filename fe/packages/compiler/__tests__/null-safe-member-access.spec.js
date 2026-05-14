@@ -93,4 +93,36 @@ describe('模板表达式空值保护', () => {
 		expect(output).not.toContain('obj1.name')
 		expect(output).not.toContain('obj2.a.b')
 	})
+
+	it('应该为计算属性访问生成合法的可选链', async () => {
+		fs.writeFileSync(path.join(tempDir, 'app.json'), JSON.stringify({
+			pages: ['pages/computed/index'],
+		}))
+		fs.writeFileSync(path.join(tempDir, 'project.config.json'), JSON.stringify({
+			appid: 'test-app-id',
+		}))
+
+		fs.mkdirSync(path.join(tempDir, 'pages/computed'), { recursive: true })
+		fs.writeFileSync(path.join(tempDir, 'pages/computed/index.wxml'), `
+			<view>{{selected[index] && selected[index].isSelected}}</view>
+			<view>{{coupons[0].countDownTime}}</view>
+		`)
+
+		const outputDir = path.join(tempDir, 'dist')
+		fs.mkdirSync(outputDir, { recursive: true })
+		process.env.TARGET_PATH = outputDir
+
+		const { storeInfo, getPages } = await import('../src/env.js')
+		storeInfo(tempDir)
+
+		const { compileML } = await import('../src/core/view-compiler.js')
+		await compileML(getPages().mainPages, null, { completedTasks: 0 })
+
+		const output = fs.readFileSync(path.join(outputDir, 'main/pages_computed_index.js'), 'utf-8')
+		expect(output).toContain('selected?.[')
+		expect(output).toContain(']?.isSelected')
+		expect(output).toContain('coupons?.[0]?.countDownTime')
+		expect(output).not.toContain('selected?[')
+		expect(output).not.toContain('coupons?[0]')
+	})
 })
