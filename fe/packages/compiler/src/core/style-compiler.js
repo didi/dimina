@@ -204,28 +204,16 @@ async function enhanceCSS(module) {
 					}
 				})
 			}).processSync(node.selector)
-
-			// 处理样式声明
-			node.walkDecls((decl) => {
-				const match = decl.value.match(/url\("([^"]*)"\)/)
-				if (match) {
-					const imgSrc = match[1].trim()
-					// Skip processing if it's a data:image resource
-					if (imgSrc.startsWith('data:image')) {
-						return
-					}
-					const realSrc = collectAssets(getWorkPath(), absolutePath, imgSrc, getTargetPath(), getAppId())
-					decl.value = `url(${realSrc})`
-				}
-				else {
-					decl.value = transformRpx(decl.value)
-				}
-			})
 		}
 		else if (node.type === 'comment') {
 			// 移除注释
 			node.remove()
 		}
+	})
+
+	ast.walkDecls((decl) => {
+		decl.value = normalizeCssUrlValue(decl.value, absolutePath)
+		decl.value = transformRpx(decl.value)
 	})
 
 	const cssCode = ast.toResult().css
@@ -257,6 +245,27 @@ async function enhanceCSS(module) {
 	compileRes.set(module.path, result)
 
 	return result
+}
+
+function normalizeCssUrlValue(value, absolutePath) {
+	return value.replace(/url\(([^)]+)\)/g, (fullMatch, rawUrl) => {
+		const cleanedUrl = rawUrl.trim().replace(/^['"]|['"]$/g, '')
+
+		if (!cleanedUrl || cleanedUrl.startsWith('data:image')) {
+			return fullMatch
+		}
+
+		if (cleanedUrl.startsWith('//')) {
+			return `url(https:${cleanedUrl})`
+		}
+
+		if (/^(https?:|blob:|data:)/.test(cleanedUrl)) {
+			return fullMatch
+		}
+
+		const realSrc = collectAssets(getWorkPath(), absolutePath, cleanedUrl, getTargetPath(), getAppId())
+		return `url(${realSrc})`
+	})
 }
 
 function getAbsolutePath(modulePath) {
@@ -354,4 +363,4 @@ function processHostSelector(selector, moduleId) {
 		.replace(/:host(?=\.|#|:)/g, `[data-v-${moduleId}]`)
 }
 
-export { compileSS, ensureImportSemicolons, normalizeRootStyleImports, processHostSelector, removeBaseComponentScope, resolveStyleImportPath }
+export { compileSS, ensureImportSemicolons, normalizeCssUrlValue, normalizeRootStyleImports, processHostSelector, removeBaseComponentScope, resolveStyleImportPath }

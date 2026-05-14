@@ -3,7 +3,7 @@ import { createSelectorQuery } from '../../api/core/wxml/selector-query'
 import message from '../../core/message'
 import runtime from '../../core/runtime'
 import { createUpdateCallback, enqueueUpdate } from '../../core/update-queue'
-import { addComputedData, filterData, isChildComponent, matchComponent, syncUpdateChildrenProps } from '../../core/utils'
+import { addComputedData, filterData, invokeBehaviorObservers, invokeObserversOnce, isChildComponent, matchComponent, syncUpdateChildrenProps } from '../../core/utils'
 
 // https://developers.weixin.qq.com/miniprogram/dev/reference/api/Page.html
 // const lifecycleMethods = ['onLoad', 'onShow', 'onReady', 'onHide', 'onUnload',
@@ -33,7 +33,7 @@ export class Page {
 
 	init() {
 		this.#initMembers()
-		this.#invokeInitLifecycle().then(() => {
+		return this.#invokeInitLifecycle().then(() => {
 			addComputedData(this)
 			message.send({
 				type: this.__id__,
@@ -59,11 +59,19 @@ export class Page {
 
 	setData(data, callback) {
 		const fData = filterData(data)
+		const oldValues = {}
+		const info = this.__info__ || {}
 		
 		// 更新数据
 		for (const key in fData) {
+			oldValues[key] = this.data[key]
 			set(this.data, key, fData[key])
 		}
+
+		if (info.observers) {
+			invokeObserversOnce(Object.keys(fData), info.observers, this.data, this, oldValues)
+		}
+		invokeBehaviorObservers(this, Object.keys(fData), oldValues)
 
 		if (!this.initd) {
 			if (isFunction(callback)) {
@@ -149,6 +157,11 @@ export class Page {
 	}
 
 	async #invokeInitLifecycle() {
+		this.__info__.behaviorLifetimes?.created?.forEach(method => method.call(this))
+		await this.created?.()
+		this.__info__.behaviorLifetimes?.attached?.forEach(method => method.call(this))
+		await this.attached?.()
+
 		// 页面创建时执行
 		await this.onLoad?.(this.opts.query || {})
 		this.initd = true
@@ -158,18 +171,24 @@ export class Page {
 	 * 页面显示/切入前台时触发。该时机不能保证页面渲染完成，如有页面/组件元素相关操作建议在 onReady 中处理
 	 */
 	pageShow() {
+		this.__info__.behaviorPageLifetimes?.show?.forEach(method => method.call(this))
 		this.onShow?.()
 	}
 
 	pageHide() {
+		this.__info__.behaviorPageLifetimes?.hide?.forEach(method => method.call(this))
 		this.onHide?.()
 	}
 
 	pageReady() {
+		this.__info__.behaviorLifetimes?.ready?.forEach(method => method.call(this))
+		this.ready?.()
 		this.onReady?.()
 	}
 
 	pageUnload() {
+		this.__info__.behaviorLifetimes?.detached?.forEach(method => method.call(this))
+		this.detached?.()
 		this.onUnload?.()
 		this.initd = false
 	}
@@ -177,5 +196,10 @@ export class Page {
 	pageScrollTop(opts) {
 		const { scrollTop } = opts
 		this.onPageScroll?.({ scrollTop })
+	}
+
+	pageResize(size) {
+		this.__info__.behaviorPageLifetimes?.resize?.forEach(method => method.call(this, size))
+		this.onResize?.(size)
 	}
 }

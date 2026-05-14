@@ -4,6 +4,7 @@ import { Tags } from '../EventTrack/Tags'
 import { DMPPageStyle } from './DMPPageStyle'
 import { DMPPageRecord } from '../Navigator/DMPPageRecord'
 import { DMPPageContainer } from './DMPPageContainer'
+import { DMPTabBarContainerView } from '../Container/DMPTabBarContainerView'
 import { DMPAppManager } from '../DApp/DMPAppManager'
 import { DMPNavigatorDelegate } from '../Navigator/DMPNavigatorDelegate'
 import { LaunchLoading } from './DMPLaunchLoading'
@@ -23,12 +24,23 @@ export struct DMPPage {
   static ROUTE_NAME = "onetravel://dimina/page"
   @State
   private isLaunching: boolean = false
+  private isTabBarContainer: boolean = false
 
   aboutToAppear(): void {
     DMPLogger.d(Tags.DMP_PAGE, `DMPPage aboutToAppear`)
-    const navigator =   this.app?.navigatorManager?.getCurNavigator();
-    this.isLaunching =
-      navigator?.getPageCount() == 1;
+    const navigator = this.app?.navigatorManager?.getCurNavigator();
+    this.isLaunching = navigator?.getPageCount() == 1;
+
+    // Check if this should be a TabBar container
+    // Use container when: 1) it's the launch page, 2) app has tabBar config, 3) current page is a tabBar page
+    if (this.isLaunching && this.app) {
+      const appConfig = this.app.bundleManager.getJsAppModuleConfig()
+      if (appConfig?.tabBar && appConfig.isTabBarPage(this.pageRecord.pagePath)) {
+        this.isTabBarContainer = true
+        DMPLogger.d(Tags.TABBAR, 'Using TabBar container for launch')
+      }
+    }
+
     if (this.isLaunching) {
       this.pageRecord.domReadyListeners.push(() => {
         this.isLaunching = false;
@@ -43,7 +55,13 @@ export struct DMPPage {
   build() {
     NavDestination() {
       Stack() {
-        DMPPageContainer({ appIndex: this.appIndex, webViewId: this.webViewId })
+        if (this.isTabBarContainer) {
+          // Use TabBar container for TabBar apps
+          DMPTabBarContainerView({ appIndex: this.appIndex })
+        } else {
+          // Use normal page container for non-TabBar pages
+          DMPPageContainer({ appIndex: this.appIndex, webViewId: this.webViewId })
+        }
         if (this.isLaunching) {
           LaunchLoading({
             color: DMPColorUtils.generateColorFromName(this.app!.appConfig.appName),

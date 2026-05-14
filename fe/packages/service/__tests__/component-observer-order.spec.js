@@ -4,7 +4,7 @@ import { Component } from '../src/instance/component/component'
 import { ComponentModule } from '../src/instance/component/component-module'
 
 describe('Component.tO observer ordering', () => {
-	it('executes property observers for initial component properties', () => {
+	it('executes property observers for initial component properties', async () => {
 		const componentModule = new ComponentModule({
 			properties: {
 				icon: {
@@ -31,9 +31,134 @@ describe('Component.tO observer ordering', () => {
 			},
 		})
 
-		component.init()
+		await component.init()
+		component.componentReadied()
 
 		expect(component.data._icon).toEqual({ name: 'add' })
+	})
+
+	it('runs initial property observers after behavior created hooks', async () => {
+		const componentModule = new ComponentModule({
+			behaviors: [{
+				created() {
+					Object.defineProperty(this, 'children', {
+						get() {
+							return []
+						},
+						configurable: true,
+					})
+				},
+			}],
+			properties: {
+				animated: {
+					type: Boolean,
+					observer() {
+						this.children.forEach(() => {})
+						this.data._animatedObserved = true
+					},
+				},
+			},
+		}, {
+			component: true,
+		})
+
+		const component = new Component(componentModule, {
+			bridgeId: 'bridge-1',
+			moduleId: 'tabs-1',
+			path: '/tabs',
+			pageId: 'page-1',
+			parentId: 'page-1',
+			properties: {
+				animated: true,
+			},
+		})
+
+		await expect(component.init()).resolves.toBeUndefined()
+		component.componentReadied()
+		expect(component.data._animatedObserved).toBe(true)
+	})
+
+	it('executes initial property observers once on componentReadied', async () => {
+		const observeSrc = vi.fn(function observeSrc(src) {
+			this.data.loading = !!src
+		})
+
+		const componentModule = new ComponentModule({
+			data: {
+				loading: false,
+			},
+			properties: {
+				src: {
+					observer: 'observeSrc',
+				},
+			},
+			methods: {
+				observeSrc,
+			},
+		}, {
+			component: true,
+		})
+
+		const component = new Component(componentModule, {
+			bridgeId: 'bridge-1',
+			moduleId: 'image-1',
+			path: '/image',
+			pageId: 'page-1',
+			parentId: 'page-1',
+			properties: {
+				src: 'https://img.yzcdn.cn/vant/cat.jpeg',
+			},
+		})
+
+		await component.init()
+		expect(observeSrc).not.toHaveBeenCalled()
+
+		component.componentReadied()
+
+		expect(observeSrc).toHaveBeenCalledTimes(1)
+		expect(component.data.loading).toBe(true)
+	})
+
+	it('defers initial property observers to componentReadied for relation components', async () => {
+		const observeActive = vi.fn(function observeActive(val) {
+			this.data._observedActive = val
+		})
+
+		const componentModule = new ComponentModule({
+			relations: {
+				'../tab/index': {
+					type: 'descendant',
+				},
+			},
+			properties: {
+				active: {
+					observer: 'observeActive',
+				},
+			},
+			methods: {
+				observeActive,
+			},
+		}, {
+			component: true,
+		})
+
+		const component = new Component(componentModule, {
+			bridgeId: 'bridge-1',
+			moduleId: 'tabs-1',
+			path: '/tabs',
+			pageId: 'page-1',
+			parentId: 'page-1',
+			properties: {
+				active: 0,
+			},
+		})
+
+		await component.init()
+		expect(observeActive).not.toHaveBeenCalled()
+
+		component.componentReadied()
+		expect(observeActive).toHaveBeenCalledTimes(1)
+		expect(component.data._observedActive).toBe(0)
 	})
 
 	it('executes property observers in reverse batch order after raw observers', () => {
@@ -81,6 +206,50 @@ describe('Component.tO observer ordering', () => {
 		])
 	})
 
+	it('runs later changed props before earlier props in reverse batch order', () => {
+		const calls = []
+		const instance = {
+			data: {
+				defaultDate: 1,
+				type: 'single',
+				currentDate: null,
+			},
+			__pendingSyncedProps__: {},
+			__info__: {
+				observers: {},
+				properties: {
+					defaultDate: {
+						observer: 'observeDefaultDate',
+					},
+					type: {
+						observer: 'observeType',
+					},
+				},
+			},
+			observeDefaultDate: vi.fn(function observeDefaultDate(val) {
+				this.data.currentDate = val
+				calls.push(`defaultDate:${this.data.currentDate}`)
+			}),
+			observeType: vi.fn(function observeType() {
+				if (this.data.type === 'multiple') {
+					this.data.currentDate = [this.data.defaultDate]
+				}
+				calls.push(`type:${Array.isArray(this.data.currentDate) ? 'array' : typeof this.data.currentDate}`)
+			}),
+		}
+
+		Component.prototype.tO.call(instance, {
+			defaultDate: 1,
+			type: 'multiple',
+		})
+
+		expect(calls).toEqual([
+			'type:array',
+			'defaultDate:1',
+		])
+		expect(instance.data.currentDate).toBe(1)
+	})
+
 	it('skips duplicate observer execution but keeps data in sync for identical render replay after parent sync', () => {
 		const observeShow = vi.fn()
 		const instance = {
@@ -124,5 +293,30 @@ describe('Component.tO observer ordering', () => {
 		expect(trigger).not.toHaveBeenCalled()
 
 		trigger.mockRestore()
+	})
+
+	it('executes property observers for internal setData on properties', () => {
+		const instance = {
+			data: {
+				visible: false,
+			},
+			initd: false,
+			__pendingInitSetDataCallbacks__: [],
+			__info__: {
+				properties: {
+					visible: {
+						observer: 'watchVisible',
+					},
+				},
+			},
+			watchVisible: vi.fn(),
+		}
+
+		Component.prototype.setData.call(instance, {
+			visible: true,
+		})
+
+		expect(instance.data.visible).toBe(true)
+		expect(instance.watchVisible).toHaveBeenCalledWith(true, false)
 	})
 })

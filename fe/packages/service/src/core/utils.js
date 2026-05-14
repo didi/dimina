@@ -1,4 +1,4 @@
-import { get, isFunction, isNil } from '@dimina/common'
+import { camelCaseToUnderscore, deepEqual, get, isFunction, isNil, isString, toCamelCase } from '@dimina/common'
 
 const queue = []
 let isFlushing = false
@@ -21,19 +21,7 @@ function flushQueue() {
 	}
 }
 
-export function deepEqual(a, b) {
-	if (a === b)
-		return true // 引用相同
-	if (typeof a !== 'object' || typeof b !== 'object' || a == null || b == null)
-		return false
-
-	const keysA = Object.keys(a)
-	const keysB = Object.keys(b)
-	if (keysA.length !== keysB.length)
-		return false
-
-	return keysA.every(key => deepEqual(a[key], b[key]))
-}
+export { deepEqual }
 /**
  * 将 computed 的 key 提前写入 data，确保渲染层初始化时能正确追踪这些 key 的响应式依赖。
  *
@@ -343,6 +331,74 @@ export function filterInvokeObserver(changedKey, observers, data, ctx, oldVal) {
 	}
 }
 
+export function resolveEventHandler(eventAttr = {}, type = '') {
+	const normalizedType = type.trim()
+	if (!normalizedType) {
+		return
+	}
+
+	const compactType = normalizedType.replace(/-/g, '').toLowerCase()
+	const candidates = [
+		normalizedType,
+		toCamelCase(normalizedType),
+		camelCaseToUnderscore(normalizedType),
+		compactType,
+	]
+
+	for (const candidate of candidates) {
+		if (candidate && eventAttr[candidate] !== undefined) {
+			return eventAttr[candidate]
+		}
+	}
+}
+
+export function invokeBehaviorObservers(ctx, changedKeys, oldValues) {
+	const info = ctx.__info__ || {}
+	if (!info.behaviorObservers) {
+		return
+	}
+
+	for (const observerKey in info.behaviorObservers) {
+		const observers = info.behaviorObservers[observerKey]
+		if (!Array.isArray(observers) || observers.length === 0) {
+			continue
+		}
+
+		for (const changedKey of changedKeys) {
+			observers.forEach((observer) => {
+				filterInvokeObserver(changedKey, { [observerKey]: observer }, ctx.data, ctx, oldValues[changedKey])
+			})
+		}
+	}
+}
+
+export function invokePropertyObservers(ctx, changedKeys, oldValues) {
+	runPropertyObservers(ctx, changedKeys, oldValues)
+}
+
+export function collectPropertyObservers(ctx, changedKeys, oldValues) {
+	const propertyObserversToExecute = []
+
+	for (const prop of changedKeys) {
+		const observer = ctx.__info__.properties?.[prop]?.observer
+		const val = ctx.data[prop]
+		const oldVal = oldValues[prop]
+
+		if (isString(observer)) {
+			propertyObserversToExecute.push(() => ctx[observer]?.(val, oldVal))
+		}
+		else if (isFunction(observer)) {
+			propertyObserversToExecute.push(() => observer.call(ctx, val, oldVal))
+		}
+	}
+
+	return propertyObserversToExecute
+}
+
+export function runPropertyObservers(ctx, changedKeys, oldValues) {
+	collectPropertyObservers(ctx, changedKeys, oldValues).reverse().forEach(run => run())
+}
+
 /**
  * https://developers.weixin.qq.com/miniprogram/dev/framework/custom-component/behaviors.html
  * 
@@ -487,7 +543,7 @@ export function mergeBehaviors(obj, behaviors) {
 		// 规则: 不覆盖, 按顺序执行
 		if (behavior.pageLifetimes) {
 			target.behaviorPageLifetimes = target.behaviorPageLifetimes || {}
-			const pageLifetimes = ['show', 'hide', 'resize']
+			const pageLifetimes = ['show', 'hide', 'resize', 'routeDone']
 			
 			for (const lifetime of pageLifetimes) {
 				if (isFunction(behavior.pageLifetimes[lifetime])) {

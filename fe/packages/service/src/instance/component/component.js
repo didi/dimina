@@ -4,7 +4,7 @@ import { createIntersectionObserver } from '../../api/core/wxml/intersection-obs
 import message from '../../core/message'
 import runtime from '../../core/runtime'
 import { beginUpdateBatch, createUpdateCallback, endUpdateBatch, enqueueUpdate } from '../../core/update-queue'
-import { addComputedData, deepEqual, filterData, filterInvokeObserver, invokeObserversOnce, isChildComponent, matchComponent, syncUpdateChildrenProps } from '../../core/utils'
+import { addComputedData, deepEqual, filterData, filterInvokeObserver, invokeBehaviorObservers, invokeObserversOnce, invokePropertyObservers, isChildComponent, matchComponent, resolveEventHandler, runPropertyObservers, syncUpdateChildrenProps } from '../../core/utils'
 
 // 组件生命周期
 const componentLifetimes = ['created', 'attached', 'ready', 'moved', 'detached', 'error']
@@ -64,6 +64,7 @@ export class Component {
 		// 格式：{ childModuleId: { childPropName: parentDataKey } }
 		this.__childPropsBindings__ = {}
 		this.__pendingSyncedProps__ = {}
+		this.__initialPropertyObserversInvoked__ = false
 	}
 
 	init() {
@@ -82,10 +83,9 @@ export class Component {
 
 		this.#initLifecycle()
 		this.#initCustomMethods()
-		this.#invokeInitialPropertyObservers()
 		this.#initRelations()
 		this.#initComponentExport()
-		this.#invokeInitLifecycle().then(() => {
+		return this.#invokeInitLifecycle().then(() => {
 			addComputedData(this)
 			message.send({
 				type: this.__id__,
@@ -406,6 +406,8 @@ export class Component {
 		if (this.__info__.observers) {
 			invokeObserversOnce(Object.keys(fData), this.__info__.observers, this.data, this, oldValues)
 		}
+		invokeBehaviorObservers(this, Object.keys(fData), oldValues)
+		invokePropertyObservers(this, Object.keys(fData), oldValues)
 
 		if (!this.initd) {
 			if (isFunction(callback)) {
@@ -478,7 +480,7 @@ export class Component {
 	}
 
 	#invokeInitialPropertyObservers() {
-		if (!this.__isComponent__ || !this.__info__.properties) {
+		if (!this.__isComponent__ || !this.__info__.properties || this.__initialPropertyObserversInvoked__) {
 			return
 		}
 
@@ -494,7 +496,8 @@ export class Component {
 			}
 		}
 
-		propertyObserversToExecute.reverse().forEach(run => run())
+		propertyObserversToExecute.forEach(run => run())
+		this.__initialPropertyObserversInvoked__ = true
 	}
 
 	async #invokeInitLifecycle() {
@@ -540,12 +543,12 @@ export class Component {
 
 		// 收集需要执行的观察者函数
 		const observersToExecute = []
-		const propertyObserversToExecute = []
-		
+		const oldValues = {}
 		// 保存旧值并更新数据，收集观察者
 		for (const [prop, val] of Object.entries(nextData)) {
 			// 保存旧值
 			const oldVal = this.data[prop]
+			oldValues[prop] = oldVal
 
 			// 更新数据
 			this.data[prop] = val
@@ -555,20 +558,11 @@ export class Component {
 				observersToExecute.push(() => filterInvokeObserver(prop, this.__info__.observers, this.data, this, oldVal))
 			}
 			
-			// 收集属性观察器
-			const observer = this.__info__.properties?.[prop]?.observer
-			if (isString(observer)) {
-				propertyObserversToExecute.push(() => this[observer]?.(val, oldVal))
-			}
-			else if (isFunction(observer)) {
-				propertyObserversToExecute.push(() => observer.call(this, val, oldVal))
-			}
 		}
 		
 		observersToExecute.forEach(run => run())
-
-		// 同批次 props 更新时，优先让后写入的属性观察器完成派生状态计算
-		propertyObserversToExecute.reverse().forEach(run => run())
+		invokeBehaviorObservers(this, Object.keys(nextData), Object.fromEntries(Object.keys(nextData).map(prop => [prop, undefined])))
+		runPropertyObservers(this, Object.keys(nextData), oldValues)
 	}
 
 	getPageId() {
@@ -766,7 +760,7 @@ export class Component {
 			return
 		}
 		const type = methodName.trim()
-		const eventHandler = this.__eventAttr__[type]
+		const eventHandler = resolveEventHandler(this.__eventAttr__, type)
 		if (eventHandler) {
 			await runtime.triggerEvent({
 				bridgeId: this.bridgeId,
@@ -831,6 +825,7 @@ export class Component {
 	 * 组件所在的页面被展示时执行
 	 */
 	pageShow() {
+		this.__info__.behaviorPageLifetimes?.show?.forEach(method => method.call(this))
 		this.onShow?.()
 	}
 
@@ -838,6 +833,7 @@ export class Component {
 	 * 组件所在的页面被隐藏时执行
 	 */
 	pageHide() {
+		this.__info__.behaviorPageLifetimes?.hide?.forEach(method => method.call(this))
 		this.onHide?.()
 	}
 
@@ -846,11 +842,13 @@ export class Component {
 	 * @param {object} size
 	 */
 	pageResize(size) {
+		this.__info__.behaviorPageLifetimes?.resize?.forEach(method => method.call(this, size))
 		this.resize?.(size)
 	}
 
 	// 组件所在页面路由动画完成时执行
 	componentRouteDone() {
+		this.__info__.behaviorPageLifetimes?.routeDone?.forEach(method => method.call(this))
 		this.routeDone?.()
 	}
 
@@ -878,6 +876,7 @@ export class Component {
 	 * 在组件在视图层布局完成后执行
 	 */
 	componentReadied() {
+		this.#invokeInitialPropertyObservers()
 		this.__info__.behaviorLifetimes?.ready?.forEach(method => method.call(this))
 		this.ready?.()
 	}

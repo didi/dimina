@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
+import { resolveMiniProgramPath, toMiniProgramModuleId } from './common/path-utils.js'
 import { isObjectEmpty, uuid } from './common/utils.js'
 import { NpmResolver } from './common/npm-resolver.js'
 
@@ -251,11 +252,11 @@ function getModuleId(src, pageFilePath) {
 
 	if (!npmResolver) {
 		// 如果 npm 解析器未初始化，使用原有逻辑
-		const lastIndex = pageFilePath.lastIndexOf('/')
-		const newPath = pageFilePath.slice(0, lastIndex)
 		const workPath = getWorkPath()
-		const res = path.resolve(newPath, src)
-		return res.replace(workPath, '')
+		return toMiniProgramModuleId(
+			resolveMiniProgramPath(workPath, pageFilePath, src),
+			workPath,
+		)
 	}
 
 	// 使用 npm 解析器处理组件路径

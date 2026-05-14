@@ -38,6 +38,15 @@ describe('NpmResolver', () => {
 			expect(result).toBe('/components/button')
 		})
 
+		it('应该在 Windows 风格路径下将小程序绝对路径解析到项目根目录', () => {
+			const winWorkPath = 'E:\\WeChatProjects\\Demo'
+			const winResolver = new NpmResolver(winWorkPath)
+			const pageFilePath = 'E:\\WeChatProjects\\Demo\\pages\\index\\index.json'
+
+			const result = winResolver.resolveComponentPath('/components/navigation-bar/navigation-bar', pageFilePath)
+			expect(result).toBe('/components/navigation-bar/navigation-bar')
+		})
+
 		it('应该尝试解析 npm 包组件', () => {
 			// 创建 miniprogram_npm 目录结构
 			const miniprogramNpmPath = path.join(tempDir, 'miniprogram_npm')
@@ -76,6 +85,19 @@ describe('NpmResolver', () => {
 			
 			expect(searchPaths).toEqual([
 				'miniprogram_npm'
+			])
+		})
+
+		it('应该兼容 Windows 风格路径的 miniprogram_npm 逐级查找', () => {
+			const winWorkPath = 'E:\\WeChatProjects\\Demo'
+			const winResolver = new NpmResolver(winWorkPath)
+			const pageFilePath = 'E:\\WeChatProjects\\Demo\\pages\\subpackage\\detail\\index.js'
+
+			expect(winResolver.generateSearchPaths(pageFilePath)).toEqual([
+				'pages/subpackage/detail/miniprogram_npm',
+				'pages/subpackage/miniprogram_npm',
+				'pages/miniprogram_npm',
+				'miniprogram_npm',
 			])
 		})
 	})

@@ -17,7 +17,9 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
 import org.json.JSONObject
+import org.json.JSONTokener
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.TimeUnit
@@ -29,18 +31,44 @@ import java.util.concurrent.TimeUnit
  * Handles network operations like HTTP requests, file downloads, and uploads
  */
 class NetworkApi : BaseApiHandler() {
-    private companion object {
-        const val REQUEST = "request"
-        const val DOWNLOAD_FILE = "downloadFile"
-        const val UPLOAD = "uploadFile"
+    companion object {
+        private const val REQUEST = "request"
+        private const val DOWNLOAD_FILE = "downloadFile"
+        private const val UPLOAD = "uploadFile"
 
         // 单例 OkHttpClient
-        val client: OkHttpClient by lazy {
+        private val client: OkHttpClient by lazy {
             OkHttpClient.Builder()
                 .connectTimeout(60_000, TimeUnit.MILLISECONDS) // 默认超时时间
                 .readTimeout(60_000, TimeUnit.MILLISECONDS)
                 .writeTimeout(60_000, TimeUnit.MILLISECONDS)
                 .build()
+        }
+
+        internal fun parseResponseData(
+            bodyString: String,
+            dataType: String,
+            responseType: String,
+        ): Any {
+            if (responseType.equals("arraybuffer", ignoreCase = true)) {
+                return bodyString
+            }
+
+            val shouldParseJson = dataType.equals("json", ignoreCase = true) ||
+                    responseType.equals("json", ignoreCase = true)
+            if (!shouldParseJson || bodyString.isEmpty()) {
+                return bodyString
+            }
+
+            return try {
+                when (val value = JSONTokener(bodyString).nextValue()) {
+                    is JSONObject -> value
+                    is JSONArray -> value
+                    else -> value
+                }
+            } catch (_: Exception) {
+                bodyString
+            }
         }
     }
 
@@ -122,40 +150,34 @@ class NetworkApi : BaseApiHandler() {
                 val request = requestBuilder.build()
                 try {
                     CoroutineScope(Dispatchers.IO).launch {
-                        val response = adjustedClient.newCall(request).execute()
-                        val responseBody = response.body
-
-                        val result = JSONObject().apply {
-                            put("errMsg", "$REQUEST:ok")
-                            put("statusCode", response.code)
-
-                            when (responseType.lowercase()) {
-                                "text" -> {
-                                    put("data", responseBody?.string() ?: "")
+                        try {
+                            adjustedClient.newCall(request).execute().use { response ->
+                                val bodyString = response.body?.string() ?: ""
+                                val result = JSONObject().apply {
+                                    put("errMsg", "$REQUEST:ok")
+                                    put("statusCode", response.code)
+                                    put("data", parseResponseData(bodyString, dataType, responseType))
+                                    put("header", JSONObject().apply {
+                                        response.headers.toMultimap().forEach { (key, values) ->
+                                            put(key, values.joinToString(","))
+                                        }
+                                    })
                                 }
 
-                                "json" -> {
-                                    val bodyString = responseBody?.string() ?: ""
-                                    try {
-                                        put("data", JSONObject(bodyString))
-                                    } catch (e: Exception) {
-                                        put(
-                                            "data",
-                                            bodyString
-                                        ) // Fallback to raw string if JSON parsing fails
-                                    }
-                                }
+                                ApiUtils.invokeSuccess(params, result, responseCallback)
+                                ApiUtils.invokeComplete(params, responseCallback)
                             }
-                            put("header", JSONObject().apply {
-                                response.headers.toMultimap().forEach { (key, values) ->
-                                    put(key, values.joinToString(","))
-                                }
-                            })
+                        } catch (e: IOException) {
+                            ApiUtils.invokeFail(params, JSONObject().apply {
+                                put("errMsg", "$REQUEST:fail network error: ${e.message}")
+                            }, responseCallback)
+                            ApiUtils.invokeComplete(params, responseCallback)
+                        } catch (e: Exception) {
+                            ApiUtils.invokeFail(params, JSONObject().apply {
+                                put("errMsg", "$REQUEST:fail ${e.message}")
+                            }, responseCallback)
+                            ApiUtils.invokeComplete(params, responseCallback)
                         }
-
-                        response.close()
-                        ApiUtils.invokeSuccess(params, result, responseCallback)
-                        ApiUtils.invokeComplete(params, responseCallback)
                     }
                 } catch (e: IOException) {
                     AsyncResult(JSONObject().apply {
