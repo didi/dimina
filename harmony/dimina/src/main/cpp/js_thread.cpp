@@ -1,5 +1,3 @@
-
-
 #include "js_thread.h"
 #include "js_engine.h"
 #include "log.h"
@@ -128,6 +126,7 @@ static void onMessageCb(napi_env env, napi_value js_cb, void *context, void *dat
         OHError("JavaScript Exception Stack Trace: %{public}s", stack_buffer);
     }
 
+    JSValue jsValueResult = JS_EXCEPTION;
     if (status != napi_ok) {
         OHError("onMessage napi_call_function error: print value:");
         //         printJsValue(gCtx, v, 0);
@@ -141,12 +140,12 @@ static void onMessageCb(napi_env env, napi_value js_cb, void *context, void *dat
         JSEngine *engine = getEngine(appIndex);
         if (engine) {
             JSValue jsResult = ConvertNapiValueToJsValue(env, engine->getContext(), result);
-            asyncContext->promise.set_value(jsResult);
+            jsValueResult = jsResult;
         }
         //        JS_FreeValue(gCtx, jsResult);
         OHLog("onMessageCb end");
     }
-
+    asyncContext->promise.set_value(jsValueResult);
     delete asyncContext;
     napi_close_handle_scope(env, scope);
 }
@@ -203,14 +202,18 @@ static JSValue invoke(JSContext *ctx, JSValueConst this_val, int argc, JSValueCo
     }
 
     std::future<JSValue> future = asyncContext->promise.get_future();
-    JSValue value = future.get();
-
-    if (JS_IsException(value)) {
-        OHError("invoke error");
+    try {
+        JSValue value = future.get();
+        if (JS_IsException(value)) {
+            OHError("invoke error");
+            return JS_EXCEPTION;
+        }
+        OHLog("invoke end");
+        return value;
+    } catch (const std::exception &e) {
+        OHError("[dimina][service] invoke error: %{public}s", e.what());
         return JS_EXCEPTION;
     }
-    OHLog("invoke end");
-    return value;
 }
 
 JSValue sendLogToContainer(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {

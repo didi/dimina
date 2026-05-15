@@ -13,6 +13,7 @@ import android.view.View
 import android.view.WindowInsets
 import android.view.animation.AccelerateDecelerateInterpolator
 import android.webkit.WebView
+import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -79,6 +80,7 @@ import com.didi.dimina.ui.view.ContactPicker
 import com.didi.dimina.ui.view.DiminaWebView
 import com.didi.dimina.ui.view.MediaPickerRoot
 import com.didi.dimina.ui.view.MediaType
+import com.didi.dimina.ui.view.NativeComponentHost
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -121,6 +123,8 @@ class DiminaActivity : ComponentActivity() {
 
     private var webView: WebView? = null
     private var bridge: Bridge? = null
+    private var nativeOverlay: FrameLayout? = null
+    private var nativeComponentHost: NativeComponentHost? = null
 
     // App configuration
     private lateinit var appConfig: AppConfig
@@ -578,6 +582,7 @@ class DiminaActivity : ComponentActivity() {
      */
     private fun onWebViewReady(webView: WebView) {
         this.webView = webView
+        bindNativeComponentHost()
         LogUtils.d(tag, "WebView is now initialized and ready")
 
         // 执行所有等待的回调
@@ -596,6 +601,25 @@ class DiminaActivity : ComponentActivity() {
 
     private fun onPageReady() {
         pageReadyCallback?.invoke()
+    }
+
+    private fun onNativeOverlayReady(overlay: FrameLayout) {
+        nativeOverlay = overlay
+        bindNativeComponentHost()
+    }
+
+    private fun bindNativeComponentHost() {
+        val currentWebView = webView ?: return
+        val overlay = nativeOverlay ?: return
+        nativeComponentHost = NativeComponentHost(this, currentWebView, overlay)
+    }
+
+    fun handleNativeComponentAction(apiName: String, params: JSONObject): Boolean {
+        return nativeComponentHost?.handle(apiName, params) ?: false
+    }
+
+    fun clearNativeComponents() {
+        nativeComponentHost?.clear()
     }
 
     fun onDomReady() {
@@ -624,6 +648,7 @@ class DiminaActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        clearNativeComponents()
         bridge?.let { cBridge ->
             miniApp.removeBridge(miniProgram.appId, cBridge)?.let { cApp ->
                 cApp.destroy()
@@ -730,6 +755,7 @@ class DiminaActivity : ComponentActivity() {
                 DiminaWebView(
                     onInitReady = { webView -> onWebViewReady(webView) },
                     onPageCompleted = { onPageReady() },
+                    onNativeOverlayReady = { overlay -> onNativeOverlayReady(overlay) },
                 )
 
                 // 加载遮罩层使用 AnimatedVisibility 只添加淡出效果

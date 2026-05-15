@@ -1,15 +1,8 @@
 package com.didi.dimina.ui.view
 
-import android.annotation.SuppressLint
-import android.content.Context
-import android.content.pm.ApplicationInfo
 import android.webkit.JavascriptInterface
-import android.webkit.MimeTypeMap
-import android.webkit.WebResourceRequest
-import android.webkit.WebResourceResponse
-import android.webkit.WebSettings
 import android.webkit.WebView
-import android.webkit.WebViewClient
+import android.widget.FrameLayout
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -19,11 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import com.didi.dimina.common.LogUtils
-import com.didi.dimina.common.PathUtils.FILE_PROTOCOL
-import com.didi.dimina.common.VersionUtils
 import org.json.JSONObject
-import java.io.File
-import java.io.FileInputStream
 
 /**
  * Author: Doslin
@@ -36,7 +25,8 @@ fun DiminaWebView(
     onPageCompleted: () -> Unit,
     modifier: Modifier = Modifier,
     identifier: String? = null,
-    enableCache: Boolean = true
+    enableCache: Boolean = true,
+    onNativeOverlayReady: (overlay: FrameLayout) -> Unit = {}
 ) {
     val context = LocalContext.current
     val webViewIdentifier = remember { identifier ?: "webview_${System.currentTimeMillis()}" }
@@ -67,7 +57,7 @@ fun DiminaWebView(
                     // 使用缓存管理器获取WebView实例
                     WebViewCacheManager.getWebView(context, onPageCompleted, webViewIdentifier)
                 } else {
-                    // 传统方式创建WebView
+                    // 传统方式创建WebView（使用WebViewCacheManager中的统一配置）
                     createWebView(context, onPageCompleted)
                 }
 
@@ -78,31 +68,21 @@ fun DiminaWebView(
                 }
             }
         )
-    }
-}
 
-@SuppressLint("SetJavaScriptEnabled")
-private fun createWebView(context: Context, onPageLoadFinished: () -> Unit): WebView {
-    return WebView(context).apply {
-        // 配置 WebView 设置
-        settings.apply {
-            javaScriptEnabled = true
-            domStorageEnabled = true
-            allowFileAccess = true
-            allowContentAccess = true
-            loadWithOverviewMode = true
-            useWideViewPort = true
-            cacheMode = WebSettings.LOAD_NO_CACHE
-            mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-        }
-
-        if (0 != (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE)) {
-            WebView.setWebContentsDebuggingEnabled(true)
-            LogUtils.d(TAG, "Chrome remote debugging enabled")
-        }
-
-        // Configure WebViewClient with file interceptor
-        webViewClient = createWebViewClientWithInterceptor { onPageLoadFinished() }
+        AndroidView(
+            modifier = Modifier.fillMaxSize(),
+            factory = { context ->
+                NativeComponentOverlay(context).apply {
+                    layoutParams = FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        FrameLayout.LayoutParams.MATCH_PARENT
+                    )
+                    clipChildren = false
+                    clipToPadding = false
+                    onNativeOverlayReady(this)
+                }
+            }
+        )
     }
 }
 
@@ -171,5 +151,4 @@ class DiminaRenderBridge(
         const val TAG = "DiminaRenderBridge"
     }
 }
-
 

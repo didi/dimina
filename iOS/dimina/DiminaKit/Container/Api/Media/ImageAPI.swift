@@ -37,47 +37,47 @@ public class ImageAPI: DMPContainerApi {
     var saveImageToPhotosAlbum: DMPBridgeMethodHandler = { param, env, callback in
         guard let filePath = param.getMap()["filePath"] as? String else {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "filePath is required")
-            return
+            return DMPAsyncResult()
         }
-        
+
         // 检查权限配置
         guard DMPPermissionManager.shared.isPermissionConfigured(.photoLibrary) else {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "Photo library permission not configured in Info.plist")
-            return
+            return DMPAsyncResult()
         }
-        
+
         // 检查权限
         DMPPermissionManager.shared.requestPermission(.photoLibrary) { status in
             guard status == .authorized else {
                 DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "Photo library permission denied")
                 return
             }
-            
+
             // 加载图片
             guard let image = UIImage(contentsOfFile: filePath) else {
                 DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "Failed to load image")
                 return
             }
-            
+
             // 保存到相册
             UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
             DMPContainerApi.invokeSuccess(callback: callback, param: nil)
         }
-        
-        return nil
+
+        return DMPAsyncResult()
     }
-    
+
     // Preview image
     @BridgeMethod(PREVIEW_IMAGE)
     var previewImage: DMPBridgeMethodHandler = { param, env, callback in
         guard let urls = param.getMap()["urls"] as? [String] else {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "urls is required")
-            return
+            return DMPAsyncResult()
         }
-        
+
         if urls.isEmpty {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "urls cannot be empty")
-            return
+            return DMPAsyncResult()
         }
         
         let current = param.getMap()["current"] as? String ?? urls.first!
@@ -90,7 +90,7 @@ public class ImageAPI: DMPContainerApi {
                 return realUrl ?? url
             }
             let previewVC = DMPImagePreviewViewController(urls: realUrls, current: current, showMenu: showMenu)
-            
+
             if let topVC = DMPUIManager.getCurrentWindow()?.rootViewController?.topMostViewController() {
                 topVC.present(previewVC, animated: true) {
                     DMPContainerApi.invokeSuccess(callback: callback, param: nil)
@@ -99,29 +99,29 @@ public class ImageAPI: DMPContainerApi {
                 DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "Cannot find view controller to present on")
             }
         }
-        
-        return nil
+
+        return DMPAsyncResult()
     }
-    
+
     // Compress image
     @BridgeMethod(COMPRESS_IMAGE)
     var compressImage: DMPBridgeMethodHandler = { param, env, callback in
         guard let src = param.getMap()["src"] as? String else {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "src is required")
-            return
+            return DMPAsyncResult()
         }
 
         let sandboxPath = DMPFileUtil.sandboxPathFromVPath(from: src, appId: env.appId)
         
         guard let sandboxPath = sandboxPath else {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "Failed to get sandbox path")
-            return
+            return DMPAsyncResult()
         }
 
         // 读取图片
         guard let image = UIImage(contentsOfFile: sandboxPath) else {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "Failed to load image")
-            return
+            return DMPAsyncResult()
         }
         
         // 压缩参数
@@ -145,18 +145,18 @@ public class ImageAPI: DMPContainerApi {
         let compressionQuality = Float(quality) / 100.0
         guard let data = resizedImage.jpegData(compressionQuality: CGFloat(compressionQuality)) else {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "Failed to compress image")
-            return
+            return DMPAsyncResult()
         }
 
         let fileModel: DMPImageFileModel? = DMPFileUtil.createTemporaryImagePath(data: data, appId: env.appId)
         guard let fileModel = fileModel else {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "Failed to create temporary image path")
-            return
+            return DMPAsyncResult()
         }
 
         DMPContainerApi.invokeSuccess(callback: callback, param: DMPMap(["tempFilePath": fileModel.vPath]))
 
-        return nil
+        return DMPAsyncResult()
     }
     
     // Choose image
@@ -210,9 +210,9 @@ public class ImageAPI: DMPContainerApi {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "Invalid sourceType")
         }
         
-        return nil
+        return DMPAsyncResult()
     }
-    
+
     // 检查并请求相册权限
     private static func checkAndRequestAlbumPermission(count: Int, sizeTypes: [String], env: DMPBridgeEnv, callback: DMPBridgeCallback?) {
         // 检查权限配置

@@ -52,6 +52,7 @@ export function extOnBridge({ event, module, callBack, isSustain = true }) {
 	const eventName = `${module}_${event}`
 
 	invokeAPI(eventName, {
+		evtId: eventName,
 		keep: isSustain,
 		success: callBack,
 	})

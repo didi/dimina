@@ -1,0 +1,5 @@
+<canvas
+  type="2d"
+  id="canvas"
+  style="width: 300px; height: 300px;"
+></canvas>

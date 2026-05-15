@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
+import { resolveMiniProgramPath, toMiniProgramModuleId } from './common/path-utils.js'
 import { isObjectEmpty, uuid } from './common/utils.js'
 import { NpmResolver } from './common/npm-resolver.js'
 
@@ -97,7 +98,7 @@ function storeAppConfig() {
 	const content = parseContentByPath(filePath)
 	const newObj = {}
 	for (const key in content) {
-		if (Object.hasOwn(content, key)) {
+		if (Object.prototype.hasOwnProperty.call(content, key)) {
 			// 兼容 subpackages / subPackages
 			if (key === 'subpackages') {
 				// 将值复制到新对象中，使用新的键名
@@ -244,17 +245,44 @@ function storeComponentConfig(pageJsonContent, pageFilePath) {
  * @param {string} src
  */
 function getModuleId(src, pageFilePath) {
+	const resolvedAlias = resolveAppAlias(src)
+	if (resolvedAlias) {
+		return resolvedAlias
+	}
+
 	if (!npmResolver) {
 		// 如果 npm 解析器未初始化，使用原有逻辑
-		const lastIndex = pageFilePath.lastIndexOf('/')
-		const newPath = pageFilePath.slice(0, lastIndex)
 		const workPath = getWorkPath()
-		const res = path.resolve(newPath, src)
-		return res.replace(workPath, '')
+		return toMiniProgramModuleId(
+			resolveMiniProgramPath(workPath, pageFilePath, src),
+			workPath,
+		)
 	}
 
 	// 使用 npm 解析器处理组件路径
 	return npmResolver.resolveComponentPath(src, pageFilePath)
+}
+
+function resolveAppAlias(src) {
+	const resolveAlias = configInfo.appInfo?.resolveAlias
+	if (!resolveAlias || typeof src !== 'string') {
+		return null
+	}
+
+	for (const [alias, target] of Object.entries(resolveAlias)) {
+		if (alias.endsWith('/*') && target.endsWith('/*')) {
+			const aliasPrefix = alias.slice(0, -1)
+			const targetPrefix = target.slice(0, -1)
+			if (src.startsWith(aliasPrefix)) {
+				return src.replace(aliasPrefix, targetPrefix)
+			}
+		}
+		else if (src === alias) {
+			return target
+		}
+	}
+
+	return null
 }
 
 function getTargetPath() {
@@ -356,6 +384,7 @@ export {
 	getTargetPath,
 	getWorkPath,
 	resetStoreInfo,
+	resolveAppAlias,
 	storeInfo,
 	storeProjectConfig,
 }

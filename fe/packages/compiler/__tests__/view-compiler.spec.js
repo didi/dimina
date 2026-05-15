@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { generateVModelTemplate, generateSlotDirective, parseBraceExp, parseClassRules, parseKeyExpression, processWxsContent, splitWithBraces } from '../src/core/view-compiler'
+import { generateVModelTemplate, generateSlotDirective, parseBraceExp, parseClassRules, parseKeyExpression, parseTemplateDataExp, processWxsContent, splitWithBraces } from '../src/core/view-compiler'
 
 describe('parseKeyExpression - 解析 key 表达式', () => {
 	it('默认索引名 index - 应该直接返回 index', () => {
@@ -124,6 +124,18 @@ describe('parseBraceExp - 解析双花括号表达式', () => {
 		expect(parseBraceExp('background:url(\'{{imageList}}\')')).toEqual(
 			'\'background:url(\\\'\'+imageList+\'\\\')\'',
 		)
+	})
+})
+
+describe('parseTemplateDataExp - 解析 template data 对象表达式', () => {
+	it('应该保留对象字面量中的三元表达式和展开语法', () => {
+		expect(
+			parseTemplateDataExp('{{tClass: foo ? bar : baz, src: item, ...imageProps, bindload: \'onImageLoad\'}}'),
+		).toEqual('{tClass: foo ? bar : baz, src: item, ...imageProps, bindload: \'onImageLoad\'}')
+	})
+
+	it('应该保留对象简写属性', () => {
+		expect(parseTemplateDataExp('{{prefix, classPrefix, style}}')).toEqual('{prefix, classPrefix, style}')
 	})
 })
 
@@ -438,8 +450,8 @@ describe('processWxsContent - 处理 wxs 内容中的 getRegExp 转换', () => {
 		expect(result).not.toContain('//;')
 		expect(result).not.toContain('new RegExp()')
 		
-		// 验证 genRegExp 函数定义完整存在
-		expect(result).toContain('function genRegExp(str, flags)')
+		// 验证 genRegExp 函数定义完整存在，不依赖代码生成器的空格格式
+		expect(result).toMatch(/function\s+genRegExp\s*\(str,\s*flags\)/)
 	})
 })
 

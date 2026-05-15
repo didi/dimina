@@ -4,6 +4,7 @@ import { ComponentModule } from '../instance/component/component-module'
 import { PageModule } from '../instance/page/page-module'
 import loader from './loader'
 import router from './router'
+import runtime from './runtime'
 
 class Env {
 	constructor() {
@@ -11,7 +12,17 @@ class Env {
 	}
 
 	init() {
-		globalThis.dd = globalThis.wx = globalApi
+		// Register API namespaces (dd, wx are built-in; custom ones from config)
+		let customNamespaces = globalThis.__diminaApiNamespaces || []
+		if (customNamespaces.length === 0 && globalThis.name) {
+			try {
+				const config = JSON.parse(globalThis.name)
+				customNamespaces = config.apiNamespaces || []
+			} catch (e) {}
+		}
+		for (const name of ['dd', 'wx', ...customNamespaces]) {
+			globalThis[name] = globalApi
+		}
 		globalThis.modRequire = modRequire
 		globalThis.modDefine = modDefine
 		globalThis.global = {}
@@ -41,8 +52,13 @@ class Env {
 		 * 获取到小程序全局唯一的 App 实例
 		 * https://developers.weixin.qq.com/miniprogram/dev/reference/api/getApp.html
 		 */
-		globalThis.getApp = () =>
-			loader.getAppModule()?.moduleInfo
+		globalThis.getApp = (options) => {
+			const app = runtime.app
+			if (!app && options?.allowDefault) {
+				return {}
+			}
+			return app
+		}
 
 		/**
 		 * 获取当前页面栈。数组中第一个元素为首页，最后一个元素为当前页面

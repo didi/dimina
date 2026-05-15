@@ -1,4 +1,4 @@
-import { get, isFunction, isNil } from '@dimina/common'
+import { camelCaseToUnderscore, deepEqual, get, isFunction, isNil, isString, toCamelCase } from '@dimina/common'
 
 const queue = []
 let isFlushing = false
@@ -21,31 +21,25 @@ function flushQueue() {
 	}
 }
 
-export function deepEqual(a, b) {
-	if (a === b)
-		return true // 引用相同
-	if (typeof a !== 'object' || typeof b !== 'object' || a == null || b == null)
-		return false
-
-	const keysA = Object.keys(a)
-	const keysB = Object.keys(b)
-	if (keysA.length !== keysB.length)
-		return false
-
-	return keysA.every(key => deepEqual(a[key], b[key]))
-}
+export { deepEqual }
+/**
+ * 将 computed 的 key 提前写入 data，确保渲染层初始化时能正确追踪这些 key 的响应式依赖。
+ *
+ * 背景：渲染层 setup() 收到 initData 后才首次渲染，若 computed key 不在 initData 里，
+ * 渲染函数第一次执行时访问该 key 拿到 undefined，Vue 不会建立依赖，后续值更新也不会触发重渲染。
+ *
+ * computed 经框架（如 mpx）的 filterOptions 处理后不会出现在 moduleInfo 里，
+ * 只能在实例初始化完成后从框架运行时读取。目前通过 __mpxProxy 访问，
+ * 后续若框架侧暴露标准字段（如 moduleInfo.__computedKeys），可在此替换为更通用的读取方式。
+ */
 export function addComputedData(self) {
-	// Fixme: 兼容 mpx 的 computed 属性
-	if (self.__mpxProxy?.options?.computed) {
-		Object.keys(self.__mpxProxy.options.computed).forEach((ck) => {
-			// https://github.com/didi/mpx/blob/master/packages/core/src/platform/builtInMixins/i18nMixin.js
-			if (ck !== '_l' && ck !== '_fl') {
-				// https://github.com/didi/mpx/blob/f1bd7c32ec48c4401ab1bf68247bc68834ca932b/docs-vuepress/articles/mpx2.md?plain=1#L505
-				if (!Object.hasOwn(self.data, ck)) {
-					self.data[ck] = null
-				}
+	const computed = self.__mpxProxy?.options?.computed
+	if (computed) {
+		for (const ck of Object.keys(computed)) {
+			if (!Object.prototype.hasOwnProperty.call(self.data, ck)) {
+				self.data[ck] = null
 			}
-		})
+		}
 	}
 }
 
@@ -54,8 +48,8 @@ export function filterData(obj) {
 		return obj
 	}
 	return Object.entries(obj).reduce((acc, [key, value]) => {
-		if (key.startsWith('$') || key.startsWith('_l') || key.startsWith('_fl')) {
-			// 过滤以 $ 开头的属性，未完全过滤以 _ 开头的属性
+		if (key.startsWith('$')) {
+			// 过滤以 $ 开头的内部属性
 			return acc
 		}
 		else if (isFunction(value)) {
@@ -108,7 +102,7 @@ export function serializeProps(properties) {
 
 			// 处理 type 字段
 			// 兼容 items: Array 和 item: { type: String, value: '' } 两种形式
-			const transType = item && typeof item === 'object' && Object.hasOwn(item, 'type') ? convertToStringType(item.type) : convertToStringType(item)
+			const transType = item && typeof item === 'object' && Object.prototype.hasOwnProperty.call(item, 'type') ? convertToStringType(item.type) : convertToStringType(item)
 			let array = null
 			if (Array.isArray(transType)) {
 				array = [...transType]
@@ -180,6 +174,76 @@ function convertToStringType(type) {
 		}
 		console.warn(`[service] ignore unknown props type ${type}`)
 		return null
+	}
+}
+
+/**
+ * 在一次 setData 中，遍历所有变化的 key 并触发 observers，保证每个 observer 最多触发一次
+ * https://developers.weixin.qq.com/miniprogram/dev/framework/custom-component/observer.html
+ * @param {string[]} changedKeys 本次 setData 变化的所有 key
+ * @param {object} observers 组件定义的 observers 对象
+ * @param {object} data 更新后的完整数据
+ * @param {object} ctx 组件实例（this）
+ * @param {object} oldValues 各 key 的旧值 { key: oldVal }
+ */
+export function invokeObserversOnce(changedKeys, observers, data, ctx, oldValues) {
+	const triggered = new Set()
+
+	for (const changedKey of changedKeys) {
+		for (const observerKey in observers) {
+			if (triggered.has(observerKey)) {
+				continue
+			}
+
+			const keys = observerKey.split(',').map(k => k.trim())
+
+			// 简单字段匹配 / 组合字段匹配
+			if (keys.includes(changedKey)) {
+				triggered.add(observerKey)
+				const observerFn = observers[observerKey]
+				const args = keys.map(key => get(data, key))
+				if (keys.length === 1) {
+					observerFn.call(ctx, ...args, oldValues[changedKey])
+				} else {
+					observerFn.call(ctx, ...args)
+				}
+				continue
+			}
+
+			// 通配符 **
+			if (observerKey === '**') {
+				triggered.add(observerKey)
+				observers[observerKey].call(ctx, data)
+				continue
+			}
+
+			// 子字段路径匹配（如 'a.b' 监听 'a.b.c' 的变化，或 'a.**'）
+			const observerKeyParts = observerKey.split('.')
+			const changedKeyParts = changedKey.split('.')
+			let matched = true
+			for (let i = 0; i < observerKeyParts.length; i++) {
+				if (observerKeyParts[i] === '**' || changedKeyParts[i] === undefined) {
+					break
+				} else if (observerKeyParts[i] !== changedKeyParts[i]) {
+					matched = false
+					break
+				}
+			}
+			if (matched && observerKeyParts.length > 1) {
+				triggered.add(observerKey)
+				let targetData = data
+				for (const part of observerKeyParts) {
+					if (part !== '**') {
+						targetData = targetData?.[part]
+					}
+				}
+				if (observerKey === changedKey) {
+					observers[observerKey].call(ctx, targetData, oldValues[changedKey])
+				} else {
+					observers[observerKey].call(ctx, targetData)
+				}
+			}
+		}
 	}
 }
 
@@ -267,6 +331,74 @@ export function filterInvokeObserver(changedKey, observers, data, ctx, oldVal) {
 	}
 }
 
+export function resolveEventHandler(eventAttr = {}, type = '') {
+	const normalizedType = type.trim()
+	if (!normalizedType) {
+		return
+	}
+
+	const compactType = normalizedType.replace(/-/g, '').toLowerCase()
+	const candidates = [
+		normalizedType,
+		toCamelCase(normalizedType),
+		camelCaseToUnderscore(normalizedType),
+		compactType,
+	]
+
+	for (const candidate of candidates) {
+		if (candidate && eventAttr[candidate] !== undefined) {
+			return eventAttr[candidate]
+		}
+	}
+}
+
+export function invokeBehaviorObservers(ctx, changedKeys, oldValues) {
+	const info = ctx.__info__ || {}
+	if (!info.behaviorObservers) {
+		return
+	}
+
+	for (const observerKey in info.behaviorObservers) {
+		const observers = info.behaviorObservers[observerKey]
+		if (!Array.isArray(observers) || observers.length === 0) {
+			continue
+		}
+
+		for (const changedKey of changedKeys) {
+			observers.forEach((observer) => {
+				filterInvokeObserver(changedKey, { [observerKey]: observer }, ctx.data, ctx, oldValues[changedKey])
+			})
+		}
+	}
+}
+
+export function invokePropertyObservers(ctx, changedKeys, oldValues) {
+	runPropertyObservers(ctx, changedKeys, oldValues)
+}
+
+export function collectPropertyObservers(ctx, changedKeys, oldValues) {
+	const propertyObserversToExecute = []
+
+	for (const prop of changedKeys) {
+		const observer = ctx.__info__.properties?.[prop]?.observer
+		const val = ctx.data[prop]
+		const oldVal = oldValues[prop]
+
+		if (isString(observer)) {
+			propertyObserversToExecute.push(() => ctx[observer]?.(val, oldVal))
+		}
+		else if (isFunction(observer)) {
+			propertyObserversToExecute.push(() => observer.call(ctx, val, oldVal))
+		}
+	}
+
+	return propertyObserversToExecute
+}
+
+export function runPropertyObservers(ctx, changedKeys, oldValues) {
+	collectPropertyObservers(ctx, changedKeys, oldValues).reverse().forEach(run => run())
+}
+
 /**
  * https://developers.weixin.qq.com/miniprogram/dev/framework/custom-component/behaviors.html
  * 
@@ -297,7 +429,7 @@ export function mergeBehaviors(obj, behaviors) {
 		const result = { ...target }
 		
 		for (const key in source) {
-			if (Object.hasOwn(source, key)) {
+			if (Object.prototype.hasOwnProperty.call(source, key)) {
 				const targetValue = result[key]
 				const sourceValue = source[key]
 				
@@ -411,7 +543,7 @@ export function mergeBehaviors(obj, behaviors) {
 		// 规则: 不覆盖, 按顺序执行
 		if (behavior.pageLifetimes) {
 			target.behaviorPageLifetimes = target.behaviorPageLifetimes || {}
-			const pageLifetimes = ['show', 'hide', 'resize']
+			const pageLifetimes = ['show', 'hide', 'resize', 'routeDone']
 			
 			for (const lifetime of pageLifetimes) {
 				if (isFunction(behavior.pageLifetimes[lifetime])) {
@@ -504,7 +636,7 @@ export function matchComponent(selector, item) {
 			
 			// 如果只指定了属性名，检查属性是否存在
 			if (attrValue === undefined) {
-				return Object.hasOwn(dataset, attrName)
+				return Object.prototype.hasOwnProperty.call(dataset, attrName)
 			}
 			
 			// 如果指定了属性值，检查属性值是否匹配
@@ -596,6 +728,7 @@ function evaluateExpression(bindingInfo, parentData) {
  */
 export function syncUpdateChildrenProps(parent, allInstances, changedData) {
 	const children = Object.values(allInstances || {})
+	const syncedChildren = []
 	
 	// 遍历所有子组件
 	for (const child of children) {
@@ -624,9 +757,14 @@ export function syncUpdateChildrenProps(parent, allInstances, changedData) {
 			}
 		}
 
-		// 如果有数据需要更新，触发子组件的 tO 方法，但不触发 observers
+		// 如果有数据需要更新，直接触发子组件 observers，确保属性驱动的行为在 service 侧即时生效
 		if (Object.keys(updateData).length > 0) {
 			child.tO?.(updateData)
+			child.__pendingSyncedProps__ = child.__pendingSyncedProps__ || {}
+			Object.assign(child.__pendingSyncedProps__, updateData)
+			syncedChildren.push({ child, data: updateData })
 		}
 	}
+
+	return syncedChildren
 }

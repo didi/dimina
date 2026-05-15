@@ -23,6 +23,8 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         consumerProguardFiles("consumer-rules.pro")
         
+        buildConfigField("String", "SDK_VERSION", "\"${project.property("DIMINA_VERSION")}\"")
+        
         // Only include ARM architectures
         ndk {
             abiFilters.add("arm64-v8a")
@@ -44,6 +46,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     
     // Add configuration to not compress jsapp files
@@ -62,6 +65,7 @@ dependencies {
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.material3)
+    implementation(libs.androidx.webkit)
     implementation(libs.androidx.compose.material.icons.core)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.mmkv)
@@ -69,6 +73,7 @@ dependencies {
     implementation(libs.landscapist.coil)
     implementation (libs.ui.tooling)
     testImplementation(libs.junit)
+    testImplementation(libs.org.json)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
 }

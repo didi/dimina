@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { filterInvokeObserver, mergeBehaviors } from '../src/core/utils'
+import { filterInvokeObserver, mergeBehaviors, syncUpdateChildrenProps } from '../src/core/utils'
 
 describe('数据监听器触发匹配逻辑', () => {
 	const funAB = vi.fn((numberA, numberB) => {
@@ -427,5 +427,100 @@ describe('观察者函数 oldVal 参数测试', () => {
 
 		expect(observer).toHaveBeenCalledWith(10, 20)
 		expect(observer).not.toHaveBeenCalledWith(10, 20, 5)
+	})
+})
+
+describe('syncUpdateChildrenProps', () => {
+	it('triggers child property observers during parent setData sync', () => {
+		const child = {
+			__id__: 'child-1',
+			__parentId__: 'parent-1',
+			__pendingSyncedProps__: {},
+			__info__: {
+				properties: {
+					show: {},
+					name: {},
+				},
+			},
+			tO: vi.fn(),
+		}
+		const parent = {
+			__id__: 'parent-1',
+			data: {
+				show: true,
+				name: 'fade',
+			},
+			__childPropsBindings__: {
+				'child-1': {
+					show: {
+						expression: 'show',
+						dependencies: ['show'],
+						isSimple: true,
+					},
+					name: {
+						expression: 'name',
+						dependencies: ['name'],
+						isSimple: true,
+					},
+				},
+			},
+		}
+
+		syncUpdateChildrenProps(parent, {
+			'child-1': child,
+		}, {
+			show: true,
+			name: 'fade',
+		})
+
+		expect(child.tO).toHaveBeenCalledWith({
+			show: true,
+			name: 'fade',
+		})
+	})
+
+	it('marks synced props after the immediate service-side child update', () => {
+		const child = {
+			__id__: 'child-1',
+			__parentId__: 'parent-1',
+			__pendingSyncedProps__: {},
+			__info__: {
+				properties: {
+					show: {},
+				},
+			},
+			tO: vi.fn(function tO(data) {
+				expect(this.__pendingSyncedProps__).toEqual({})
+				this.data.show = data.show
+			}),
+			data: {
+				show: false,
+			},
+		}
+		const parent = {
+			__id__: 'parent-1',
+			data: {
+				show: true,
+			},
+			__childPropsBindings__: {
+				'child-1': {
+					show: {
+						expression: 'show',
+						dependencies: ['show'],
+						isSimple: true,
+					},
+				},
+			},
+		}
+
+		const syncedChildren = syncUpdateChildrenProps(parent, {
+			'child-1': child,
+		}, {
+			show: true,
+		})
+
+		expect(child.data.show).toBe(true)
+		expect(child.__pendingSyncedProps__).toEqual({ show: true })
+		expect(syncedChildren).toEqual([{ child, data: { show: true } }])
 	})
 })

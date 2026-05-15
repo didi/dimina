@@ -1,3 +1,4 @@
+import './polyfills'
 import { callback } from '@dimina/common'
 import env from './core/env'
 import loader from './core/loader'
@@ -41,6 +42,12 @@ class Render {
 		this.message.on('u', (msg) => {
 			queueMicrotask(() => {
 				runtime.updateModule(msg)
+			})
+		})
+
+		this.message.on('ub', (msg) => {
+			queueMicrotask(() => {
+				runtime.updateModules(msg)
 			})
 		})
 

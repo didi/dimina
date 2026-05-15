@@ -4,9 +4,21 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g., v1.2.0)'
+        required: true
+        type: string
+      skip_changelog:
+        description: 'Skip changelog generation'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
-  release:
+  changelog:
+    if: github.event_name == 'push' || !inputs.skip_changelog
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -19,6 +31,64 @@ jobs:
         with:
           node-version: lts/*
 
-      - run: npx changelogithub
+      - name: Generate Changelog
+        run: npx changelogithub
         env:
           GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
+
+  cocoapods:
+    if: always()
+    runs-on: macos-latest
+    needs: changelog
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.0'
+          bundler-cache: true
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ github.event.inputs.tag }}"
+          else
+            TAG=${GITHUB_REF#refs/tags/}
+          fi
+          # Remove 'v' prefix if present
+          VERSION="${TAG#v}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Tag: $TAG, Extracted version: $VERSION"
+
+      - name: Verify podspec version
+        run: |
+          PODSPEC_VERSION=$(grep "^\s*s\.version" Dimina.podspec | sed -E "s/.*'(.*)'.*/\1/" | tr -d '[:space:]')
+          TAG_VERSION="${{ steps.version.outputs.version }}"
+          TAG_VERSION=$(echo "$TAG_VERSION" | tr -d '[:space:]')
+          
+          echo "Comparing versions:"
+          echo "  Tag version: [$TAG_VERSION]"
+          echo "  Podspec version: [$PODSPEC_VERSION]"
+          
+          if [ "$PODSPEC_VERSION" != "$TAG_VERSION" ]; then
+            echo "❌ Version mismatch!"
+            exit 1
+          fi
+          echo "✅ Version check passed: $PODSPEC_VERSION"
+
+      - name: Validate Podspec
+        run: bundle exec pod lib lint Dimina.podspec --allow-warnings --verbose
+
+      - name: Publish to CocoaPods
+        if: env.COCOAPODS_TRUNK_TOKEN != ''
+        run: bundle exec pod trunk push Dimina.podspec --allow-warnings
+        env:
+          COCOAPODS_TRUNK_TOKEN: ${{secrets.COCOAPODS_TRUNK_TOKEN}}
+
+      - name: Skip CocoaPods publish
+        if: env.COCOAPODS_TRUNK_TOKEN == ''
+        run: |
+          echo "⚠️ COCOAPODS_TRUNK_TOKEN not configured"
+          echo "Skipping CocoaPods publish. See .github/COCOAPODS_SETUP.md for setup instructions."

@@ -1,5 +1,9 @@
 import { invokeAPI } from '@/api/common'
 
+export function createVideoContext(videoId, obj) {
+	return new VideoContext({ videoId, obj })
+}
+
 /**
  * 拍摄视频或从手机相册中选视频
  * https://developers.weixin.qq.com/miniprogram/dev/api/media/video/wx.chooseVideo.html
@@ -14,4 +18,67 @@ export function chooseVideo(opts) {
  */
 export function chooseMedia(opts) {
 	invokeAPI('chooseMedia', opts)
+}
+
+class VideoContext {
+	constructor(opts) {
+		this.opts = opts
+	}
+
+	play() {
+		this.invoke('play')
+	}
+
+	pause() {
+		this.invoke('pause')
+	}
+
+	stop() {
+		this.invoke('stop')
+	}
+
+	seek(position) {
+		this.invoke('seek', { position })
+	}
+
+	playbackRate(rate) {
+		this.invoke('playbackRate', { rate })
+	}
+
+	requestFullScreen(data = {}) {
+		this.invoke('requestFullScreen', data)
+	}
+
+	exitFullScreen() {
+		this.invoke('exitFullScreen')
+	}
+
+	requestBackgroundPlayback(data = {}) {
+		this.invoke('requestBackgroundPlayback', data)
+	}
+
+	exitBackgroundPlayback() {
+		this.invoke('exitBackgroundPlayback')
+	}
+
+	exitPictureInPicture(data = {}) {
+		this.invoke('exitPictureInPicture', data)
+	}
+
+	showStatusBar() {
+		this.invoke('showStatusBar')
+	}
+
+	hideStatusBar() {
+		this.invoke('hideStatusBar')
+	}
+
+	invoke(command, data = {}) {
+		invokeAPI('videoContext', {
+			type: 'native/video',
+			id: this.opts.videoId,
+			command,
+			...data,
+		}, 'render')
+	}
 }

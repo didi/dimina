@@ -64,7 +64,7 @@ if (!isMainThread) {
 async function compileSS(pages, root, progress) {
 	// page 样式
 	for (const page of pages) {
-		const code = await buildCompileCss(page, []) || ''
+		const code = await buildCompileCss(page, [], new Set()) || ''
 		const filename = `${page.path.replace(/\//g, '_')}`
 		if (root) {
 			const subDir = `${getTargetPath()}/${root}`
@@ -87,8 +87,8 @@ async function compileSS(pages, root, progress) {
 	}
 }
 
-async function buildCompileCss(module, depthChain = []) {
-	const currentPath = module.path
+async function buildCompileCss(module, depthChain = [], compiledPaths = new Set()) {
+	const currentPath = module.path || module.absolutePath
 
 	// Circular dependency detected
 	if (depthChain.includes(currentPath)) {
@@ -100,6 +100,10 @@ async function buildCompileCss(module, depthChain = []) {
 		console.warn('[style]', `检测到深度依赖: ${[...depthChain, currentPath].join(' -> ')}`)
 		return
 	}
+	if (compiledPaths.has(currentPath)) {
+		return ''
+	}
+	compiledPaths.add(currentPath)
 	depthChain = [...depthChain, currentPath]
 	let result = await enhanceCSS(module) || ''
 
@@ -112,7 +116,7 @@ async function buildCompileCss(module, depthChain = []) {
 			if (!componentModule) {
 				continue
 			}
-			result += await buildCompileCss(componentModule, depthChain)
+			result += await buildCompileCss(componentModule, depthChain, compiledPaths)
 		}
 	}
 
@@ -136,19 +140,19 @@ async function enhanceCSS(module) {
 	}
 
 	// 预处理器编译
-	let processedCSS = inputCSS
+	let processedCSS = normalizeRootStyleImports(inputCSS)
 	const ext = path.extname(absolutePath).toLowerCase()
 	
 	try {
 		if (ext === '.less') {
-			const result = await less.render(inputCSS, {
+			const result = await less.render(processedCSS, {
 				filename: absolutePath,
-				paths: [path.dirname(absolutePath)],
+				paths: [path.dirname(absolutePath), getWorkPath()],
 			})
 			processedCSS = result.css
 		} else if (ext === '.scss' || ext === '.sass') {
-			const result = sass.compileString(inputCSS, {
-				loadPaths: [path.dirname(absolutePath)],
+			const result = sass.compileString(processedCSS, {
+				loadPaths: [path.dirname(absolutePath), getWorkPath()],
 				syntax: ext === '.sass' ? 'indented' : 'scss',
 			})
 			processedCSS = result.css
@@ -175,11 +179,11 @@ async function enhanceCSS(module) {
 			// @import 样式导入
 			// 替换字符串首尾的引号
 			const str = node.params.replace(/^['"]|['"]$/g, '')
-			const importFullPath = path.resolve(absolutePath, `../${str}`)
+			const importFullPath = resolveStyleImportPath(absolutePath, str)
 
 			node.remove()
 
-			promises.push(buildCompileCss({ absolutePath: importFullPath, id: module.id }))
+			promises.push(buildCompileCss({ absolutePath: importFullPath, id: module.id }, [], new Set()))
 		}
 		else if (node.type === 'rule') {
 			// 处理 ::v-deep
@@ -192,32 +196,14 @@ async function enhanceCSS(module) {
 				node.selector = processHostSelector(node.selector, module.id)
 			}
 
+			// 转换基础组件标签为类选择器
 			node.selector = selectorParser((selectors) => {
 				selectors.walkTags((tag) => {
 					if (tagWhiteList.includes(tag.value)) {
-						// 将组件样式转换成类样式
 						tag.value = `.dd-${tag.value}`
 					}
 				})
 			}).processSync(node.selector)
-
-			// 普通css规则
-			node.walkDecls((decl) => {
-				// 处理样式中的资源
-				const match = decl.value.match(/url\("([^"]*)"\)/)
-				if (match) {
-					const imgSrc = match[1].trim()
-					// Skip processing if it's a data:image resource
-					if (imgSrc.startsWith('data:image')) {
-						return
-					}
-					const realSrc = collectAssets(getWorkPath(), absolutePath, imgSrc, getTargetPath(), getAppId())
-					decl.value = `url(${realSrc})`
-				}
-				else {
-					decl.value = transformRpx(decl.value)
-				}
-			})
 		}
 		else if (node.type === 'comment') {
 			// 移除注释
@@ -225,30 +211,61 @@ async function enhanceCSS(module) {
 		}
 	})
 
+	ast.walkDecls((decl) => {
+		decl.value = normalizeCssUrlValue(decl.value, absolutePath)
+		decl.value = transformRpx(decl.value)
+	})
+
 	const cssCode = ast.toResult().css
 
 	// 样式隔离
 	const moduleId = module.id
-	const code = compileStyle({
+	const scopedCode = compileStyle({
 		source: cssCode,
 		id: moduleId,
 		scoped: !!moduleId,
 	}).code
 
-	const res = await postcss([autoprefixer({ overrideBrowserslist: ['cover 99.5%'] }), cssnano()]).process(code, {
-		from: undefined, // 未指定输入源文件路径
-	})
+	// 移除基础组件选择器的 scoped 属性
+	const cleanedCode = await removeBaseComponentScope(scopedCode, moduleId)
+
+	// 统一后处理：autoprefixer + 压缩
+	const res = await postcss([
+		autoprefixer({ overrideBrowserslist: ['cover 99.5%'] }), 
+		cssnano()
+	]).process(cleanedCode, { from: undefined })
 
 	// 处理导入的样式
 	const importCss = (await Promise.all(promises))
 		.filter(Boolean)
 		.join('')
 
-	const result = importCss ? importCss + res.css : res.css
+	const result = importCss + res.css
 
 	compileRes.set(module.path, result)
 
 	return result
+}
+
+function normalizeCssUrlValue(value, absolutePath) {
+	return value.replace(/url\(([^)]+)\)/g, (fullMatch, rawUrl) => {
+		const cleanedUrl = rawUrl.trim().replace(/^['"]|['"]$/g, '')
+
+		if (!cleanedUrl || cleanedUrl.startsWith('data:image')) {
+			return fullMatch
+		}
+
+		if (cleanedUrl.startsWith('//')) {
+			return `url(https:${cleanedUrl})`
+		}
+
+		if (/^(https?:|blob:|data:)/.test(cleanedUrl)) {
+			return fullMatch
+		}
+
+		const realSrc = collectAssets(getWorkPath(), absolutePath, cleanedUrl, getTargetPath(), getAppId())
+		return `url(${realSrc})`
+	})
 }
 
 function getAbsolutePath(modulePath) {
@@ -260,7 +277,58 @@ function getAbsolutePath(modulePath) {
 		if (fs.existsSync(ssFullPath)) {
 			return ssFullPath
 		}
+
+		const indexSsFullPath = `${workPath}${src}/index${ssType}`
+		if (fs.existsSync(indexSsFullPath)) {
+			return indexSsFullPath
+		}
 	}
+}
+
+function resolveStyleImportPath(absolutePath, importPath, workPath = getWorkPath()) {
+	if (importPath.startsWith('/')) {
+		return path.join(workPath, importPath)
+	}
+	return path.resolve(path.dirname(absolutePath), importPath)
+}
+
+function normalizeRootStyleImports(source, workPath = getWorkPath()) {
+	return source.replace(/(@import\s+(?:\(.*?\)\s*)?(?:url\()?['"])(\/[^'")]+)(['"]\)?)/g, (_, prefix, importPath, suffix) => {
+		return `${prefix}${path.join(workPath, importPath)}${suffix}`
+	})
+}
+
+/**
+ * 移除基础组件选择器的 scoped 属性
+ * @param {string} css - 包含 scoped 属性的 CSS
+ * @param {string} moduleId - 模块 ID
+ * @returns {Promise<string>} - 清理后的 CSS
+ */
+async function removeBaseComponentScope(css, moduleId) {
+	if (!moduleId) return css
+
+	const ast = postcss.parse(css)
+	const scopeAttrName = `data-v-${moduleId}`
+
+	ast.walkRules((rule) => {
+		// 检查选择器是否包含基础组件类名
+		const hasBaseComponent = tagWhiteList.some(tag => 
+			rule.selector.includes(`.dd-${tag}`)
+		)
+
+		if (hasBaseComponent && rule.selector.includes(scopeAttrName)) {
+			// 移除 scoped 属性选择器
+			rule.selector = selectorParser((selectors) => {
+				selectors.walkAttributes((attr) => {
+					if (attr.attribute === scopeAttrName) {
+						attr.remove()
+					}
+				})
+			}).processSync(rule.selector)
+		}
+	})
+
+	return ast.toResult().css
 }
 
 /**
@@ -295,4 +363,4 @@ function processHostSelector(selector, moduleId) {
 		.replace(/:host(?=\.|#|:)/g, `[data-v-${moduleId}]`)
 }
 
-export { compileSS, ensureImportSemicolons, processHostSelector }
+export { compileSS, ensureImportSemicolons, normalizeCssUrlValue, normalizeRootStyleImports, processHostSelector, removeBaseComponentScope, resolveStyleImportPath }

@@ -32,6 +32,9 @@ pnpm install
 # 编译 example/ 目录下的所有小程序
 pnpm compile
 
+# 忽略本地编译缓存，强制重新编译 example/ 目录下的所有小程序
+pnpm compile --force
+
 # 构建（开发环境，不压缩）
 pnpm build:dev
 
@@ -60,6 +63,22 @@ pnpm generate:sdk
 ```
 
 ### 资源生成工具
+
+#### pnpm compile
+
+编译 `example/` 目录下的所有小程序，并将产物输出到 `packages/container/public`。
+
+默认情况下，命令会读取 `packages/container/public/compile-cache.json`，跳过未发生变化的小程序以提升编译速度。如需忽略本地缓存并重新编译全部示例小程序，可以执行：
+
+```sh
+pnpm compile --force
+```
+
+也支持简写参数：
+
+```sh
+pnpm compile -f
+```
 
 #### pnpm generate:app
 

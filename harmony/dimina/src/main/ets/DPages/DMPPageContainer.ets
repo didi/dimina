@@ -6,11 +6,17 @@ import { DMPApp } from '../DApp/DMPApp'
 import { display, window } from '@kit.ArkUI'
 import { BottomSheetDialog, ListMenu } from '../Bridges/Widget/DMPBottomSheet'
 import { ActionSheetController, ActionSheetParams } from '../Bridges/Widget/DMPActionSheetController'
+import { DMPTabBar } from '../Components/DMPTabBar'
+import { DMPTabBarConfig } from '../Bundle/Model/DMPBundleAppConfigNext'
+import { DMPLogger } from '../EventTrack/DMPLogger'
+import { Tags } from '../EventTrack/Tags'
+import { DMPMap } from '../Utils/DMPMap'
 
 @Component
 export struct DMPPageContainer {
   @Prop appIndex: number
-  @Prop webViewId: number
+  @Prop @Watch('onWebViewIdChange') webViewId: number
+  @Prop hideTabBar: boolean = false  // Set to true when inside TabBar container
   private app: DMPApp = DMPAppManager.sharedInstance().getApp(this.appIndex)!
   @State pageRecord: DMPPageRecord = this.app.navigatorManager.getPageRecordById(this.webViewId)!;
   @State pageStyle: DMPPageStyle | undefined = this.pageRecord.pageStyle
@@ -24,9 +30,24 @@ export struct DMPPageContainer {
   private panOption: PanGestureOptions = new PanGestureOptions()
   @State
   keyboardHeight: number = 0
+  @State selectedTabIndex: number = 0
+
+  onWebViewIdChange() {
+    DMPLogger.d(Tags.TABBAR, `WebViewId changed to: ${this.webViewId}`)
+    // Update pageRecord when webViewId changes
+    const newPageRecord = this.app.navigatorManager.getPageRecordById(this.webViewId)
+    if (newPageRecord) {
+      this.pageRecord = newPageRecord
+      this.pageStyle = newPageRecord.pageStyle
+      this.updateTabBarSelection()
+      DMPLogger.d(Tags.TABBAR, `PageRecord updated for path: ${newPageRecord.pagePath}`)
+    }
+  }
 
   aboutToAppear(): void {
     this.showSafetyView = false
+    this.updateTabBarSelection()
+
     window.getLastWindow(getContext(this)).then(currentWindow => {
       currentWindow.on('keyboardHeightChange', (data: number) => {
         this.keyboardHeight = px2vp(data);
@@ -69,26 +90,30 @@ export struct DMPPageContainer {
 
   build() {
     Stack({ alignContent: Alignment.BottomStart }) {
-      Row() {
-        Column() {
-          if (this.pageRecord && !(this.getPageStyle()?.isHideTitleBar(this.webViewId))) {
-            DMPPageTitle({ pageRecord: this.pageRecord, appIndex: this.appIndex, webViewId: this.webViewId })
+      Column() {
+        Row() {
+          Column() {
+            if (this.pageRecord && !(this.getPageStyle()?.isHideTitleBar(this.webViewId))) {
+              DMPPageTitle({ pageRecord: this.pageRecord, appIndex: this.appIndex, webViewId: this.webViewId })
+            }
+            NodeContainer(this.pageRecord.webViewNodeController)
+              .flexShrink(1)
           }
-          NodeContainer(this.pageRecord.webViewNodeController)
-            .flexShrink(1)
+          .width('100%')
+          .height('100%')
+          .alignItems(HorizontalAlign.Center)
+          .justifyContent(FlexAlign.Start)
         }
-        .width('100%')
-        .height('100%')
-        .alignItems(HorizontalAlign.Center)
-        .justifyContent(FlexAlign.Start)
-      }
-      .backgroundColor(this.getPageStyle()?.getBackGroundColor() ?? '#ffffff')
-      .height('100%')
+        .backgroundColor(this.getPageStyle()?.getBackGroundColor() ?? '#ffffff')
+        .layoutWeight(1)
 
-      .translate({
-        y: (this.pageRecord.adjustPosition > 0 && this.pageRecord.adjustPosition < this.keyboardHeight) ?
-          this.pageRecord.adjustPosition - this.keyboardHeight : 0
-      })
+        .translate({
+          y: (this.pageRecord.adjustPosition > 0 && this.pageRecord.adjustPosition < this.keyboardHeight) ?
+            this.pageRecord.adjustPosition - this.keyboardHeight : 0
+        })
+      }
+      .width('100%')
+      .height('100%')
 
       Column() {
         this.getSafetyView()
@@ -140,6 +165,61 @@ export struct DMPPageContainer {
       return pageRecord.pageStyle
     }
     return undefined
+  }
+
+  private shouldShowTabBar(): boolean {
+    // Don't show TabBar if explicitly hidden (e.g., inside TabBar container)
+    if (this.hideTabBar) {
+      return false
+    }
+    const appConfig = this.app.bundleManager.getJsAppModuleConfig()
+    if (!appConfig || !appConfig.tabBar) {
+      return false
+    }
+    return appConfig.isTabBarPage(this.pageRecord.pagePath)
+  }
+
+  private getTabBarConfig(): DMPTabBarConfig | undefined {
+    return this.app.bundleManager.getJsAppModuleConfig()?.tabBar
+  }
+
+  private handleTabSelected(index: number) {
+    const tabBarConfig = this.getTabBarConfig()
+    if (!tabBarConfig || index >= tabBarConfig.list.length) {
+      return
+    }
+
+    const targetPath = tabBarConfig.list[index].pagePath
+    DMPLogger.d(Tags.TABBAR, `Tab selected: ${index}, path: ${targetPath}`)
+
+    // Update selected index
+    this.selectedTabIndex = index
+
+    // Build switchTab params
+    const params = new DMPMap()
+    params.set('pagePath', targetPath)
+    params.set('query', new DMPMap())
+
+    // Call navigator switchTab
+    const navigator = this.app.navigatorManager.getCurNavigator()
+    if (navigator) {
+      navigator.getNavigator().switchTab(params)
+    }
+  }
+
+  private updateTabBarSelection() {
+    const tabBarConfig = this.getTabBarConfig()
+    if (!tabBarConfig) {
+      return
+    }
+
+    // Find the index of current page in tabBar list
+    const currentPath = this.pageRecord.pagePath
+    const index = tabBarConfig.list.findIndex(item => item.pagePath === currentPath)
+    if (index >= 0) {
+      this.selectedTabIndex = index
+      DMPLogger.d(Tags.TABBAR, `Updated tab selection to index: ${index} for path: ${currentPath}`)
+    }
   }
 
   initActionSheetView() {

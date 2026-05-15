@@ -1,0 +1,27 @@
+page {
+  background-color: #f5f5f5;
+  min-height: 100vh;
+  padding: 20px;
+  box-sizing: border-box;
+}
+
+.intro {
+  display: block;
+  padding: 28rpx 32rpx;
+  background-color: #fff;
+  border-bottom: 1rpx solid #eee;
+}
+
+.intro:first-child {
+  border-radius: 16rpx 16rpx 0 0;
+}
+
+.intro:last-child {
+  border-bottom: none;
+  border-radius: 0 0 16rpx 16rpx;
+}
+
+.weui-cell__bd {
+  font-size: 28rpx;
+  color: #333;
+}

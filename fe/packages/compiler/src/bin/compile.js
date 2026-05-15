@@ -22,6 +22,12 @@ function saveCache(cache) {
 	fs.writeFileSync(CACHE_FILE, JSON.stringify(cache, null, 2))
 }
 
+function parseOptions(argv = process.argv.slice(2)) {
+	return {
+		force: argv.includes('--force') || argv.includes('-f') || argv.includes('force'),
+	}
+}
+
 function isModified(dirPath, lastCompileTime) {
 	const files = fs.readdirSync(dirPath)
 	for (const file of files) {
@@ -41,6 +47,49 @@ function isModified(dirPath, lastCompileTime) {
 
 function isCompilerModified(lastCompileTime) {
 	return isModified(COMPILER_SRC_DIR, lastCompileTime)
+}
+
+function readAppId(workPath) {
+	const projectConfigPath = path.join(workPath, 'project.config.json')
+	if (!fs.existsSync(projectConfigPath)) {
+		return null
+	}
+
+	try {
+		const projectConfig = JSON.parse(fs.readFileSync(projectConfigPath, 'utf8'))
+		return projectConfig.appid || null
+	}
+	catch (error) {
+		console.warn(`读取 ${projectConfigPath} 失败:`, error.message)
+		return null
+	}
+}
+
+function assertUniqueAppIds(exampleRoot, directories) {
+	const appIdMap = new Map()
+
+	for (const directory of directories) {
+		const workPath = path.join(exampleRoot, directory)
+		const appId = readAppId(workPath)
+		if (!appId) {
+			continue
+		}
+
+		const appNames = appIdMap.get(appId) || []
+		appNames.push(directory)
+		appIdMap.set(appId, appNames)
+	}
+
+	const duplicates = [...appIdMap.entries()].filter(([, appNames]) => appNames.length > 1)
+	if (duplicates.length === 0) {
+		return
+	}
+
+	const detail = duplicates
+		.map(([appId, appNames]) => `${appId}: ${appNames.join(', ')}`)
+		.join('\n')
+
+	throw new Error(`检测到重复的 appid，批量编译会覆盖产物:\n${detail}`)
 }
 
 async function cleanUpOldApps(targetPath, appList) {
@@ -77,12 +126,13 @@ async function cleanUpOldApps(targetPath, appList) {
 	}
 }
 
-async function buildMiniApp() {
+async function buildMiniApp(options = {}) {
+	const { force = false } = options
 	const currentDirectory = `${process.cwd()}/example`
 	const cache = loadCache()
 
 	// 检查编译器是否被修改
-	const compilerModified = isCompilerModified(cache.compilerLastModified)
+	const compilerModified = force || isCompilerModified(cache.compilerLastModified)
 
 	fs.readdir(currentDirectory, async (err, files) => {
 		if (err) {
@@ -95,6 +145,8 @@ async function buildMiniApp() {
 			return fs.existsSync(filePath) && fs.statSync(filePath).isDirectory();
 		})
 
+		assertUniqueAppIds(currentDirectory, directories)
+
 		const appList = []
 		for (const fileName of directories) {
 			const workPath = path.resolve(`./example/${fileName}`)
@@ -103,7 +155,7 @@ async function buildMiniApp() {
 			const lastCompileTime = cache.apps[fileName]?.lastCompileTime || 0
 
 			// 检查是否需要重新编译
-			if (compilerModified || isModified(workPath, lastCompileTime)) {
+			if (force || compilerModified || isModified(workPath, lastCompileTime)) {
 				const appInfo = await build(targetPath, workPath)
 				if (appInfo) {
 					appList.push(appInfo)
@@ -161,4 +213,4 @@ function getLastCompileTime(data, appId) {
 	return 0 // 如果找不到对应的 appId
 }
 
-buildMiniApp()
+buildMiniApp(parseOptions())

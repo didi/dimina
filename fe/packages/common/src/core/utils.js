@@ -1,5 +1,3 @@
-import { get as _get, set as _set } from 'es-toolkit/compat'
-
 export function isFunction(value) {
 	return typeof value === 'function'
 }
@@ -12,12 +10,296 @@ export function isNil(value) {
 	return value === null || value === undefined
 }
 
+export function deepEqual(a, b) {
+	if (a === b) {
+		return true
+	}
+	if (typeof a !== 'object' || typeof b !== 'object' || a == null || b == null) {
+		return false
+	}
+
+	const keysA = Object.keys(a)
+	const keysB = Object.keys(b)
+	if (keysA.length !== keysB.length) {
+		return false
+	}
+
+	return keysA.every(key => deepEqual(a[key], b[key]))
+}
+
+function hasOwn(object, key) {
+	return Object.prototype.hasOwnProperty.call(object, key)
+}
+
+function isUnsafeProperty(key) {
+	return key === '__proto__'
+}
+
+function isDeepKey(key) {
+	switch (typeof key) {
+		case 'number':
+		case 'symbol': {
+			return false
+		}
+		case 'string': {
+			return key.includes('.') || key.includes('[') || key.includes(']')
+		}
+	}
+}
+
+function isIndex(value, length = Number.MAX_SAFE_INTEGER) {
+	switch (typeof value) {
+		case 'number': {
+			return Number.isInteger(value) && value >= 0 && value < length
+		}
+		case 'symbol': {
+			return false
+		}
+		case 'string': {
+			return /^(?:0|[1-9]\d*)$/.test(value)
+		}
+	}
+}
+
+function isObject(value) {
+	return value !== null && (typeof value === 'object' || typeof value === 'function')
+}
+
+function isSymbol(value) {
+	return typeof value === 'symbol' || Object.prototype.toString.call(value) === '[object Symbol]'
+}
+
+function isEqualsSameValueZero(value, other) {
+	return value === other || (Number.isNaN(value) && Number.isNaN(other))
+}
+
+function toKey(value) {
+	if (typeof value === 'string' || typeof value === 'symbol') {
+		return value
+	}
+	if (Object.is(value?.valueOf?.(), -0)) {
+		return '-0'
+	}
+	return String(value)
+}
+
+function toPath(value) {
+	if (Array.isArray(value)) {
+		return value.map(toKey)
+	}
+	if (typeof value === 'symbol') {
+		return [value]
+	}
+
+	value = toPathString(value)
+	const result = []
+	const length = value.length
+	if (length === 0) {
+		return result
+	}
+
+	let index = 0
+	let key = ''
+	let quoteChar = ''
+	let bracket = false
+	if (value.charCodeAt(0) === 46) {
+		result.push('')
+		index++
+	}
+	while (index < length) {
+		const char = value[index]
+		if (quoteChar) {
+			if (char === '\\' && index + 1 < length) {
+				index++
+				key += value[index]
+			}
+			else if (char === quoteChar) {
+				quoteChar = ''
+			}
+			else {
+				key += char
+			}
+		}
+		else if (bracket) {
+			if (char === '"' || char === '\'') {
+				quoteChar = char
+			}
+			else if (char === ']') {
+				bracket = false
+				result.push(key)
+				key = ''
+			}
+			else {
+				key += char
+			}
+		}
+		else {
+			if (char === '[') {
+				bracket = true
+				if (key) {
+					result.push(key)
+					key = ''
+				}
+			}
+			else if (char === '.') {
+				if (key) {
+					result.push(key)
+					key = ''
+				}
+			}
+			else {
+				key += char
+			}
+		}
+		index++
+	}
+	if (key) {
+		result.push(key)
+	}
+	return result
+}
+
+function toPathString(value) {
+	if (value == null) {
+		return ''
+	}
+	if (typeof value === 'string') {
+		return value
+	}
+	if (Array.isArray(value)) {
+		return value.map(toPathString).join(',')
+	}
+
+	const result = String(value)
+	if (result === '0' && Object.is(Number(value), -0)) {
+		return '-0'
+	}
+	return result
+}
+
+function isKey(value, object) {
+	if (Array.isArray(value)) {
+		return false
+	}
+	if (typeof value === 'number' || typeof value === 'boolean' || value == null || isSymbol(value)) {
+		return true
+	}
+	return (
+		typeof value === 'string' && (/^\w*$/.test(value) || !/\.|\[(?:[^[\]]*|(["'])(?:(?!\1)[^\\]|\\.)*?\1)\]/.test(value))
+		|| (object != null && hasOwn(object, value))
+	)
+}
+
+function getWithPath(object, path, defaultValue) {
+	if (path.length === 0) {
+		return defaultValue
+	}
+	let current = object
+	for (let index = 0; index < path.length; index++) {
+		if (current == null) {
+			return defaultValue
+		}
+		if (isUnsafeProperty(path[index])) {
+			return defaultValue
+		}
+		current = current[path[index]]
+	}
+	if (current === undefined) {
+		return defaultValue
+	}
+	return current
+}
+
 export function get(data, path) {
-	return _get(data, path)
+	if (data == null) {
+		return undefined
+	}
+	switch (typeof path) {
+		case 'string': {
+			if (isUnsafeProperty(path)) {
+				return undefined
+			}
+			const result = data[path]
+			if (result === undefined) {
+				return isDeepKey(path) ? get(data, toPath(path)) : undefined
+			}
+			return result
+		}
+		case 'number':
+		case 'symbol': {
+			if (typeof path === 'number') {
+				path = toKey(path)
+			}
+			const result = data[path]
+			return result === undefined ? undefined : result
+		}
+		default: {
+			if (Array.isArray(path)) {
+				return getWithPath(data, path)
+			}
+			path = Object.is(path?.valueOf(), -0) ? '-0' : String(path)
+			if (isUnsafeProperty(path)) {
+				return undefined
+			}
+			const result = data[path]
+			return result === undefined ? undefined : result
+		}
+	}
 }
 
 export function set(data, path, value) {
-	_set(data, path, value)
+	updateWith(data, path, () => value, () => undefined)
+}
+
+function updateWith(obj, path, updater, customizer) {
+	if (obj == null && !isObject(obj)) {
+		return obj
+	}
+
+	let resolvedPath
+	if (isKey(path, obj)) {
+		resolvedPath = [path]
+	}
+	else if (Array.isArray(path)) {
+		resolvedPath = path
+	}
+	else {
+		resolvedPath = toPath(path)
+	}
+
+	const updateValue = updater(get(obj, resolvedPath))
+	let current = obj
+	for (let i = 0; i < resolvedPath.length && current != null; i++) {
+		const key = toKey(resolvedPath[i])
+		if (isUnsafeProperty(key)) {
+			continue
+		}
+		let newValue
+		if (i === resolvedPath.length - 1) {
+			newValue = updateValue
+		}
+		else {
+			const objValue = current[key]
+			const customizerResult = customizer?.(objValue, key, obj)
+			newValue = customizerResult !== undefined
+				? customizerResult
+				: isObject(objValue)
+					? objValue
+					: isIndex(resolvedPath[i + 1])
+						? []
+						: {}
+		}
+		assignValue(current, key, newValue)
+		current = current[key]
+	}
+	return obj
+}
+
+function assignValue(object, key, value) {
+	const objValue = object[key]
+	if (!(hasOwn(object, key) && isEqualsSameValueZero(objValue, value)) || (value === undefined && !(key in object))) {
+		object[key] = value
+	}
 }
 
 export function uuid() {

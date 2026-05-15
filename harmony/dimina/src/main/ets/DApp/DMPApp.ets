@@ -15,6 +15,7 @@ import window from '@ohos.window'
 import { ImageKnife } from '@ohos/imageknife'
 import { DMPWebViewController } from '../HybridContainer/DMPWebViewController'
 import { DMPAppModuleManager } from '../Bridges/DMPAppModuleManager'
+import { DMPExtModuleHandler } from '../Bridges/DMPExtModuleHandler'
 import { DMPWindowUtil } from '../Utils/DMPWindowUtils'
 import { DMPEntryContext } from './config/DMPEntryContext'
 import { DMPChannelProxyNext } from '../Service/DMPChannelProxyNext'
@@ -29,8 +30,12 @@ import { DMPNavigatorManager } from '../Navigator/DMPNavigatorManager'
 import { DRouter } from '../Navigator/DRouter'
 import { DMPAppLifecycle } from './DMPAppLifecycle'
 import { DMPDeviceUtil } from '../Utils/DMPDeviceUtils'
-
 export type DMPBundleUpdateCallback = () => void;
+
+export interface DMPAppInitOptions {
+  apiNamespaces?: string[];
+}
+
 //小程序应用实例
 export class DMPApp {
   appIndex: number;
@@ -39,6 +44,7 @@ export class DMPApp {
   private onUpdateResult?: DMPBundleUpdateCallback
   private _container: DMPContainer = new DMPContainer(this)
   private static _context: common.UIAbilityContext
+  private static _apiNamespaces: string[] = []
   private _containerBridges: DMPBridges = new DMPBridges()
   private static _entryContext: DMPEntryContext
   private _appModuleManager: DMPAppModuleManager = new DMPAppModuleManager(this)
@@ -115,16 +121,19 @@ export class DMPApp {
   }
 
   public get currentWebViewId(): number {
-    return this.navigatorManager!.getTopPageRecord()?.webViewId ?? -1
+    // 走 getActivePageRecord：tab 模式下返回真实选中 tab，
+    // 否则返回栈顶（含 navigateTo 推入的页面 / 非 tab 场景）
+    return this.navigatorManager!.getActivePageRecord()?.webViewId ?? -1
   }
 
   public static getWindowStage(): window.WindowStage {
     return DMPApp._entryContext.getWindowStage();
   }
 
-  static init(context: DMPEntryContext) {
+  static init(context: DMPEntryContext, options?: DMPAppInitOptions) {
     DMPApp._entryContext = context;
     DMPApp._context = DMPApp._entryContext.getContext();
+    DMPApp._apiNamespaces = options?.apiNamespaces ?? [];
     ImageKnife.with(DMPApp._entryContext.getContext())
     context.getWindowStage().on('windowStageEvent', DMPAppLifecycle.onWindowStageEvent);
     DMPDeviceUtil.prepareSafeAreaAndDisplayWH(DMPApp._entryContext.getContext())
@@ -288,7 +297,19 @@ export class DMPApp {
     DMPChannelProxyNext.ContainerToService(msg, this.appIndex)
   }
 
+  /**
+   * 注册宿主第三方扩展模块，使小程序可通过 wx.extBridge / wx.extOnBridge / wx.extOffBridge 调用。
+   *
+   * @param moduleName  宿主模块名，须与 JS 侧传入的 module 参数一致
+   * @param handler     模块处理函数，参见 DMPExtModuleHandler
+   */
+  registerExtModule(moduleName: string, handler: DMPExtModuleHandler): void {
+    this._appModuleManager.registerExtModule(moduleName, handler);
+  }
+
   destroyEngine() {
+    // 销毁前取消所有 extOnBridge 订阅，防止内存泄漏
+    this._appModuleManager.getExtBridgeModule()?.cancelAllSubscriptions();
     this._service.destroy()
     this.engineStatus.setStatus(EngineStatus.STOP)
   }
@@ -354,6 +375,12 @@ export class DMPApp {
 
   private async startEngineService() {
     DMPLogger.d(Tags.LAUNCH, "startEngineService start");
+    // Inject custom API namespaces before loading service.js
+    const namespaces = DMPApp._apiNamespaces
+    if (namespaces.length > 0) {
+      const json = namespaces.map((n: string) => `"${n}"`).join(",")
+      this._service.executeScript(`globalThis.__diminaApiNamespaces = [${json}]`)
+    }
     const serviceJsPath = await this._bundleManager.requestServiceJsUri();
     await this._service.loadFileUri(serviceJsPath);
     DMPLogger.i(Tags.LAUNCH, "startEngineService end");

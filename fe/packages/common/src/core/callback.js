@@ -5,7 +5,7 @@ class Callback {
 		this.callbacks = {}
 	}
 
-	store(callback, keep) {
+	store(callback, keep, evtId = uuid()) {
 		if (keep) {
 			// 检查是否已经为该函数生成过 UUID
 			for (const [k, v] of Object.entries(this.callbacks)) {
@@ -15,33 +15,32 @@ class Callback {
 			}
 		}
 
-		const id = uuid()
-		this.callbacks[id] = { callback, keep }
-		return id
+		this.callbacks[evtId] = { callback, keep }
+		return evtId
 	}
 
 	/**
 	 * [Container] triggerCallback -> [Service] invoke
-	 * @param {*} id
+	 * @param {*} evtId
 	 * @param {*} args
 	 */
-	invoke(id, args) {
-		if (id === undefined) {
+	invoke(evtId, args) {
+		if (evtId === undefined) {
 			return
 		}
-		const obj = this.callbacks[id]
+		const obj = this.callbacks[evtId]
 		if (obj && isFunction(obj.callback)) {
 			obj.callback(args)
 			if (!obj.keep) {
-				delete this.callbacks[id]
+				delete this.callbacks[evtId]
 			}
 		}
 	}
 
-	remove(id) {
-		if (id) {
+	remove(evtId) {
+		if (evtId) {
 			Object.keys(this.callbacks).forEach((k) => {
-				if (id === k) {
+				if (evtId === k) {
 					delete this.callbacks[k]
 				}
 			})

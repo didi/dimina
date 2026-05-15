@@ -19,7 +19,7 @@ export function getStorageSync(opts) {
  *
  * https://developers.weixin.qq.com/miniprogram/dev/api/storage/wx.removeStorageSync.html
  */
-export function removeStorageSync(...opts) {
+export function removeStorageSync(opts) {
 	return invokeAPI('removeStorageSync', opts)
 }
 
@@ -58,8 +58,8 @@ export function clearStorage() {
 /**
  * https://developers.weixin.qq.com/miniprogram/dev/api/storage/wx.getStorageInfoSync.html
  */
-export function getStorageInfoSync(...opts) {
-	return invokeAPI('getStorageInfoSync', opts)
+export function getStorageInfoSync() {
+	return invokeAPI('getStorageInfoSync')
 }
 
 /**

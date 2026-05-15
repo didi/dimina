@@ -2,7 +2,15 @@
 
 $deviceWidth: 429;
 $deviceHeight: 885;
+$mobileFullscreenBreakpoint: 480px;
+
 @function logic($size) {
 // $size是750基准设计尺寸
   @return $size * calc($deviceWidth / 750);
+}
+
+@mixin mobile-fullscreen-device {
+  @media (hover: none) and (pointer: coarse), (max-width: $mobileFullscreenBreakpoint) {
+    @content;
+  }
 }

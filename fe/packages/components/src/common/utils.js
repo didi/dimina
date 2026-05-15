@@ -39,7 +39,7 @@ export function deepToRaw(obj) {
 	}
 	const result = {}
 	for (const key in obj) {
-		if (Object.hasOwn(obj, key)) {
+		if (Object.prototype.hasOwnProperty.call(obj, key)) {
 			const value = obj[key]
 			if (isRef(value)) {
 				result[key] = unref(value)
@@ -56,6 +56,23 @@ export function deepToRaw(obj) {
 		}
 	}
 	return result
+}
+
+export function replaceExternalClassTokens(className, externalClass, replacementClassName) {
+	const classTokens = className.split(/\s+/).filter(Boolean)
+	const replacementTokens = replacementClassName.split(/\s+/).filter(Boolean)
+	const nextClassTokens = []
+
+	for (const token of classTokens) {
+		if (token === externalClass) {
+			nextClassTokens.push(...replacementTokens)
+		}
+		else {
+			nextClassTokens.push(token)
+		}
+	}
+
+	return [...new Set(nextClassTokens)].join(' ')
 }
 
 export { parsePath }

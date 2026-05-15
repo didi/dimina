@@ -52,30 +52,33 @@ public class DMPWebViewInvoke {
                     
                     // 处理消息并获取返回值
                     let result = self.processInvokeMessage(type: type, body: body, target: target)
-                    
+
                     // 将结果返回给JS
                     if let callbackId = callbackId {
                         var resultJson = "null"
-                        
+
                         // 根据返回值类型生成适当的JS表示
-                        if let resultStr = result as? String {
-                            // 字符串类型，需要加引号
-                            resultJson = "\"\(resultStr)\""
-                        } else if let resultNum = result as? NSNumber {
-                            // 数字或布尔值
-                            if CFGetTypeID(resultNum) == CFBooleanGetTypeID() {
-                                // 布尔值
-                                resultJson = resultNum.boolValue ? "true" : "false"
-                            } else {
-                                // 数字
-                                resultJson = resultNum.stringValue
+                        if let syncResult = result as? DMPSyncResult, let value = syncResult.value {
+                            // DMPAPIResult sync result - convert value to JSON
+                            if let resultStr = value as? String,
+                               let strData = try? JSONSerialization.data(withJSONObject: [resultStr]),
+                               let escaped = String(data: strData, encoding: .utf8) {
+                                // JSON-encode via array wrapper to escape quotes/backslashes/newlines
+                                resultJson = String(escaped.dropFirst().dropLast())
+                            } else if let resultNum = value as? NSNumber {
+                                if CFGetTypeID(resultNum) == CFBooleanGetTypeID() {
+                                    resultJson = resultNum.boolValue ? "true" : "false"
+                                } else {
+                                    resultJson = resultNum.stringValue
+                                }
+                            } else if let resultDict = value as? [String: Any] {
+                                resultJson = DMPUtil.jsonEncode(from: resultDict) ?? "null"
+                            } else if let resultArray = value as? [Any] {
+                                resultJson = DMPUtil.jsonEncode(from: resultArray) ?? "null"
                             }
                         } else if let resultDict = result as? [String: Any] {
-                            // 对象
+                            // Legacy dict result from non-bridge paths
                             resultJson = DMPUtil.jsonEncode(from: resultDict) ?? "null"
-                        } else if let resultArray = result as? [Any] {
-                            // 数组
-                            resultJson = DMPUtil.jsonEncode(from: resultArray) ?? "null"
                         }
                         
                         let callbackScript = """

@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { getRelativePosixPath, resolveMiniProgramPath, toMiniProgramModuleId } from './path-utils.js'
 
 /**
  * npm 组件解析器
@@ -42,10 +43,10 @@ class NpmResolver {
 	 * @returns {string} 解析后的路径
 	 */
 	resolveRelativePath(componentPath, pageFilePath) {
-		const lastIndex = pageFilePath.lastIndexOf('/')
-		const newPath = pageFilePath.slice(0, lastIndex)
-		const res = path.resolve(newPath, componentPath)
-		return res.replace(this.workPath, '')
+		return toMiniProgramModuleId(
+			resolveMiniProgramPath(this.workPath, pageFilePath, componentPath),
+			this.workPath,
+		)
 	}
 
 	/**
@@ -68,13 +69,36 @@ class NpmResolver {
 	}
 
 	/**
+	 * 解析脚本模块路径，支持微信小程序 npm 逐级寻址和 package.json 入口
+	 * @param {string} specifier 模块导入路径
+	 * @param {string} modulePath 当前模块绝对文件路径
+	 * @param {(moduleId: string) => string | null} resolveExistingModuleId 解析真实存在模块的回调
+	 * @returns {string|null} 解析后的模块 id
+	 */
+	resolveScriptModule(specifier, modulePath, resolveExistingModuleId) {
+		if (!specifier || !resolveExistingModuleId) {
+			return null
+		}
+
+		for (const searchPath of this.generateSearchPaths(modulePath)) {
+			const moduleId = this.normalizeModuleId(`/${searchPath}/${specifier}`)
+			const resolvedModuleId = resolveExistingModuleId(moduleId)
+			if (resolvedModuleId) {
+				return resolvedModuleId
+			}
+		}
+
+		return null
+	}
+
+	/**
 	 * 生成 miniprogram_npm 搜索路径
 	 * 按照微信小程序的寻址顺序生成搜索路径
 	 * @param {string} pageFilePath 页面文件路径
 	 * @returns {string[]} 搜索路径数组
 	 */
 	generateSearchPaths(pageFilePath) {
-		const relativePath = pageFilePath.replace(this.workPath, '').replace(/^\//, '')
+		const relativePath = getRelativePosixPath(pageFilePath, this.workPath)
 		const pathParts = relativePath.split('/').slice(0, -1) // 去掉文件名
 
 		const searchPaths = []
@@ -130,6 +154,14 @@ class NpmResolver {
 
 		this.miniprogramNpmCache.set(cacheKey, null)
 		return null
+	}
+
+	normalizeModuleId(moduleId) {
+		let normalized = moduleId.replace(/\.(js|ts)$/, '').replace(/\\/g, '/')
+		if (!normalized.startsWith('/')) {
+			normalized = `/${normalized}`
+		}
+		return normalized
 	}
 
 	/**
