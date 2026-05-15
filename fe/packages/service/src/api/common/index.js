@@ -1,8 +1,25 @@
 import { callback, isFunction } from '@dimina/common'
+import hostEnv from '../../core/host-env'
 import message from '../../core/message'
 import router from '../../core/router'
 
+const hostEnvResolvers = {
+	getWindowInfo: () => hostEnv.getSystemInfo(),
+	getSystemInfoSync: () => hostEnv.getSystemInfo(),
+	getAppBaseInfo: () => hostEnv.getSystemInfo(),
+	getDeviceInfo: () => hostEnv.getSystemInfo(),
+	getMenuButtonBoundingClientRect: () => hostEnv.getMenuRect(),
+}
+
 export function invokeAPI(name, data, target = 'container') {
+	const resolveFromHostEnv = hostEnvResolvers[name]
+	if (target === 'container' && resolveFromHostEnv) {
+		const cachedValue = resolveFromHostEnv()
+		if (cachedValue) {
+			return cachedValue
+		}
+	}
+
 	let params
 	if (data === undefined || typeof data === 'string' || Array.isArray(data)) {
 		params = data

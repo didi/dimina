@@ -224,6 +224,7 @@ class Bridge(
     }
 
     fun destroy(keepHandler: Boolean = false) {
+        parent.clearNativeComponents()
         if (!isResourceLoaded()) {
             return
         }

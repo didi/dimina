@@ -2,6 +2,7 @@ package com.didi.dimina.ui.view
 
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
+import android.widget.FrameLayout
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -24,7 +25,8 @@ fun DiminaWebView(
     onPageCompleted: () -> Unit,
     modifier: Modifier = Modifier,
     identifier: String? = null,
-    enableCache: Boolean = true
+    enableCache: Boolean = true,
+    onNativeOverlayReady: (overlay: FrameLayout) -> Unit = {}
 ) {
     val context = LocalContext.current
     val webViewIdentifier = remember { identifier ?: "webview_${System.currentTimeMillis()}" }
@@ -63,6 +65,21 @@ fun DiminaWebView(
                     onInitReady(this)
                     LogUtils.d(TAG, "WebView initialized with identifier: $webViewIdentifier")
                     LogUtils.d(TAG, "Cache info: ${getWebViewCacheInfo()}")
+                }
+            }
+        )
+
+        AndroidView(
+            modifier = Modifier.fillMaxSize(),
+            factory = { context ->
+                NativeComponentOverlay(context).apply {
+                    layoutParams = FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        FrameLayout.LayoutParams.MATCH_PARENT
+                    )
+                    clipChildren = false
+                    clipToPadding = false
+                    onNativeOverlayReady(this)
                 }
             }
         )
@@ -134,5 +151,4 @@ class DiminaRenderBridge(
         const val TAG = "DiminaRenderBridge"
     }
 }
-
 

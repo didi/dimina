@@ -12,7 +12,7 @@
 	background: linear-gradient(43deg, #4158d0 0%, #c850c0 46%, #ffcc70 100%);
 
 	/* 移动设备全屏模式 */
-	@media (hover: none) and (pointer: coarse), (max-width: 768px) {
+	@include mobile-fullscreen-device {
 		padding: 0;
 		overflow-y: hidden;
 		background: #000;
@@ -40,7 +40,7 @@
 	border-radius: 48px;
 
 	/* 移动设备全屏模式 */
-	@media (hover: none) and (pointer: coarse), (max-width: 768px) {
+	@include mobile-fullscreen-device {
 		width: 100%;
 		height: 100%;
 		background: transparent;
@@ -56,8 +56,25 @@
 		display: flex;
     	justify-content: center;
 
+		.iphone__screen-sleep-mask {
+			position: absolute;
+			inset: 0;
+			z-index: 300;
+			background: #000;
+			opacity: 0;
+			pointer-events: none;
+			transition: opacity 80ms ease-out;
+		}
+
+		&.iphone__screen--sleeping {
+			.iphone__screen-sleep-mask {
+				opacity: 1;
+				pointer-events: auto;
+			}
+		}
+
 		/* 移动设备全屏模式 */
-		@media (hover: none) and (pointer: coarse), (max-width: 768px) {
+		@include mobile-fullscreen-device {
 			inset: 0;
 			border-radius: 0;
 		}
@@ -86,20 +103,24 @@
 			.status-bar__right {
 				display: flex;
 				align-items: center;
-				gap: 5px;
+				gap: 5.5px;
 				font-size: 17px;
 			}
 
 			.status-bar__signal {
-				width: 18px;
+				display: block;
+				width: 20px;
 				height: 12px;
 				opacity: 1;
+				flex: 0 0 auto;
 			}
 
 			.status-bar__wifi {
-				width: 15px;
-				height: 11px;
+				display: block;
+				width: 18px;
+				height: 14px;
 				opacity: 1;
+				flex: 0 0 auto;
 			}
 
 			.status-bar__battery {
@@ -165,11 +186,11 @@
 			justify-content: center;
 			align-items: center;
 			position: absolute;
-			width: 120px;
-			height: 30px;
+			width: 106px;
+			height: 27px;
 			top: 8px;
 			padding: 0 10px;
-			border-radius: 20px;
+			border-radius: 17px;
 			user-select: none;
 			cursor: pointer;
 			z-index: 100;
@@ -183,9 +204,9 @@
 			touch-action: none;
 			
 			&.island-hover {
-				width: 126px;
-				height: 31.5px;
-				margin-top: -0.75px;
+				width: 112px;
+				height: 28.5px;
+				margin-top: -0.7px;
 				margin-left: -3px;
 			}
 
@@ -203,6 +224,7 @@
 				background: var(--bg);
 				z-index: 2;
 				border-radius: 1rem;
+				pointer-events: none;
 			}
 			&::after {
 				content: '';
@@ -212,6 +234,7 @@
 				border: 4px solid transparent;
 				background: var(--glow);
 				border-radius: 1rem;
+				pointer-events: none;
 			}
 			span {
 				background: var(--glow);
@@ -221,7 +244,7 @@
 				z-index: 2;
 				position: relative;
 				inset: 0;
-				line-height: 30px;
+				line-height: 27px;
 				display: flex;
 				justify-content: center;
 				align-items: center;
@@ -234,36 +257,14 @@
 					opacity: 0.2;
 					transition: opacity 0.3s ease;
 					
-					@media (hover: none) and (pointer: coarse), (max-width: 768px) and (orientation: portrait) {
-						opacity: 1;
+					@include mobile-fullscreen-device {
+						@media (orientation: portrait) {
+							opacity: 1;
+						}
 					}
 				}
 			}
 		}
-
-	.iphone__home-touch-bar {
-		position: absolute;
-		z-index: 100;
-		height: 5px;
-		width: 135px;
-		left: 50%;
-		transform: translateX(-50%);
-		bottom: 9px;
-		border-radius: 100px;
-
-		&.iphone__home-touch-bar--white {
-			background: rgba(255, 255, 255, 0.9);
-		}
-
-		&.iphone__home-touch-bar--black {
-			background: rgba(0, 0, 0, 0.9);
-		}
-
-		/* 移动设备隐藏Home触控条 */
-		@media (hover: none) and (pointer: coarse), (max-width: 768px) {
-			display: none;
-		}
-	}
 
 		.iphone__apps {
 			width: 100%;
@@ -271,71 +272,82 @@
 		}
 	}
 
-	/* 静音键 */
-	.mute-btn {
-		position: absolute;
-		top: 110px;
-		left: -4px;
-		width: 6px;
-		height: 36px;
-		border-top-left-radius: 4px;
-		border-bottom-left-radius: 4px;
-		background: radial-gradient(#ccc, #555, #222);
-
-		/* 移动设备隐藏按钮 */
-		@media (hover: none) and (pointer: coarse), (max-width: 768px) {
-			display: none;
-		}
-	}
-
-	/* 音量增大键 */
-	.volume-up-btn {
-		position: absolute;
-		top: 180px;
-		height: 50px;
-		left: -4px;
-		width: 6px;
-		border-top-left-radius: 4px;
-		border-bottom-left-radius: 4px;
-		background: radial-gradient(#ccc, #555, #222);
-
-		/* 移动设备隐藏按钮 */
-		@media (hover: none) and (pointer: coarse), (max-width: 768px) {
-			display: none;
-		}
-	}
-
-	/* 音量减小键 */
-	.volume-down-btn {
-		position: absolute;
-		top: 244px;
-		height: 50px;
-		left: -4px;
-		width: 6px;
-		border-top-left-radius: 4px;
-		border-bottom-left-radius: 4px;
-		background: radial-gradient(#ccc, #555, #222);
-
-		/* 移动设备隐藏按钮 */
-		@media (hover: none) and (pointer: coarse), (max-width: 768px) {
-			display: none;
-		}
-	}
-
 	/* 电源键 */
 	.power-btn {
 		position: absolute;
-		top: 220px;
-		right: -4px;
-		width: 6px;
-		height: 80px;
-		border-bottom-right-radius: 4px;
-		border-top-right-radius: 4px;
-		background: radial-gradient(#ccc, #555, #222);
-		z-index: 10;
+		top: 216px;
+		right: -7px;
+		width: 9px;
+		height: 92px;
+		padding: 0;
+		border: 0;
+		border-radius: 0 6px 6px 0;
+		background: #343232;
+		z-index: 120;
+		cursor: pointer;
+		outline: none;
+		overflow: hidden;
+		touch-action: manipulation;
+		transition: transform 60ms ease, filter 80ms ease, box-shadow 80ms ease;
+		box-shadow:
+			inset 1px 0 0 rgba(255, 255, 255, 0.08),
+			inset -1px 0 1px rgba(0, 0, 0, 0.5),
+			2px 0 4px rgba(0, 0, 0, 0.2);
+		transform-origin: left center;
+
+		&::before {
+			content: '';
+			position: absolute;
+			inset: 3px 1px 3px 2px;
+			border-radius: 0 5px 5px 0;
+			background:
+				linear-gradient(90deg, rgba(255, 255, 255, 0.08), transparent 42%),
+				linear-gradient(180deg, rgba(255, 255, 255, 0.16), transparent 22%, transparent 78%, rgba(0, 0, 0, 0.22));
+			opacity: 0.75;
+			pointer-events: none;
+		}
+
+		&::after {
+			content: '';
+			position: absolute;
+			top: 1px;
+			bottom: 1px;
+			left: -1px;
+			width: 3px;
+			border-radius: 1px 0 0 1px;
+			background: #343232;
+			box-shadow:
+				inset -1px 0 1px rgba(0, 0, 0, 0.32),
+				inset 1px 0 0 rgba(255, 255, 255, 0.05);
+			pointer-events: none;
+		}
+
+		&:hover {
+			filter: brightness(1.12);
+			box-shadow:
+				inset 1px 0 0 rgba(255, 255, 255, 0.12),
+				inset -1px 0 1px rgba(0, 0, 0, 0.52),
+				3px 0 6px rgba(0, 0, 0, 0.24);
+		}
+
+		&:focus-visible {
+			box-shadow:
+				0 0 0 2px rgba(255, 255, 255, 0.36),
+				inset 1px 0 0 rgba(255, 255, 255, 0.12),
+				inset -1px 0 1px rgba(0, 0, 0, 0.52),
+				3px 0 6px rgba(0, 0, 0, 0.24);
+		}
+
+		&:active {
+			transform: translateX(-1px) scaleX(0.88);
+			filter: brightness(0.86);
+			box-shadow:
+				inset 2px 0 2px rgba(0, 0, 0, 0.42),
+				1px 0 3px rgba(0, 0, 0, 0.24);
+		}
 
 		/* 移动设备隐藏按钮 */
-		@media (hover: none) and (pointer: coarse), (max-width: 768px) {
+		@include mobile-fullscreen-device {
 			display: none;
 		}
 	}

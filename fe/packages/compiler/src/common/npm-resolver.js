@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { getRelativePosixPath, resolveMiniProgramPath, toMiniProgramModuleId } from './path-utils.js'
 
 /**
  * npm 组件解析器
@@ -42,10 +43,10 @@ class NpmResolver {
 	 * @returns {string} 解析后的路径
 	 */
 	resolveRelativePath(componentPath, pageFilePath) {
-		const lastIndex = pageFilePath.lastIndexOf('/')
-		const newPath = pageFilePath.slice(0, lastIndex)
-		const res = path.resolve(newPath, componentPath)
-		return res.replace(this.workPath, '')
+		return toMiniProgramModuleId(
+			resolveMiniProgramPath(this.workPath, pageFilePath, componentPath),
+			this.workPath,
+		)
 	}
 
 	/**
@@ -97,7 +98,7 @@ class NpmResolver {
 	 * @returns {string[]} 搜索路径数组
 	 */
 	generateSearchPaths(pageFilePath) {
-		const relativePath = pageFilePath.replace(this.workPath, '').replace(/^\//, '')
+		const relativePath = getRelativePosixPath(pageFilePath, this.workPath)
 		const pathParts = relativePath.split('/').slice(0, -1) // 去掉文件名
 
 		const searchPaths = []

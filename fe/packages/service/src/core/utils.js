@@ -1,4 +1,4 @@
-import { get, isFunction, isNil } from '@dimina/common'
+import { camelCaseToUnderscore, deepEqual, get, isFunction, isNil, isString, toCamelCase } from '@dimina/common'
 
 const queue = []
 let isFlushing = false
@@ -21,19 +21,7 @@ function flushQueue() {
 	}
 }
 
-export function deepEqual(a, b) {
-	if (a === b)
-		return true // 引用相同
-	if (typeof a !== 'object' || typeof b !== 'object' || a == null || b == null)
-		return false
-
-	const keysA = Object.keys(a)
-	const keysB = Object.keys(b)
-	if (keysA.length !== keysB.length)
-		return false
-
-	return keysA.every(key => deepEqual(a[key], b[key]))
-}
+export { deepEqual }
 /**
  * 将 computed 的 key 提前写入 data，确保渲染层初始化时能正确追踪这些 key 的响应式依赖。
  *
@@ -48,7 +36,7 @@ export function addComputedData(self) {
 	const computed = self.__mpxProxy?.options?.computed
 	if (computed) {
 		for (const ck of Object.keys(computed)) {
-			if (!Object.hasOwn(self.data, ck)) {
+			if (!Object.prototype.hasOwnProperty.call(self.data, ck)) {
 				self.data[ck] = null
 			}
 		}
@@ -114,7 +102,7 @@ export function serializeProps(properties) {
 
 			// 处理 type 字段
 			// 兼容 items: Array 和 item: { type: String, value: '' } 两种形式
-			const transType = item && typeof item === 'object' && Object.hasOwn(item, 'type') ? convertToStringType(item.type) : convertToStringType(item)
+			const transType = item && typeof item === 'object' && Object.prototype.hasOwnProperty.call(item, 'type') ? convertToStringType(item.type) : convertToStringType(item)
 			let array = null
 			if (Array.isArray(transType)) {
 				array = [...transType]
@@ -343,6 +331,74 @@ export function filterInvokeObserver(changedKey, observers, data, ctx, oldVal) {
 	}
 }
 
+export function resolveEventHandler(eventAttr = {}, type = '') {
+	const normalizedType = type.trim()
+	if (!normalizedType) {
+		return
+	}
+
+	const compactType = normalizedType.replace(/-/g, '').toLowerCase()
+	const candidates = [
+		normalizedType,
+		toCamelCase(normalizedType),
+		camelCaseToUnderscore(normalizedType),
+		compactType,
+	]
+
+	for (const candidate of candidates) {
+		if (candidate && eventAttr[candidate] !== undefined) {
+			return eventAttr[candidate]
+		}
+	}
+}
+
+export function invokeBehaviorObservers(ctx, changedKeys, oldValues) {
+	const info = ctx.__info__ || {}
+	if (!info.behaviorObservers) {
+		return
+	}
+
+	for (const observerKey in info.behaviorObservers) {
+		const observers = info.behaviorObservers[observerKey]
+		if (!Array.isArray(observers) || observers.length === 0) {
+			continue
+		}
+
+		for (const changedKey of changedKeys) {
+			observers.forEach((observer) => {
+				filterInvokeObserver(changedKey, { [observerKey]: observer }, ctx.data, ctx, oldValues[changedKey])
+			})
+		}
+	}
+}
+
+export function invokePropertyObservers(ctx, changedKeys, oldValues) {
+	runPropertyObservers(ctx, changedKeys, oldValues)
+}
+
+export function collectPropertyObservers(ctx, changedKeys, oldValues) {
+	const propertyObserversToExecute = []
+
+	for (const prop of changedKeys) {
+		const observer = ctx.__info__.properties?.[prop]?.observer
+		const val = ctx.data[prop]
+		const oldVal = oldValues[prop]
+
+		if (isString(observer)) {
+			propertyObserversToExecute.push(() => ctx[observer]?.(val, oldVal))
+		}
+		else if (isFunction(observer)) {
+			propertyObserversToExecute.push(() => observer.call(ctx, val, oldVal))
+		}
+	}
+
+	return propertyObserversToExecute
+}
+
+export function runPropertyObservers(ctx, changedKeys, oldValues) {
+	collectPropertyObservers(ctx, changedKeys, oldValues).reverse().forEach(run => run())
+}
+
 /**
  * https://developers.weixin.qq.com/miniprogram/dev/framework/custom-component/behaviors.html
  * 
@@ -373,7 +429,7 @@ export function mergeBehaviors(obj, behaviors) {
 		const result = { ...target }
 		
 		for (const key in source) {
-			if (Object.hasOwn(source, key)) {
+			if (Object.prototype.hasOwnProperty.call(source, key)) {
 				const targetValue = result[key]
 				const sourceValue = source[key]
 				
@@ -487,7 +543,7 @@ export function mergeBehaviors(obj, behaviors) {
 		// 规则: 不覆盖, 按顺序执行
 		if (behavior.pageLifetimes) {
 			target.behaviorPageLifetimes = target.behaviorPageLifetimes || {}
-			const pageLifetimes = ['show', 'hide', 'resize']
+			const pageLifetimes = ['show', 'hide', 'resize', 'routeDone']
 			
 			for (const lifetime of pageLifetimes) {
 				if (isFunction(behavior.pageLifetimes[lifetime])) {
@@ -580,7 +636,7 @@ export function matchComponent(selector, item) {
 			
 			// 如果只指定了属性名，检查属性是否存在
 			if (attrValue === undefined) {
-				return Object.hasOwn(dataset, attrName)
+				return Object.prototype.hasOwnProperty.call(dataset, attrName)
 			}
 			
 			// 如果指定了属性值，检查属性值是否匹配
@@ -672,6 +728,7 @@ function evaluateExpression(bindingInfo, parentData) {
  */
 export function syncUpdateChildrenProps(parent, allInstances, changedData) {
 	const children = Object.values(allInstances || {})
+	const syncedChildren = []
 	
 	// 遍历所有子组件
 	for (const child of children) {
@@ -702,9 +759,12 @@ export function syncUpdateChildrenProps(parent, allInstances, changedData) {
 
 		// 如果有数据需要更新，直接触发子组件 observers，确保属性驱动的行为在 service 侧即时生效
 		if (Object.keys(updateData).length > 0) {
+			child.tO?.(updateData)
 			child.__pendingSyncedProps__ = child.__pendingSyncedProps__ || {}
 			Object.assign(child.__pendingSyncedProps__, updateData)
-			child.tO?.(updateData)
+			syncedChildren.push({ child, data: updateData })
 		}
 	}
+
+	return syncedChildren
 }

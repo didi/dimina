@@ -18,6 +18,10 @@ export class DMPNavigatorManager {
   private preLoadWebViewIdAndPageRecordMaps: Map<number, DMPPageRecord> = new Map();
   //页面记录
   private webViewIdAndPageRecordMaps: Map<number, DMPPageRecord> = new Map();
+  // TabBar 当前选中 tab 的 webViewId；非 tab 模式或未初始化时为 -1。
+  // 因为非首个 tab 不进入 globalPageRecordStack，仅靠栈顶无法知道用户实际在看哪个 tab，
+  // 这里由 DMPTabBarContainerView 在切换时同步更新。
+  private _currentTabWebViewId: number = -1
   app: DMPApp
   //页面销毁监控
   private popListeners: Set<PopListener> = new Set();
@@ -46,6 +50,37 @@ export class DMPNavigatorManager {
     return this.globalPageRecordStack.peek()
   }
 
+  setCurrentTabWebViewId(webViewId: number) {
+    this._currentTabWebViewId = webViewId
+  }
+
+  clearCurrentTabWebViewId() {
+    this._currentTabWebViewId = -1
+  }
+
+  getCurrentTabWebViewId(): number {
+    return this._currentTabWebViewId
+  }
+
+  /**
+   * 返回当前真实活动的页面记录：
+   * - 栈高 > 1：栈顶是 navigateTo 推入的页面（在 tab 之上），返回栈顶
+   * - 栈高 ≤ 1（仅初始 tab 或为空）+ TabBar 已选中某 tab：返回选中 tab 的记录
+   * - 否则：回退栈顶（兼容非 tab 模式 / 初始化窗口）
+   */
+  getActivePageRecord(): DMPPageRecord | undefined {
+    if (this.globalPageRecordStack.size() > 1) {
+      return this.globalPageRecordStack.peek()
+    }
+    if (this._currentTabWebViewId >= 0) {
+      const tabRecord = this.webViewIdAndPageRecordMaps.get(this._currentTabWebViewId)
+      if (tabRecord) {
+        return tabRecord
+      }
+    }
+    return this.globalPageRecordStack.peek()
+  }
+
   getPageRecordById(webViewId: number): DMPPageRecord | undefined {
     const record = this.webViewIdAndPageRecordMaps.get(webViewId);
     if (!record) {
@@ -66,6 +101,9 @@ export class DMPNavigatorManager {
   clear() {
     this._navigatorDelegateStack.clear();
     this.globalPageRecordStack.clear();
+    this.webViewIdAndPageRecordMaps.clear()
+    this.preLoadWebViewIdAndPageRecordMaps.clear()
+    this._currentTabWebViewId = -1
   }
 
   pushNavigator(navigatorDelegate: DMPNavigatorDelegate): DMPNavigatorDelegate {
@@ -99,6 +137,17 @@ export class DMPNavigatorManager {
   //存储预加载记录
   pushGlobalPreLoadPageRecord(record: DMPPageRecord) {
     this.preLoadWebViewIdAndPageRecordMaps.set(record.webViewId, record)
+  }
+
+  // Register tab page record (only to Map, not to stack)
+  // Tab pages are managed by TabBarContainerView, not in navigator stack
+  registerTabPageRecord(record: DMPPageRecord) {
+    this.webViewIdAndPageRecordMaps.set(record.webViewId, record)
+  }
+
+  // Unregister tab page record from Map
+  unregisterTabPageRecord(webViewId: number) {
+    this.webViewIdAndPageRecordMaps.delete(webViewId)
   }
 
   popGlobalPageRecord() {

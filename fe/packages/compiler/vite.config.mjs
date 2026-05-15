@@ -2,6 +2,15 @@ import { resolve } from 'node:path'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
+	appType: 'custom',
+	environments: {
+		client: {
+			consumer: 'server',
+		},
+		ssr: {
+			consumer: 'server',
+		},
+	},
 	build: {
 		lib: {
 			// Multiple entry points
@@ -24,10 +33,6 @@ export default defineConfig({
 				'node:process',
 				'node:worker_threads',
 				'node:buffer',
-				'@babel/core',
-				'@babel/plugin-transform-modules-commonjs',
-				'@babel/traverse',
-				'@babel/types',
 				'@vue/compiler-sfc',
 				'autoprefixer',
 				'cheerio',
@@ -41,10 +46,8 @@ export default defineConfig({
 				'postcss-selector-parser',
 				'less',
 				'sass',
-				'typescript',
 				'shelljs',
 				'oxc-parser',
-				'oxc-transform',
 				'oxc-walker',
 				'magic-string',
 			],

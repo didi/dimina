@@ -34,7 +34,10 @@
 		"pages/behaviors/index",
 		"pages/animation/index",
 		"pages/custom-class/index",
-		"pages/ext-bridge/index"
+		"pages/ext-bridge/index",
+		"pages/canvas/index",
+		"pages/video/index",
+		"pages/web-gl/index"
 	],
 	"subPackages": [
     {

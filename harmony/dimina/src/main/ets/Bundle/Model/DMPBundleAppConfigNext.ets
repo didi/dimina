@@ -1,5 +1,22 @@
 import { DMPMap } from '../../Utils/DMPMap';
 
+// TabBar item configuration
+export interface DMPTabBarItem {
+  pagePath: string;
+  text: string;
+  iconPath?: string;
+  selectedIconPath?: string;
+}
+
+// TabBar configuration
+export interface DMPTabBarConfig {
+  color: string;
+  selectedColor: string;
+  backgroundColor: string;
+  borderStyle: string;  // "black" or "white"
+  list: DMPTabBarItem[];
+}
+
 //app-config.json
 export class DMPBundleAppConfigNext {
   data: object;
@@ -11,6 +28,7 @@ export class DMPBundleAppConfigNext {
   subPackages: SubPackageConfig[];
   _entryPagePath: string;
   moduleMaps: Map<string, ModuleConfig>
+  tabBar?: DMPTabBarConfig;
 
   constructor(data: object) {
     this.data = data
@@ -23,6 +41,27 @@ export class DMPBundleAppConfigNext {
     this.sitemapLocation = this.app['sitemapLocation'];
     this.subPackages = this.app['subPackages'];
     this._entryPagePath = this.app['entryPagePath'];
+
+    // Parse tabBar config
+    if (this.app['tabBar']) {
+      const tabBarData: ESObject = this.app['tabBar'] as ESObject;
+      if (tabBarData['list'] && (tabBarData['list'] as Array<ESObject>).length > 0) {
+        this.tabBar = {
+          color: tabBarData['color'] || '#999999',
+          selectedColor: tabBarData['selectedColor'] || '#1890ff',
+          backgroundColor: tabBarData['backgroundColor'] || '#ffffff',
+          borderStyle: tabBarData['borderStyle'] || 'black',
+          list: (tabBarData['list'] as Array<ESObject>).map((item: ESObject): DMPTabBarItem => {
+            return {
+              pagePath: item['pagePath'] as string,
+              text: item['text'] as string,
+              iconPath: item['iconPath'] as string | undefined,
+              selectedIconPath: item['selectedIconPath'] as string | undefined
+            };
+          })
+        };
+      }
+    }
   }
 
   public getRootPackage(pagePath: string): string {
@@ -75,6 +114,23 @@ export class DMPBundleAppConfigNext {
     mergedConfig.set('usingComponents', pagePrivateConfig['usingComponents'] || {});
 
     return mergedConfig;
+  }
+
+  /**
+   * Get set of all tabBar page paths
+   */
+  getTabBarPagePaths(): Set<string> {
+    if (!this.tabBar) {
+      return new Set<string>();
+    }
+    return new Set(this.tabBar.list.map(item => item.pagePath));
+  }
+
+  /**
+   * Check if a page is a tabBar page
+   */
+  isTabBarPage(pagePath: string): boolean {
+    return this.getTabBarPagePaths().has(pagePath);
   }
 }
 

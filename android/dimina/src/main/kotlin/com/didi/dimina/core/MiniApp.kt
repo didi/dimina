@@ -24,6 +24,7 @@ import com.didi.dimina.api.storage.StorageApi
 import com.didi.dimina.api.ui.InteractionApi
 import com.didi.dimina.api.ui.MenuApi
 import com.didi.dimina.api.ui.NavigationBarApi
+import com.didi.dimina.api.ui.NativeComponentApi
 import com.didi.dimina.api.ui.ScrollApi
 import com.didi.dimina.bean.MiniProgram
 import com.didi.dimina.common.ApiUtils
@@ -191,6 +192,7 @@ class MiniApp private constructor() {
         NavigationBarApi().registerWith(apiRegistry)
         ScrollApi().registerWith(apiRegistry)
         MenuApi().registerWith(apiRegistry)
+        NativeComponentApi().registerWith(apiRegistry)
 
         // network
         com.didi.dimina.api.network.NetworkApi().registerWith(apiRegistry)
@@ -386,5 +388,4 @@ class MiniApp private constructor() {
         apiRegistry.clear()
     }
 }
-
 

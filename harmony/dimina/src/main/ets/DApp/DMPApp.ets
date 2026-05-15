@@ -121,7 +121,9 @@ export class DMPApp {
   }
 
   public get currentWebViewId(): number {
-    return this.navigatorManager!.getTopPageRecord()?.webViewId ?? -1
+    // 走 getActivePageRecord：tab 模式下返回真实选中 tab，
+    // 否则返回栈顶（含 navigateTo 推入的页面 / 非 tab 场景）
+    return this.navigatorManager!.getActivePageRecord()?.webViewId ?? -1
   }
 
   public static getWindowStage(): window.WindowStage {

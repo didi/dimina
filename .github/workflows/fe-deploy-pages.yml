@@ -31,7 +31,7 @@ jobs:
         uses: actions/setup-node@v4
         id: node-setup
         with:
-          node-version: '20'
+          node-version: lts/*
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v3

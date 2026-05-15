@@ -2,6 +2,8 @@
 // 滑块视图容器。其中只可放置swiper-item组件，否则会导致未定义的行为。
 // https://developers.weixin.qq.com/miniprogram/dev/component/swiper.html
 
+import { transformRpx } from '@dimina/common'
+import { cloneVNode } from 'vue'
 import { triggerEvent, useInfo } from '@/common/events'
 
 const props = defineProps({
@@ -117,8 +119,10 @@ const info = useInfo()
 
 const slots = useSlots()
 const slotCount = ref(0)
-const clonedItems = ref([])
-const realSlotCount = ref(0)
+const slotItems = ref([])
+const leadingClonedItems = ref([])
+const trailingClonedItems = ref([])
+const currentIndex = ref(props.current)
 
 // 添加标记来追踪内部变更
 let isInternalChange = false
@@ -140,34 +144,12 @@ function findSwiperItems(nodes) {
 	return res
 }
 
-// 监听插槽内容变化
-watchEffect(() => {
-	// 获取插槽中子节点的数量作为指示点数量
-	if (slots.default) {
-		const slotElements = slots.default()
-		const res = findSwiperItems(slotElements)
-
-		slotCount.value = res.length
-
-		if (props.circular && res.length > 1) {
-			clonedItems.value = [
-				res[res.length - 1], // 克隆最后一个元素到最前面
-				res[0], // 克隆第一个元素到最后面
-			]
-			realSlotCount.value = slotCount.value + 2
-		}
-		else {
-			clonedItems.value = []
-			realSlotCount.value = slotCount.value
-		}
-	}
-	else {
-		slotCount.value = 0
-		realSlotCount.value = 0
-	}
-})
-
-const currentIndex = ref(props.current)
+function cloneSwiperItems(items, position) {
+	return items.map((item, idx) => cloneVNode(item, {
+		key: `${position}-${idx}-${item.key ?? idx}`,
+		'data-dd-cloned': '',
+	}))
+}
 
 const swiperSliders = ref(null)
 const swiperFrame = ref(null)
@@ -175,6 +157,8 @@ const swiperFrame = ref(null)
 let startX = 0
 let startY = 0
 let isDragging = false
+let isPointerDown = false
+let directionChecked = false
 let containerRect = { width: 0, height: 0 }
 let moveX = 0
 let moveY = 0
@@ -182,12 +166,19 @@ let startTime = 0
 let lastPositionX = 0
 let lastPositionY = 0
 let rafId
+let intervalId // 自动播放的定时器ID
 let source = ''
 
 const wrapperStyle = ref({
 	transform: props.vertical ? `translateY(-${props.current}00%)` : `translateX(-${props.current}00%)`,
 	transition: `transform ${props.duration}ms ease`,
 	flexDirection: props.vertical ? 'column' : 'row',
+})
+
+const wrapperEventStyle = computed(() => {
+	return {
+		touchAction: props.vertical ? 'pan-x' : 'pan-y',
+	}
 })
 
 const easingParsed = computed(() => {
@@ -205,6 +196,88 @@ const easingParsed = computed(() => {
 	}
 })
 
+const normalizedDisplayMultipleItems = computed(() => {
+	return Math.max(1, Number(props.displayMultipleItems) || 1)
+})
+
+const circularEnabled = computed(() => {
+	return props.circular && slotCount.value > normalizedDisplayMultipleItems.value
+})
+
+const maxCurrent = computed(() => {
+	return Math.max(slotCount.value - normalizedDisplayMultipleItems.value, 0)
+})
+
+const hasClonedItems = computed(() => {
+	return leadingClonedItems.value.length > 0 || trailingClonedItems.value.length > 0
+})
+
+function normalizeCurrent(current) {
+	const total = slotCount.value
+	if (!total) {
+		return 0
+	}
+
+	const roundedCurrent = Math.round(Number(current) || 0)
+	if (circularEnabled.value) {
+		return ((roundedCurrent % total) + total) % total
+	}
+
+	return Math.min(Math.max(roundedCurrent, 0), maxCurrent.value)
+}
+
+function getVisibleCurrent(current = currentIndex.value) {
+	return normalizeCurrent(current)
+}
+
+function isActiveDot(index) {
+	const current = getVisibleCurrent()
+	const displayCount = normalizedDisplayMultipleItems.value
+	return (current <= index && index < current + displayCount)
+		|| index < current + displayCount - slotCount.value
+}
+
+function getDotStyle(index) {
+	return {
+		backgroundColor: isActiveDot(index)
+			? props.indicatorActiveColor
+			: props.indicatorColor,
+	}
+}
+
+// 监听插槽内容变化
+watchEffect(() => {
+	if (slots.default) {
+		const slotElements = slots.default()
+		const res = findSwiperItems(slotElements)
+
+		slotCount.value = res.length
+		slotItems.value = res
+
+		if (circularEnabled.value) {
+			leadingClonedItems.value = cloneSwiperItems(res.slice(-normalizedDisplayMultipleItems.value), 'leading')
+			trailingClonedItems.value = cloneSwiperItems(res.slice(0, normalizedDisplayMultipleItems.value), 'trailing')
+		}
+		else {
+			leadingClonedItems.value = []
+			trailingClonedItems.value = []
+		}
+	}
+	else {
+		slotCount.value = 0
+		slotItems.value = []
+		leadingClonedItems.value = []
+		trailingClonedItems.value = []
+	}
+
+	if (props.autoplay) {
+		startAutoplay()
+	}
+	else {
+		stopAutoplay()
+	}
+})
+
 // 计算滑动速度和方向
 function getVelocity(distance, time) {
 	// 使用指数衰减模型来计算速度，更接近原生物理效果
@@ -216,15 +289,25 @@ function getVelocity(distance, time) {
 
 // 方向检测函数
 function checkDirection(deltaX, deltaY, event) {
+	if (directionChecked) {
+		if (isDragging && event.cancelable) {
+			event.preventDefault()
+		}
+		return
+	}
+
 	const absDeltaX = Math.abs(deltaX)
 	const absDeltaY = Math.abs(deltaY)
+
+	if (absDeltaX < 2 && absDeltaY < 2) {
+		return
+	}
 
 	// 组件是垂直组件
 	if (props.vertical) {
 		// 在垂直方向滑动距离大于水平方向时才处理为组件滑动
 		isDragging = absDeltaX < absDeltaY
-		// 在垂直模式下，如果事件可以取消，始终阻止默认滚动行为
-		if (event.cancelable) {
+		if (isDragging && event.cancelable) {
 			event.preventDefault()
 		}
 	}
@@ -236,28 +319,78 @@ function checkDirection(deltaX, deltaY, event) {
 			event.preventDefault()
 		}
 	}
+
+	directionChecked = true
 }
 
 function requestMargin() {
+	if (!swiperSliders.value || !swiperFrame.value) {
+		return
+	}
+
+	const previousMargin = props.previousMargin ? transformRpx(props.previousMargin) : ''
+	const nextMargin = props.nextMargin ? transformRpx(props.nextMargin) : ''
+	const itemSize = `${Math.abs(100 / normalizedDisplayMultipleItems.value)}%`
+
 	if (props.vertical) {
 		swiperSliders.value.style.left = 0
 		swiperSliders.value.style.right = 0
-		swiperSliders.value.style.top = props.previousMargin
-		swiperSliders.value.style.bottom = props.nextMargin
+		swiperSliders.value.style.top = previousMargin
+		swiperSliders.value.style.bottom = nextMargin
 		swiperFrame.value.style.width = '100%'
-		swiperFrame.value.style.height = `${Math.abs(100 / props.displayMultipleItems)}%`
+		swiperFrame.value.style.height = itemSize
 	}
 	else {
-		swiperSliders.value.style.left = props.previousMargin
-		swiperSliders.value.style.right = props.nextMargin
+		swiperSliders.value.style.left = previousMargin
+		swiperSliders.value.style.right = nextMargin
 		swiperSliders.value.style.top = 0
 		swiperSliders.value.style.bottom = 0
 		swiperFrame.value.style.height = '100%'
-		swiperFrame.value.style.width = `${Math.abs(100 / props.displayMultipleItems)}%`
+		swiperFrame.value.style.width = itemSize
 	}
 }
 
+function calcSnapPosition(position) {
+	if (
+		!props.snapToEdge
+		|| circularEnabled.value
+		|| slotCount.value < 2
+		|| !swiperSliders.value
+		|| !swiperFrame.value
+	) {
+		return position
+	}
+
+	const axisOffset = props.vertical ? 'offsetTop' : 'offsetLeft'
+	const axisSize = props.vertical ? 'offsetHeight' : 'offsetWidth'
+	const frameSize = swiperFrame.value[axisSize] || 1
+
+	if (position === 0 && props.previousMargin) {
+		return swiperSliders.value[axisOffset] / frameSize
+	}
+
+	if (position === maxCurrent.value && props.nextMargin) {
+		const trailingMargin = swiperSliders.value.parentElement[axisSize] - swiperSliders.value[axisOffset] - swiperSliders.value[axisSize]
+		return maxCurrent.value - trailingMargin / frameSize
+	}
+
+	return position
+}
+
+function getTranslatePosition(position, skipSnap = false) {
+	const normalizedPosition = hasClonedItems.value ? position + leadingClonedItems.value.length : position
+	return skipSnap ? normalizedPosition : calcSnapPosition(normalizedPosition)
+}
+
+function applyTransform(position, skipSnap = false) {
+	const translateValue = getTranslatePosition(position, skipSnap)
+	wrapperStyle.value.transform = `translate${props.vertical ? 'Y' : 'X'}(-${translateValue * 100}%)`
+}
+
 function setNewCurrent(newCurrent) {
+	if (!circularEnabled.value || (newCurrent !== -1 && newCurrent !== slotCount.value)) {
+		newCurrent = normalizeCurrent(newCurrent)
+	}
 	if (newCurrent === currentIndex.value) {
 		return
 	}
@@ -265,26 +398,35 @@ function setNewCurrent(newCurrent) {
 	currentIndex.value = newCurrent
 	updateTransform()
 
-	const maxLength = clonedItems.value.length ? realSlotCount.value - 2 : realSlotCount.value
-
 	triggerEvent('change', {
 		info,
 		detail: {
-			current: (newCurrent + maxLength) % maxLength,
+			current: getVisibleCurrent(newCurrent),
 			source,
 		},
 	})
 }
 
 watch(
-	[() => props.vertical, () => props.autoplay, () => props.current, () => props.previousMargin, () => props.nextMargin, () => props.circular],
-	([newVertical, newAutoplay, newCurrent, newPreviousMargin, newNextMargin, newCircular], [oldVertical, oldAutoplay, _oldCurrent, oldPreviousMargin, oldNextMargin, oldCircular]) => {
+	[
+		() => props.vertical,
+		() => props.autoplay,
+		() => props.current,
+		() => props.previousMargin,
+		() => props.nextMargin,
+		() => props.circular,
+		() => props.displayMultipleItems,
+		() => props.snapToEdge,
+		() => props.interval,
+	],
+	([newVertical, newAutoplay, newCurrent, newPreviousMargin, newNextMargin, newCircular, newDisplayMultipleItems, newSnapToEdge, newInterval], [oldVertical, oldAutoplay, _oldCurrent, oldPreviousMargin, oldNextMargin, oldCircular, oldDisplayMultipleItems, oldSnapToEdge, oldInterval]) => {
 		if (oldVertical !== newVertical) {
 			wrapperStyle.value.flexDirection = newVertical ? 'column' : 'row'
+			requestMargin()
 			updateTransform()
 			wrapperStyle.value.transition = 'none'
 		}
-		if (oldAutoplay !== newAutoplay) {
+		if (oldAutoplay !== newAutoplay || oldInterval !== newInterval) {
 			if (newAutoplay) {
 				startAutoplay()
 			}
@@ -293,48 +435,50 @@ watch(
 			}
 		}
 
+		if (oldDisplayMultipleItems !== newDisplayMultipleItems) {
+			currentIndex.value = normalizeCurrent(currentIndex.value)
+			requestMargin()
+			updateTransform()
+			wrapperStyle.value.transition = 'none'
+		}
+
 		// 只有在不是内部变更时才响应current的变化
 		if (newCurrent !== currentIndex.value && !isInternalChange) {
 			source = ''
 			setNewCurrent(newCurrent)
 		}
 
-		if (oldPreviousMargin !== newPreviousMargin || newNextMargin !== oldNextMargin) {
+		if (oldPreviousMargin !== newPreviousMargin || newNextMargin !== oldNextMargin || oldSnapToEdge !== newSnapToEdge) {
 			requestMargin()
+			updateTransform()
+			wrapperStyle.value.transition = 'none'
 		}
 
 		if (oldCircular !== newCircular) {
-			if (clonedItems.value.length) {
-				let newCurrent = currentIndex.value + 1
-				if (newCurrent >= slotCount.value) {
-					newCurrent = 1
-				}
-				if (props.vertical) {
-					wrapperStyle.value.transform = `translateY(-${newCurrent}00%)`
-				}
-				else {
-					wrapperStyle.value.transform = `translateX(-${newCurrent}00%)`
-				}
-				wrapperStyle.value.transition = 'none'
-			}
-			else {
-				let newCurrent = currentIndex.value - 1
-				if (newCurrent < 0) {
-					newCurrent = 0
-				}
-				if (props.vertical) {
-					wrapperStyle.value.transform = `translateY(${newCurrent}00%)`
-				}
-				else {
-					wrapperStyle.value.transform = `translateX(${newCurrent}00%)`
-				}
-				wrapperStyle.value.transition = 'none'
-			}
+			currentIndex.value = normalizeCurrent(currentIndex.value)
+			updateTransform()
+			wrapperStyle.value.transition = 'none'
 		}
 	},
 )
 
+watch(slotCount, () => {
+	if (currentIndex.value !== -1 && currentIndex.value !== slotCount.value) {
+		currentIndex.value = normalizeCurrent(currentIndex.value)
+	}
+	if (swiperFrame.value) {
+		applyTransform(currentIndex.value)
+		wrapperStyle.value.transition = 'none'
+	}
+})
+
 function startDrag(event) {
+	if (!event.touches && event.button !== 0) {
+		return
+	}
+
+	isPointerDown = true
+
 	// 拖动时，禁止自动播放
 	stopAutoplay()
 
@@ -355,6 +499,7 @@ function startDrag(event) {
 
 	startTime = Date.now()
 	isDragging = false // 重置为 false，等待 checkDirection 判断
+	directionChecked = false
 	startX = event.touches ? event.touches[0].clientX : event.clientX
 	startY = event.touches ? event.touches[0].clientY : event.clientY
 	moveX = 0
@@ -369,28 +514,26 @@ function startDrag(event) {
 }
 
 function drag(event) {
+	if (!isPointerDown) {
+		return
+	}
+
+	moveX = (event.touches ? event.touches[0].clientX : event.clientX) - startX
+	moveY = (event.touches ? event.touches[0].clientY : event.clientY) - startY
+
+	// 检查滑动方向，并在同步事件阶段阻止默认滚动
+	checkDirection(moveX, moveY, event)
+
+	if (!isDragging) {
+		return
+	}
+
 	// 使用requestAnimationFrame来优化拖动性能
 	if (rafId) {
 		cancelAnimationFrame(rafId)
 	}
 
-	// 在垂直模式下，始终阻止默认滚动行为，防止页面滚动
-	if (props.vertical && event.cancelable) {
-		event.preventDefault()
-	}
-
 	rafId = requestAnimationFrame(() => {
-		// 获取最新的触摸位置
-		moveX = (event.touches ? event.touches[0].clientX : event.clientX) - startX
-		moveY = (event.touches ? event.touches[0].clientY : event.clientY) - startY
-
-		// 检查滑动方向
-		checkDirection(moveX, moveY, event)
-
-		if (!isDragging) {
-			return
-		}
-
 		let move = props.vertical ? moveY : moveX
 		const containerSize = props.vertical ? containerRect.height : containerRect.width
 
@@ -400,9 +543,9 @@ function drag(event) {
 		// 增强跟手感：使用1.1倍的移动距离，让滑动感觉更灵敏
 		move = move * 1.1
 
-		if (props.circular) {
+		if (!circularEnabled.value) {
 			const isAtStart = currentIndex.value === 0
-			const isAtEnd = currentIndex.value === (clonedItems.value.length ? realSlotCount.value - 3 : realSlotCount.value - 1)
+			const isAtEnd = currentIndex.value === maxCurrent.value
 
 			// 优化阻尼效果：使用更平滑的非线性函数
 			if ((isAtStart && move > 0) || (isAtEnd && move < 0)) {
@@ -415,12 +558,12 @@ function drag(event) {
 
 		// 计算精确的位移百分比，使用更精确的计算方式
 		if (props.vertical) {
-			const offset = currentIndex.value + (clonedItems.value.length ? 1 : 0)
+			const offset = getTranslatePosition(currentIndex.value)
 			const translateY = -offset * 100 + (move / containerRect.height) * 100
 			wrapperStyle.value.transform = `translateY(${translateY}%)`
 		}
 		else {
-			const offset = currentIndex.value + (clonedItems.value.length ? 1 : 0)
+			const offset = getTranslatePosition(currentIndex.value)
 			const translateX = -offset * 100 + (move / containerRect.width) * 100
 			wrapperStyle.value.transform = `translateX(${translateX}%)`
 		}
@@ -428,10 +571,16 @@ function drag(event) {
 }
 
 function endDrag() {
+	if (!isPointerDown) {
+		return
+	}
+
+	isPointerDown = false
+	directionChecked = false
 	// 如果没有检测到有效的拖动，直接恢复位置
 	if (!isDragging) {
-		const transVal = currentIndex.value + (clonedItems.value.length ? 1 : 0)
-		wrapperStyle.value.transform = `translate${props.vertical ? 'Y' : 'X'}(-${transVal}00%)`
+		applyTransform(currentIndex.value)
+		startAutoplay()
 		return
 	}
 
@@ -468,9 +617,9 @@ function endDrag() {
 	const fallback = () => {
 		// 确保过渡动画已设置，使用更平滑的缓动效果
 		// 考虑克隆项目情况下的边缘检测
-		const isAtEdge = clonedItems.value.length
-			? currentIndex.value === -1 || currentIndex.value === (realSlotCount.value - 2)
-			: currentIndex.value === 0 || currentIndex.value === (slotCount.value - 1)
+		const isAtEdge = hasClonedItems.value
+			? currentIndex.value === -1 || currentIndex.value === slotCount.value
+			: currentIndex.value === 0 || currentIndex.value === maxCurrent.value
 
 		// 同时考虑拖动速度和距离来调整回弹时间
 		// 拖动速度越快或距离越大，回弹时间越短
@@ -499,12 +648,11 @@ function endDrag() {
 		wrapperStyle.value.transition = `transform ${adjustedDuration}ms ${dynamicEasing}`
 
 		// 更新transform，与updateTransform保持一致
-		const translateValue = currentIndex.value + (clonedItems.value.length ? 1 : 0)
-		wrapperStyle.value.transform = `translate${props.vertical ? 'Y' : 'X'}(-${translateValue}00%)`
+		applyTransform(currentIndex.value)
 	}
 
 	// 根据速度和距离来判断是否切换到下一张或上一张
-	if (slotCount.value > 1) {
+	if (slotCount.value > normalizedDisplayMultipleItems.value) {
 		// 如果是手动拖动且速度足够快或拖动距离足够大，直接切换
 		if (Math.abs(velocity) > VELOCITY_THRESHOLD || moveRatio > DISTANCE_THRESHOLD) {
 			// 根据拖动速度动态调整动画时间，拖动越快动画越快
@@ -554,7 +702,9 @@ function endDrag() {
 
 // 切换到下一张
 function nextSlide(fallback) {
-	const newCurrent = Math.min(currentIndex.value + 1, clonedItems.value.length ? realSlotCount.value - 2 : realSlotCount.value - 1)
+	const newCurrent = circularEnabled.value
+		? currentIndex.value + 1
+		: Math.min(currentIndex.value + 1, maxCurrent.value)
 	if (newCurrent === currentIndex.value) {
 		fallback?.()
 		return
@@ -565,7 +715,9 @@ function nextSlide(fallback) {
 
 // 切换到上一张
 function prevSlide(fallback) {
-	const newCurrent = Math.max(currentIndex.value - 1, clonedItems.value.length ? -1 : 0)
+	const newCurrent = circularEnabled.value
+		? currentIndex.value - 1
+		: Math.max(currentIndex.value - 1, 0)
 	if (newCurrent === currentIndex.value) {
 		fallback?.()
 		return
@@ -578,15 +730,15 @@ function handleTransitionEnd(event) {
 	// 动画结束时重置内部变更标记
 	isInternalChange = false
 
-	if (props.circular && slotCount.value > 1) {
+	if (circularEnabled.value) {
 		if (currentIndex.value === slotCount.value) {
 			currentIndex.value = 0
-			wrapperStyle.value.transform = props.vertical ? 'translateY(-100%)' : 'translateX(-100%)'
+			applyTransform(0, true)
 			wrapperStyle.value.transition = 'none'
 		}
 		else if (currentIndex.value === -1) {
 			currentIndex.value = slotCount.value - 1
-			wrapperStyle.value.transform = props.vertical ? `translateY(-${slotCount.value}00%)` : `translateX(-${slotCount.value}00%)`
+			applyTransform(currentIndex.value, true)
 			wrapperStyle.value.transition = 'none'
 		}
 	}
@@ -600,7 +752,7 @@ function handleTransitionEnd(event) {
 		event,
 		info,
 		detail: {
-			current: currentIndex.value,
+			current: getVisibleCurrent(),
 			source,
 		},
 	})
@@ -608,24 +760,20 @@ function handleTransitionEnd(event) {
 
 // 更新容器的transform样式
 function updateTransform() {
-	let translateValue = currentIndex.value
-	if (clonedItems.value.length) {
-		translateValue += 1 // 因为我们添加了一个克隆的 slide 在开头
-	}
-
 	// 确保之前的动画已被取消
 	if (rafId) {
 		cancelAnimationFrame(rafId)
 		rafId = undefined
 	}
 
+	if (swiperFrame.value) {
+		const rect = swiperFrame.value.getBoundingClientRect()
+		lastPositionX = rect.x
+		lastPositionY = rect.y
+	}
+
 	// 重新设置transform和transition
-	if (props.vertical) {
-		wrapperStyle.value.transform = `translateY(-${translateValue}00%)`
-	}
-	else {
-		wrapperStyle.value.transform = `translateX(-${translateValue}00%)`
-	}
+	applyTransform(currentIndex.value)
 	wrapperStyle.value.transition = `transform ${props.duration}ms ${easingParsed.value}`
 	// 开始监听动画
 	rafId = requestAnimationFrame(monitorAnimation)
@@ -662,18 +810,23 @@ function monitorAnimation() {
 	}
 }
 
-let intervalId // 自动播放的定时器ID
 // 开始自动播放
 function startAutoplay() {
-	// 即使启动自动播放开关，数量需要大于1才启动自动播放
-	if (props.autoplay && slotCount.value > 1) {
-		stopAutoplay()
+	stopAutoplay()
+	// 即使启动自动播放开关，数量需要大于同时展示数量才启动自动播放
+	if (props.autoplay && slotCount.value > normalizedDisplayMultipleItems.value) {
 		intervalId = setInterval(() => {
 			if (isDragging) {
 				return
 			}
 			source = 'autoplay'
-			nextSlide()
+			isInternalChange = true
+			if (circularEnabled.value) {
+				setNewCurrent(currentIndex.value + 1)
+			}
+			else {
+				setNewCurrent(currentIndex.value < maxCurrent.value ? currentIndex.value + 1 : 0)
+			}
 		}, props.interval)
 	}
 }
@@ -688,10 +841,9 @@ function stopAutoplay() {
 
 onMounted(() => {
 	requestMargin()
-	if (clonedItems.value.length) {
-		updateTransform()
-		wrapperStyle.value.transition = 'none'
-	}
+	currentIndex.value = normalizeCurrent(currentIndex.value)
+	applyTransform(currentIndex.value)
+	wrapperStyle.value.transition = 'none'
 	startAutoplay() // 组件挂载后开始自动播放
 })
 
@@ -705,25 +857,32 @@ onBeforeUnmount(() => {
 <template>
 	<div v-bind="$attrs" class="dd-swiper">
 		<div
-			class="dd-swiper-wrapper" :aria-label="Boolean(props.vertical) ? '可竖向滚动' : '可横向滚动'" @touchstart="startDrag"
-			@touchmove="drag" @touchend="endDrag" @touchcancel="endDrag" @mousedown="startDrag" @mousemove="drag"
-			@mouseup="endDrag" @mouseleave="endDrag"
+			class="dd-swiper-wrapper" :style="wrapperEventStyle"
+			:aria-label="Boolean(props.vertical) ? '可竖向滚动' : '可横向滚动'" @touchstart="startDrag"
+			@touchmove="drag" @touchend="endDrag" @touchcancel="endDrag" @mousedown="startDrag"
+			@mousemove="drag" @mouseup="endDrag" @mouseleave="endDrag"
 		>
 			<div ref="swiperSliders" class="dd-swiper-slides">
 				<div
 					ref="swiperFrame" class="dd-swiper-slide-frame" :style="wrapperStyle"
 					@transitionend="handleTransitionEnd"
 				>
-					<!-- 插入克隆的最后一个元素 -->
-					<template v-if="clonedItems.length">
-						<component :is="clonedItems[0]" data-dd-cloned />
+					<!-- 插入克隆的最后几个元素 -->
+					<template v-if="leadingClonedItems.length">
+						<component
+							:is="clonedItem" v-for="(clonedItem, idx) in leadingClonedItems"
+							:key="`leading-${idx}`" data-dd-cloned
+						/>
 					</template>
 
 					<slot />
 
-					<!-- 插入克隆的第一个元素 -->
-					<template v-if="clonedItems.length">
-						<component :is="clonedItems[1]" data-dd-cloned />
+					<!-- 插入克隆的前几个元素 -->
+					<template v-if="trailingClonedItems.length">
+						<component
+							:is="clonedItem" v-for="(clonedItem, idx) in trailingClonedItems"
+							:key="`trailing-${idx}`" data-dd-cloned
+						/>
 					</template>
 				</div>
 			</div>
@@ -734,8 +893,9 @@ onBeforeUnmount(() => {
 				}"
 			>
 				<div
-					v-for="idx in slotCount" :key="idx" :data-dot-index="idx" class="dd-swiper-dot"
-					:class="{ 'dd-swiper-dot-active': (idx - 1) === currentIndex }"
+					v-for="idx in slotCount" :key="idx" :data-dot-index="idx - 1" class="dd-swiper-dot"
+					:class="{ 'dd-swiper-dot-active': isActiveDot(idx - 1) }"
+					:style="getDotStyle(idx - 1)"
 				/>
 			</div>
 		</div>

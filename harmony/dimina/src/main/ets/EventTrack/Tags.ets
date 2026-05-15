@@ -60,5 +60,7 @@ export class Tags {
   static JS_ENGINE = '[QuickJS]'
 
   static STAR_BOX = '[StarBox]'
+  //TabBar
+  static TABBAR = '[tabBar]'
 
 }

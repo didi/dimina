@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ensureImportSemicolons, normalizeRootStyleImports, removeBaseComponentScope, resolveStyleImportPath } from '../src/core/style-compiler'
+import { ensureImportSemicolons, normalizeCssUrlValue, normalizeRootStyleImports, removeBaseComponentScope, resolveStyleImportPath } from '../src/core/style-compiler'
 
 describe('ensureImportSemicolons', () => {
 	it('should add semicolons to @import statements that do not have them', () => {
@@ -232,5 +232,17 @@ describe('style import path helpers', () => {
 		const result = normalizeRootStyleImports('@import "/variable.less";', '/tmp/app')
 		expect(result).toContain('/variable.less')
 		expect(result).not.toContain('@import "/variable.less";')
+	})
+})
+
+describe('normalizeCssUrlValue', () => {
+	it('应该将协议相对 URL 规范化为 https', () => {
+		const input = 'url(//at.alicdn.com/iconfont.woff2?t=1)'
+		expect(normalizeCssUrlValue(input, '/tmp/app/pages/index.wxss')).toBe('url(https://at.alicdn.com/iconfont.woff2?t=1)')
+	})
+
+	it('应该保留 https URL 不变', () => {
+		const input = 'url("https://example.com/a.png")'
+		expect(normalizeCssUrlValue(input, '/tmp/app/pages/index.wxss')).toBe(input)
 	})
 })

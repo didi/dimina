@@ -168,13 +168,20 @@ function drag(event) {
 	if (!isDragging || Boolean(props.disabled)) {
 		return
 	}
+	if (event.cancelable) {
+		event.preventDefault()
+	}
 	updateValue(event)
 }
 
 function updateValue(event, eventType = 'changing') {
 	const clientX = event.touches ? event.touches[0].clientX : event.clientX
-	const delta = clientX - sliderHandle.value.offsetLeft
-	const position = (delta / sliderHandle.value.offsetWidth) * range.value + Number(props.min)
+	const rect = sliderHandle.value?.getBoundingClientRect()
+	if (!rect?.width) {
+		return
+	}
+	const delta = clientX - rect.left
+	const position = (delta / rect.width) * range.value + Number(props.min)
 	const disV = roundToStep(position)
 	disValue.value = disV
 
@@ -194,6 +201,8 @@ function endDrag(event) {
 	if (!isDragging || Boolean(props.disabled)) {
 		return
 	}
+
+	isDragging = false
 
 	// 完成一次拖动后触发的事件
 	triggerEvent('change', {
@@ -216,6 +225,22 @@ function handleClick(event) {
 	}
 	updateValue(event, 'change')
 }
+
+onMounted(() => {
+	window.addEventListener('mousemove', drag)
+	window.addEventListener('mouseup', endDrag)
+	window.addEventListener('touchmove', drag, { passive: false })
+	window.addEventListener('touchend', endDrag)
+	window.addEventListener('touchcancel', endDrag)
+})
+
+onBeforeUnmount(() => {
+	window.removeEventListener('mousemove', drag)
+	window.removeEventListener('mouseup', endDrag)
+	window.removeEventListener('touchmove', drag)
+	window.removeEventListener('touchend', endDrag)
+	window.removeEventListener('touchcancel', endDrag)
+})
 </script>
 
 <template>
@@ -225,8 +250,7 @@ function handleClick(event) {
 				<div class="dd-slider-handle-wrapper" :style="backColor">
 					<div
 						class="dd-slider-handle" :style="{ left: `${percent}%` }" @touchstart="startDrag"
-						@touchmove.prevent="drag" @touchend.prevent="endDrag" @touchcancel="endDrag"
-						@mousedown="startDrag" @mousemove.prevent="drag" @mouseup="endDrag" @mouseleave="endDrag"
+						@mousedown="startDrag"
 					/>
 					<div class="dd-slider-thumb" :style="{ left: `${percent}%` }" />
 					<div class="dd-slider-track" :style="{ width: `${percent}%`, backgroundColor: valColor }" />
