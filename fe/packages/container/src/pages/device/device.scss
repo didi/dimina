@@ -323,11 +323,22 @@
 		}
 
 		&:hover {
-			filter: brightness(1.12);
+			background: #4a4646;
+			filter: brightness(1.28);
 			box-shadow:
-				inset 1px 0 0 rgba(255, 255, 255, 0.12),
-				inset -1px 0 1px rgba(0, 0, 0, 0.52),
-				3px 0 6px rgba(0, 0, 0, 0.24);
+				inset 1px 0 0 rgba(255, 255, 255, 0.14),
+				inset -1px 0 0 rgba(255, 255, 255, 0.18),
+				inset -2px 0 3px rgba(255, 255, 255, 0.12),
+				inset 0 1px 1px rgba(255, 255, 255, 0.16),
+				inset 0 -1px 1px rgba(0, 0, 0, 0.28),
+				3px 0 5px rgba(0, 0, 0, 0.2);
+		}
+
+		&:hover::before {
+			opacity: 1;
+			background:
+				linear-gradient(90deg, rgba(255, 255, 255, 0.24), transparent 50%),
+				linear-gradient(180deg, rgba(255, 255, 255, 0.2), transparent 20%, transparent 78%, rgba(0, 0, 0, 0.16));
 		}
 
 		&:focus-visible {

@@ -33,19 +33,19 @@ data class WindowConfig(
 
 @Serializable
 data class TabBarConfig(
-    val color: String,
-    val selectedColor: String,
-    val borderStyle: String,
-    val backgroundColor: String,
-    val list: List<TabBarItem>
+    val color: String = "#999999",
+    val selectedColor: String = "#1890ff",
+    val borderStyle: String = "black",
+    val backgroundColor: String = "#FFFFFF",
+    val list: List<TabBarItem> = emptyList()
 )
 
 @Serializable
 data class TabBarItem(
     val pagePath: String,
-    val iconPath: String,
-    val selectedIconPath: String,
-    val text: String
+    val iconPath: String = "",
+    val selectedIconPath: String = "",
+    val text: String = ""
 )
 
 @Serializable

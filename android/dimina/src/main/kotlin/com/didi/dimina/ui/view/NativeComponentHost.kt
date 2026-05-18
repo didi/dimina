@@ -3,13 +3,17 @@ package com.didi.dimina.ui.view
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.text.TextUtils
 import android.view.Gravity
+import android.view.InputDevice
+import android.view.MotionEvent
 import android.view.View
 import android.webkit.WebView
 import android.widget.FrameLayout
@@ -30,11 +34,12 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.math.roundToInt
 
 /**
- * Hosts native components as siblings of WebView and keeps their bounds aligned
+ * Hosts native components behind the WebView and keeps their bounds aligned
  * with DOM placeholders reported from the render layer.
  */
 class NativeComponentHost(
@@ -43,7 +48,10 @@ class NativeComponentHost(
     private val overlay: FrameLayout,
 ) {
     private val components = mutableMapOf<String, NativeComponent>()
+    private val touchDownTimes = mutableMapOf<String, Long>()
+    private val originalWebViewBackground: Drawable? = webView.background
     private val imageScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var webViewTransparent = false
 
     init {
         webView.setOnScrollChangeListener { _, _, _, _, _ ->
@@ -75,14 +83,138 @@ class NativeComponentHost(
         return true
     }
 
+    fun dispatchTouchFromWeb(params: JSONObject): Boolean {
+        val targetId = params.optString("targetId")
+        if (targetId.isEmpty()) {
+            return false
+        }
+        activity.runOnUiThread {
+            dispatchNativeTouch(params)
+        }
+        return true
+    }
+
     fun clear() {
         activity.runOnUiThread {
             webView.setOnScrollChangeListener(null)
             components.values.forEach { it.release() }
             components.clear()
+            touchDownTimes.clear()
+            restoreWebViewBackground()
             imageScope.cancel()
             overlay.removeAllViews()
         }
+    }
+
+    private fun dispatchNativeTouch(params: JSONObject) {
+        val targetId = params.optString("targetId")
+        val component = components[targetId] ?: return
+        val targetView = component.view
+        if (targetView.visibility != View.VISIBLE) {
+            return
+        }
+
+        val actionName = params.optString("action")
+        val now = SystemClock.uptimeMillis()
+        if (actionName == TOUCH_ACTION_DOWN) {
+            touchDownTimes[targetId] = now
+        }
+        val downTime = touchDownTimes[targetId] ?: now.also {
+            touchDownTimes[targetId] = it
+        }
+
+        val event = createMotionEvent(params, targetView, downTime, now) ?: return
+        try {
+            targetView.dispatchTouchEvent(event)
+        } finally {
+            event.recycle()
+        }
+
+        if (actionName == TOUCH_ACTION_UP || actionName == TOUCH_ACTION_CANCEL) {
+            touchDownTimes.remove(targetId)
+        }
+    }
+
+    private fun createMotionEvent(
+        params: JSONObject,
+        targetView: View,
+        downTime: Long,
+        eventTime: Long,
+    ): MotionEvent? {
+        val pointers = params.optJSONArray("pointers") ?: return null
+        if (pointers.length() == 0) {
+            return null
+        }
+
+        val actionPointerId = params.optInt("actionPointerId", -1)
+        val actionPointerIndex = findPointerIndex(pointers, actionPointerId)
+        val action = when (params.optString("action")) {
+            TOUCH_ACTION_DOWN -> MotionEvent.ACTION_DOWN
+            TOUCH_ACTION_POINTER_DOWN -> MotionEvent.ACTION_POINTER_DOWN or
+                (actionPointerIndex.coerceAtLeast(0) shl MotionEvent.ACTION_POINTER_INDEX_SHIFT)
+            TOUCH_ACTION_MOVE -> MotionEvent.ACTION_MOVE
+            TOUCH_ACTION_POINTER_UP -> MotionEvent.ACTION_POINTER_UP or
+                (actionPointerIndex.coerceAtLeast(0) shl MotionEvent.ACTION_POINTER_INDEX_SHIFT)
+            TOUCH_ACTION_UP -> MotionEvent.ACTION_UP
+            TOUCH_ACTION_CANCEL -> MotionEvent.ACTION_CANCEL
+            else -> return null
+        }
+
+        val viewportWidth = params.optDouble("viewportWidth", 0.0)
+        val viewportHeight = params.optDouble("viewportHeight", 0.0)
+        val scaleX = if (viewportWidth > 0.0 && webView.width > 0) {
+            webView.width / viewportWidth
+        } else {
+            1.0
+        }
+        val scaleY = if (viewportHeight > 0.0 && webView.height > 0) {
+            webView.height / viewportHeight
+        } else {
+            scaleX
+        }
+
+        val pointerProperties = Array(pointers.length()) { index ->
+            val pointer = pointers.getJSONObject(index)
+            MotionEvent.PointerProperties().apply {
+                id = pointer.optInt("id", index)
+                toolType = MotionEvent.TOOL_TYPE_FINGER
+            }
+        }
+        val pointerCoords = Array(pointers.length()) { index ->
+            val pointer = pointers.getJSONObject(index)
+            MotionEvent.PointerCoords().apply {
+                x = (pointer.optDouble("clientX") * scaleX - targetView.left).toFloat()
+                y = (pointer.optDouble("clientY") * scaleY - targetView.top).toFloat()
+                pressure = 1f
+                size = 1f
+            }
+        }
+
+        return MotionEvent.obtain(
+            downTime,
+            eventTime,
+            action,
+            pointers.length(),
+            pointerProperties,
+            pointerCoords,
+            0,
+            0,
+            1f,
+            1f,
+            0,
+            0,
+            InputDevice.SOURCE_TOUCHSCREEN,
+            0,
+        )
+    }
+
+    private fun findPointerIndex(pointers: JSONArray, pointerId: Int): Int {
+        for (index in 0 until pointers.length()) {
+            if (pointers.getJSONObject(index).optInt("id", -1) == pointerId) {
+                return index
+            }
+        }
+        return 0
     }
 
     private fun mountComponent(type: String, id: String, params: JSONObject) {
@@ -94,17 +226,47 @@ class NativeComponentHost(
             createComponent(type, id).also { overlay.addView(it.view) }
         }
         component.update(params)
+        updateWebViewBackgroundForNativeComponents()
     }
 
     private fun updateComponent(type: String, id: String, params: JSONObject) {
-        components[id]?.update(params) ?: mountComponent(type, id, params)
+        components[id]?.let { component ->
+            component.update(params)
+            updateWebViewBackgroundForNativeComponents()
+        } ?: mountComponent(type, id, params)
     }
 
     private fun unmountComponent(id: String) {
         components.remove(id)?.let { component ->
+            touchDownTimes.remove(id)
             component.release()
             overlay.removeView(component.view)
+            updateWebViewBackgroundForNativeComponents()
         }
+    }
+
+    private fun updateWebViewBackgroundForNativeComponents() {
+        val hasVisibleNativeComponent = components.values.any { component ->
+            component.view.visibility == View.VISIBLE
+        }
+        if (hasVisibleNativeComponent && !webViewTransparent) {
+            webView.setBackgroundColor(Color.TRANSPARENT)
+            webViewTransparent = true
+        } else if (!hasVisibleNativeComponent && webViewTransparent) {
+            restoreWebViewBackground()
+        }
+    }
+
+    private fun restoreWebViewBackground() {
+        if (!webViewTransparent) {
+            return
+        }
+        if (originalWebViewBackground != null) {
+            webView.background = originalWebViewBackground
+        } else {
+            webView.setBackgroundColor(Color.WHITE)
+        }
+        webViewTransparent = false
     }
 
     private fun createComponent(type: String, id: String): NativeComponent {
@@ -748,6 +910,12 @@ class NativeComponentHost(
         private const val COVER_IMAGE_TYPE = "native/cover-image"
         private const val TIME_UPDATE_INTERVAL_MS = 250L
         private const val FIRST_FRAME_SEEK_MS = 1
+        private const val TOUCH_ACTION_DOWN = "down"
+        private const val TOUCH_ACTION_POINTER_DOWN = "pointerDown"
+        private const val TOUCH_ACTION_MOVE = "move"
+        private const val TOUCH_ACTION_POINTER_UP = "pointerUp"
+        private const val TOUCH_ACTION_UP = "up"
+        private const val TOUCH_ACTION_CANCEL = "cancel"
         private val SUPPORTED_TYPES = setOf(VIDEO_TYPE, COVER_VIEW_TYPE, COVER_IMAGE_TYPE)
     }
 

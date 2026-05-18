@@ -36,9 +36,10 @@ export class RequestCallback {
   }
 
   private static isWebResourceRequest(url: string): boolean {
-    return url.endsWith('.js') || url.endsWith('.css') || url.endsWith('.html') || url.endsWith('.png') ||
-    url.endsWith('.jpg') || url.endsWith('.ico') || url.endsWith('.jpeg') || url.endsWith('.webp') ||
-    url.endsWith('.gif');
+    const path = RequestCallback.getUrlPath(url);
+    return path.endsWith('.js') || path.endsWith('.css') || path.endsWith('.html') || path.endsWith('.png') ||
+    path.endsWith('.jpg') || path.endsWith('.ico') || path.endsWith('.jpeg') || path.endsWith('.webp') ||
+    path.endsWith('.gif') || path.endsWith('.svg') || path.endsWith('.json');
   }
 
   private static handleWebResourceRequest(url: string, app: DMPApp): WebResourceResponse | null {
@@ -86,6 +87,28 @@ export class RequestCallback {
       case 'css':
         response.setResponseMimeType('text/css');
         break;
+      case 'json':
+        response.setResponseMimeType('application/json');
+        break;
+      case 'png':
+        response.setResponseMimeType('image/png');
+        break;
+      case 'jpg':
+      case 'jpeg':
+        response.setResponseMimeType('image/jpeg');
+        break;
+      case 'webp':
+        response.setResponseMimeType('image/webp');
+        break;
+      case 'gif':
+        response.setResponseMimeType('image/gif');
+        break;
+      case 'svg':
+        response.setResponseMimeType('image/svg+xml');
+        break;
+      case 'ico':
+        response.setResponseMimeType('image/x-icon');
+        break;
       default:
         DMPLogger.e(Tags.WEB_COMPONENT, `未适配(${extension}类型)资源加载`);
         response.setResponseMimeType('application/octet-stream');
@@ -97,11 +120,12 @@ export class RequestCallback {
     const bundleManager = app!.bundleManager;
     const bundleInfo = bundleManager.getBundleInfo();
     const appId = bundleInfo.appId;
-    if (url.startsWith('http://127.0.0.1/')) {
-      const isFromAppBundle = url.includes(appId);
+    const path = RequestCallback.getUrlPath(url);
+    if (path.startsWith('http://127.0.0.1/')) {
+      const isFromAppBundle = path.includes(appId);
       const processUrl = isFromAppBundle
-        ? url.replace(`http://127.0.0.1/${appId}/`, '')
-        : url.replace('http://127.0.0.1/', '');
+        ? path.replace(`http://127.0.0.1/${appId}/`, '')
+        : path.replace('http://127.0.0.1/', '');
       const sandboxDir = isFromAppBundle
         ? bundleManager.getCurrentJSAppDir()
         : bundleManager.getCurrentJSSdkDir();
@@ -115,7 +139,20 @@ export class RequestCallback {
 
   private static getFileExtension(filePath: string): string {
     const parts = filePath.split('.');
-    return parts.length > 1 ? parts[parts.length - 1] : '';
+    return parts.length > 1 ? parts[parts.length - 1].toLowerCase() : '';
+  }
+
+  private static getUrlPath(url: string): string {
+    let endIndex = url.length;
+    const queryIndex = url.indexOf('?');
+    if (queryIndex >= 0 && queryIndex < endIndex) {
+      endIndex = queryIndex;
+    }
+    const fragmentIndex = url.indexOf('#');
+    if (fragmentIndex >= 0 && fragmentIndex < endIndex) {
+      endIndex = fragmentIndex;
+    }
+    return url.substring(0, endIndex);
   }
 
   private static hasFile(filePath: string): boolean {

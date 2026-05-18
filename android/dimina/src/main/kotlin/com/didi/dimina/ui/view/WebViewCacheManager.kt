@@ -292,6 +292,7 @@ object WebViewCacheManager : ComponentCallbacks2 {
             webView.loadUrl("about:blank")
             webView.clearHistory()
             webView.removeJavascriptInterface("DiminaRenderBridge")
+            webView.removeJavascriptInterface("DiminaNativeComponentBridge")
         } catch (e: Exception) {
             LogUtils.e(TAG, "Failed to clean WebView", e)
         }

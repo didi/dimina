@@ -22,17 +22,17 @@ export class Device {
 
 	updateStatusBarTime() {
 		const timeElement = this.root.querySelector('.status-bar__time')
-		
+
 		const updateTime = () => {
 			const now = new Date()
 			const hours = now.getHours().toString().padStart(2, '0')
 			const minutes = now.getMinutes().toString().padStart(2, '0')
 			timeElement.textContent = `${hours}:${minutes}`
 		}
-		
+
 		// 立即更新一次
 		updateTime()
-		
+
 		// 每分钟更新一次（60000毫秒 = 1分钟）
 		setInterval(updateTime, 60000)
 	}
@@ -55,15 +55,26 @@ export class Device {
 			island.classList.remove('island-hover')
 		})
 
+		let pendingPointer = null
+		let pointerFrame = 0
 		const syncPointer = ({ x: pointerX, y: pointerY }) => {
-			const x = pointerX.toFixed(2)
-			const y = pointerY.toFixed(2)
-			const xp = (pointerX / window.innerWidth).toFixed(2)
-			const yp = (pointerY / window.innerHeight).toFixed(2)
-			document.documentElement.style.setProperty('--x', x)
-			document.documentElement.style.setProperty('--xp', xp)
-			document.documentElement.style.setProperty('--y', y)
-			document.documentElement.style.setProperty('--yp', yp)
+			pendingPointer = { pointerX, pointerY }
+			if (pointerFrame) {
+				return
+			}
+
+			pointerFrame = requestAnimationFrame(() => {
+				const { pointerX, pointerY } = pendingPointer
+				const x = pointerX.toFixed(2)
+				const y = pointerY.toFixed(2)
+				const xp = (pointerX / window.innerWidth).toFixed(2)
+				const yp = (pointerY / window.innerHeight).toFixed(2)
+				document.documentElement.style.setProperty('--x', x)
+				document.documentElement.style.setProperty('--xp', xp)
+				document.documentElement.style.setProperty('--y', y)
+				document.documentElement.style.setProperty('--yp', yp)
+				pointerFrame = 0
+			})
 		}
 		document.body.addEventListener('pointermove', syncPointer)
 	}

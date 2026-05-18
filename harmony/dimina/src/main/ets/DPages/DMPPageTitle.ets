@@ -25,6 +25,7 @@ export struct DMPPageTitle {
         Text(this.getPageStyle(this.pageRecord)?.getTitleString() ?? '')
           .height('100%')
           .width('100%')
+          .padding({ left: 60, right: 110 })
           .fontSize(18)
           .fontColor(this.getPageStyle(this.pageRecord)?.getTitleTextColor() ?? '#000000')
           .fontWeight('500')
@@ -33,9 +34,9 @@ export struct DMPPageTitle {
         Image($r(this.getPageStyle(this.pageRecord)?.isStatusBarDarkMode() ? 'app.media.ic_dmp_back_black' :
           'app.media.ic_dmp_back_white'))
           .width(55)
-          .height('100%')
+          .height(55)
           .padding(15)
-          .align(Alignment.Start)
+          .position({ x: 0, y: 0 })
           .onClick((event?: ClickEvent) => {
             const embedController =
               DMPAppManager.sharedInstance().getApp(this.appIndex)?.getWebController(this.webViewId)?.subController
@@ -47,8 +48,8 @@ export struct DMPPageTitle {
           })
       }
       .width('100%')
-      .height('55')
-      .alignContent(Alignment.Start)
+      .height(55)
+      .alignContent(Alignment.Center)
     }.width('100%')
     .backgroundColor(this.getPageStyle(this.pageRecord)?.getNavigationBarBackGroundColor() ?? '#ffffff')
   }

@@ -3,7 +3,7 @@
 ## 系统要求
 
 - iOS 14.0+
-- Swift 5.0+
+- Swift 6.0+
 - Xcode 16.0+
 
 ## 快速接入
@@ -28,11 +28,11 @@ https://github.com/didi/dimina.git
 
 ### 步骤 2: 准备小程序资源
 
-将编译好的小程序压缩包放入 `JsApp.bundle` 文件夹，文件夹以小程序id命名。每个小程序文件夹需包含以下内容：
+将编译好的小程序压缩包放入 `iOS/dimina/Resources/JsApp.bundle` 文件夹，文件夹以小程序 ID 命名。示例工程可通过 `copy-shared-resources.sh` 从根目录 `shared/jsapp` 同步资源。每个小程序文件夹需包含以下内容：
 
 1. `config.json` - 小程序配置文件，包含以下字段：
 
-```json
+```json5
 {
   "appId": "wx92269e3b2f304afc", // 小程序唯一标识
   "name": "小程序名称",
@@ -42,7 +42,7 @@ https://github.com/didi/dimina.git
 }
 ```
 
-2. `[appId].zip` - 小程序代码包，文件名需与appId一致
+2. `[appId].zip` - 小程序代码包，文件名需与 appId 一致
 
 目录结构示例：
 
@@ -87,7 +87,8 @@ struct ContentView: View {
 
             // 创建小程序配置和实例
             let manager: DMPAppManager = DMPAppManager.sharedInstance()
-            let appConfig: DMPAppConfig = DMPAppConfig(appName: "小程序名称", appId: "wx92269e3b2f304afc")
+            var appConfig: DMPAppConfig = DMPAppConfig(appName: "小程序名称", appId: "wx92269e3b2f304afc")
+            appConfig.isDebugMode = true
             let app: DMPApp = manager.appWithConfig(appConfig: appConfig)
 
             // 设置导航
@@ -102,6 +103,12 @@ struct ContentView: View {
     }
 }
 ```
+
+#### 调试模式与 vConsole
+
+iOS Debug 构建会自动尝试启用 vConsole；也可以通过 `appConfig.isDebugMode = true` 在指定小程序上启用。启用后，SDK 会在加载 pageFrame 时追加 `?vconsole=1`。
+
+JSSDK 直接依赖 vConsole，并随 pageFrame 静态同步打包；只有检测到该启用标记时，pageFrame 才会在 render 初始化前同步初始化 vConsole。
 
 
 ### 关闭小程序
@@ -131,4 +138,4 @@ app.destroy()
 open iOS/dimina.xcodeproj
 ```
 
-使用 Xcode 打开 `dimina.xcodeproj` 可以查看示例项目。
+使用 Xcode 打开 `dimina.xcodeproj` 可以查看示例项目。示例工程构建前会执行 `copy-shared-resources.sh`，将根目录 `shared/jsapp` 和 `shared/jssdk` 中的资源同步到 `iOS/dimina/Resources`。

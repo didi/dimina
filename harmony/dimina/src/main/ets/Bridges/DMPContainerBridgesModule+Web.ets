@@ -6,6 +6,7 @@ import { DMPBridgeCallback } from './DMPTSUtil'
 import { DMPMap } from '../Utils/DMPMap'
 import { DMPChannelProxyNext } from '../Service/DMPChannelProxyNext'
 import { DataTransformer } from '../Utils/DataTransformer'
+import { DMPVideoManager } from '../Render/SameLayer/DMPVideoComponent'
 
 export class DMPContainerBridgesModuleWeb extends DMPContainerBridgesModule {
   getExportMethods(): string[] {
@@ -14,7 +15,8 @@ export class DMPContainerBridgesModuleWeb extends DMPContainerBridgesModule {
       'propsUpdate',
       'componentMount',
       'componentUnmount',
-      'adjustPosition'
+      'adjustPosition',
+      'videoContext'
     ];
   }
 
@@ -26,21 +28,31 @@ export class DMPContainerBridgesModuleWeb extends DMPContainerBridgesModule {
 
   propsUpdate(data: DMPMap, callback: DMPBridgeCallback, webViewId: number) {
     DMPLogger.d(Tags.BRIDGE, 'propsUpdate %{public}s', data.toStr())
-
+    this.updateComponentParams(data, webViewId)
     this.invokeSuccessCallback(callback, null)
   }
 
   componentMount(data: DMPMap, callback: DMPBridgeCallback, webViewId: number) {
     DMPLogger.d(Tags.BRIDGE, 'componentMount %{public}s', data.toStr())
-    const stack = this.app.navigatorManager.getPageRecordById(webViewId)!
-    stack.componentParams[data.get('id')] = data;
+    this.updateComponentParams(data, webViewId)
     this.invokeSuccessCallback(callback, null)
   }
 
   componentUnmount(data: DMPMap, callback: DMPBridgeCallback, webViewId: number) {
     DMPLogger.d(Tags.BRIDGE, 'componentUnmount %{public}s', data.toStr())
     const stack = this.app.navigatorManager.getPageRecordById(webViewId)!
-    stack.componentParams[data.get('id')] = data;
+    const id = data.getString('id')
+    if (id) {
+      stack.componentParams.delete(id)
+    }
+    this.invokeSuccessCallback(callback, null)
+  }
+
+  videoContext(data: DMPMap, callback: DMPBridgeCallback, webViewId: number) {
+    const id = data.getString('id') ?? ''
+    if (id.length > 0) {
+      DMPVideoManager.sharedInstance().handleCommand(this.app.appIndex, webViewId, id, data)
+    }
     this.invokeSuccessCallback(callback, null)
   }
 
@@ -51,5 +63,19 @@ export class DMPContainerBridgesModuleWeb extends DMPContainerBridgesModule {
       pageRecord.adjustPosition = bottom ?? 0
     }
     this.invokeSuccessCallback(callback, null)
+  }
+
+  private updateComponentParams(data: DMPMap, webViewId: number) {
+    const id = data.getString('id')
+    if (!id) {
+      return
+    }
+    const stack = this.app.navigatorManager.getPageRecordById(webViewId)
+    if (!stack) {
+      return
+    }
+    stack.componentParams.set(id, data)
+    stack.componentParams[id] = data
+    this.app.render.getController(webViewId)?.webContainer?.updateSameLayerNodeParams(id, data)
   }
 }

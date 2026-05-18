@@ -20,6 +20,9 @@ public class DMPApp {
     public var service: DMPService?
     public var container: DMPContainer?
     public var containerApi: DMPContainerApi?
+
+    private var isLaunching = false
+    private var isDestroyed = false
     
     public init(appConfig: DMPAppConfig, appIndex: Int) {
         self.appConfig = appConfig
@@ -29,8 +32,17 @@ public class DMPApp {
 
     @MainActor
     public func launch(launchConfig: DMPLaunchConfig) async {
-        showLoading()
-        initBundle()
+        guard !isLaunching else {
+            print("launch skipped: app is already launching")
+            return
+        }
+
+        isLaunching = true
+        defer {
+            isLaunching = false
+        }
+
+        await Self.prepareBundleResources(appId: appId)
 
         initContainer()
 
@@ -41,8 +53,6 @@ public class DMPApp {
         initRender()
         
         await openPage(launchConfig: launchConfig)
-
-        hideLoading()
     }
 
     public func initService() async {
@@ -83,9 +93,17 @@ public class DMPApp {
     
     public func initBundle() {
         print("initBundle")
-        DMPSandboxManager.initBundleDirectoryForApp(appId: appId)
         DMPResourceManager.prepareSdk()
         DMPResourceManager.prepareApp(appId: appId)
+        DMPSandboxManager.initBundleDirectoryForApp(appId: appId)
+    }
+
+    private static func prepareBundleResources(appId: String) async {
+        await Task.detached(priority: .userInitiated) {
+            DMPResourceManager.prepareSdk()
+            DMPResourceManager.prepareApp(appId: appId)
+            DMPSandboxManager.initBundleDirectoryForApp(appId: appId)
+        }.value
     }
 
     public func initContainer() {
@@ -130,14 +148,6 @@ public class DMPApp {
         await navigator?.launch(to: newLaunchConfig.appEntryPath ?? "", query: newLaunchConfig.query)
     }
 
-    public func showLoading() {
-        print("showLoading")
-    }
-
-    public func hideLoading() {
-        print("hideLoading")
-    } 
-
     /// 注册第三方扩展 bridge 模块。
     ///
     /// 小程序通过 `wx.extBridge` / `wx.extOnBridge` / `wx.extOffBridge` 与 native 模块通信，
@@ -151,19 +161,30 @@ public class DMPApp {
     }
 
     public func destroy() {
+        guard !isDestroyed else {
+            return
+        }
+        isDestroyed = true
         print("app destroy")
 
-        // 清理第三方扩展的持续订阅，防止内存泄漏
-        container?.clearExtSubscriptions()
+        let serviceToDestroy = service
+        let containerToDestroy = container
 
-        // Clear WebView cache pool (execute on main thread)
-        Task { @MainActor in
-            DMPWebViewPool.shared.clearPool()
-        }
-        
-        DMPStorage.teardownModule()
-        
+        service = nil
+        container = nil
+        containerApi = nil
+        render = nil
+
         DMPAppManager.sharedInstance().removeApp(appId: appId)
-        service?.destroy()
+
+        // 清理第三方扩展的持续订阅，防止内存泄漏
+        containerToDestroy?.clearExtSubscriptions()
+
+        // Storage is a global singleton. Tear it down before another app initializes it.
+        DMPStorage.teardownModule()
+
+        DispatchQueue.global(qos: .utility).async {
+            serviceToDestroy?.destroy()
+        }
     }
 }

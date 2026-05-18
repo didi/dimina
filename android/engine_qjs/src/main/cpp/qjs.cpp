@@ -113,6 +113,8 @@ struct TimerData {
     int instanceId;
     bool isInterval;
     EngineInstance* instance;
+    bool isExecuting = false;
+    bool isCleared = false;
 };
 
 // Structure to hold instance-specific data
@@ -271,6 +273,9 @@ static jstring handleJSError(JNIEnv* env, JSContext* ctx) {
     return result;
 }
 
+// Callback for uv_close
+static void uv_close_callback(uv_handle_t* handle);
+
 // libuv timer callback
 static void uv_timer_callback(uv_timer_t* handle) {
     TimerData* data = (TimerData*)handle->data;
@@ -288,6 +293,8 @@ static void uv_timer_callback(uv_timer_t* handle) {
     __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, 
         "Executing %s %d", isInterval ? "interval" : "timer", timerId);
     
+    data->isExecuting = true;
+
     // Execute the callback
     JSValue result;
     if (JS_IsFunction(ctx, callback)) {
@@ -324,13 +331,19 @@ static void uv_timer_callback(uv_timer_t* handle) {
         // Continue processing jobs
     }
     
-    // For setTimeout (not interval), clean up
-    if (!isInterval && instance) {
-        JS_FreeValue(ctx, callback);
+    data->isExecuting = false;
+
+    // For setTimeout, or an interval cleared from inside its callback, clean up once.
+    if ((!isInterval || data->isCleared) && instance) {
         instance->timerCallbacks.erase(timerId);
         instance->uvTimers.erase(timerId);
+        JS_FreeValue(ctx, data->callback);
+        handle->data = nullptr;
         delete data;
-        // Note: uv_timer_t will be cleaned up in uv_close callback
+        if (!uv_is_closing((uv_handle_t*)handle)) {
+            uv_timer_stop(handle);
+            uv_close((uv_handle_t*)handle, uv_close_callback);
+        }
     }
 }
 
@@ -652,6 +665,16 @@ static JSValue js_clear_timer(JSContext *ctx, JSValueConst this_val, int argc, J
     
     // Find and stop the timer
     auto timerIt = instance->uvTimers.find(timerId);
+    auto dataIt = instance->timerCallbacks.find(timerId);
+    if (dataIt != instance->timerCallbacks.end() && dataIt->second->isExecuting) {
+        dataIt->second->isCleared = true;
+        if (timerIt != instance->uvTimers.end()) {
+            uv_timer_stop(timerIt->second);
+        }
+        __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, "Marked running timer %d as cleared", timerId);
+        return JS_UNDEFINED;
+    }
+
     if (timerIt != instance->uvTimers.end()) {
         uv_timer_t* timer = timerIt->second;
         uv_timer_stop(timer);
@@ -659,7 +682,6 @@ static JSValue js_clear_timer(JSContext *ctx, JSValueConst this_val, int argc, J
         instance->uvTimers.erase(timerIt);
         
         // Clean up timer data
-        auto dataIt = instance->timerCallbacks.find(timerId);
         if (dataIt != instance->timerCallbacks.end()) {
             TimerData* data = dataIt->second;
             JS_FreeValue(ctx, data->callback);

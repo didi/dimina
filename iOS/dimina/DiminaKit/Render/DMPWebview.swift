@@ -79,12 +79,14 @@ public class DMPWebview: NSObject, WKNavigationDelegate, WKScriptMessageHandler,
     }
 
     public var appName: String
+    public var onLoadingStateChanged: ((Bool) -> Void)?
     
     // Publish notification when state changes
     @Published public var poolState: DMPWebViewState = .available {
         didSet {
             // When the state changes, trigger UI update
             objectWillChange.send()
+            onLoadingStateChanged?(poolState.isLoading)
         }
     }
     
@@ -197,8 +199,9 @@ public class DMPWebview: NSObject, WKNavigationDelegate, WKScriptMessageHandler,
     }
     
     // Load page framework
-    public func loadPageFrame() {
-        guard let pageFrameURL = URL(string: "dimina:///pageFrame.html") else {
+    public func loadPageFrame(enableVConsole: Bool = false) {
+        let pageFramePath = enableVConsole ? "dimina:///pageFrame.html?vconsole=1" : "dimina:///pageFrame.html"
+        guard let pageFrameURL = URL(string: pageFramePath) else {
             print("❌ Invalid pageFrame URL")
             return
         }
@@ -337,20 +340,22 @@ public class DMPWebview: NSObject, WKNavigationDelegate, WKScriptMessageHandler,
     // Modify hideLoading method
     public func hideLoading() {
         if Thread.isMainThread {
-            withAnimation(.easeOut(duration: 0.3)) {
-                if self.poolState == .loading {
-                    self.poolState = .ready
-                }
-            }
+            finishLoadingIfNeeded()
         } else {
             DispatchQueue.main.async { [weak self] in
                 guard let self = self else { return }
-                withAnimation(.easeOut(duration: 0.3)) {
-                    if self.poolState == .loading {
-                        self.poolState = .ready
-                    }
-                }
+                self.finishLoadingIfNeeded()
             }
+        }
+    }
+
+    private func finishLoadingIfNeeded() {
+        guard poolState == .loading else {
+            return
+        }
+
+        withAnimation(.easeOut(duration: 0.3)) {
+            poolState = .ready
         }
     }
 
@@ -366,14 +371,6 @@ public class DMPWebview: NSObject, WKNavigationDelegate, WKScriptMessageHandler,
         public var body: some View {
             ZStack {
                 WebViewRepresentable(webview: webview)
-
-                if webview.isLoading && isRoot {
-                    DMPLoadingView(appName: webview.appName)
-                        .transition(.opacity)
-                }
-            }
-            .onChange(of: webview.isLoading) { newValue in
-                print("🔴 DMPWebview: isLoading changed to \(newValue)")
             }
         }
     }

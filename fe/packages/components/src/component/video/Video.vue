@@ -3,6 +3,7 @@
 // https://developers.weixin.qq.com/miniprogram/dev/component/video.html
 import { isAndroid, isDesktop, isHarmonyOS, isIOS } from '@dimina/common'
 import { invokeAPI, onEvent, triggerEvent, useInfo } from '@/common/events'
+import { ensureNativeLayerTouchBridge } from '@/common/nativeLayerTouchBridge'
 
 const props = defineProps({
 	/**
@@ -340,6 +341,9 @@ onMounted(() => {
 	if (!isNativeVideo.value) {
 		return
 	}
+	if (isAndroid) {
+		ensureNativeLayerTouchBridge()
+	}
 
 	bindNativeEvent('bindplay', 'play')
 	bindNativeEvent('bindpause', 'pause')
@@ -425,6 +429,8 @@ onBeforeUnmount(() => {
 		height="225"
 		v-bind="$attrs"
 		class="dd-video"
+		data-dimina-native-type="native/video"
+		:data-dimina-native-id="id"
 		type="application/view"
 		:comp_type="type"
 	/>
@@ -491,6 +497,11 @@ onBeforeUnmount(() => {
 		width: 100%;
 		height: 100%;
 	}
+}
+
+.dd-video[data-dimina-native-type='native/video'] {
+	background: transparent !important;
+	opacity: 0;
 }
 
 .dd-video-placeholder {

@@ -1,42 +1,13 @@
 package com.didi.dimina.ui.view
 
 import android.content.Context
-import android.view.MotionEvent
-import android.view.View
 import android.widget.FrameLayout
 
 /**
- * Transparent native component layer above the WebView.
+ * Transparent native component layer below the WebView.
  *
- * It only consumes touches that hit visible native children, so normal WebView
- * interactions still work in empty overlay areas.
+ * The WebView stays on top so normal HTML can cover native components. Touches
+ * for native placeholders are forwarded explicitly from the render layer after
+ * DOM hit testing.
  */
-class NativeComponentOverlay(context: Context) : FrameLayout(context) {
-    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
-        if (!hasTouchableChildAt(ev.x, ev.y)) {
-            return false
-        }
-        return super.dispatchTouchEvent(ev)
-    }
-
-    private fun hasTouchableChildAt(x: Float, y: Float): Boolean {
-        val children = (0 until childCount)
-            .map { getChildAt(it) }
-            .sortedWith(compareBy<View> { it.z }.thenBy { indexOfChild(it) })
-            .asReversed()
-        for (child in children) {
-            if (child.visibility != View.VISIBLE || !child.isClickable) {
-                continue
-            }
-            if (
-                x >= child.left &&
-                x <= child.right &&
-                y >= child.top &&
-                y <= child.bottom
-            ) {
-                return true
-            }
-        }
-        return false
-    }
-}
+class NativeComponentOverlay(context: Context) : FrameLayout(context)

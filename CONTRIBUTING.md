@@ -1,28 +1,42 @@
 # Contribution Guidelines
 
-Thanks for your interest in contributing this project. All issues and pull requests are highly appreciated!
+Thanks for your interest in contributing to Dimina. Issues, pull requests, and design discussions are all welcome.
 
 ## Pull Requests
 
-Before sending a pull request to this project, please read and follow guidelines:
+Before sending a pull request, please follow these guidelines:
 
-1. Branch: We only accept pull requests on the `master` branch
-2. Coding style: Follow the coding style used in Dimina
-3. Commit message: Use English and check your spelling
-4. Test: Make sure to test your code
+1. Base branch: open pull requests against the `main` branch.
+2. Scope: keep each pull request focused on one bug fix, feature, or documentation change.
+3. Coding style: follow the existing style in the package or platform module you are changing.
+4. Commit message: use clear English and check spelling.
+5. Tests: run the relevant tests or sample build before submitting.
 
-Add device mode, API version, related log, screenshots and other related information in your pull request if possible.
+When the change affects runtime behavior, include the platform, device model, OS/API version, related logs, screenshots or screen recordings, and the commands you used for verification.
 
-NOTE: We assume all contributions can be licensed under the [Apache License 2.0](https://github.com/didi/Dimina/blob/master/LICENSE).
+Common verification commands:
+
+```sh
+# Frontend packages
+cd fe
+pnpm test
+
+# Android sample and SDK modules
+cd android
+./gradlew build
+```
+
+NOTE: We assume all contributions can be licensed under the [Apache License 2.0](https://github.com/didi/dimina/blob/main/LICENSE).
 
 ## Issues
 
-We love clearly described issues. :)
+We love clearly described issues.
 
 The following information can help us resolve the issue faster:
 
-* Device mode and hardware information
-* API version
-* Logs
-* Screenshots
-* Steps to reproduce the issue
+- Platform and device model
+- OS/API version
+- Dimina SDK or compiler version
+- Steps to reproduce
+- Expected behavior and actual behavior
+- Logs, screenshots, or a minimal reproduction project

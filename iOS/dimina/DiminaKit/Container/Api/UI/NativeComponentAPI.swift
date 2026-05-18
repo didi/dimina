@@ -93,8 +93,10 @@ private final class DMPIOSNativeComponentHost {
         self.webViewId = webViewId
 
         overlayView.backgroundColor = .clear
+        overlayView.clipsToBounds = true
 
         if let wkWebView = wkWebView {
+            wkWebView.clipsToBounds = true
             overlayView.frame = wkWebView.bounds
             overlayView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             wkWebView.addSubview(overlayView)

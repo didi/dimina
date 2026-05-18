@@ -34,6 +34,10 @@ export class DMPReleaseBundleLoader implements DMPBundleLoader {
     this.app = app;
   }
 
+  private isDebugMode(): boolean {
+    return this.app.appConfig.isDebugMode || DMPContextUtils.debugMode;
+  }
+
   async install(installConfig: DMPBundleInstallConfig, launchBundleReady: (config: DMPBundleLoadInfo) => void,
     loadComplete?: (config: DMPBundleLoadInfo) => void,
     loadError?: (code: number, errMsg: string) => void): Promise<DMPBundleLoadInfo> {
@@ -99,8 +103,8 @@ export class DMPReleaseBundleLoader implements DMPBundleLoader {
   //加载底包
   async loadLocalPackage(bundleLoadInfo: DMPBundleLoadInfo) {
     try {
-      if (bundleLoadInfo.isAppUpdate() || DMPContextUtils.debugMode) {
-        DMPLogger.i(Tags.LOAD_LOCAL_BUNDLE, '应用有更新');
+      if (bundleLoadInfo.isAppUpdate() || this.isDebugMode()) {
+        DMPLogger.i(Tags.LOAD_LOCAL_BUNDLE, '应用有更新或处于调试模式');
         //加载本地配置
         this.loadLocalBundleConfig(bundleLoadInfo);
         //安装jsApp本地包
@@ -166,7 +170,8 @@ export class DMPReleaseBundleLoader implements DMPBundleLoader {
     if (bundleLoadInfo.localJSSdkBundleConfig != null) {
       let cacheJSSdkConfig = this.fileManager.loadJSSdkConfig();
       bundleLoadInfo.cacheJSSdkBundleConfig = DMPJSSdkBundleConfig.fromJson(cacheJSSdkConfig);
-      if (bundleLoadInfo.cacheJSSdkBundleConfig == null
+      if (this.isDebugMode()
+        || bundleLoadInfo.cacheJSSdkBundleConfig == null
         || bundleLoadInfo.localJSSdkBundleConfig.versionCode > bundleLoadInfo.cacheJSSdkBundleConfig.versionCode) {
         await this.fileManager.copyJSSDKAndUnZip(`${bundleLoadInfo.localJSSdkBundleConfig.versionCode}`);
         DMPLogger.i(Tags.BUNDLE, '复制jsSdk完成');
@@ -182,7 +187,8 @@ export class DMPReleaseBundleLoader implements DMPBundleLoader {
     if (bundleLoadInfo.localJSAppBundleConfig != null) {
       let cacheJSAppConfig = this.fileManager.loadJSAppConfig(bundleLoadInfo.appId);
       bundleLoadInfo.cacheJSAppBundleConfig = DMJSAppBundleConfig.fromJson(cacheJSAppConfig);
-      if (bundleLoadInfo.cacheJSAppBundleConfig == null
+      if (this.isDebugMode()
+        || bundleLoadInfo.cacheJSAppBundleConfig == null
         || bundleLoadInfo.localJSAppBundleConfig.versionCode > bundleLoadInfo.cacheJSAppBundleConfig.versionCode) {
         await this.fileManager.copyJSAppAndUnZip(this.installConfig!.appId,
           `${bundleLoadInfo.localJSAppBundleConfig.versionCode}`);
@@ -332,5 +338,4 @@ export class DMPReleaseBundleLoader implements DMPBundleLoader {
     this.waitLoadError(errCode, errMsg);
   }
 }
-
 

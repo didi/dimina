@@ -4,6 +4,7 @@ import { DMPLaunchType } from '../DApp/config/DMPAppConfig'
 import { WebViewLifeCycle } from './DMPWebViewLifeCycle'
 import { DMPWebComponent } from './DMPWebComponent'
 import { DMPWebViewProxy } from './DMPWebViewProxy'
+import { DMPContextUtils } from '../Utils/DMPContextUtils'
 
 const DMP_DEFAULT_PAGE_FRAME: string = 'pageFrame.html'
 
@@ -23,6 +24,7 @@ export class DMPWebViewController extends web_webview.WebviewController {
   subController?: DMPWebViewController;
   webViewLifeCycle: WebViewLifeCycle = new WebViewLifeCycle()
   isPageEnd: Boolean = false;
+  isControllerAttached: boolean = false;
 
   constructor(webViewId: number, app: DMPApp) {
     super()
@@ -57,14 +59,15 @@ export class DMPWebViewController extends web_webview.WebviewController {
   loadPath(): string {
     let app: DMPApp = this.app;
     let path: string = '';
+    const vConsoleQuery = (app.appConfig.isDebugMode || DMPContextUtils.debugMode) ? '?vconsole=1' : '';
 
     if (app.appConfig.launchAppType === DMPLaunchType.DebugUrl) {
       const mainPkgPath = app.bundleManager.getCurrentJSSdkDir();
       const pagePath = DMP_DEFAULT_PAGE_FRAME;
-      const path = `${mainPkgPath}/${pagePath}`
+      const path = `${mainPkgPath}/${pagePath}${vConsoleQuery}`
       return path;
     } else {
-      path = 'http://127.0.0.1/pageFrame.html';
+      path = `http://127.0.0.1/pageFrame.html${vConsoleQuery}`;
     }
 
     return path;
@@ -76,6 +79,17 @@ export class DMPWebViewController extends web_webview.WebviewController {
   }
 
   notifyPageBegin() {
+    this.isPageEnd = false;
     this.webViewLifeCycle.notifyPageBegin()
+  }
+
+  notifyControllerAttached() {
+    this.isControllerAttached = true;
+    this.initConfig()
+    this.app.render.flushPendingScripts(this.webViewId)
+  }
+
+  notifyControllerDetached() {
+    this.isControllerAttached = false;
   }
 }

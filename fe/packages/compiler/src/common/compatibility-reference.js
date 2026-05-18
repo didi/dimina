@@ -33,6 +33,7 @@ const supportedBuiltinComponents = [
 	"template",
 	"text",
 	"textarea",
+	"video",
 	"view",
 	"web-view",
 	"wxs",

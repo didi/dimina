@@ -1,8 +1,21 @@
 export class VideoParams {
+  id?: string
   appIndex?: number
   src: string | undefined
   duration: number | undefined
-  controls: string | undefined
+  controls?: boolean
+  autoplay?: boolean
+  loop?: boolean
+  muted?: boolean
+  initialTime?: number
+  objectFit?: string
+  poster?: string
+  direction?: number | string
+  showProgress?: boolean
+  showFullscreenBtn?: boolean
+  showPlayBtn?: boolean
+  showCenterPlayBtn?: boolean
+  hidden?: boolean
   width: number | undefined
   height: number | undefined
   parentWebViewId?: number

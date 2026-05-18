@@ -25,9 +25,10 @@ class RouteApi : BaseApiHandler() {
         const val REDIRECT_TO = "redirectTo"
         const val NAVIGATE_BACK = "navigateBack"
         const val RE_LAUNCH = "reLaunch"
+        const val SWITCH_TAB = "switchTab"
     }
 
-    override val apiNames = setOf(NAVIGATE_TO, REDIRECT_TO, NAVIGATE_BACK, RE_LAUNCH)
+    override val apiNames = setOf(NAVIGATE_TO, REDIRECT_TO, NAVIGATE_BACK, RE_LAUNCH, SWITCH_TAB)
 
     override fun handleAction(
         activity: DiminaActivity,
@@ -42,12 +43,22 @@ class RouteApi : BaseApiHandler() {
                 if (url.isEmpty()) {
                     return ApiUtils.createErrorResponse(apiName, "URL cannot be empty")
                 }
+                if (activity.isTabBarPageUrl(url)) {
+                    return ApiUtils.createErrorResponse(
+                        apiName,
+                        "can not navigateTo a tabbar page: $url"
+                    )
+                }
 
+                val miniProgram = activity.getMiniProgram()
                 MiniApp.getInstance().openApp(
                     activity, MiniProgram(
                         appId = appId,
+                        name = miniProgram.name,
                         root = false,
                         path = url,
+                        versionCode = miniProgram.versionCode,
+                        versionName = miniProgram.versionName
                     )
                 )
                 AsyncResult(JSONObject().apply {
@@ -60,6 +71,12 @@ class RouteApi : BaseApiHandler() {
                 val url = params.optString("url", "")
                 if (url.isEmpty()) {
                     return ApiUtils.createErrorResponse(apiName, "URL cannot be empty")
+                }
+                if (activity.isTabBarPageUrl(url)) {
+                    return ApiUtils.createErrorResponse(
+                        apiName,
+                        "can not redirectTo a tabbar page: $url"
+                    )
                 }
 
                 // 在当前 Activity 中更新路径
@@ -89,11 +106,11 @@ class RouteApi : BaseApiHandler() {
                     return ApiUtils.createErrorResponse(apiName, "URL cannot be empty")
                 }
 
-                var miniProgram = activity.getMiniProgram()
+                val miniProgram = activity.getMiniProgram()
                 DiminaActivity.launch(
                     activity, MiniProgram(
                         appId = appId,
-                        name = miniProgram.appId,
+                        name = miniProgram.name,
                         root = true, // Set as root since we're clearing the stack
                         path = url,
                         versionCode = miniProgram.versionCode,
@@ -104,6 +121,23 @@ class RouteApi : BaseApiHandler() {
                 )
                 AsyncResult(JSONObject().apply {
                     put("errMsg", "$RE_LAUNCH:ok")
+                })
+            }
+
+            SWITCH_TAB -> {
+                val url = params.optString("url", "")
+                if (url.isEmpty()) {
+                    return ApiUtils.createErrorResponse(apiName, "URL cannot be empty")
+                }
+                if (!activity.switchTab(url)) {
+                    return ApiUtils.createErrorResponse(
+                        apiName,
+                        "can not switchTab to a non-tabbar page: $url"
+                    )
+                }
+
+                AsyncResult(JSONObject().apply {
+                    put("errMsg", "$SWITCH_TAB:ok")
                 })
             }
 

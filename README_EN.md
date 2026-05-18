@@ -24,7 +24,7 @@
 
 Dimina is a lightweight cross-platform mini program framework independently developed by Didi. It can be understood as an open-source version of mini program solutions, committed to providing developers with a high-performance, cross-platform, and low-barrier development experience.
 
-Currently, Dimina supports four major platforms: Android, iOS, Harmony, and Web. Developers can use Dimina as a **mobile cross-platform development framework**—either integrating existing mini program logic as independent modules into current apps, or directly developing using mini program syntax and packaging them into standalone native apps with one click.
+Currently, Dimina supports four major platforms: Android, iOS, Harmony, and Web. Developers can use Dimina as a **mobile cross-platform development framework** to integrate existing mini program logic into current apps, or develop directly with mini program syntax and compile it into resource bundles that Dimina containers can load on each platform.
 
 ### 🔧 Technical Features
 
@@ -60,6 +60,7 @@ graph TD
     F -->|Android| G[Integrate Android SDK]
     F -->|iOS| H[Integrate iOS SDK]
     F -->|Harmony| I[Integrate Harmony SDK]
+    F -->|Web| M[Preview in Web Container]
     G --> J[Run on Android Device]
     H --> K[Run on iOS Device]
     I --> L[Run on Harmony Device]
@@ -77,18 +78,21 @@ graph TD
    - Use JavaScript to write page logic
 
 3. **Compile and Package**
-   - Use [DMCC Compiler](./fe/packages/compiler/README.md) to compile mini program code into cross-platform code
-   - Package Dimina mini program bundle
-   - Place the Dimina mini program bundle in the corresponding platform directory
+   - Enter the [frontend workspace](./fe/README.md), install dependencies, and run the compiler
+   - Use [DMCC Compiler](./fe/packages/compiler/README.md) to compile mini program code into Dimina runtime resources
+   - Run `pnpm generate:app` to generate mini program bundles into `shared/jsapp`
+   - Run `pnpm generate:sdk` to generate the JSSDK bundle into `shared/jssdk`
 
 4. **Platform Integration**
    - [Android Integration Guide](./android/README.md)
    - [iOS Integration Guide](./iOS/README.md)
    - [Harmony Integration Guide](./harmony/dimina/README.md)
+   - For Web, run `pnpm dev` in `fe/` for local preview
 
 5. **Debugging and Publishing**
-   - Integrate app for real device debugging
-   - Package and publish to respective app stores
+   - Android, iOS, and Harmony sample projects sync resources from `shared/` into platform resource directories
+   - Debug on real devices and verify API, component, and lifecycle behavior
+   - Package and publish through each platform's release process
 
 ## Contributing
 
@@ -96,7 +100,7 @@ Dimina is designed in accordance with the [Mini App Standard White Paper](https:
 
 For currently supported capabilities, see the [Dimina Capability Reference Guide](./docs/API-Reference.md).
 
-Thanks to the high similarity between Vue3 and mini program syntax, Dimina's underlying view rendering framework is built on Vue. The Dimina framework uses [DMCC](./fe/packages/compiler/README.md) to transpile mini program syntax into Vue syntax, and based on this, implements a complete mini program standard Vue component system. Finally, by implementing client-side mini program containers to provide native capabilities while flexibly loading and displaying view pages.
+Thanks to the high similarity between Vue3 and mini program syntax, Dimina's underlying view rendering framework is built on Vue. Dimina uses [DMCC](./fe/packages/compiler/README.md) to transpile mini program syntax into Vue syntax, and builds a mini program standard component system on top of it. Client-side mini program containers then provide native capabilities while flexibly loading and displaying view pages.
 
 For more information about the underlying implementation principles of the framework, please refer to the [detailed documentation](./docs/README.md).
 
@@ -104,6 +108,7 @@ Since various mini program solutions in the industry have been iterating for man
 
 - Bug reports and new feature requests are filed in [Issues](https://github.com/didi/dimina/issues)
 - Discussions and proposals are discussed in [Discussions](https://github.com/didi/dimina/discussions)
+- Code contributions should follow the [Contribution Guidelines](./CONTRIBUTING.md)
 
 ## Star Trend
 

@@ -1,5 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ensureImportSemicolons, normalizeCssUrlValue, normalizeRootStyleImports, removeBaseComponentScope, resolveStyleImportPath } from '../src/core/style-compiler'
+import { getComponent, getPages, storeInfo } from '../src/env.js'
+import { compileSS } from '../src/core/style-compiler.js'
 
 describe('ensureImportSemicolons', () => {
 	it('should add semicolons to @import statements that do not have them', () => {
@@ -244,5 +249,129 @@ describe('normalizeCssUrlValue', () => {
 	it('应该保留 https URL 不变', () => {
 		const input = 'url("https://example.com/a.png")'
 		expect(normalizeCssUrlValue(input, '/tmp/app/pages/index.wxss')).toBe(input)
+	})
+})
+
+describe('style compiler regressions', () => {
+	let tempDir
+	let outputDir
+	let originalTargetPath
+
+	function writeProjectFile(filePath, content) {
+		const fullPath = path.join(tempDir, filePath)
+		fs.mkdirSync(path.dirname(fullPath), { recursive: true })
+		fs.writeFileSync(fullPath, content)
+	}
+
+	function prepareBaseProject(extraPageJson = {}) {
+		writeProjectFile('app.json', JSON.stringify({
+			pages: ['pages/home/index'],
+		}))
+		writeProjectFile('project.config.json', JSON.stringify({ appid: 'test-app-id' }))
+		writeProjectFile('pages/home/index.wxml', '<view>home</view>')
+		writeProjectFile('pages/home/index.wxss', '')
+		writeProjectFile('pages/home/index.json', JSON.stringify(extraPageJson))
+	}
+
+	beforeEach(() => {
+		originalTargetPath = process.env.TARGET_PATH
+		tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'style-compiler-regression-'))
+		outputDir = path.join(tempDir, 'dist')
+		fs.mkdirSync(outputDir, { recursive: true })
+		process.env.TARGET_PATH = outputDir
+	})
+
+	afterEach(() => {
+		vi.restoreAllMocks()
+		if (originalTargetPath) {
+			process.env.TARGET_PATH = originalTargetPath
+		}
+		else {
+			delete process.env.TARGET_PATH
+		}
+
+		if (tempDir && fs.existsSync(tempDir)) {
+			fs.rmSync(tempDir, { recursive: true, force: true })
+		}
+	})
+
+	it('handles circular component dependency without emitting undefined', async () => {
+		prepareBaseProject({
+			usingComponents: { 'comp-a': '/components/a' },
+		})
+
+		writeProjectFile('components/a.json', JSON.stringify({
+			component: true,
+			usingComponents: { 'comp-b': '/components/b' },
+		}))
+		writeProjectFile('components/a.wxss', '.a { color: red; }')
+		writeProjectFile('components/b.json', JSON.stringify({
+			component: true,
+			usingComponents: { 'comp-a': '/components/a' },
+		}))
+		writeProjectFile('components/b.wxss', '.b { color: blue; }')
+
+		const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+		storeInfo(tempDir)
+		await compileSS(getPages().mainPages, null, { completedTasks: 0 })
+
+		const outputCss = fs.readFileSync(path.join(outputDir, 'main/pages_home_index.css'), 'utf-8')
+		expect(outputCss).not.toContain('undefined')
+		expect(warnSpy).toHaveBeenCalled()
+	})
+
+	it('cuts off deep component dependency chain safely', async () => {
+		const depth = 22
+		prepareBaseProject({
+			usingComponents: { 'comp-0': '/components/c0' },
+		})
+
+		for (let i = 0; i < depth; i++) {
+			const usingComponents = i < depth - 1 ? { [`comp-${i + 1}`]: `/components/c${i + 1}` } : {}
+			writeProjectFile(`components/c${i}.json`, JSON.stringify({
+				component: true,
+				usingComponents,
+			}))
+			writeProjectFile(`components/c${i}.wxss`, `.c${i} { width: ${i + 1}px; }`)
+		}
+
+		const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+		storeInfo(tempDir)
+		await compileSS(getPages().mainPages, null, { completedTasks: 0 })
+
+		const outputCss = fs.readFileSync(path.join(outputDir, 'main/pages_home_index.css'), 'utf-8')
+		expect(outputCss).not.toContain('undefined')
+		expect(outputCss).toContain('.c0')
+		expect(warnSpy).toHaveBeenCalled()
+	})
+
+	it('isolates cache by module id for same imported style path', async () => {
+		prepareBaseProject({
+			usingComponents: {
+				'comp-a': '/components/a',
+				'comp-b': '/components/b',
+			},
+		})
+
+		writeProjectFile('components/shared.wxss', '.shared { color: green; }')
+		writeProjectFile('components/a.json', JSON.stringify({ component: true }))
+		writeProjectFile('components/a.wxss', '@import "./shared.wxss";')
+		writeProjectFile('components/b.json', JSON.stringify({ component: true }))
+		writeProjectFile('components/b.wxss', '@import "./shared.wxss";')
+
+		storeInfo(tempDir)
+		await compileSS(getPages().mainPages, null, { completedTasks: 0 })
+
+		const compA = getComponent('/components/a')
+		const compB = getComponent('/components/b')
+		const outputCss = fs.readFileSync(path.join(outputDir, 'main/pages_home_index.css'), 'utf-8')
+
+		expect(compA.id).toBeTruthy()
+		expect(compB.id).toBeTruthy()
+		expect(compA.id).not.toBe(compB.id)
+		expect(outputCss).toContain(`data-v-${compA.id}`)
+		expect(outputCss).toContain(`data-v-${compB.id}`)
 	})
 })
