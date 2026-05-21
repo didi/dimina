@@ -5,7 +5,7 @@ import { invokeAPI } from '@/api/common'
  * https://developers.weixin.qq.com/miniprogram/dev/api/base/app/app-event/wx.onError.html
  */
 export function onError(opts) {
-	invokeAPI('onError', opts)
+	return invokeAPI('onError', opts)
 }
 
 /**
@@ -13,7 +13,7 @@ export function onError(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/base/app/app-event/wx.offError.html
  */
 export function offError(opts) {
-	invokeAPI('offError', opts)
+	return invokeAPI('offError', opts)
 }
 
 /**
@@ -21,7 +21,7 @@ export function offError(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/base/app/app-event/wx.onAppShow.html
  */
 export function onAppShow(opts) {
-	invokeAPI('onAppShow', opts)
+	return invokeAPI('onAppShow', opts)
 }
 
 /**
@@ -29,7 +29,7 @@ export function onAppShow(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/base/app/app-event/wx.onAppHide.html
  */
 export function onAppHide(opts) {
-	invokeAPI('onAppHide', opts)
+	return invokeAPI('onAppHide', opts)
 }
 
 /**
@@ -37,7 +37,7 @@ export function onAppHide(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/base/app/app-event/wx.offAppShow.html
  */
 export function offAppShow(opts) {
-	invokeAPI('offAppShow', opts)
+	return invokeAPI('offAppShow', opts)
 }
 
 /**
@@ -45,7 +45,7 @@ export function offAppShow(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/base/app/app-event/wx.offAppHide.html
  */
 export function offAppHide(opts) {
-	invokeAPI('offAppHide', opts)
+	return invokeAPI('offAppHide', opts)
 }
 
 /**

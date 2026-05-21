@@ -10,7 +10,7 @@ import { invokeAPI } from '@/api/common'
  * https://developers.weixin.qq.com/miniprogram/dev/api/ui/tab-bar/wx.setTabBarStyle.html
  */
 export function setTabBarStyle(opts) {
-	invokeAPI('setTabBarStyle', opts)
+	return invokeAPI('setTabBarStyle', opts)
 }
 
 /**
@@ -18,7 +18,7 @@ export function setTabBarStyle(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/ui/tab-bar/wx.setTabBarItem.html
  */
 export function setTabBarItem(opts) {
-	invokeAPI('setTabBarItem', opts)
+	return invokeAPI('setTabBarItem', opts)
 }
 
 /**
@@ -26,7 +26,7 @@ export function setTabBarItem(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/ui/tab-bar/wx.showTabBar.html
  */
 export function showTabBar(opts) {
-	invokeAPI('showTabBar', opts)
+	return invokeAPI('showTabBar', opts)
 }
 
 /**
@@ -34,7 +34,7 @@ export function showTabBar(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/ui/tab-bar/wx.hideTabBar.html
  */
 export function hideTabBar(opts) {
-	invokeAPI('hideTabBar', opts)
+	return invokeAPI('hideTabBar', opts)
 }
 
 /**
@@ -42,7 +42,7 @@ export function hideTabBar(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/ui/tab-bar/wx.setTabBarBadge.html
  */
 export function setTabBarBadge(opts) {
-	invokeAPI('setTabBarBadge', opts)
+	return invokeAPI('setTabBarBadge', opts)
 }
 
 /**
@@ -50,7 +50,7 @@ export function setTabBarBadge(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/ui/tab-bar/wx.removeTabBarBadge.html
  */
 export function removeTabBarBadge(opts) {
-	invokeAPI('removeTabBarBadge', opts)
+	return invokeAPI('removeTabBarBadge', opts)
 }
 
 /**
@@ -58,7 +58,7 @@ export function removeTabBarBadge(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/ui/tab-bar/wx.showTabBarRedDot.html
  */
 export function showTabBarRedDot(opts) {
-	invokeAPI('showTabBarRedDot', opts)
+	return invokeAPI('showTabBarRedDot', opts)
 }
 
 /**
@@ -66,5 +66,5 @@ export function showTabBarRedDot(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/ui/tab-bar/wx.hideTabBarRedDot.html
  */
 export function hideTabBarRedDot(opts) {
-	invokeAPI('hideTabBarRedDot', opts)
+	return invokeAPI('hideTabBarRedDot', opts)
 }

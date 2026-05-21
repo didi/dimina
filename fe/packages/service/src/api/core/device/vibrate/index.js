@@ -5,7 +5,7 @@ import { invokeAPI } from '@/api/common'
  * https://developers.weixin.qq.com/miniprogram/dev/api/device/vibrate/wx.vibrateShort.html
  */
 export function vibrateShort(opts) {
-	invokeAPI('vibrateShort', opts)
+	return invokeAPI('vibrateShort', opts)
 }
 
 /**
@@ -13,5 +13,5 @@ export function vibrateShort(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/device/vibrate/wx.vibrateLong.html
  */
 export function vibrateLong(opts) {
-	invokeAPI('vibrateLong', opts)
+	return invokeAPI('vibrateLong', opts)
 }

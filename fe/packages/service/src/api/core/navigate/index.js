@@ -5,7 +5,7 @@ import { invokeAPI } from '@/api/common'
  * https://developers.weixin.qq.com/miniprogram/dev/api/navigate/wx.restartMiniProgram.html
  */
 export function restartMiniProgram(opts) {
-	invokeAPI('restartMiniProgram', opts)
+	return invokeAPI('restartMiniProgram', opts)
 }
 
 /**
@@ -13,7 +13,7 @@ export function restartMiniProgram(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/navigate/wx.navigateToMiniProgram.html
  */
 export function navigateToMiniProgram(opts) {
-	invokeAPI('navigateToMiniProgram', opts)
+	return invokeAPI('navigateToMiniProgram', opts)
 }
 
 /**
@@ -21,7 +21,7 @@ export function navigateToMiniProgram(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/navigate/wx.navigateBackMiniProgram.html
  */
 export function navigateBackMiniProgram(opts) {
-	invokeAPI('navigateBackMiniProgram', opts)
+	return invokeAPI('navigateBackMiniProgram', opts)
 }
 
 /**
@@ -29,5 +29,5 @@ export function navigateBackMiniProgram(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/navigate/wx.exitMiniProgram.html
  */
 export function exitMiniProgram(opts) {
-	invokeAPI('exitMiniProgram', opts)
+	return invokeAPI('exitMiniProgram', opts)
 }

@@ -5,7 +5,7 @@ import { invokeAPI } from '@/api/common'
  * https://developers.weixin.qq.com/miniprogram/dev/api/ui/pull-down-refresh/wx.stopPullDownRefresh.html
  */
 export function stopPullDownRefresh(opts) {
-	invokeAPI('stopPullDownRefresh', opts)
+	return invokeAPI('stopPullDownRefresh', opts)
 }
 
 /**
@@ -13,5 +13,5 @@ export function stopPullDownRefresh(opts) {
  *	https://developers.weixin.qq.com/miniprogram/dev/api/ui/pull-down-refresh/wx.startPullDownRefresh.html
  */
 export function startPullDownRefresh(opts) {
-	invokeAPI('startPullDownRefresh', opts)
+	return invokeAPI('startPullDownRefresh', opts)
 }

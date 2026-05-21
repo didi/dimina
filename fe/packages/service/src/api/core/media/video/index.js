@@ -5,7 +5,7 @@ import { invokeAPI } from '@/api/common'
  * https://developers.weixin.qq.com/miniprogram/dev/api/media/video/wx.chooseVideo.html
  */
 export function chooseVideo(opts) {
-	invokeAPI('chooseVideo', opts)
+	return invokeAPI('chooseVideo', opts)
 }
 
 /**
@@ -13,5 +13,5 @@ export function chooseVideo(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/media/video/wx.chooseMedia.html
  */
 export function chooseMedia(opts) {
-	invokeAPI('chooseMedia', opts)
+	return invokeAPI('chooseMedia', opts)
 }

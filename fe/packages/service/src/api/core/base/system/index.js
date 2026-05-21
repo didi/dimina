@@ -5,7 +5,7 @@ import { invokeAPI } from '@/api/common'
  * https://developers.weixin.qq.com/miniprogram/dev/api/base/system/wx.openSystemBluetoothSetting.html
  */
 export function openSystemBluetoothSetting(opts) {
-	invokeAPI('openSystemBluetoothSetting', opts)
+	return invokeAPI('openSystemBluetoothSetting', opts)
 }
 
 /**
@@ -21,7 +21,7 @@ export function getWindowInfo(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/base/system/wx.openAppAuthorizeSetting.html
  */
 export function openAppAuthorizeSetting(opts) {
-	invokeAPI('openAppAuthorizeSetting', opts)
+	return invokeAPI('openAppAuthorizeSetting', opts)
 }
 
 /**
@@ -44,7 +44,7 @@ export function getSystemInfoSync() {
  * https://developers.weixin.qq.com/miniprogram/dev/api/base/system/wx.getSystemInfoAsync.html
  */
 export function getSystemInfoAsync(opts) {
-	invokeAPI('getSystemInfoAsync', opts)
+	return invokeAPI('getSystemInfoAsync', opts)
 }
 
 export function getAppBaseInfo() {

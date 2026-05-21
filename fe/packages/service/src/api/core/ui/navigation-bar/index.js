@@ -5,7 +5,7 @@ import { invokeAPI } from '@/api/common'
  * https://developers.weixin.qq.com/miniprogram/dev/api/ui/navigation-bar/wx.showNavigationBarLoading.html
  */
 export function showNavigationBarLoading(opts) {
-	invokeAPI('showNavigationBarLoading', opts)
+	return invokeAPI('showNavigationBarLoading', opts)
 }
 
 /**
@@ -13,7 +13,7 @@ export function showNavigationBarLoading(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/ui/navigation-bar/wx.setNavigationBarTitle.html
  */
 export function setNavigationBarTitle(opts) {
-	invokeAPI('setNavigationBarTitle', opts)
+	return invokeAPI('setNavigationBarTitle', opts)
 }
 
 /**
@@ -21,7 +21,7 @@ export function setNavigationBarTitle(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/ui/navigation-bar/wx.setNavigationBarColor.html
  */
 export function setNavigationBarColor(opts) {
-	invokeAPI('setNavigationBarColor', opts)
+	return invokeAPI('setNavigationBarColor', opts)
 }
 
 /**
@@ -29,5 +29,5 @@ export function setNavigationBarColor(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/ui/navigation-bar/wx.hideNavigationBarLoading.html
  */
 export function hideNavigationBarLoading(opts) {
-	invokeAPI('hideNavigationBarLoading', opts)
+	return invokeAPI('hideNavigationBarLoading', opts)
 }

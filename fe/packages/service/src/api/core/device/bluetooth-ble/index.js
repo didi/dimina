@@ -5,7 +5,7 @@ import { invokeAPI } from '@/api/common'
  * https://developers.weixin.qq.com/miniprogram/dev/api/device/bluetooth-ble/wx.writeBLECharacteristicValue.html
  */
 export function writeBLECharacteristicValue(opts) {
-	invokeAPI('writeBLECharacteristicValue', opts)
+	return invokeAPI('writeBLECharacteristicValue', opts)
 }
 
 /**
@@ -13,7 +13,7 @@ export function writeBLECharacteristicValue(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/device/bluetooth-ble/wx.setBLEMTU.html
  */
 export function setBLEMTU(opts) {
-	invokeAPI('setBLEMTU', opts)
+	return invokeAPI('setBLEMTU', opts)
 }
 
 /**
@@ -21,7 +21,7 @@ export function setBLEMTU(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/device/bluetooth-ble/wx.readBLECharacteristicValue.html
  */
 export function readBLECharacteristicValue(opts) {
-	invokeAPI('readBLECharacteristicValue', opts)
+	return invokeAPI('readBLECharacteristicValue', opts)
 }
 
 /**
@@ -29,7 +29,7 @@ export function readBLECharacteristicValue(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/device/bluetooth-ble/wx.onBLEConnectionStateChange.html
  */
 export function onBLEConnectionStateChange(opts) {
-	invokeAPI('onBLEConnectionStateChange', opts)
+	return invokeAPI('onBLEConnectionStateChange', opts)
 }
 
 /**
@@ -37,7 +37,7 @@ export function onBLEConnectionStateChange(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/device/bluetooth-ble/wx.onBLECharacteristicValueChange.html
  */
 export function onBLECharacteristicValueChange(opts) {
-	invokeAPI('onBLECharacteristicValueChange', opts)
+	return invokeAPI('onBLECharacteristicValueChange', opts)
 }
 
 /**
@@ -45,7 +45,7 @@ export function onBLECharacteristicValueChange(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/device/bluetooth-ble/wx.offBLEConnectionStateChange.html
  */
 export function offBLEConnectionStateChange(opts) {
-	invokeAPI('offBLEConnectionStateChange', opts)
+	return invokeAPI('offBLEConnectionStateChange', opts)
 }
 
 /**
@@ -53,7 +53,7 @@ export function offBLEConnectionStateChange(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/device/bluetooth-ble/wx.offBLECharacteristicValueChange.html
  */
 export function offBLECharacteristicValueChange() {
-	invokeAPI('offBLECharacteristicValueChange')
+	return invokeAPI('offBLECharacteristicValueChange')
 }
 
 /**
@@ -62,7 +62,7 @@ export function offBLECharacteristicValueChange() {
  * https://developers.weixin.qq.com/miniprogram/dev/api/device/bluetooth-ble/wx.notifyBLECharacteristicValueChange.html
  */
 export function notifyBLECharacteristicValueChange(opts) {
-	invokeAPI('notifyBLECharacteristicValueChange', opts)
+	return invokeAPI('notifyBLECharacteristicValueChange', opts)
 }
 
 /**
@@ -70,7 +70,7 @@ export function notifyBLECharacteristicValueChange(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/device/bluetooth-ble/wx.getBLEDeviceServices.html
  */
 export function getBLEDeviceServices(opts) {
-	invokeAPI('getBLEDeviceServices', opts)
+	return invokeAPI('getBLEDeviceServices', opts)
 }
 
 /**
@@ -78,7 +78,7 @@ export function getBLEDeviceServices(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/device/bluetooth-ble/wx.getBLEDeviceRSSI.html
  */
 export function getBLEDeviceRSSI(opts) {
-	invokeAPI('getBLEDeviceRSSI', opts)
+	return invokeAPI('getBLEDeviceRSSI', opts)
 }
 
 /**
@@ -86,7 +86,7 @@ export function getBLEDeviceRSSI(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/device/bluetooth-ble/wx.getBLEDeviceCharacteristics.html
  */
 export function getBLEDeviceCharacteristics(opts) {
-	invokeAPI('getBLEDeviceCharacteristics', opts)
+	return invokeAPI('getBLEDeviceCharacteristics', opts)
 }
 
 /**
@@ -95,7 +95,7 @@ export function getBLEDeviceCharacteristics(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/device/bluetooth-ble/wx.createBLEConnection.html
  */
 export function createBLEConnection(opts) {
-	invokeAPI('createBLEConnection', opts)
+	return invokeAPI('createBLEConnection', opts)
 }
 
 /**
@@ -103,5 +103,5 @@ export function createBLEConnection(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/device/bluetooth-ble/wx.closeBLEConnection.html
  */
 export function closeBLEConnection(opts) {
-	invokeAPI('closeBLEConnection', opts)
+	return invokeAPI('closeBLEConnection', opts)
 }

@@ -5,5 +5,5 @@ import { invokeAPI } from '@/api/common'
  * https://developers.weixin.qq.com/miniprogram/dev/api/open-api/authorize/wx.authorize.html
  */
 export function authorize(opts) {
-	invokeAPI('authorize', opts)
+	return invokeAPI('authorize', opts)
 }

@@ -5,7 +5,7 @@ import { invokeAPI } from '@/api/common'
  * https://developers.weixin.qq.com/miniprogram/dev/api/open-api/setting/wx.openSetting.html
  */
 export function openSetting(opts) {
-	invokeAPI('openSetting', opts)
+	return invokeAPI('openSetting', opts)
 }
 
 /**
@@ -13,5 +13,5 @@ export function openSetting(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/open-api/setting/wx.getSetting.html
  */
 export function getSetting(opts) {
-	invokeAPI('getSetting', opts)
+	return invokeAPI('getSetting', opts)
 }

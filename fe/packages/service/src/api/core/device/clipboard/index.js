@@ -5,7 +5,7 @@ import { invokeAPI } from '@/api/common'
  * https://developers.weixin.qq.com/miniprogram/dev/api/device/clipboard/wx.setClipboardData.html
  */
 export function setClipboardData(opts) {
-	invokeAPI('setClipboardData', opts)
+	return invokeAPI('setClipboardData', opts)
 }
 
 /**
@@ -13,5 +13,5 @@ export function setClipboardData(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/device/clipboard/wx.getClipboardData.html
  */
 export function getClipboardData(opts) {
-	invokeAPI('getClipboardData', opts)
+	return invokeAPI('getClipboardData', opts)
 }

@@ -5,7 +5,7 @@ import { invokeAPI } from '@/api/common'
  * https://developers.weixin.qq.com/miniprogram/dev/api/device/contact/wx.chooseContact.html
  */
 export function chooseContact(opts) {
-	invokeAPI('chooseContact', opts)
+	return invokeAPI('chooseContact', opts)
 }
 
 /**
@@ -13,5 +13,5 @@ export function chooseContact(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/device/contact/wx.addPhoneContact.html
  */
 export function addPhoneContact(opts) {
-	invokeAPI('addPhoneContact', opts)
+	return invokeAPI('addPhoneContact', opts)
 }

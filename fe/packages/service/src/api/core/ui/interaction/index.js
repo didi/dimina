@@ -5,7 +5,7 @@ import { invokeAPI } from '@/api/common'
  * https://developers.weixin.qq.com/miniprogram/dev/api/ui/interaction/wx.showToast.html
  */
 export function showToast(opts) {
-	invokeAPI('showToast', opts)
+	return invokeAPI('showToast', opts)
 }
 
 /**
@@ -13,7 +13,7 @@ export function showToast(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/ui/interaction/wx.hideToast.html
  */
 export function hideToast(opts) {
-	invokeAPI('hideToast', opts)
+	return invokeAPI('hideToast', opts)
 }
 
 /**
@@ -21,7 +21,7 @@ export function hideToast(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/ui/interaction/wx.showModal.html
  */
 export function showModal(opts) {
-	invokeAPI('showModal', opts)
+	return invokeAPI('showModal', opts)
 }
 
 /**
@@ -29,7 +29,7 @@ export function showModal(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/ui/interaction/wx.showLoading.html
  */
 export function showLoading(opts) {
-	invokeAPI('showLoading', opts)
+	return invokeAPI('showLoading', opts)
 }
 
 /**
@@ -37,7 +37,7 @@ export function showLoading(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/ui/interaction/wx.showActionSheet.html
  */
 export function showActionSheet(opts) {
-	invokeAPI('showActionSheet', opts)
+	return invokeAPI('showActionSheet', opts)
 }
 
 /**
@@ -45,7 +45,7 @@ export function showActionSheet(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/ui/interaction/wx.hideLoading.html
  */
 export function hideLoading(opts) {
-	invokeAPI('hideLoading', opts)
+	return invokeAPI('hideLoading', opts)
 }
 
 /**
@@ -53,12 +53,12 @@ export function hideLoading(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/ui/interaction/wx.enableAlertBeforeUnload.html
  */
 export function enableAlertBeforeUnload(opts) {
-	invokeAPI('enableAlertBeforeUnload', opts)
+	return invokeAPI('enableAlertBeforeUnload', opts)
 }
 
 /**
  * 关闭小程序页面返回询问对话框
  */
 export function disableAlertBeforeUnload(opts) {
-	invokeAPI('disableAlertBeforeUnload', opts)
+	return invokeAPI('disableAlertBeforeUnload', opts)
 }

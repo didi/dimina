@@ -6,5 +6,5 @@ import { invokeAPI } from '@/api/common'
  * @param {*} opts
  */
 export function getUserInfo(opts) {
-	invokeAPI('getUserInfo', opts)
+	return invokeAPI('getUserInfo', opts)
 }

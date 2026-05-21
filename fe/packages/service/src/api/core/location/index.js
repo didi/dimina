@@ -6,7 +6,7 @@ import { invokeAPI } from '@/api/common'
  * https://developers.weixin.qq.com/miniprogram/dev/api/location/wx.getLocation.html
  */
 export function getLocation(opts) {
-	invokeAPI('getLocation', opts)
+	return invokeAPI('getLocation', opts)
 }
 
 /**
@@ -14,7 +14,7 @@ export function getLocation(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/location/wx.startLocationUpdate.html
  */
 export function startLocationUpdate(opts) {
-	invokeAPI('startLocationUpdate', opts)
+	return invokeAPI('startLocationUpdate', opts)
 }
 
 /**
@@ -22,7 +22,7 @@ export function startLocationUpdate(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/location/wx.openLocation.html
  */
 export function openLocation(opts) {
-	invokeAPI('openLocation', opts)
+	return invokeAPI('openLocation', opts)
 }
 
 /**
@@ -30,7 +30,7 @@ export function openLocation(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/location/wx.stopLocationUpdate.html
  */
 export function stopLocationUpdate(opts) {
-	invokeAPI('stopLocationUpdate', opts)
+	return invokeAPI('stopLocationUpdate', opts)
 }
 
 /**

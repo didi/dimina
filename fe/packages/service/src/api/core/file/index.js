@@ -10,7 +10,7 @@ class FileSystemManager {
 	 * https://developers.weixin.qq.com/miniprogram/dev/api/file/FileSystemManager.access.html
 	 */
 	access(opts) {
-		invokeAPI('FileSystemManager.access', opts)
+		return invokeAPI('FileSystemManager.access', opts)
 	}
 
 	/**
@@ -26,7 +26,7 @@ class FileSystemManager {
 	 * https://developers.weixin.qq.com/miniprogram/dev/api/file/FileSystemManager.appendFile.html
 	 */
 	appendFile(opts) {
-		invokeAPI('FileSystemManager.appendFile', opts)
+		return invokeAPI('FileSystemManager.appendFile', opts)
 	}
 
 	/**
@@ -42,7 +42,7 @@ class FileSystemManager {
 	 * https://developers.weixin.qq.com/miniprogram/dev/api/file/FileSystemManager.close.html
 	 */
 	close(opts) {
-		invokeAPI('FileSystemManager.close', opts)
+		return invokeAPI('FileSystemManager.close', opts)
 	}
 
 	/**
@@ -58,7 +58,7 @@ class FileSystemManager {
 	 * https://developers.weixin.qq.com/miniprogram/dev/api/file/FileSystemManager.copyFile.html
 	 */
 	copyFile(opts) {
-		invokeAPI('FileSystemManager.copyFile', opts)
+		return invokeAPI('FileSystemManager.copyFile', opts)
 	}
 
 	/**
@@ -74,7 +74,7 @@ class FileSystemManager {
 	 * https://developers.weixin.qq.com/miniprogram/dev/api/file/FileSystemManager.fstat.html
 	 */
 	fstat(opts) {
-		invokeAPI('FileSystemManager.fstat', opts)
+		return invokeAPI('FileSystemManager.fstat', opts)
 	}
 
 	/**
@@ -90,7 +90,7 @@ class FileSystemManager {
 	 * https://developers.weixin.qq.com/miniprogram/dev/api/file/FileSystemManager.ftruncate.html
 	 */
 	ftruncate(opts) {
-		invokeAPI('FileSystemManager.ftruncate', opts)
+		return invokeAPI('FileSystemManager.ftruncate', opts)
 	}
 
 	/**
@@ -106,7 +106,7 @@ class FileSystemManager {
 	 * https://developers.weixin.qq.com/miniprogram/dev/api/file/FileSystemManager.getFileInfo.html
 	 */
 	getFileInfo(opts) {
-		invokeAPI('FileSystemManager.getFileInfo', opts)
+		return invokeAPI('FileSystemManager.getFileInfo', opts)
 	}
 
 	/**
@@ -114,7 +114,7 @@ class FileSystemManager {
 	 * https://developers.weixin.qq.com/miniprogram/dev/api/file/FileSystemManager.getSavedFileList.html
 	 */
 	getSavedFileList(opts) {
-		invokeAPI('FileSystemManager.getSavedFileList', opts)
+		return invokeAPI('FileSystemManager.getSavedFileList', opts)
 	}
 
 	/**
@@ -122,7 +122,7 @@ class FileSystemManager {
 	 * https://developers.weixin.qq.com/miniprogram/dev/api/file/FileSystemManager.mkdir.html
 	 */
 	mkdir(opts) {
-		invokeAPI('FileSystemManager.mkdir', opts)
+		return invokeAPI('FileSystemManager.mkdir', opts)
 	}
 
 	/**
@@ -138,7 +138,7 @@ class FileSystemManager {
 	 * https://developers.weixin.qq.com/miniprogram/dev/api/file/FileSystemManager.open.html
 	 */
 	open(opts) {
-		invokeAPI('FileSystemManager.open', opts)
+		return invokeAPI('FileSystemManager.open', opts)
 	}
 
 	/**
@@ -154,7 +154,7 @@ class FileSystemManager {
 	 * https://developers.weixin.qq.com/miniprogram/dev/api/file/FileSystemManager.read.html
 	 */
 	read(opts) {
-		invokeAPI('FileSystemManager.read', opts)
+		return invokeAPI('FileSystemManager.read', opts)
 	}
 
 	/**
@@ -170,7 +170,7 @@ class FileSystemManager {
 	 * https://developers.weixin.qq.com/miniprogram/dev/api/file/FileSystemManager.readCompressedFile.html
 	 */
 	readCompressedFile(opts) {
-		invokeAPI('FileSystemManager.readCompressedFile', opts)
+		return invokeAPI('FileSystemManager.readCompressedFile', opts)
 	}
 
 	/**
@@ -186,7 +186,7 @@ class FileSystemManager {
 	 * https://developers.weixin.qq.com/miniprogram/dev/api/file/FileSystemManager.readdir.html
 	 */
 	readdir(opts) {
-		invokeAPI('FileSystemManager.readdir', opts)
+		return invokeAPI('FileSystemManager.readdir', opts)
 	}
 
 	/**
@@ -202,7 +202,7 @@ class FileSystemManager {
 	 * https://developers.weixin.qq.com/miniprogram/dev/api/file/FileSystemManager.readFile.html
 	 */
 	readFile(opts) {
-		invokeAPI('FileSystemManager.readFile', opts)
+		return invokeAPI('FileSystemManager.readFile', opts)
 	}
 
 	/**
@@ -218,7 +218,7 @@ class FileSystemManager {
 	 * https://developers.weixin.qq.com/miniprogram/dev/api/file/FileSystemManager.readZipEntry.html
 	 */
 	readZipEntry(opts) {
-		invokeAPI('FileSystemManager.readZipEntry', opts)
+		return invokeAPI('FileSystemManager.readZipEntry', opts)
 	}
 
 	/**
@@ -226,7 +226,7 @@ class FileSystemManager {
 	 * https://developers.weixin.qq.com/miniprogram/dev/api/file/FileSystemManager.removeSavedFile.html
 	 */
 	removeSavedFile(opts) {
-		invokeAPI('FileSystemManager.removeSavedFile', opts)
+		return invokeAPI('FileSystemManager.removeSavedFile', opts)
 	}
 
 	/**
@@ -234,7 +234,7 @@ class FileSystemManager {
 	 * https://developers.weixin.qq.com/miniprogram/dev/api/file/FileSystemManager.rename.html
 	 */
 	rename(opts) {
-		invokeAPI('FileSystemManager.rename', opts)
+		return invokeAPI('FileSystemManager.rename', opts)
 	}
 
 	/**
@@ -250,7 +250,7 @@ class FileSystemManager {
 	 * https://developers.weixin.qq.com/miniprogram/dev/api/file/FileSystemManager.rmdir.html
 	 */
 	rmdir(opts) {
-		invokeAPI('FileSystemManager.rmdir', opts)
+		return invokeAPI('FileSystemManager.rmdir', opts)
 	}
 
 	/**
@@ -266,7 +266,7 @@ class FileSystemManager {
 	 * https://developers.weixin.qq.com/miniprogram/dev/api/file/FileSystemManager.saveFile.html
 	 */
 	saveFile(opts) {
-		invokeAPI('FileSystemManager.saveFile', opts)
+		return invokeAPI('FileSystemManager.saveFile', opts)
 	}
 
 	/**
@@ -282,7 +282,7 @@ class FileSystemManager {
 	 * https://developers.weixin.qq.com/miniprogram/dev/api/file/FileSystemManager.stat.html
 	 */
 	stat(opts) {
-		invokeAPI('FileSystemManager.stat', opts)
+		return invokeAPI('FileSystemManager.stat', opts)
 	}
 
 	/**
@@ -298,7 +298,7 @@ class FileSystemManager {
 	 * https://developers.weixin.qq.com/miniprogram/dev/api/file/FileSystemManager.truncate.html
 	 */
 	truncate(opts) {
-		invokeAPI('FileSystemManager.truncate', opts)
+		return invokeAPI('FileSystemManager.truncate', opts)
 	}
 
 	/**
@@ -314,7 +314,7 @@ class FileSystemManager {
 	 * https://developers.weixin.qq.com/miniprogram/dev/api/file/FileSystemManager.unlink.html
 	 */
 	unlink(opts) {
-		invokeAPI('FileSystemManager.unlink', opts)
+		return invokeAPI('FileSystemManager.unlink', opts)
 	}
 
 	/**
@@ -330,7 +330,7 @@ class FileSystemManager {
 	 * https://developers.weixin.qq.com/miniprogram/dev/api/file/FileSystemManager.unzip.html
 	 */
 	unzip(opts) {
-		invokeAPI('FileSystemManager.unzip', opts)
+		return invokeAPI('FileSystemManager.unzip', opts)
 	}
 
 	/**
@@ -338,7 +338,7 @@ class FileSystemManager {
 	 * https://developers.weixin.qq.com/miniprogram/dev/api/file/FileSystemManager.write.html
 	 */
 	write(opts) {
-		invokeAPI('FileSystemManager.write', opts)
+		return invokeAPI('FileSystemManager.write', opts)
 	}
 
 	/**
@@ -354,7 +354,7 @@ class FileSystemManager {
 	 * https://developers.weixin.qq.com/miniprogram/dev/api/file/FileSystemManager.writeFile.html
 	 */
 	writeFile(opts) {
-		invokeAPI('FileSystemManager.writeFile', opts)
+		return invokeAPI('FileSystemManager.writeFile', opts)
 	}
 
 	/**

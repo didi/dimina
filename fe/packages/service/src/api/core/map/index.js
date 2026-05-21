@@ -10,42 +10,42 @@ class MapContext {
 	}
 
 	addMarkers(data) {
-		invokeAPI('addMarkers', data)
+		return invokeAPI('addMarkers', data)
 	}
 
 	removeMarkers(data) {
-		invokeAPI('removeMarkers', data)
+		return invokeAPI('removeMarkers', data)
 	}
 
 	includePoints(data) {
-		invokeAPI('includePoints', data)
+		return invokeAPI('includePoints', data)
 	}
 
 	setCenterOffset(data) {
-		invokeAPI('setCenterOffset', data)
+		return invokeAPI('setCenterOffset', data)
 	}
 
 	getCenterLocation(data) {
-		invokeAPI('getCenterLocation', data)
+		return invokeAPI('getCenterLocation', data)
 	}
 
 	getScale(data) {
-		invokeAPI('getScale', data)
+		return invokeAPI('getScale', data)
 	}
 
 	moveToLocation(data) {
-		invokeAPI('moveToLocation', data)
+		return invokeAPI('moveToLocation', data)
 	}
 
 	translateMarker(data) {
-		invokeAPI('translateMarker', data)
+		return invokeAPI('translateMarker', data)
 	}
 
 	addArc(data) {
-		invokeAPI('addArc', data)
+		return invokeAPI('addArc', data)
 	}
 
 	removeArc(data) {
-		invokeAPI('removeArc', data)
+		return invokeAPI('removeArc', data)
 	}
 }
