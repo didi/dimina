@@ -9,6 +9,9 @@ export class AppList {
 		this.parent = null
 		this.el = document.createElement('div')
 		this.el.classList.add('dimina-native-view')
+		this.appList = []
+		this.filteredAppList = []
+		this.searchKeyword = ''
 	}
 
 	viewDidLoad() {
@@ -20,41 +23,24 @@ export class AppList {
 	}
 
 	createAppList() {
-		const list = this.el.querySelector('.dimina-app__mini-used-list')
-		getAppList().then((appList) => {
-			appList.forEach((appInfo) => {
-				const item = `
-				<li class="dimina-app__mini-used-list-item" data-appid="${appInfo.appId}">
-					<div class="dimina-app__mini-used-logo">
-						<img src="${appInfo.logo}" alt="">
-					</div>
-					<p class="dimina-app__mini-used-name">${appInfo.name}</p>
-				</li>
-			`
-				const temp = document.createElement('div')
-
-				temp.innerHTML = item
-				list.appendChild(temp.children[0])
+		this.setListState('加载中...')
+		getAppList()
+			.then((appList) => {
+				this.appList = appList
+				this.renderFilteredAppList()
 			})
-		})
+			.catch(() => {
+				this.appList = []
+				this.renderAppList([])
+				this.setListState('应用列表加载失败')
+			})
 	}
 
 	bindSearchEvent() {
 		const searchInput = this.el.querySelector('.dimina-app__mini-search-input-placeholder')
-		const list = this.el.querySelector('.dimina-app__mini-used-list')
-		const li = list.getElementsByTagName('li')
 		searchInput.addEventListener('input', (e) => {
-			const filter = e.target.value
-			for (const item of li) {
-				const a = item.getElementsByTagName('p')[0]
-				const txtValue = a.textContent
-				if (txtValue.toUpperCase().includes(filter)) {
-					item.style.display = ''
-				}
-				else {
-					item.style.display = 'none'
-				}
-			}
+			this.searchKeyword = e.target.value.trim().toLocaleLowerCase()
+			this.renderFilteredAppList()
 		})
 	}
 
@@ -90,5 +76,63 @@ export class AppList {
 
 	onPresentIn() {
 		this.parent.updateStatusBarColor('black')
+	}
+
+	renderFilteredAppList() {
+		const keyword = this.searchKeyword
+		this.filteredAppList = keyword
+			? this.appList.filter((appInfo) => {
+					const name = appInfo.name?.toLocaleLowerCase() ?? ''
+					const appId = appInfo.appId?.toLocaleLowerCase() ?? ''
+					return name.includes(keyword) || appId.includes(keyword)
+				})
+			: this.appList
+		this.renderAppList(this.filteredAppList)
+
+		if (!this.appList.length) {
+			this.setListState('暂无应用')
+		}
+		else if (!this.filteredAppList.length) {
+			this.setListState('未找到匹配的小程序')
+		}
+		else {
+			this.setListState('')
+		}
+	}
+
+	renderAppList(appList) {
+		const list = this.el.querySelector('.dimina-app__mini-used-list')
+		const fragment = document.createDocumentFragment()
+
+		appList.forEach((appInfo) => {
+			const item = document.createElement('li')
+			item.className = 'dimina-app__mini-used-list-item'
+			item.dataset.appid = appInfo.appId
+
+			const logo = document.createElement('div')
+			logo.className = 'dimina-app__mini-used-logo'
+
+			const logoImg = document.createElement('img')
+			logoImg.src = appInfo.logo
+			logoImg.alt = `${appInfo.name} logo`
+			logoImg.loading = 'lazy'
+			logoImg.draggable = false
+			logo.appendChild(logoImg)
+
+			const name = document.createElement('p')
+			name.className = 'dimina-app__mini-used-name'
+			name.textContent = appInfo.name
+
+			item.append(logo, name)
+			fragment.appendChild(item)
+		})
+
+		list.replaceChildren(fragment)
+	}
+
+	setListState(text) {
+		const state = this.el.querySelector('.dimina-app__mini-used-state')
+		state.textContent = text
+		state.hidden = !text
 	}
 }

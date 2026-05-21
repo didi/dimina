@@ -97,31 +97,38 @@ public class DMPWebViewInvoke {
     
     // 注入invoke相关的JavaScript代码
     public func injectInvokeJavaScript(webview: DMPWebview) {
-        let invokeScript = """
-        // 添加invoke方法
-        window.DiminaRenderBridge = window.DiminaRenderBridge || {};
-        window.DiminaRenderBridge.invoke = function(msg) {            
-            if (typeof msg !== 'string') {
-                console.error('DiminaRenderBridge.invoke: 消息必须是字符串类型', msg);
-                return null;
-            }
-            
-            return new Promise((resolve) => {
-                const callbackId = 'cb_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
-                
-                // 设置一次性回调函数
-                window[callbackId] = function(result) {
-                    resolve(result);
-                    delete window[callbackId];
-                };
-                
-                // 直接发送字符串消息到Native
-                window.webkit.messageHandlers.invokeHandler.postMessage(msg);
-            });
-        };
-        """
-        
-        webview.executeJavaScript(invokeScript)
+        let invokeScript = WKUserScript(source: """
+        (function() {
+            window.DiminaRenderBridge = window.DiminaRenderBridge || {};
+            window.DiminaRenderBridge.invoke = function(msg) {
+                if (typeof msg !== 'string') {
+                    console.error('DiminaRenderBridge.invoke: 消息必须是字符串类型', msg);
+                    return Promise.resolve(null);
+                }
+
+                return new Promise(function(resolve) {
+                    if (!window.webkit || !window.webkit.messageHandlers || !window.webkit.messageHandlers.invokeHandler) {
+                        console.error('DiminaRenderBridge.invoke: native handler not ready');
+                        resolve(null);
+                        return;
+                    }
+
+                    var callbackId = 'cb_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+
+                    // 设置一次性回调函数
+                    window[callbackId] = function(result) {
+                        resolve(result);
+                        delete window[callbackId];
+                    };
+
+                    // 直接发送字符串消息到Native
+                    window.webkit.messageHandlers.invokeHandler.postMessage(msg);
+                });
+            };
+        })();
+        """, injectionTime: .atDocumentStart, forMainFrameOnly: false)
+
+        webview.getWebView().configuration.userContentController.addUserScript(invokeScript)
     }
     
     public func processInvokeMessage(type: String, body: [String: Any], target: String) -> Any {

@@ -30,22 +30,10 @@ public class MenuAPI: DMPContainerApi {
         let width: CGFloat = 87.0
         let height: CGFloat = 32.0
         
-        var top: CGFloat = 0
-
         let statusBarHeight = DMPUIManager.shared.getStatusBarHeight()
-        
-        // 根据状态栏高度判断设备类型
-        // 灵动岛设备状态栏高度通常为 54 或更高
-        if statusBarHeight >= 54 {
-            // 灵动岛设备
-            top = statusBarHeight - 4
-        } else if statusBarHeight > 20 {
-            // 普通刘海屏设备
-            top = 48.0
-        } else {
-            // 传统设备
-            top = 24.0
-        }
+        let safeAreaTop = DMPUIManager.shared.getSafeAreaInsets().top
+        let navigationBarContentHeight: CGFloat = 44.0
+        let top = max(statusBarHeight, safeAreaTop) + (navigationBarContentHeight - height) / 2
         
         let right: CGFloat = screenWidth - 10.0
         let left: CGFloat = right - width
@@ -57,7 +45,9 @@ public class MenuAPI: DMPContainerApi {
             "top": top,
             "right": right,
             "bottom": bottom,
-            "left": left
+            "left": left,
+            "x": left,
+            "y": top
         ])
         
         return menuButtonInfo

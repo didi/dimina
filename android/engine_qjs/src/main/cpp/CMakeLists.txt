@@ -17,6 +17,8 @@ set(NATIVERENDER_ROOT_PATH ${CMAKE_CURRENT_SOURCE_DIR})
 # Include FetchContent for downloading dependencies
 include(FetchContent)
 
+option(DIMINA_UPDATE_QUICKJS_ON_BUILD "Update QuickJS from origin/master before each native build" ON)
+
 # Download QuickJS from GitHub
 FetchContent_Declare(
     quickjs
@@ -33,6 +35,11 @@ FetchContent_Declare(
     GIT_TAG master
     GIT_SHALLOW TRUE
 )
+
+# Only the static libuv target is linked into libdimina.so. Keeping libuv's
+# shared target enabled produces a separately packaged libuv.so, which must also
+# satisfy Android 16 KB page-size alignment checks.
+set(LIBUV_BUILD_SHARED OFF CACHE BOOL "Build shared libuv" FORCE)
 FetchContent_MakeAvailable(libuv)
 
 # Handle the version file to prevent compilation errors
@@ -99,6 +106,17 @@ set(QUICKJS_SOURCES
 # for GameActivity/NativeActivity derived applications, the same library name must be
 # used in the AndroidManifest.xml file.
 add_library(dimina SHARED ${sources} ${QUICKJS_SOURCES})
+
+if(DIMINA_UPDATE_QUICKJS_ON_BUILD)
+    find_package(Git REQUIRED)
+    add_custom_target(update_quickjs_latest
+        COMMAND ${GIT_EXECUTABLE} fetch --depth=1 origin master
+        COMMAND ${GIT_EXECUTABLE} reset --hard FETCH_HEAD
+        WORKING_DIRECTORY ${quickjs_SOURCE_DIR}
+        COMMENT "Updating QuickJS to latest origin/master"
+    )
+    add_dependencies(dimina update_quickjs_latest)
+endif()
 
 # Add linker option for 16KB page size compatibility
 # This helps ensure the .so is compatible with systems using 16KB page sizes,

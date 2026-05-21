@@ -36,18 +36,17 @@ jobs:
         env:
           GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
 
-  cocoapods:
+  swift-package:
     if: always()
-    runs-on: macos-latest
+    runs-on: macos-26
     needs: changelog
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Ruby
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: '3.0'
-          bundler-cache: true
+      - name: Show Swift and Xcode versions
+        run: |
+          swift --version
+          xcodebuild -version
 
       - name: Extract version from tag
         id: version
@@ -62,33 +61,17 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Tag: $TAG, Extracted version: $VERSION"
 
-      - name: Verify podspec version
+      - name: Verify Swift package manifest
         run: |
-          PODSPEC_VERSION=$(grep "^\s*s\.version" Dimina.podspec | sed -E "s/.*'(.*)'.*/\1/" | tr -d '[:space:]')
-          TAG_VERSION="${{ steps.version.outputs.version }}"
-          TAG_VERSION=$(echo "$TAG_VERSION" | tr -d '[:space:]')
-          
-          echo "Comparing versions:"
-          echo "  Tag version: [$TAG_VERSION]"
-          echo "  Podspec version: [$PODSPEC_VERSION]"
-          
-          if [ "$PODSPEC_VERSION" != "$TAG_VERSION" ]; then
-            echo "❌ Version mismatch!"
-            exit 1
-          fi
-          echo "✅ Version check passed: $PODSPEC_VERSION"
+          swift package dump-package > /tmp/package.json
+          grep '"name" : "Dimina"' /tmp/package.json
+          echo "Swift package manifest is valid for tag v${{ steps.version.outputs.version }}"
 
-      - name: Validate Podspec
-        run: bundle exec pod lib lint Dimina.podspec --allow-warnings --verbose
+      - name: Resolve Swift package dependencies
+        run: swift package resolve
 
-      - name: Publish to CocoaPods
-        if: env.COCOAPODS_TRUNK_TOKEN != ''
-        run: bundle exec pod trunk push Dimina.podspec --allow-warnings
-        env:
-          COCOAPODS_TRUNK_TOKEN: ${{secrets.COCOAPODS_TRUNK_TOKEN}}
+      - name: Resolve Xcode package dependencies
+        run: xcodebuild -resolvePackageDependencies -project iOS/dimina.xcodeproj -scheme dimina
 
-      - name: Skip CocoaPods publish
-        if: env.COCOAPODS_TRUNK_TOKEN == ''
-        run: |
-          echo "⚠️ COCOAPODS_TRUNK_TOKEN not configured"
-          echo "Skipping CocoaPods publish. See .github/COCOAPODS_SETUP.md for setup instructions."
+      - name: Build iOS example
+        run: xcodebuild -project iOS/dimina.xcodeproj -scheme dimina -destination 'generic/platform=iOS Simulator' build

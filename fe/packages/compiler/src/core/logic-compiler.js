@@ -5,6 +5,7 @@ import { parseSync } from 'oxc-parser'
 import { walk } from 'oxc-walker'
 import MagicString from 'magic-string'
 import { transform } from 'esbuild'
+import { getWxMemberName, warnUnsupportedWxApi } from '../common/compatibility.js'
 import { collectAssets, hasCompileInfo } from '../common/utils.js'
 import { getAppConfigInfo, getAppId, getComponent, getContentByPath, getNpmResolver, getTargetPath, getWorkPath, resetStoreInfo, resolveAppAlias } from '../env.js'
 import { mergeSourcemap, remapSourcemap } from './sourcemap.js'
@@ -161,6 +162,9 @@ async function buildJSByPath(packageName, module, compileRes, mainCompileRes, ad
 		console.warn('[logic]', `找不到模块文件: ${src}`)
 		return
 	}
+	const diagnosticSource = modulePath.startsWith(getWorkPath())
+		? modulePath.slice(getWorkPath().length)
+		: src
 	
 	const sourceCode = getContentByPath(modulePath)
 	if (!sourceCode) {
@@ -257,6 +261,15 @@ async function buildJSByPath(packageName, module, compileRes, mainCompileRes, ad
 
 	walk(ast, {
 		enter(node, parent) {
+			const wxMemberName = getWxMemberName(node)
+			if (wxMemberName) {
+				warnUnsupportedWxApi(
+					wxMemberName,
+					compileInfo.sourceFile || diagnosticSource,
+					node.loc?.start?.line || getLineByIndex(sourceCode, node.start),
+				)
+			}
+
 			if ((node.type === 'StringLiteral' || node.type === 'Literal') && isLocalAssetString(node.value)) {
 				pathReplacements.push({
 					start: node.start,
@@ -439,6 +452,20 @@ function isLocalAssetString(value) {
 		&& /\.(?:png|jpe?g|gif|svg)(?:\?.*)?$/.test(value)
 }
 
+function getLineByIndex(content, index) {
+	if (typeof index !== 'number' || index < 0) {
+		return null
+	}
+
+	let line = 1
+	for (let i = 0; i < index; i++) {
+		if (content.charCodeAt(i) === 10) {
+			line++
+		}
+	}
+	return line
+}
+
 /**
  * 获取 JavaScript 或 TypeScript 文件的绝对路径
  * @param {string} modulePath - 模块路径
@@ -499,9 +526,17 @@ function resolveDependencyId(specifier, modulePath, allowAbsolute) {
 
 	if (specifier.startsWith('@') || isBareModuleSpecifier(specifier)) {
 		const npmModuleId = resolveNpmModuleId(specifier, modulePath)
+		if (npmModuleId) {
+			return {
+				id: npmModuleId,
+				shouldProcess: true,
+			}
+		}
+
+		const siblingModuleId = resolveBareSiblingModuleId(specifier, modulePath)
 		return {
-			id: npmModuleId || specifier,
-			shouldProcess: Boolean(npmModuleId),
+			id: siblingModuleId || specifier,
+			shouldProcess: Boolean(siblingModuleId),
 		}
 	}
 
@@ -516,6 +551,11 @@ function resolveRelativeModuleId(specifier, modulePath) {
 	const requireFullPath = resolve(modulePath, `../${specifier}`)
 	const relativeId = requireFullPath.split(`${getWorkPath()}${sep}`)[1]
 	return normalizeModuleId(relativeId)
+}
+
+function resolveBareSiblingModuleId(specifier, modulePath) {
+	const siblingModuleId = resolveRelativeModuleId(`./${specifier}`, modulePath)
+	return resolveModuleIdToExistingPath(siblingModuleId)
 }
 
 function normalizeModuleId(moduleId) {

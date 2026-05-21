@@ -39,7 +39,7 @@ export function deepToRaw(obj) {
 	}
 	const result = {}
 	for (const key in obj) {
-		if (Object.hasOwn(obj, key)) {
+		if (Object.prototype.hasOwnProperty.call(obj, key)) {
 			const value = obj[key]
 			if (isRef(value)) {
 				result[key] = unref(value)

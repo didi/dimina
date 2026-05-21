@@ -9,6 +9,7 @@ import { DMPRender } from '../Render/DMPRender'
 import { DMPCommonDialog, ModalOption } from '../Bridges/Widget/DMPCommonDialog'
 import { DMPLogger } from '../EventTrack/DMPLogger'
 import { Tags } from '../EventTrack/Tags'
+import { DMPPageRecord } from '../Navigator/DMPPageRecord'
 import { NumberUtils } from '../Utils/DMPNumberUtils'
 import { DMPMap } from '../Utils/DMPMap'
 import { systemDateTime } from '@kit.BasicServicesKit'
@@ -47,6 +48,7 @@ export struct DMPWebComponent {
   aboutToDisappear(): void {
     DMPLogger.i(Tags.DMP_WEB_COMPONENT, "aboutToDisappear")
     this.controller.webContainer = null;
+    this.controller.notifyControllerDetached()
     this.render.removeController(this.webViewId)
   }
 
@@ -103,7 +105,7 @@ export struct DMPWebComponent {
           this.controller.notifyPageEnd()
         })
         .onControllerAttached(() => {
-          this.controller.initConfig()
+          this.controller.notifyControllerAttached()
         })
         .onInterceptRequest(this.requestCallback.callback.bind(this.requestCallback))
         .onLoadIntercept((event) => {
@@ -152,7 +154,7 @@ export struct DMPWebComponent {
       DMPLogger.w(Tags.WEB_COMPONENT, '页面退出停止更新UI')
       return
     }
-    const componentParams: DMPMap = stack.componentParams[componentId]
+    const componentParams: DMPMap = this.getComponentParams(stack, componentId)
 
     nodeController.setRenderOption({
       surfaceId: embed.surfaceId as string,
@@ -185,7 +187,7 @@ export struct DMPWebComponent {
         DMPLogger.w(Tags.WEB_COMPONENT, '页面退出停止更新UI')
         return
       }
-      const componentParams: DMPMap = stack.componentParams[componentId]
+      const componentParams: DMPMap = this.getComponentParams(stack, componentId)
       nodeController?.setRenderOption({
         surfaceId: embed.surfaceId as string,
         embedId: embed.embedId as string,
@@ -220,6 +222,23 @@ export struct DMPWebComponent {
     if (targetIndex != -1) {
       this.componentIdArr.splice(targetIndex, 1);
     }
+  }
+
+  public updateSameLayerNodeParams(componentId: string, params: DMPMap) {
+    const stack =
+      DMPAppManager.sharedInstance().getApp(this.appIndex)?.navigatorManager.getPageRecordById(this.webViewId)
+    if (!stack) {
+      DMPLogger.w(Tags.WEB_COMPONENT, '页面退出停止更新UI')
+      return
+    }
+
+    stack.componentParams.set(componentId, params)
+    stack.componentParams[componentId] = params
+    this.sameLayerNodeControllerMap.get(componentId)?.updateParams(params)
+  }
+
+  private getComponentParams(stack: DMPPageRecord, componentId: string): DMPMap {
+    return stack.componentParams.get(componentId) ?? stack.componentParams[componentId] ?? new DMPMap()
   }
 
   private printLog(message?: ConsoleMessage) {

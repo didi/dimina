@@ -82,10 +82,10 @@ public class DMPContainer {
         ])
     }
 
-    func loadResourceService(webViewId: Int, pagePath: String) {
+    func loadResourceService(webViewId: Int, pagePath: String) async {
         guard let app = app else { return }
         let message = createResourceMessage(webViewId: webViewId, pagePath: pagePath)
-        DMPChannelProxy.containerToService(msg: message, app: app)
+        await app.service?.fromContainerMessage(data: message)
     }
 
     func loadResourceRender(webViewId: Int, pagePath: String) {

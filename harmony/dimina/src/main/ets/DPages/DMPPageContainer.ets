@@ -11,6 +11,10 @@ import { DMPTabBarConfig } from '../Bundle/Model/DMPBundleAppConfigNext'
 import { DMPLogger } from '../EventTrack/DMPLogger'
 import { Tags } from '../EventTrack/Tags'
 import { DMPMap } from '../Utils/DMPMap'
+import { DMPDeviceUtil } from '../Utils/DMPDeviceUtils'
+import { DMPCapsuleButton } from '../Components/DMPCapsuleButton'
+import { DMPMiniProgramMenuDialog } from '../Components/DMPMiniProgramMenuDialog'
+import { DMPLaunchConfig } from '../DApp/config/DMPLaunchConfig'
 
 @Component
 export struct DMPPageContainer {
@@ -150,6 +154,21 @@ export struct DMPPageContainer {
         .width('100%')
         .height('100%')
       }
+
+      if (this.pageRecord) {
+        DMPCapsuleButton({
+          appIndex: this.appIndex,
+          webViewId: this.webViewId,
+          onMoreClick: () => {
+            this.showMiniProgramMenu()
+          },
+          onCloseClick: () => {
+            this.closeMiniProgram()
+          }
+        })
+          .position({ x: this.getMenuButtonLeft(), y: this.getMenuButtonTop() })
+          .zIndex(10)
+      }
     }
   }
 
@@ -165,6 +184,52 @@ export struct DMPPageContainer {
       return pageRecord.pageStyle
     }
     return undefined
+  }
+
+  private getMenuButtonTop(): number {
+    const navigationBarContentHeight = 55
+    const capsuleHeight = 32
+    return (DMPDeviceUtil.getSafeAreaAndDisplayWHSync().get('statusBarHeight') as number) +
+      Math.round((navigationBarContentHeight - capsuleHeight) / 2)
+  }
+
+  private getMenuButtonLeft(): number {
+    const capsuleWidth = 87
+    const capsuleRightMargin = 10
+    const windowWidth = DMPDeviceUtil.getSafeAreaAndDisplayWHSync().get('windowWidth') as number
+    return windowWidth - capsuleRightMargin - capsuleWidth
+  }
+
+  private showMiniProgramMenu() {
+    let dialogController: CustomDialogController | undefined = undefined
+    dialogController = new CustomDialogController({
+      builder: DMPMiniProgramMenuDialog({
+        appName: this.app.appConfig.appName,
+        buildController: () => {
+          return dialogController!
+        },
+        onReenter: () => {
+          this.reenterMiniProgram()
+        },
+        onClose: () => {
+          this.closeMiniProgram()
+        }
+      }),
+      alignment: DialogAlignment.Bottom,
+      autoCancel: true
+    })
+    dialogController.open()
+  }
+
+  private reenterMiniProgram() {
+    const launchConfig = new DMPLaunchConfig()
+    launchConfig.appEntryPath = this.app.bundleManager.getJsAppModuleConfig().entryPagePath
+    launchConfig.query = new DMPMap()
+    this.app.reLaunchRootStack(launchConfig)
+  }
+
+  private closeMiniProgram() {
+    this.app.navigatorManager.getCurNavigator()?.pop(999)
   }
 
   private shouldShowTabBar(): boolean {
@@ -248,5 +313,3 @@ export struct DMPPageContainer {
     })
   }
 }
-
-

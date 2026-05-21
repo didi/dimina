@@ -2,6 +2,7 @@ package com.didi.dimina.ui.view
 
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
+import android.widget.FrameLayout
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -24,7 +25,8 @@ fun DiminaWebView(
     onPageCompleted: () -> Unit,
     modifier: Modifier = Modifier,
     identifier: String? = null,
-    enableCache: Boolean = true
+    enableCache: Boolean = true,
+    onNativeOverlayReady: (overlay: FrameLayout) -> Unit = {}
 ) {
     val context = LocalContext.current
     val webViewIdentifier = remember { identifier ?: "webview_${System.currentTimeMillis()}" }
@@ -51,15 +53,28 @@ fun DiminaWebView(
         AndroidView(
             modifier = Modifier.fillMaxSize(),
             factory = { context ->
-                val webView = if (enableCache) {
+                NativeComponentOverlay(context).apply {
+                    layoutParams = FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        FrameLayout.LayoutParams.MATCH_PARENT
+                    )
+                    clipChildren = false
+                    clipToPadding = false
+                    onNativeOverlayReady(this)
+                }
+            }
+        )
+
+        AndroidView(
+            modifier = Modifier.fillMaxSize(),
+            factory = { context ->
+                if (enableCache) {
                     // 使用缓存管理器获取WebView实例
                     WebViewCacheManager.getWebView(context, onPageCompleted, webViewIdentifier)
                 } else {
                     // 传统方式创建WebView（使用WebViewCacheManager中的统一配置）
                     createWebView(context, onPageCompleted)
-                }
-
-                webView.apply {
+                }.apply {
                     onInitReady(this)
                     LogUtils.d(TAG, "WebView initialized with identifier: $webViewIdentifier")
                     LogUtils.d(TAG, "Cache info: ${getWebViewCacheInfo()}")
@@ -135,4 +150,20 @@ class DiminaRenderBridge(
     }
 }
 
+class DiminaNativeComponentBridge(
+    private val touchHandler: (JSONObject) -> Unit,
+) {
+    @Suppress("unused")
+    @JavascriptInterface
+    fun dispatchTouch(message: String) {
+        try {
+            touchHandler(JSONObject(message))
+        } catch (e: Exception) {
+            LogUtils.e(TAG, "DiminaNativeComponentBridge.dispatchTouch failed: ${e.message}")
+        }
+    }
 
+    companion object {
+        const val TAG = "DiminaNativeComponentBridge"
+    }
+}

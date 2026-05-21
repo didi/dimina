@@ -4,7 +4,7 @@
 
 ## 问题背景
 
-Dimina 作为一个跨平台的小程序框架，同时支持 Android 、iOS 和 Harmony 操作系统。在原有的代码仓库结构中，小程序资源文件和 SDK 文件存在重复：
+Dimina 作为一个跨平台的小程序框架，同时支持 Android、iOS 和 Harmony 操作系统。在原有的代码仓库结构中，小程序资源文件和 SDK 文件存在重复：
 
 - Android 平台：
   - 小程序资源：`android/app/src/main/assets/jsapp/[appId]/`
@@ -28,11 +28,11 @@ Dimina 作为一个跨平台的小程序框架，同时支持 Android 、iOS 和
 
 ## 目录结构
 
-- `jsapp/`：包含被 Android 和 Harmony 平台共同使用的小程序包
+- `jsapp/`：包含被 Android、iOS 和 Harmony 平台共同使用的小程序包
   - `[appId]/`：每个小程序的目录，以其唯一的 appId 命名
     - `config.json`：小程序的配置文件
     - `[appId].zip`：编译好的小程序包
-- `jssdk/`：包含被 Android 和 Harmony 平台共同使用的 SDK 文件
+- `jssdk/`：包含被 Android、iOS 和 Harmony 平台共同使用的 SDK 文件
   - `config.json`：SDK 的配置文件
   - `main.zip`：SDK 核心文件
 
@@ -89,7 +89,7 @@ shared/jsapp/wx92269e3b2f304afc/
 
 ### Android 平台
 
-- 在 `android/app/build.gradle.kts` 中添加构建任务 `copySharedJsappToAssets`，实现 JSAapp 的资源复制；
+- 在 `android/app/build.gradle.kts` 中添加构建任务 `copySharedJsappToAssets`，实现 JSApp 的资源复制；
 - 在 `android/dimina/build.gradle.kts` 中添加构建任务 `copySharedJssdkToAssets`，实现 JSSDK 的资源复制。
 
 ### iOS 平台

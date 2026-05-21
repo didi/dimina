@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { camelCaseToUnderscore, toCamelCase } from '../src/core/utils'
+import { camelCaseToUnderscore, get, set, toCamelCase } from '../src/core/utils'
 
 describe('自定义数据转换', () => {
 	it('连字符写法会转换成驼峰写法', () => {
@@ -22,5 +22,27 @@ describe('组件名转下划线', () => {
 
 	it('三个单词', () => {
 		expect(camelCaseToUnderscore('PickerViewColumn')).toEqual('picker-view-column')
+	})
+})
+
+describe('path get/set', () => {
+	it('gets nested values with dot and bracket paths', () => {
+		const data = { a: { b: [{ c: 1 }] }, x: { 'y.z': 2 } }
+
+		expect(get(data, 'a.b[0].c')).toBe(1)
+		expect(get(data, ['x', 'y.z'])).toBe(2)
+		expect(get(data, 'a.b[1].c')).toBeUndefined()
+	})
+
+	it('sets nested values and creates missing containers', () => {
+		const data = {}
+
+		set(data, 'a.b[0].c', 1)
+		set(data, ['x', 'y.z'], 2)
+
+		expect(data).toEqual({
+			a: { b: [{ c: 1 }] },
+			x: { 'y.z': 2 },
+		})
 	})
 })

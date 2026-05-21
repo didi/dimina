@@ -33,7 +33,8 @@ struct ContentView: View {
 
         // 创建小程序配置和实例
         let manager = DMPAppManager.sharedInstance()
-        let appConfig = DMPAppConfig(appName: item.appName, appId: item.id)
+        var appConfig = DMPAppConfig(appName: item.appName, appId: item.id)
+        appConfig.isDebugMode = true
         let app = manager.appWithConfig(appConfig: appConfig)
 
         // 设置DMPNavigator
@@ -48,37 +49,44 @@ struct ContentView: View {
 
     var body: some View {
         NavigationView {
-            VStack {
+            VStack(spacing: 0) {
                 HStack {
                     Image(systemName: "magnifyingglass")
                         .foregroundColor(.gray)
 
                     TextField("搜索小程序", text: $searchText)
                 }
-                .padding()
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
                 .background(Color(.systemGray6))
                 .cornerRadius(10)
                 .padding(.horizontal)
                 .padding(.top)
+                .padding(.bottom, 12)
 
-                Text("应用列表")
-                    .font(.system(size: 14))
-                    .foregroundColor(Color(.systemGray))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal)
-                    .padding(.vertical, 8)
+                VStack(spacing: 0) {
+                    Text("应用列表")
+                        .font(.system(size: 14))
+                        .foregroundColor(Color(.systemGray))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal)
+                        .padding(.vertical, 8)
+
+                    List(filteredItems) { item in
+                        AppListItemView(item: item)
+                            .onTapGesture {
+                                navigateToDetail(item: item)
+                            }
+                    }
+                    .listStyle(.plain)
                     .background(Color(.systemGray6))
-
-                List(filteredItems) { item in
-                    AppListItemView(item: item)
-                        .onTapGesture {
-                            navigateToDetail(item: item)
-                        }
+                    .modifier(AppListBackgroundModifier())
                 }
-                .listStyle(.plain)
-                .background(Color(.systemGray6))
-                Spacer()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color(.systemGray6).ignoresSafeArea(.container, edges: .bottom))
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(.systemBackground))
             .navigationBarHidden(true)
             .onAppear {
                 setupNavigationController()
@@ -116,6 +124,16 @@ struct ContentView: View {
     }
 }
 
+private struct AppListBackgroundModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 16.0, *) {
+            content.scrollContentBackground(.hidden)
+        } else {
+            content
+        }
+    }
+}
+
 struct AppListItemView: View {
     let item: DMPAppConfig
 
@@ -142,6 +160,3 @@ struct AppListItemView: View {
 #Preview("ContentView") {
     ContentView()
 }
-
-
-

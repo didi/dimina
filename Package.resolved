@@ -1,0 +1,33 @@
+{
+  "originHash" : "a8c6e28198f6df603078b352a54ae7c5fb5e5343a523a6f786e290cf8cd9cf8d",
+  "pins" : [
+    {
+      "identity" : "alamofire",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/Alamofire/Alamofire.git",
+      "state" : {
+        "revision" : "7595cbcf59809f9977c5f6378500de2ad73b7ddb",
+        "version" : "5.12.0"
+      }
+    },
+    {
+      "identity" : "mmkv",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/Tencent/MMKV.git",
+      "state" : {
+        "revision" : "23d652c17e8c2023bb50f1c92e862a2304eaa2a2",
+        "version" : "2.4.0"
+      }
+    },
+    {
+      "identity" : "zipfoundation",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/weichsel/ZIPFoundation.git",
+      "state" : {
+        "revision" : "22787ffb59de99e5dc1fbfe80b19c97a904ad48d",
+        "version" : "0.9.20"
+      }
+    }
+  ],
+  "version" : 3
+}

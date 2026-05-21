@@ -7,7 +7,7 @@
 
 import CommonCrypto
 import Foundation
-import SSZipArchive
+import ZIPFoundation
 
 public class DMPFileUtil {
 
@@ -20,12 +20,15 @@ public class DMPFileUtil {
         at zipPath: String, to destinationPath: String, overwrite: Bool = true
     ) -> Bool {
         do {
-            // 确保目标目录存在
+            if overwrite && FileManager.default.fileExists(atPath: destinationPath) {
+                try FileManager.default.removeItem(atPath: destinationPath)
+            }
+
             try FileManager.default.createDirectory(
                 atPath: destinationPath, withIntermediateDirectories: true, attributes: nil)
-            // 使用SSZipArchive进行解压
-            try SSZipArchive.unzipFile(
-                atPath: zipPath, toDestination: destinationPath, overwrite: overwrite, password: nil
+            try FileManager.default.unzipItem(
+                at: URL(fileURLWithPath: zipPath),
+                to: URL(fileURLWithPath: destinationPath)
             )
             print("成功解压文件: \(zipPath) 到 \(destinationPath)")
             return true

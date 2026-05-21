@@ -1,6 +1,7 @@
 import { isFunction } from '@dimina/common'
 import { invokeAPI } from '@/api/common'
 import router from '@/core/router'
+import { hydrateSelectorQueryResult } from '../../ui/canvas/canvas-node'
 
 /**
  * 返回一个 SelectorQuery 对象实例。在自定义组件或包含自定义组件的页面中，应使用 this.createSelectorQuery() 来代替。
@@ -12,9 +13,23 @@ export function createSelectorQuery() {
 	return new SelectorQuery()
 }
 
+function getCurrentPageInfo() {
+	return router.getPageInfo()
+}
+
+function getCurrentModuleId() {
+	const pageInfo = getCurrentPageInfo()
+	return pageInfo?.__id__ || pageInfo?.id
+}
+
+function getCurrentBridgeId() {
+	const pageInfo = getCurrentPageInfo()
+	return pageInfo?.bridgeId || pageInfo?.id
+}
+
 class SelectorQuery {
 	constructor() {
-		this.__componentId = router.getPageInfo().id
+		this.__componentId = getCurrentModuleId()
 		this.__taskQueue = []
 		this.__cbQueue = []
 	}
@@ -53,7 +68,7 @@ class SelectorQuery {
 	 * @returns {NodesRef} NodesRef
 	 */
 	selectViewport() {
-		return new NodesRef(this, router.getPageInfo().id, '', true)
+		return new NodesRef(this, getCurrentModuleId(), '', true)
 	}
 
 	/**
@@ -80,10 +95,12 @@ class SelectorQuery {
 	 */
 	exec(callback) {
 		const self = this
+		const bridgeId = getCurrentBridgeId()
 		const data = {
 			tasks: this.__taskQueue,
 			success: (res) => {
-				res.forEach((nodeInfo, index) => {
+				const hydratedRes = hydrateSelectorQueryResult(res, bridgeId) || []
+				hydratedRes.forEach((nodeInfo, index) => {
 					const cb = self.__cbQueue[index]
 					if (isFunction(cb)) {
 						cb.call(self, nodeInfo)
@@ -91,7 +108,7 @@ class SelectorQuery {
 				})
 
 				if (isFunction(callback)) {
-					callback.call(self, res)
+					callback.call(self, hydratedRes)
 				}
 			},
 		}

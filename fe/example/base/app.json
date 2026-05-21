@@ -36,6 +36,7 @@
 		"pages/custom-class/index",
 		"pages/ext-bridge/index",
 		"pages/canvas/index",
+		"pages/video/index",
 		"pages/web-gl/index"
 	],
 	"subPackages": [

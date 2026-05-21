@@ -42,29 +42,31 @@ export class DMPContainerBridgesModuleStorage extends DMPContainerBridgesModule 
     return mgr.encode(key, value)
   }
 
-  getStorageSync(data: string, callback: DMPBridgeCallback): number | string | boolean | Date | object {
-    const key: string = data
+  getStorageSync(data: string | DMPMap, callback: DMPBridgeCallback): number | string | boolean | Date | object {
+    const key: string = this._getKey(data)
     return this._getStorage(key);
   }
 
   getStorage(data: DMPMap, callback: DMPBridgeCallback) {
     const result: DMPMap = new DMPMap()
-    result.set('data', this._getStorage(data.getString('key') ?? ''));
+    result.set('data', this._getStorage(this._getKey(data)));
     this.invokeSuccessCallback(callback, result);
   }
 
-  removeStorageSync(data: string, callback: DMPBridgeCallback): boolean {
-    const key: string = data
+  removeStorageSync(data: string | DMPMap, callback: DMPBridgeCallback): boolean {
+    const key: string = this._getKey(data)
     const mgr = DMPMMKVManager.sharedInstance()
-    mgr.remove(key)
-    return true
+    return mgr.remove(key)
   }
 
   removeStorage(data: DMPMap, callback: DMPBridgeCallback) {
-    const key: string = (data.get('key'))
+    const key: string = this._getKey(data)
     const mgr = DMPMMKVManager.sharedInstance()
-    mgr.remove(key)
-    this.invokeSuccessCallback(callback, null);
+    if (mgr.remove(key)) {
+      this.invokeSuccessCallback(callback, null);
+    } else {
+      this.invokeFailureCallback(callback, undefined, '');
+    }
   }
 
   clearStorageSync(data: DMPMap, callback: DMPBridgeCallback): boolean {
@@ -81,6 +83,13 @@ export class DMPContainerBridgesModuleStorage extends DMPContainerBridgesModule 
   _getStorage(key: string): number | string | boolean | Date | object {
     const mgr = DMPMMKVManager.sharedInstance()
     return mgr.decode(key).get('value');
+  }
+
+  private _getKey(data: string | DMPMap): string {
+    if (typeof data === 'string') {
+      return data
+    }
+    return data.getString('key') ?? ''
   }
 
   getStorageInfoSync(data: DMPMap, callback: DMPBridgeCallback): object {
@@ -110,5 +119,3 @@ export class DMPContainerBridgesModuleStorage extends DMPContainerBridgesModule 
     return DMPMap.createFromObject(result);
   }
 }
-
-

@@ -1,5 +1,6 @@
 package com.didi.dimina.core
 
+import com.didi.dimina.Dimina
 import com.didi.dimina.bean.BridgeOptions
 import com.didi.dimina.bean.MergedPageConfig
 import com.didi.dimina.bean.PathInfo
@@ -8,6 +9,7 @@ import com.didi.dimina.common.PathUtils
 import com.didi.dimina.common.Utils
 import com.didi.dimina.common.VersionUtils
 import com.didi.dimina.engine.qjs.JSValue
+import com.didi.dimina.ui.view.DiminaNativeComponentBridge
 import com.didi.dimina.ui.container.DiminaActivity
 import com.didi.dimina.ui.view.DiminaRenderBridge
 import com.didi.dimina.ui.view.postMessage
@@ -48,10 +50,15 @@ class Bridge(
                     invokeHandler = { msg -> messageInvoke("render", msg) },
                     publishHandler = { msg -> messagePublish(msg) }
                 ), DiminaRenderBridge.TAG)
+            options.webview.addJavascriptInterface(
+                DiminaNativeComponentBridge(
+                    touchHandler = { msg -> parent.dispatchNativeComponentTouch(msg, this@Bridge) }
+                ), DiminaNativeComponentBridge.TAG)
         }
-        // 加载模版页面
+        // 加载模版页面。调试模式通过 URL 参数让 pageFrame 在 render 初始化前启用 vConsole。
+        val vConsoleQuery = if (Dimina.getInstance().isDebugMode()) "?vconsole=1" else ""
         options.webview.loadUrl(
-            "${PathUtils.WEBVIEW_JSSDK_BASE_URL}${VersionUtils.getJSVersion()}/main/pageFrame.html"
+            "${PathUtils.WEBVIEW_JSSDK_BASE_URL}${VersionUtils.getJSVersion()}/main/pageFrame.html$vConsoleQuery"
         )
     }
 
@@ -224,6 +231,7 @@ class Bridge(
     }
 
     fun destroy(keepHandler: Boolean = false) {
+        parent.clearNativeComponents(this)
         if (!isResourceLoaded()) {
             return
         }
@@ -272,14 +280,16 @@ class Bridge(
             LogUtils.d(tag, "API invocation: $apiName with params: $params")
 
             // Use MiniApp to handle API invocation
-            return MiniApp.getInstance().invokeAPI(
-                appId = options.appId,
-                context = parent,
-                apiName = apiName,
-                params = params
-            ) { response ->
-                // Send response back to JavaScript
-                options.jscore.postMessage(response)
+            return parent.runWithBridgeContext(this) {
+                MiniApp.getInstance().invokeAPI(
+                    appId = options.appId,
+                    context = parent,
+                    apiName = apiName,
+                    params = params
+                ) { response ->
+                    // Send response back to JavaScript
+                    options.jscore.postMessage(response)
+                }
             }
         } catch (e: Exception) {
             e.printStackTrace()

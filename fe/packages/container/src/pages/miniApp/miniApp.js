@@ -47,6 +47,7 @@ export class MiniApp {
 		this.tabBarBridges = new Map()      // pagePath -> Bridge：懒加载的持久 tab 池
 		this.currentTabPath = null          // 当前激活的 tab 路径；null 表示当前不在任何 tab 页
 		this.tabBarEl = null                // .dimina-mini-app__tabbar 根节点
+		this.tabBarHeight = 0               // TabBar 实际高度，用于给 tab 页 webview 单独预留底部空间
 		// showModal 用 LIFO stack：后来的 modal 压在前一个之上（z-index 递增），
 		// 关闭顶上 modal 露出下方；前后 modal 互不干扰，各自 success/complete 独立。
 		this._modalStack = []
@@ -128,8 +129,10 @@ export class MiniApp {
 		const entryPagePath = this.getEntryPagePath()
 		const currentPageQuery = this.getCurrentPageQuery()
 		const pagePath = currentPagePath || entryPagePath || ''
-		const pageWithQuery = `${pagePath}${Object.keys(currentPageQuery).length ? `?${new URLSearchParams(currentPageQuery).toString()}` : ''}`
-		const addressUrl = `${window.location.origin}${window.location.pathname}#${this.appId}|${pageWithQuery}`
+		const addressUrl = HashRouter.buildRouteURL(this.appId, [
+			{ pagePath: entryPagePath, query: this.appInfo.query || {} },
+			{ pagePath, query: currentPageQuery },
+		])
 
 		name.textContent = this.appInfo.name || '未命名小程序'
 		appId.textContent = `AppID：${this.appId || '--'}`
@@ -360,7 +363,7 @@ export class MiniApp {
 	}
 
 	/**
-	 * 将当前 bridgeList 序列化到 URL hash，用于刷新后恢复完整页面栈。
+	 * 将当前 bridgeList 序列化到 URL query，用于刷新后恢复入口页与当前页。
 	 * pagePath 统一去掉前导 /，与 app-config.json modules key 保持一致。
 	 */
 	_syncHash() {
@@ -628,6 +631,12 @@ export class MiniApp {
 		}
 	}
 
+	applyUpdate() {
+		this.reLaunch({
+			url: this.getEntryPagePath(),
+		})
+	}
+
 	redirectTo(opts) {
 		const { url, success, fail, complete } = opts
 		const { query, pagePath } = queryPath(url)
@@ -674,6 +683,7 @@ export class MiniApp {
 				this.currentTabPath = null
 			}
 		}
+		this._setBridgeTabBarInset(curBridge, false)
 		this._setTabBarVisible(false)
 
 		this.webviewAnimaEnd = true
@@ -838,6 +848,7 @@ export class MiniApp {
 
 			// 4. 显示目标 tab：清理动画类、重置 z-index、display
 			const targetEl = targetBridge.webview.el
+			this._setBridgeTabBarInset(targetBridge, true)
 			targetEl.classList.remove(
 				'dimina-native-view--before-enter',
 				'dimina-native-view--slide-out',
@@ -942,7 +953,7 @@ export class MiniApp {
 		})
 
 		// 监听 TabBar 实际高度（含 safe-area-inset-bottom）变化，
-		// 通过 CSS 变量同步 webviews 容器底部留白，避免硬编码与样式漂移
+		// 并同步到所有 tab 页 webview，避免硬编码与样式漂移
 		if (typeof ResizeObserver !== 'undefined') {
 			this._tabBarResizeObserver?.disconnect()
 			this._tabBarResizeObserver = new ResizeObserver(() => this._syncTabBarHeightVar())
@@ -985,50 +996,103 @@ export class MiniApp {
 	}
 
 	/**
-	 * 把 TabBar 当前实际高度同步到 CSS 变量，让 webviews 容器底部留白与之对齐。
-	 * - 隐藏时高度记为 0，等价于不留白
-	 * - 显示时取 getBoundingClientRect().height，含 safe-area-inset-bottom
+	 * 获取 TabBar 实际高度。隐藏状态下临时不可见测量一次，避免首次 switchTab
+	 * 到 tab 页时缺少底部留白。
+	 */
+	_getTabBarHeight() {
+		if (!this.tabBarEl) return this.tabBarHeight
+
+		let height = this.tabBarEl.getBoundingClientRect().height
+		if (!height && this.tabBarEl.style.display === 'none') {
+			const oldDisplay = this.tabBarEl.style.display
+			const oldVisibility = this.tabBarEl.style.visibility
+
+			this.tabBarEl.style.visibility = 'hidden'
+			this.tabBarEl.style.display = 'block'
+			height = this.tabBarEl.getBoundingClientRect().height
+			this.tabBarEl.style.display = oldDisplay
+			this.tabBarEl.style.visibility = oldVisibility
+		}
+
+		if (height > 0) {
+			this.tabBarHeight = height
+		}
+		return this.tabBarHeight
+	}
+
+	/**
+	 * 把 TabBar 当前实际高度同步到 CSS 变量和 tab 页 webview。
+	 * webviews 容器保持全屏，只有 tab 页自身预留底部空间；这样隐藏
+	 * tabbar 跳转到非 tab 页时，不会触发所有页面整体重排。
 	 */
 	_syncTabBarHeightVar() {
-		if (!this.tabBarEl) return
-		const visible = this.tabBarEl.style.display !== 'none'
-		const height = visible ? this.tabBarEl.getBoundingClientRect().height : 0
+		const height = this._getTabBarHeight()
 		this.el.style.setProperty('--dimina-tabbar-height', `${height}px`)
+		this._syncTabBarBridgeInsets()
+	}
+
+	_setBridgeTabBarInset(bridge, enabled) {
+		const webviewEl = bridge?.webview?.el
+		if (!webviewEl) return
+
+		if (!enabled) {
+			webviewEl.style.removeProperty('bottom')
+			return
+		}
+
+		webviewEl.style.bottom = `${this._getTabBarHeight()}px`
+	}
+
+	_syncTabBarBridgeInsets() {
+		for (const bridge of this.tabBarBridges.values()) {
+			this._setBridgeTabBarInset(bridge, true)
+		}
+	}
+
+	_joinBaseUrl(...segments) {
+		const baseUrl = import.meta.env.BASE_URL || '/'
+		const normalizedBaseUrl = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`
+		const path = segments
+			.map(segment => String(segment).trim().replace(/^\/+|\/+$/g, ''))
+			.filter(Boolean)
+			.join('/')
+		return `${normalizedBaseUrl}${path}`
 	}
 
 	/**
 	 * 解析 tabBar 图标路径。
-	 * 编译期 collectAssets 输出有两种形态（看 ASSETS_PATH_PREFIX 环境变量）：
-	 *   - 未设置：/${appId}/main/static/${prefix}_${filename}    ← 带前导 /
-	 *   - 已设置：${appId}/main/static/${prefix}_${filename}     ← 无前导 /（如 GitHub Pages 生产构建）
+	 * 编译期 collectAssets 会输出 appId/main/static/...，本地源路径则按小程序
+	 * 根目录兜底到 appId/main/...，两类路径都统一挂到 Vite BASE_URL 下。
 	 */
 	_resolveTabBarIcon(iconPath) {
 		if (!iconPath || typeof iconPath !== 'string') return null
+
+		const rawPath = iconPath.trim()
+		if (!rawPath) return null
+
 		// 已是完整 URL / data 协议 / 协议无关路径：保持原值
-		if (/^(?:data:|blob:|https?:|\/\/)/i.test(iconPath)) {
-			return iconPath
+		if (/^(?:data:|blob:|https?:|\/\/)/i.test(rawPath)) {
+			return rawPath
 		}
-		const baseUrl = import.meta.env.BASE_URL
-		if (iconPath.startsWith('/')) {
-            return `${baseUrl.replace(/\/$/, "")}${iconPath}`;
-        }
-		const appIdPrefix = `${this.appId}/`
-		if (iconPath.startsWith(appIdPrefix)) {
-			return `${baseUrl}${iconPath}`
+
+		const localPath = rawPath.replace(/^\/+/, '').replace(/^\.\//, '')
+		const appRootPrefix = `${this.appId}/`
+		if (localPath.startsWith(appRootPrefix)) {
+			return this._joinBaseUrl(localPath)
 		}
-		// 兜底：用户配置里仍是包内相对路径（未走 collectAssets 改写）
-		return `${baseUrl}${this.appId}/main/${iconPath}`
+
+		// 兜底：用户配置里仍是包内相对路径（未走 collectAssets 改写或拷贝失败）
+		return this._joinBaseUrl(this.appId, 'main', localPath)
 	}
 
 	/**
-	 * 控制 TabBar 容器的显示/隐藏。底部留白通过 CSS 变量 --dimina-tabbar-height
-	 * 自动联动（由 ResizeObserver 在尺寸变化时同步），不再硬编码 49px。
+	 * 控制 TabBar 容器的显示/隐藏。底部留白只作用在 tab 页 webview 上，
+	 * 避免非 tab 跳转过程中改变 webviews 容器高度。
 	 */
 	_setTabBarVisible(visible) {
 		if (!this.tabBarEl) return
 		this.tabBarEl.style.display = visible ? 'block' : 'none'
-		// display 切换通常不会触发 ResizeObserver（隐藏 → 显示时高度从 0 → N，
-		// 但切到 display:none 浏览器对 ResizeObserver 行为各不相同），主动同步一次
+		// display 切换通常不会触发 ResizeObserver，主动同步一次
 		this._syncTabBarHeightVar()
 	}
 
@@ -1387,7 +1451,7 @@ export class MiniApp {
 		p.textContent = String(title)
 		dom.appendChild(p)
 
-		// 挂到 mini-app 根节点，避免被 webviewsContainer 的 tabbar 留白裁剪 / 被遮挡
+		// 挂到 mini-app 根节点，避免被 webviewsContainer 的页面层级裁剪 / 遮挡
 		this.el.appendChild(dom)
 		this.toastInfo.dom = dom
 		this.toastInfo.maskEl = maskEl
@@ -1628,7 +1692,7 @@ export class MiniApp {
 		sheet.appendChild(cancelBtn)
 
 		mask.onclick = cleanup
-		// 挂载到 mini-app 根，避免被 webviewsContainer 的 tabbar 留白（bottom: var(--tabbar-height)）抬高
+		// 挂载到 mini-app 根，避免被 webviewsContainer 的页面层级影响
 		this.el.appendChild(mask)
 		this.el.appendChild(sheet)
 		// 动画效果：等浏览器 paint 后再加 show class，触发 CSS transition

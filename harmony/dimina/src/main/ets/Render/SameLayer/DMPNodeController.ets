@@ -55,10 +55,55 @@ export class DMPNodeController extends NodeController {
     this.type = params.type;
     this.parentWebViewId = params.parentWebViewId;
     this.params = params.params || new DMPMap();
-    this.params.set('width', this._width_)
-    this.params.set('height', this._height_)
-    this.params.set('appIndex',this.appIndex)
-    this.params.set('parentWebViewId',this.parentWebViewId)
+    this.appendRuntimeParams()
+  }
+
+  updateParams(params: DMPMap) {
+    const nextParams = params || new DMPMap();
+    const shouldRebuild = this.shouldRebuildForParams(nextParams)
+    this.params = nextParams;
+    this.appendRuntimeParams()
+    if (shouldRebuild) {
+      this.rebuild()
+    }
+  }
+
+  private appendRuntimeParams() {
+    this.params?.set('width', this._width_)
+    this.params?.set('height', this._height_)
+    this.params?.set('appIndex', this.appIndex)
+    this.params?.set('parentWebViewId', this.parentWebViewId)
+  }
+
+  private shouldRebuildForParams(nextParams: DMPMap): boolean {
+    if (!this.params || this.type !== 'native/video') {
+      return true
+    }
+    const keys: string[] = [
+      'id',
+      'src',
+      'duration',
+      'controls',
+      'autoplay',
+      'loop',
+      'muted',
+      'initialTime',
+      'objectFit',
+      'poster',
+      'direction',
+      'showProgress',
+      'showFullscreenBtn',
+      'showPlayBtn',
+      'showCenterPlayBtn',
+      'hidden'
+    ]
+    for (let i = 0; i < keys.length; i++) {
+      const key = keys[i]
+      if (this.params.get(key) !== nextParams.get(key)) {
+        return true
+      }
+    }
+    return false
   }
 
   // 必须要重写的方法，用于构建节点数、返回节点数挂载在对应NodeContainer中。

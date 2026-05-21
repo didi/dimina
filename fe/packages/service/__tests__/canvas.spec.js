@@ -1,9 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { callback } from '@dimina/common'
 import router from '../src/core/router.js'
+import { createSelectorQuery } from '../src/api/core/wxml/selector-query/index.js'
 import {
 	canvasToTempFilePath,
 	createCanvasContext,
 	createContext,
+	createOffscreenCanvas,
 } from '../src/api/core/ui/canvas/index.js'
 
 describe('canvas api', () => {
@@ -59,5 +62,61 @@ describe('canvas api', () => {
 		expect(message.body.name).toBe('canvasToTempFilePath')
 		expect(message.body.params.canvasId).toBe('main-canvas')
 		expect(message.body.params.moduleId).toBe('component_2')
+	})
+
+	it('should hydrate selector query canvas node results', () => {
+		const execCallback = vi.fn()
+		const nodeCallback = vi.fn()
+
+		createSelectorQuery()
+			.select('#canvas')
+			.node(nodeCallback)
+			.exec(execCallback)
+
+		const [, message] = globalThis.DiminaServiceBridge.publish.mock.calls[0]
+		const successId = message.body.params.success
+		callback.invoke(successId, [{
+			width: 300,
+			height: 150,
+			node: {
+				__diminaNodeType: 'dimina-canvas-node',
+				nodeId: 'canvas_1',
+				type: 'webgl',
+				width: 300,
+				height: 150,
+			},
+		}])
+
+		const canvas = execCallback.mock.calls[0][0][0].node
+		expect(nodeCallback.mock.calls[0][0].node).toBe(canvas)
+		expect(canvas.width).toBe(300)
+		expect(canvas.height).toBe(150)
+		expect(typeof canvas.getContext).toBe('function')
+	})
+
+	it('should create an offscreen webgl context proxy and flush commands', async () => {
+		const canvas = createOffscreenCanvas({ type: 'webgl', width: 320, height: 200 })
+		const gl = canvas.getContext('webgl')
+		const shader = gl.createShader(gl.VERTEX_SHADER)
+
+		gl.shaderSource(shader, 'void main() {}')
+		gl.compileShader(shader)
+
+		await Promise.resolve()
+
+		expect(globalThis.DiminaServiceBridge.publish).toHaveBeenCalledTimes(2)
+		const [, createMessage] = globalThis.DiminaServiceBridge.publish.mock.calls[0]
+		const [, flushMessage] = globalThis.DiminaServiceBridge.publish.mock.calls[1]
+
+		expect(createMessage.body.name).toBe('createOffscreenCanvas')
+		expect(createMessage.body.params.width).toBe(320)
+		expect(flushMessage.body.name).toBe('canvasNodeFlush')
+		expect(flushMessage.body.params.operations.map(item => item.op)).toEqual([
+			'getContext',
+			'contextCall',
+			'contextCall',
+			'contextCall',
+		])
+		expect(flushMessage.body.params.operations[1].method).toBe('createShader')
 	})
 })

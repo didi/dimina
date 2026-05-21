@@ -67,6 +67,7 @@ public class DMPContainerApi: NSObject {
         _ = RouteAPI(app: app)
         _ = BaseAPI(app: app)
         _ = SystemAPI(app: app)
+        _ = UpdateAPI(app: app)
         _ = NetworkAPI(app: app)
         _ = StorageAPI(app: app)
         _ = ClipboardAPI(app: app)
@@ -81,6 +82,7 @@ public class DMPContainerApi: NSObject {
         _ = MenuAPI(app: app)
         _ = NavigationBarAPI(app: app)
         _ = ScrollAPI(app: app)
+        _ = NativeComponentAPI(app: app)
         
         // 返回一个基础 API 实例
         return DMPContainerApi(app: app)

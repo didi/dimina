@@ -1,3 +1,4 @@
+import './polyfills'
 import { callback } from '@dimina/common'
 import env from './core/env'
 import loader from './core/loader'

@@ -36,7 +36,7 @@ export function addComputedData(self) {
 	const computed = self.__mpxProxy?.options?.computed
 	if (computed) {
 		for (const ck of Object.keys(computed)) {
-			if (!Object.hasOwn(self.data, ck)) {
+			if (!Object.prototype.hasOwnProperty.call(self.data, ck)) {
 				self.data[ck] = null
 			}
 		}
@@ -102,7 +102,7 @@ export function serializeProps(properties) {
 
 			// 处理 type 字段
 			// 兼容 items: Array 和 item: { type: String, value: '' } 两种形式
-			const transType = item && typeof item === 'object' && Object.hasOwn(item, 'type') ? convertToStringType(item.type) : convertToStringType(item)
+			const transType = item && typeof item === 'object' && Object.prototype.hasOwnProperty.call(item, 'type') ? convertToStringType(item.type) : convertToStringType(item)
 			let array = null
 			if (Array.isArray(transType)) {
 				array = [...transType]
@@ -429,7 +429,7 @@ export function mergeBehaviors(obj, behaviors) {
 		const result = { ...target }
 		
 		for (const key in source) {
-			if (Object.hasOwn(source, key)) {
+			if (Object.prototype.hasOwnProperty.call(source, key)) {
 				const targetValue = result[key]
 				const sourceValue = source[key]
 				
@@ -636,7 +636,7 @@ export function matchComponent(selector, item) {
 			
 			// 如果只指定了属性名，检查属性是否存在
 			if (attrValue === undefined) {
-				return Object.hasOwn(dataset, attrName)
+				return Object.prototype.hasOwnProperty.call(dataset, attrName)
 			}
 			
 			// 如果指定了属性值，检查属性值是否匹配

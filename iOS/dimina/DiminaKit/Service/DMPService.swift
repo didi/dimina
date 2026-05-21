@@ -73,13 +73,18 @@ public class DMPService {
         let script: String = "DiminaServiceBridge.onMessage(\(data))"
         await self.evaluateScript(script)
     }
+
+    @discardableResult
+    func fromContainerMessage(data: DMPMap) async -> JSValue? {
+        print("DMPService: fromContainer data: \(data.toJsonString())")
+
+        let script: String = "DiminaServiceBridge.onMessage(\(data.toJsonString()))"
+        return await self.evaluateScript(script)
+    }
     
     func fromContainer(data: DMPMap) {
         Task {
-            print("DMPService: fromContainer data: \(data.toJsonString())")
-
-            let script: String = "DiminaServiceBridge.onMessage(\(data.toJsonString()))"
-            await self.evaluateScript(script)
+            await self.fromContainerMessage(data: data)
         }
     }
     

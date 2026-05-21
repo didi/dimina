@@ -20,7 +20,8 @@ class Router {
 
 	getPageInfo() {
 		// 获取最上面子数组的最后页面信息
-		return this.stack().at(-1) || { id: this.#initId }
+		const pages = this.stack()
+		return pages[pages.length - 1] || { id: this.#initId }
 	}
 
 	/**
@@ -67,7 +68,7 @@ class Router {
 		}
 		else {
 			// 如果没有指定stackId，返回最上面的栈
-			const currentStack = this.#stacks.at(-1)
+			const currentStack = this.#stacks[this.#stacks.length - 1]
 			if (currentStack) {
 				return currentStack.pages
 			}

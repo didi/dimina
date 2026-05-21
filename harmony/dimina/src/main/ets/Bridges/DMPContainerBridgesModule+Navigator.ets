@@ -150,6 +150,7 @@ export class DMPContainerBridgesModuleNavigator extends DMPContainerBridgesModul
   applyUpdate(data: DMPMap, callback: DMPBridgeCallback) {
     const app: DMPApp = this.app!
     app.updateApp()
+    this.invokeSuccessCallback(callback, null)
   }
 
   private async exeJsLogicScript(packageName: string) {
@@ -160,4 +161,3 @@ export class DMPContainerBridgesModuleNavigator extends DMPContainerBridgesModul
     }
   }
 }
-

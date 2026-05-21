@@ -17,7 +17,8 @@ export class DMPContainerBridgesModuleMenu extends DMPContainerBridgesModule {
 
     const width = 87;
     const height = 32;
-    const top = whData.get('statusBarHeight') as number;
+    const navigationBarContentHeight = 55;
+    const top = (whData.get('statusBarHeight') as number) + Math.round((navigationBarContentHeight - height) / 2);
     const right = whData.get('windowWidth') - 10;
     const left = right - width;
     const bottom = top + height;
@@ -29,10 +30,10 @@ export class DMPContainerBridgesModuleMenu extends DMPContainerBridgesModule {
       height: height,
       bottom: bottom,
       right: right,
+      x: left,
+      y: top,
     })
     return menuButtonBoundingClientRect
   }
 }
-
-
 

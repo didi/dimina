@@ -3,8 +3,8 @@
 ## 系统要求
 
 - iOS 14.0+
-- Swift 5.0+
-- Xcode 14.0+
+- Swift 6.0+
+- Xcode 16.0+
 
 ## 快速接入
 
@@ -12,27 +12,27 @@
 
 您可以通过以下方式将 Dimina SDK 添加到您的 iOS 项目中：
 
-#### CocoaPods
+#### Swift Package Manager
 
-在您的 `Podfile` 中添加：
+在 Xcode 中打开 `dimina.xcodeproj`，选择：
 
-```ruby
-pod 'Dimina', :git => 'https://github.com/didi/dimina.git'
+`File > Add Package Dependencies...`
+
+然后填写仓库地址：
+
+```txt
+https://github.com/didi/dimina.git
 ```
 
-然后运行：
-
-```bash
-pod install
-```
+版本选择 `Up to Next Major Version`，或按需要固定到具体版本。
 
 ### 步骤 2: 准备小程序资源
 
-将编译好的小程序压缩包放入 `JsApp.bundle` 文件夹，文件夹以小程序id命名。每个小程序文件夹需包含以下内容：
+将编译好的小程序压缩包放入 `iOS/dimina/Resources/JsApp.bundle` 文件夹，文件夹以小程序 ID 命名。示例工程可通过 `copy-shared-resources.sh` 从根目录 `shared/jsapp` 同步资源。每个小程序文件夹需包含以下内容：
 
 1. `config.json` - 小程序配置文件，包含以下字段：
 
-```json
+```json5
 {
   "appId": "wx92269e3b2f304afc", // 小程序唯一标识
   "name": "小程序名称",
@@ -42,7 +42,7 @@ pod install
 }
 ```
 
-2. `[appId].zip` - 小程序代码包，文件名需与appId一致
+2. `[appId].zip` - 小程序代码包，文件名需与 appId 一致
 
 目录结构示例：
 
@@ -55,6 +55,8 @@ JsApp.bundle/
       ├── config.json
       └── wxbaf4b47de04f1d8a.zip
 ```
+
+内置包会在启动时按 `versionCode` 复制或解压到应用沙盒目录后运行。动态下发、远程下载和 `wx.getUpdateManager` 的职责边界请参考[小程序包更新说明](../docs/MiniProgram-Update.md)。
 
 ### 步骤 3: 启动小程序
 
@@ -87,7 +89,9 @@ struct ContentView: View {
 
             // 创建小程序配置和实例
             let manager: DMPAppManager = DMPAppManager.sharedInstance()
-            let appConfig: DMPAppConfig = DMPAppConfig(appName: "小程序名称", appId: "wx92269e3b2f304afc")
+            var appConfig: DMPAppConfig = DMPAppConfig(appName: "小程序名称", appId: "wx92269e3b2f304afc")
+            appConfig.isDebugMode = true
+            appConfig.updateManifestUrl = "https://example.com/jsapp/wx92269e3b2f304afc.json" // 可选：远程更新 manifest
             let app: DMPApp = manager.appWithConfig(appConfig: appConfig)
 
             // 设置导航
@@ -102,6 +106,12 @@ struct ContentView: View {
     }
 }
 ```
+
+#### 调试模式与 vConsole
+
+iOS Debug 构建会自动尝试启用 vConsole；也可以通过 `appConfig.isDebugMode = true` 在指定小程序上启用。启用后，SDK 会在加载 pageFrame 时追加 `?vconsole=1`。
+
+JSSDK 直接依赖 vConsole，并随 pageFrame 静态同步打包；只有检测到该启用标记时，pageFrame 才会在 render 初始化前同步初始化 vConsole。
 
 
 ### 关闭小程序
@@ -128,7 +138,7 @@ app.destroy()
 
 运行命令：
 ```bash
-cd iOS && pod install
+open iOS/dimina.xcodeproj
 ```
 
-使用 Xcode 打开 dimina.xcworkspace 可以查看示例项目。
+使用 Xcode 打开 `dimina.xcodeproj` 可以查看示例项目。示例工程构建前会执行 `copy-shared-resources.sh`，将根目录 `shared/jsapp` 和 `shared/jssdk` 中的资源同步到 `iOS/dimina/Resources`。

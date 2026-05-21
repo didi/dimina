@@ -10,6 +10,8 @@ set(NATIVERENDER_ROOT_PATH ${CMAKE_CURRENT_SOURCE_DIR})
 # Include FetchContent for downloading dependencies
 include(FetchContent)
 
+option(DIMINA_UPDATE_QUICKJS_ON_BUILD "Update QuickJS from origin/master before each native build" ON)
+
 # Download QuickJS from GitHub
 FetchContent_Declare(
     quickjs
@@ -80,6 +82,17 @@ set(QUICKJS_SOURCES
 
 # Add shared library target
 add_library(dimina SHARED ${sources} ${QUICKJS_SOURCES})
+
+if(DIMINA_UPDATE_QUICKJS_ON_BUILD)
+    find_package(Git REQUIRED)
+    add_custom_target(update_quickjs_latest
+        COMMAND ${GIT_EXECUTABLE} fetch --depth=1 origin master
+        COMMAND ${GIT_EXECUTABLE} reset --hard FETCH_HEAD
+        WORKING_DIRECTORY ${quickjs_SOURCE_DIR}
+        COMMENT "Updating QuickJS to latest origin/master"
+    )
+    add_dependencies(dimina update_quickjs_latest)
+endif()
 
 # Link necessary libraries
 target_link_libraries(dimina PUBLIC libace_napi.z.so libhilog_ndk.z.so libuv.so)

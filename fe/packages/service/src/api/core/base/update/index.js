@@ -1,6 +1,12 @@
 import { invokeAPI } from '@/api/common'
 import message from '@/core/message'
 
+const UPDATE_STATUS_EVENT = 'onUpdateStatusChange'
+const EVENT_UPDATE_FAILED = 'updatefail'
+const EVENT_UPDATE_READY = 'updateready'
+const EVENT_NO_UPDATE = 'noupdate'
+const EVENT_UPDATING = 'updating'
+
 /**
  * 获取全局唯一的版本更新管理器，用于管理小程序更新。关于小程序的更新机制，可以查看运行机制文档。
  * https://developers.weixin.qq.com/miniprogram/dev/api/base/update/wx.getUpdateManager.html
@@ -20,66 +26,59 @@ class UpdateManager {
 				'Cannot instantiate more than one UpdateManager instance.',
 			)
 		}
-		this.hasApplyUpdate = false
+		this.hasAppliedUpdate = false
+		this.updateFailed = false
+		this.updateReady = false
+		this.checkForUpdateResult = null
 
-		this.updateFailFlag = null
-		this.updateFailCbQueue = []
+		this.updateFailedListeners = []
+		this.updateReadyListeners = []
+		this.checkForUpdateListeners = []
 
-		this.updateReadyCbQueue = []
-		this.updateReadyStatus = null
-		this.updateReadyFlag = false
-
-		this.updateStatus = null
-		this.updateStatusCbQueue = []
-
-		message.on('onUpdateStatusChange', (msg) => {
-			const { event, strategy } = msg
-
-			if (event === 'updatefail') {
-				this.updateFailFlag = {}
-				this.flashUpdateFailCb()
-			}
-			else if (event === 'updateready') {
-				this.updateReadyFlag = true
-				this.updateReadyStatus = { strategy }
-				this.flushUpdateReadyCb()
-			}
-			else if (event === 'noupdate') {
-				this.updateStatus = {
-					hasUpdate: true,
-				}
-				this.flushUpdateStatusCb()
-			}
-			else if (event === 'updating') {
-				this.updateStatus = {
-					hasUpdate: false,
-				}
-				this.flushUpdateStatusCb()
-			}
-		})
+		message.on(UPDATE_STATUS_EVENT, (msg) => this.handleUpdateStatusChange(msg))
 
 		UpdateManager.#instance = this
 	}
 
-	flashUpdateFailCb() {
-		this.updateFailCbQueue.forEach((cb) => {
-			typeof cb === 'function' && cb()
-		})
-		this.updateFailCbQueue.length = 0
+	handleUpdateStatusChange(msg = {}) {
+		const { event } = msg
+
+		if (event === EVENT_UPDATE_FAILED) {
+			this.updateFailed = true
+			this.emit(this.updateFailedListeners)
+			return
+		}
+
+		if (event === EVENT_UPDATE_READY) {
+			this.updateReady = true
+			this.checkForUpdateResult = { hasUpdate: true }
+			this.emit(this.checkForUpdateListeners, this.checkForUpdateResult)
+			this.emit(this.updateReadyListeners)
+			return
+		}
+
+		if (event === EVENT_UPDATING) {
+			this.checkForUpdateResult = { hasUpdate: true }
+			this.emit(this.checkForUpdateListeners, this.checkForUpdateResult)
+			return
+		}
+
+		if (event === EVENT_NO_UPDATE) {
+			this.checkForUpdateResult = { hasUpdate: false }
+			this.emit(this.checkForUpdateListeners, this.checkForUpdateResult)
+			return
+		}
+
+		if (typeof msg.hasUpdate === 'boolean') {
+			this.checkForUpdateResult = { hasUpdate: msg.hasUpdate }
+			this.emit(this.checkForUpdateListeners, this.checkForUpdateResult)
+		}
 	}
 
-	flushUpdateStatusCb() {
-		this.updateStatusCbQueue.forEach((cb) => {
-			typeof cb === 'function' && cb(this.updateStatus)
+	emit(listeners, ...args) {
+		listeners.slice().forEach((cb) => {
+			cb(...args)
 		})
-		this.updateStatusCbQueue.length = 0
-	}
-
-	flushUpdateReadyCb() {
-		this.updateReadyCbQueue.forEach((cb) => {
-			typeof cb === 'function' && cb(this.updateReadyStatus)
-		})
-		this.updateReadyCbQueue.length = 0
 	}
 
 	// 静态方法，用于获取单例实例
@@ -95,14 +94,15 @@ class UpdateManager {
 	 * https://developers.weixin.qq.com/miniprogram/dev/api/base/update/UpdateManager.applyUpdate.html
 	 */
 	applyUpdate() {
-		if (this.updateReadyFlag && this.hasApplyUpdate) {
-			console.error('[applyUpdate]: applyUpdate has been called')
-		}
-		else if (!this.updateReadyFlag) {
+		if (!this.updateReady) {
 			console.error('[applyUpdate]: update is not ready')
 		}
+		else if (this.hasAppliedUpdate) {
+			console.error('[applyUpdate]: applyUpdate has been called')
+		}
 		else {
-			invokeAPI('applyUpdate')
+			this.hasAppliedUpdate = true
+			return invokeAPI('applyUpdate')
 		}
 	}
 
@@ -111,7 +111,13 @@ class UpdateManager {
 	 * https://developers.weixin.qq.com/miniprogram/dev/api/base/update/UpdateManager.onCheckForUpdate.html
 	 */
 	onCheckForUpdate(cb) {
-		this.updateStatus ? typeof cb === 'function' && cb(this.updateStatus) : this.updateStatusCbQueue.push(cb)
+		if (typeof cb !== 'function') {
+			return
+		}
+		this.checkForUpdateListeners.push(cb)
+		if (this.checkForUpdateResult) {
+			cb(this.checkForUpdateResult)
+		}
 	}
 
 	/**
@@ -119,7 +125,13 @@ class UpdateManager {
 	 * https://developers.weixin.qq.com/miniprogram/dev/api/base/update/UpdateManager.onUpdateFailed.html
 	 */
 	onUpdateFailed(cb) {
-		this.updateFailFlag ? typeof cb === 'function' && cb(this.updateFailFlag) : this.updateFailCbQueue.push(cb)
+		if (typeof cb !== 'function') {
+			return
+		}
+		this.updateFailedListeners.push(cb)
+		if (this.updateFailed) {
+			cb()
+		}
 	}
 
 	/**
@@ -127,6 +139,14 @@ class UpdateManager {
 	 *	https://developers.weixin.qq.com/miniprogram/dev/api/base/update/UpdateManager.onUpdateReady.html
 	 */
 	onUpdateReady(cb) {
-		this.updateReadyFlag ? typeof cb === 'function' && cb(this.updateReadyStatus) : this.updateReadyCbQueue.push(cb)
+		if (typeof cb !== 'function') {
+			return
+		}
+		this.updateReadyListeners.push(cb)
+		if (this.updateReady) {
+			cb()
+		}
 	}
 }
+
+UpdateManager.getInstance()

@@ -7,6 +7,7 @@
 
 import Foundation
 import MMKV
+import UIKit
 
 /**
  * Wrapper utility class for MMKV

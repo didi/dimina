@@ -12,6 +12,7 @@ public class DMPBundleAppConfig {
     var app: [String: Any]
     var modules: [String: Any]
     var pages: [String]?
+    var tabBar: DMPTabBarConfig?
     var style: String
     var sitemapLocation: String
     var subPackages: [SubPackageConfig]
@@ -24,6 +25,7 @@ public class DMPBundleAppConfig {
         self.modules = data["modules"] as? [String: Any] ?? [:]
         
         self.pages = self.app["pages"] as? [String]
+        self.tabBar = DMPTabBarConfig.from(self.app["tabBar"] as? [String: Any])
         self.style = self.app["style"] as? String ?? ""
         self.sitemapLocation = self.app["sitemapLocation"] as? String ?? ""
         self.subPackages = self.app["subPackages"] as? [SubPackageConfig] ?? []
@@ -95,6 +97,60 @@ public class DMPBundleAppConfig {
         mergedConfig["usingComponents"] = pagePrivateConfig["usingComponents"] ?? [:]
         
         return mergedConfig
+    }
+
+    func getTabBarIndex(pagePath: String) -> Int {
+        return tabBar?.list.firstIndex(where: { $0.pagePath == pagePath }) ?? -1
+    }
+
+    func isTabBarPage(pagePath: String) -> Bool {
+        return getTabBarIndex(pagePath: pagePath) >= 0
+    }
+}
+
+struct DMPTabBarConfig {
+    var color: String
+    var selectedColor: String
+    var borderStyle: String
+    var backgroundColor: String
+    var list: [DMPTabBarItem]
+
+    static func from(_ data: [String: Any]?) -> DMPTabBarConfig? {
+        guard let data = data else { return nil }
+        let rawList = data["list"] as? [[String: Any]] ?? []
+        let items = rawList.compactMap { DMPTabBarItem.from($0) }
+
+        guard !items.isEmpty else {
+            return nil
+        }
+
+        return DMPTabBarConfig(
+            color: data["color"] as? String ?? "#999999",
+            selectedColor: data["selectedColor"] as? String ?? "#1890ff",
+            borderStyle: data["borderStyle"] as? String ?? "black",
+            backgroundColor: data["backgroundColor"] as? String ?? "#FFFFFF",
+            list: items
+        )
+    }
+}
+
+struct DMPTabBarItem {
+    var pagePath: String
+    var iconPath: String
+    var selectedIconPath: String
+    var text: String
+
+    static func from(_ data: [String: Any]) -> DMPTabBarItem? {
+        guard let pagePath = data["pagePath"] as? String, !pagePath.isEmpty else {
+            return nil
+        }
+
+        return DMPTabBarItem(
+            pagePath: pagePath,
+            iconPath: data["iconPath"] as? String ?? "",
+            selectedIconPath: data["selectedIconPath"] as? String ?? "",
+            text: data["text"] as? String ?? ""
+        )
     }
 }
 
