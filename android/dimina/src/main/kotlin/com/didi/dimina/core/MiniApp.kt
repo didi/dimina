@@ -147,6 +147,12 @@ class MiniApp private constructor() {
                                     val json = namespaces.joinToString(",") { "\"$it\"" }
                                     evaluate("globalThis.__diminaApiNamespaces = [$json]")
                                 }
+                                // 注入已注册的 API 名字，使 service 层的 wx Proxy 能枚举到它们
+                                val registeredApis = getAvailableApis()
+                                if (registeredApis.isNotEmpty()) {
+                                    val apisJson = registeredApis.joinToString(",") { "\"$it\"" }
+                                    evaluate("globalThis.__diminaRegisteredApis = [$apisJson]")
+                                }
 
                                 evaluateFromFile(
                                     File(

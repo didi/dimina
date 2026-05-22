@@ -404,6 +404,12 @@ export class DMPApp {
       const json = namespaces.map((n: string) => `"${n}"`).join(",")
       this._service.executeScript(`globalThis.__diminaApiNamespaces = [${json}]`)
     }
+    // 注入已注册的 API 名字，使 service 层的 wx Proxy 能枚举到它们
+    const registeredApis = this._appModuleManager.getAllRegisteredApiNames()
+    if (registeredApis.length > 0) {
+      const apisJson = registeredApis.map((n: string) => `"${n}"`).join(",")
+      this._service.executeScript(`globalThis.__diminaRegisteredApis = [${apisJson}]`)
+    }
     const serviceJsPath = await this._bundleManager.requestServiceJsUri();
     await this._service.loadFileUri(serviceJsPath);
     DMPLogger.i(Tags.LAUNCH, "startEngineService end");

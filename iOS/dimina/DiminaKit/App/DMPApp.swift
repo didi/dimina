@@ -141,6 +141,12 @@ public class DMPApp {
             let json = namespaces.map { "\"\($0)\"" }.joined(separator: ",")
             await service?.evaluateScript("globalThis.__diminaApiNamespaces = [\(json)]")
         }
+        // 注入已注册的 API 名字，使 service 层的 wx Proxy 能枚举到它们
+        let registeredApis = DMPContainerApi.getAllRegisteredMethods()
+        if !registeredApis.isEmpty {
+            let json = registeredApis.map { "\"\($0)\"" }.joined(separator: ",")
+            await service?.evaluateScript("globalThis.__diminaRegisteredApis = [\(json)]")
+        }
         await service?.loadFile(path: DMPSandboxManager.sdkServicePath())
         await service?.loadFile(path: DMPSandboxManager.appServicePath(appId: appId))
 
