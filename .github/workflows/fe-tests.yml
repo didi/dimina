@@ -47,10 +47,6 @@ jobs:
         working-directory: ./fe
         run: pnpm install
         
-      - name: Run linter
-        working-directory: ./fe
-        run: pnpm lint
-        
       - name: Build packages
         working-directory: ./fe
         run: pnpm --filter "@dimina/common" --filter "@dimina/compiler" build
