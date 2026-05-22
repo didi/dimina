@@ -912,7 +912,8 @@ export class MiniApp {
 		this.tabBarEl.textContent = ''
 		const tabbar = document.createElement('div')
 		tabbar.className = 'dimina-tabbar'
-		tabbar.style.backgroundColor = bg;
+		tabbar.style.backgroundColor = bg
+		tabbar.style.borderTop = `0.5px solid ${borderColor}`
 
 		list.forEach((item, index) => {
 			const path = this._normalizePagePath(item.pagePath)
@@ -1161,7 +1162,11 @@ export class MiniApp {
 		// 2. 更新已渲染的 tabbar DOM（背景 / 边框）
 		const tabbar = this.tabBarEl.querySelector('.dimina-tabbar')
 		if (tabbar) {
-			if (safeBg) tabbar.style.backgroundColor = safeBg;
+			if (safeBg) tabbar.style.backgroundColor = safeBg
+			if (validBorderStyle) {
+				const borderColor = validBorderStyle === 'white' ? '#FFFFFF' : '#E0E0E0'
+				tabbar.style.borderTop = `0.5px solid ${borderColor}`
+			}
 		}
 
 		// 3. 文字颜色按当前选中态重新刷一遍（同时处理 color 和 selectedColor）
