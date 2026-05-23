@@ -280,6 +280,16 @@ Page({
         console.log('post complete')
       }
     });
+    // array
+    wx.request({
+      url: 'https://picsum.photos/v2/list?page=1&limit=20',
+      success(res) {
+        console.log('get array success', res);
+      },
+      fail(res) {
+        console.log('get fail', res);
+      },
+    })
   },
   downloadFile: function () {
     wx.downloadFile({

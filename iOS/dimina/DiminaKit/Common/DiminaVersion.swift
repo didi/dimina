@@ -9,24 +9,12 @@ import Foundation
 
 /// Dimina SDK 版本管理
 public class DiminaVersion {
+    private static let defaultSDKVersion = "1.3.0"
     
     /// 获取 SDK 版本号
-    /// 优先级：Bundle Info > 默认值
+    /// Swift Package 集成时无法从 MARKETING_VERSION 获取 SDK 版本，使用 SDK 内置版本号
     public static var sdkVersion: String {
-        // 从 Bundle 的 Info.plist 读取 MARKETING_VERSION
-        if let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
-           !version.isEmpty {
-            return version
-        }
-        
-        // 如果是 framework，尝试从 framework bundle 读取
-        if let frameworkBundle = Bundle(for: DiminaVersion.self).infoDictionary?["CFBundleShortVersionString"] as? String,
-           !frameworkBundle.isEmpty {
-            return frameworkBundle
-        }
-        
-        // 默认值（与 Dimina.podspec 同步）
-        return "1.2.0"
+        return defaultSDKVersion
     }
     
     /// 获取完整的版本信息（用于调试）

@@ -6,7 +6,7 @@
 
 - Android SDK: 最低 API 26 (Android 8.0)
 - Java 17
-- Gradle 8.0+
+- Android Gradle Plugin 8.0+
 - 仅支持 ARM64 架构 (arm64-v8a)
 
 ## 快速接入
@@ -58,7 +58,7 @@ class MyApplication : Application() {
         super.onCreate()
 
         Dimina.init(this, Dimina.DiminaConfig.Builder()
-            // 是否启用调试模式：影响日志显示
+            // 是否启用调试模式：影响日志显示，并允许 pageFrame 初始化 vConsole
             // 调试模式不检测 App 是否已更新，都会进入 JSSDK 和 JSApp 的更新检测逻辑
             .setDebugMode(true)
             .build()
@@ -67,23 +67,27 @@ class MyApplication : Application() {
 }
 ```
 
+#### 调试模式与 vConsole
+
+当 `setDebugMode(true)` 时，SDK 会在加载 pageFrame 时追加 `?vconsole=1`。JSSDK 直接依赖 vConsole，并随 pageFrame 静态同步打包；只有检测到该启用标记时，pageFrame 才会在 render 初始化前同步初始化 vConsole。
+
 ### 步骤 4: 启动小程序
 
-将编译好的小程序压缩包放入 `assets/jsapp` 文件夹，文件夹以小程序id命名。每个小程序文件夹需包含以下内容：
+将编译好的小程序压缩包放入 `app/src/main/assets/jsapp` 文件夹，文件夹以小程序 ID 命名。仓库示例工程会在构建时从根目录 `shared/jsapp` 自动复制资源到该目录。每个小程序文件夹需包含以下内容：
 
 1. `config.json` - 小程序配置文件，包含以下字段：
 
 ```json5
-   {
-     "appId": "wx92269e3b2f304afc", // 小程序唯一标识
-     "name": "小程序名称",
-     "path": "example/index", // 小程序入口路径
-     "versionCode": 1, // 启动小程序时会根据版本号确认是否需要更新
-     "versionName": "1.0.0"
-   }
-   ```
+{
+  "appId": "wx92269e3b2f304afc", // 小程序唯一标识
+  "name": "小程序名称",
+  "path": "example/index", // 小程序入口路径
+  "versionCode": 1, // 启动小程序时会根据版本号确认是否需要更新
+  "versionName": "1.0.0"
+}
+```
 
-2. `[appId].zip` - 小程序代码包，文件名需与appId一致
+2. `[appId].zip` - 小程序代码包，文件名需与 appId 一致
 
 目录结构示例：
 
@@ -98,6 +102,8 @@ assets/
           └── wxbaf4b47de04f1d8a.zip
 ```
 
+内置包会在启动时按 `versionCode` 解压到应用沙盒目录后运行。动态下发、远程下载和 `wx.getUpdateManager` 的职责边界请参考[小程序包更新说明](../docs/MiniProgram-Update.md)。
+
 启动小程序：
 
 ```kotlin
@@ -107,7 +113,8 @@ val miniProgram = MiniProgram(
     name = "小程序名称",      // 小程序名称
     versionCode = 1,            // 版本号
     versionName = "1.0.0",      // 版本名称
-    path = "example/index"       // 小程序入口路径
+    path = "example/index",      // 小程序入口路径
+    // updateManifestUrl = "https://example.com/jsapp/wx92269e3b2f304afc.json" // 可选：远程更新 manifest
 )
 
 // 启动小程序
@@ -116,5 +123,5 @@ Dimina.getInstance().startMiniProgram(context, miniProgram)
 
 ## 模块说明
 
-- **dimina**: 核心库，包含小程序运行环境、UI组件和生命周期管理
-- **engine-qjs**: QuickJS JavaScript引擎，提供高性能的JS执行环境
+- **dimina**: 核心库，包含小程序运行环境、UI 组件和生命周期管理
+- **engine-qjs**: QuickJS JavaScript 引擎，提供 JS 执行环境

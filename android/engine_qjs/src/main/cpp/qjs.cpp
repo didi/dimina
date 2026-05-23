@@ -113,6 +113,8 @@ struct TimerData {
     int instanceId;
     bool isInterval;
     EngineInstance* instance;
+    bool isExecuting = false;
+    bool isCleared = false;
 };
 
 // Structure to hold instance-specific data
@@ -199,9 +201,11 @@ static std::string getDetailedJSError(JSContext* ctx, JSValue exception) {
     JS_FreeValue(ctx, constructor);
     
     // Get the error message
+    std::string exceptionString;
     const char* str = JS_ToCString(ctx, exception);
     if (str) {
-        errorMsg += str;
+        exceptionString = str;
+        errorMsg += exceptionString;
         JS_FreeCString(ctx, str);
     } else if (errorMsg.empty()) {
         errorMsg = "JavaScript error";
@@ -213,7 +217,7 @@ static std::string getDetailedJSError(JSContext* ctx, JSValue exception) {
         const char* stackStr = JS_ToCString(ctx, stack);
         if (stackStr) {
             // Only add the stack trace if it's not already part of the error message
-            if (str && strstr(str, stackStr) == nullptr) {
+            if (exceptionString.find(stackStr) == std::string::npos) {
                 errorMsg += "\nStack trace: ";
                 errorMsg += stackStr;
             }
@@ -271,6 +275,57 @@ static jstring handleJSError(JNIEnv* env, JSContext* ctx) {
     return result;
 }
 
+// Convert a pending Java exception into a string while clearing it from JNI.
+static std::string getJavaExceptionMessage(JNIEnv* env, const char* fallbackMessage) {
+    std::string message = fallbackMessage ? fallbackMessage : "Java exception";
+    if (!env || !env->ExceptionCheck()) {
+        return message;
+    }
+
+    jthrowable exception = env->ExceptionOccurred();
+    env->ExceptionClear();
+    if (!exception) {
+        return message;
+    }
+
+    jclass throwableClass = env->GetObjectClass(exception);
+    if (throwableClass) {
+        jmethodID toStringMethod = env->GetMethodID(throwableClass, "toString", "()Ljava/lang/String;");
+        if (toStringMethod) {
+            auto jMessage = (jstring)env->CallObjectMethod(exception, toStringMethod);
+            if (!env->ExceptionCheck() && jMessage) {
+                const char* chars = env->GetStringUTFChars(jMessage, nullptr);
+                if (chars) {
+                    message = chars;
+                    env->ReleaseStringUTFChars(jMessage, chars);
+                }
+            }
+            if (env->ExceptionCheck()) {
+                env->ExceptionClear();
+            }
+            if (jMessage) {
+                env->DeleteLocalRef(jMessage);
+            }
+        } else if (env->ExceptionCheck()) {
+            env->ExceptionClear();
+        }
+        env->DeleteLocalRef(throwableClass);
+    } else if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+    }
+
+    env->DeleteLocalRef(exception);
+    return message;
+}
+
+static JSValue throwJavaExceptionOrInternalError(JSContext* ctx, JNIEnv* env, const char* fallbackMessage) {
+    std::string message = getJavaExceptionMessage(env, fallbackMessage);
+    return JS_ThrowInternalError(ctx, "%s", message.c_str());
+}
+
+// Callback for uv_close
+static void uv_close_callback(uv_handle_t* handle);
+
 // libuv timer callback
 static void uv_timer_callback(uv_timer_t* handle) {
     TimerData* data = (TimerData*)handle->data;
@@ -288,6 +343,8 @@ static void uv_timer_callback(uv_timer_t* handle) {
     __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, 
         "Executing %s %d", isInterval ? "interval" : "timer", timerId);
     
+    data->isExecuting = true;
+
     // Execute the callback
     JSValue result;
     if (JS_IsFunction(ctx, callback)) {
@@ -324,13 +381,19 @@ static void uv_timer_callback(uv_timer_t* handle) {
         // Continue processing jobs
     }
     
-    // For setTimeout (not interval), clean up
-    if (!isInterval && instance) {
-        JS_FreeValue(ctx, callback);
+    data->isExecuting = false;
+
+    // For setTimeout, or an interval cleared from inside its callback, clean up once.
+    if ((!isInterval || data->isCleared) && instance) {
         instance->timerCallbacks.erase(timerId);
         instance->uvTimers.erase(timerId);
+        JS_FreeValue(ctx, data->callback);
+        handle->data = nullptr;
         delete data;
-        // Note: uv_timer_t will be cleaned up in uv_close callback
+        if (!uv_is_closing((uv_handle_t*)handle)) {
+            uv_timer_stop(handle);
+            uv_close((uv_handle_t*)handle, uv_close_callback);
+        }
     }
 }
 
@@ -456,6 +519,177 @@ static jobject createJSValueObject(JNIEnv* env, JSContext* ctx, JSValue value) {
     return env->CallStaticObjectMethod(jsValueClass, method);
 }
 
+// Convert a Kotlin JSValue object back into a QuickJS value. This consumes resultObj.
+static JSValue convertJavaJSValueToQuickJS(JNIEnv* env, JSContext* ctx, jobject resultObj) {
+    if (resultObj == nullptr) {
+        return JS_NULL;
+    }
+
+    jclass jsValueClass = nullptr;
+    jclass typeClass = nullptr;
+    jobject typeObj = nullptr;
+    jstring jTypeName = nullptr;
+
+    auto cleanup = [&]() {
+        if (jTypeName) env->DeleteLocalRef(jTypeName);
+        if (typeObj) env->DeleteLocalRef(typeObj);
+        if (typeClass) env->DeleteLocalRef(typeClass);
+        if (jsValueClass) env->DeleteLocalRef(jsValueClass);
+        if (resultObj) env->DeleteLocalRef(resultObj);
+    };
+
+    jsValueClass = env->FindClass("com/didi/dimina/engine/qjs/JSValue");
+    if (env->ExceptionCheck() || !jsValueClass) {
+        cleanup();
+        return throwJavaExceptionOrInternalError(ctx, env, "Failed to find JSValue class");
+    }
+
+    typeClass = env->FindClass("com/didi/dimina/engine/qjs/JSValue$Type");
+    if (env->ExceptionCheck() || !typeClass) {
+        cleanup();
+        return throwJavaExceptionOrInternalError(ctx, env, "Failed to find JSValue.Type class");
+    }
+
+    jfieldID typeField = env->GetFieldID(jsValueClass, "type", "Lcom/didi/dimina/engine/qjs/JSValue$Type;");
+    if (env->ExceptionCheck() || !typeField) {
+        cleanup();
+        return throwJavaExceptionOrInternalError(ctx, env, "Failed to read JSValue.type");
+    }
+
+    typeObj = env->GetObjectField(resultObj, typeField);
+    if (env->ExceptionCheck() || !typeObj) {
+        cleanup();
+        return throwJavaExceptionOrInternalError(ctx, env, "Failed to read JSValue.type");
+    }
+
+    jmethodID nameMethod = env->GetMethodID(typeClass, "name", "()Ljava/lang/String;");
+    if (env->ExceptionCheck() || !nameMethod) {
+        cleanup();
+        return throwJavaExceptionOrInternalError(ctx, env, "Failed to read JSValue.Type.name");
+    }
+
+    jTypeName = (jstring)env->CallObjectMethod(typeObj, nameMethod);
+    if (env->ExceptionCheck() || !jTypeName) {
+        cleanup();
+        return throwJavaExceptionOrInternalError(ctx, env, "Failed to read JSValue type name");
+    }
+
+    const char* typeName = env->GetStringUTFChars(jTypeName, nullptr);
+    if (env->ExceptionCheck() || !typeName) {
+        cleanup();
+        return throwJavaExceptionOrInternalError(ctx, env, "Failed to convert JSValue type name");
+    }
+
+    std::string typeNameString = typeName;
+    env->ReleaseStringUTFChars(jTypeName, typeName);
+
+    JSValue result;
+    if (typeNameString == "NULL") {
+        result = JS_NULL;
+    } else if (typeNameString == "STRING") {
+        jfieldID stringField = env->GetFieldID(jsValueClass, "stringValue", "Ljava/lang/String;");
+        if (env->ExceptionCheck() || !stringField) {
+            cleanup();
+            return throwJavaExceptionOrInternalError(ctx, env, "Failed to read JSValue.stringValue");
+        }
+
+        auto jStringValue = (jstring)env->GetObjectField(resultObj, stringField);
+        if (env->ExceptionCheck()) {
+            cleanup();
+            return throwJavaExceptionOrInternalError(ctx, env, "Failed to read JSValue.stringValue");
+        }
+
+        const char* stringValue = jStringValue ? env->GetStringUTFChars(jStringValue, nullptr) : nullptr;
+        if (env->ExceptionCheck()) {
+            if (jStringValue) env->DeleteLocalRef(jStringValue);
+            cleanup();
+            return throwJavaExceptionOrInternalError(ctx, env, "Failed to convert JSValue.stringValue");
+        }
+
+        result = JS_NewString(ctx, stringValue ? stringValue : "");
+        if (stringValue) env->ReleaseStringUTFChars(jStringValue, stringValue);
+        if (jStringValue) env->DeleteLocalRef(jStringValue);
+    } else if (typeNameString == "NUMBER") {
+        jfieldID numberField = env->GetFieldID(jsValueClass, "numberValue", "D");
+        if (env->ExceptionCheck() || !numberField) {
+            cleanup();
+            return throwJavaExceptionOrInternalError(ctx, env, "Failed to read JSValue.numberValue");
+        }
+        result = JS_NewFloat64(ctx, env->GetDoubleField(resultObj, numberField));
+    } else if (typeNameString == "BOOLEAN") {
+        jfieldID booleanField = env->GetFieldID(jsValueClass, "booleanValue", "Z");
+        if (env->ExceptionCheck() || !booleanField) {
+            cleanup();
+            return throwJavaExceptionOrInternalError(ctx, env, "Failed to read JSValue.booleanValue");
+        }
+        result = JS_NewBool(ctx, env->GetBooleanField(resultObj, booleanField));
+    } else if (typeNameString == "OBJECT") {
+        jfieldID stringField = env->GetFieldID(jsValueClass, "stringValue", "Ljava/lang/String;");
+        if (env->ExceptionCheck() || !stringField) {
+            cleanup();
+            return throwJavaExceptionOrInternalError(ctx, env, "Failed to read JSValue.stringValue");
+        }
+
+        auto jStringValue = (jstring)env->GetObjectField(resultObj, stringField);
+        if (env->ExceptionCheck()) {
+            cleanup();
+            return throwJavaExceptionOrInternalError(ctx, env, "Failed to read JSValue.stringValue");
+        }
+
+        const char* stringValue = jStringValue ? env->GetStringUTFChars(jStringValue, nullptr) : nullptr;
+        if (env->ExceptionCheck()) {
+            if (jStringValue) env->DeleteLocalRef(jStringValue);
+            cleanup();
+            return throwJavaExceptionOrInternalError(ctx, env, "Failed to convert JSValue.stringValue");
+        }
+
+        if (stringValue) {
+            result = JS_ParseJSON(ctx, stringValue, strlen(stringValue), "<invokeFromJS>");
+            if (JS_IsException(result)) {
+                JSValue exception = JS_GetException(ctx);
+                std::string errorMsg = getDetailedJSError(ctx, exception);
+                JS_FreeValue(ctx, exception);
+                __android_log_print(ANDROID_LOG_WARN, LOG_TAG,
+                                    "Failed to parse JSValue object JSON: %s", errorMsg.c_str());
+                result = JS_NULL;
+            }
+        } else {
+            result = JS_NewObject(ctx);
+        }
+
+        if (stringValue) env->ReleaseStringUTFChars(jStringValue, stringValue);
+        if (jStringValue) env->DeleteLocalRef(jStringValue);
+    } else if (typeNameString == "ERROR") {
+        jfieldID errorField = env->GetFieldID(jsValueClass, "errorMessage", "Ljava/lang/String;");
+        if (env->ExceptionCheck() || !errorField) {
+            cleanup();
+            return throwJavaExceptionOrInternalError(ctx, env, "Failed to read JSValue.errorMessage");
+        }
+
+        auto jErrorMessage = (jstring)env->GetObjectField(resultObj, errorField);
+        if (env->ExceptionCheck()) {
+            cleanup();
+            return throwJavaExceptionOrInternalError(ctx, env, "Failed to read JSValue.errorMessage");
+        }
+
+        const char* errorMessage = jErrorMessage ? env->GetStringUTFChars(jErrorMessage, nullptr) : nullptr;
+        if (env->ExceptionCheck()) {
+            if (jErrorMessage) env->DeleteLocalRef(jErrorMessage);
+            cleanup();
+            return throwJavaExceptionOrInternalError(ctx, env, "Failed to convert JSValue.errorMessage");
+        }
+
+        result = JS_ThrowInternalError(ctx, "%s", errorMessage ? errorMessage : "Unknown error");
+        if (errorMessage) env->ReleaseStringUTFChars(jErrorMessage, errorMessage);
+        if (jErrorMessage) env->DeleteLocalRef(jErrorMessage);
+    } else {
+        result = JS_UNDEFINED;
+    }
+
+    cleanup();
+    return result;
+}
+
 // QuickJSEngine methods
 
 // DiminaServiceBridge invoke method implementation
@@ -489,92 +723,68 @@ static JSValue js_dimina_invoke(JSContext *ctx, JSValueConst this_val, int argc,
         return JS_EXCEPTION;
     }
 
-    // Call the Kotlin invokeFromJS method with JSValue? return type
-    jclass cls = env->GetObjectClass(instance->engineObj);
-    jclass jsonObjectClass = env->FindClass("org/json/JSONObject");
-    jmethodID jsonObjectConstructor = env->GetMethodID(jsonObjectClass, "<init>", "(Ljava/lang/String;)V");
-    jclass jsValueClass = env->FindClass("com/didi/dimina/engine/qjs/JSValue");
-    jmethodID invokeMethod = env->GetMethodID(cls, "invokeFromJS", "(Lorg/json/JSONObject;)Lcom/didi/dimina/engine/qjs/JSValue;");
-
+    jclass cls = nullptr;
+    jclass jsonObjectClass = nullptr;
+    jstring jJsonData = nullptr;
+    jobject jsonObject = nullptr;
     jobject resultObj = nullptr;
-    if (invokeMethod && jsonObjectConstructor) {
-        jstring jJsonData = env->NewStringUTF(jsonData);
-        jobject jsonObject = env->NewObject(jsonObjectClass, jsonObjectConstructor, jJsonData);
-        resultObj = env->CallObjectMethod(instance->engineObj, invokeMethod, jsonObject);
-        env->DeleteLocalRef(jsonObject);
-        env->DeleteLocalRef(jJsonData);
+
+    auto cleanup = [&]() {
+        if (resultObj) env->DeleteLocalRef(resultObj);
+        if (jsonObject) env->DeleteLocalRef(jsonObject);
+        if (jJsonData) env->DeleteLocalRef(jJsonData);
+        if (jsonObjectClass) env->DeleteLocalRef(jsonObjectClass);
+        if (cls) env->DeleteLocalRef(cls);
+        JS_FreeCString(ctx, jsonData);
+    };
+
+    // Call the Kotlin invokeFromJS method with JSValue? return type.
+    cls = env->GetObjectClass(instance->engineObj);
+    if (env->ExceptionCheck() || !cls) {
+        cleanup();
+        return throwJavaExceptionOrInternalError(ctx, env, "Failed to get QuickJSEngine class");
     }
 
-    JS_FreeCString(ctx, jsonData);
-
-    // Convert the returned JSValue? to a QuickJS JSValue
-    JSValue result;
-    if (resultObj == nullptr) {
-        result = JS_NULL; // Kotlin returned null
-    } else {
-        // Get the Type enum field
-        jclass typeClass = env->FindClass("com/didi/dimina/engine/qjs/JSValue$Type");
-        jfieldID typeField = env->GetFieldID(jsValueClass, "type", "Lcom/didi/dimina/engine/qjs/JSValue$Type;");
-        jobject typeObj = env->GetObjectField(resultObj, typeField);
-
-        // Get the name of the enum value
-        jmethodID nameMethod = env->GetMethodID(typeClass, "name", "()Ljava/lang/String;");
-        auto jTypeName = (jstring)env->CallObjectMethod(typeObj, nameMethod);
-        const char* typeName = env->GetStringUTFChars(jTypeName, nullptr);
-
-        // Handle each type
-        if (strcmp(typeName, "NULL") == 0) {
-            result = JS_NULL;
-        } else if (strcmp(typeName, "STRING") == 0) {
-            jfieldID stringField = env->GetFieldID(jsValueClass, "stringValue", "Ljava/lang/String;");
-            auto jStringValue = (jstring)env->GetObjectField(resultObj, stringField);
-            const char* stringValue = jStringValue ? env->GetStringUTFChars(jStringValue, nullptr) : nullptr;
-            result = JS_NewString(ctx, stringValue ? stringValue : "");
-            if (stringValue) env->ReleaseStringUTFChars(jStringValue, stringValue);
-            if (jStringValue) env->DeleteLocalRef(jStringValue);
-        } else if (strcmp(typeName, "NUMBER") == 0) {
-            jfieldID numberField = env->GetFieldID(jsValueClass, "numberValue", "D");
-            jdouble numberValue = env->GetDoubleField(resultObj, numberField);
-            result = JS_NewFloat64(ctx, numberValue);
-        } else if (strcmp(typeName, "BOOLEAN") == 0) {
-            jfieldID booleanField = env->GetFieldID(jsValueClass, "booleanValue", "Z");
-            jboolean booleanValue = env->GetBooleanField(resultObj, booleanField);
-            result = JS_NewBool(ctx, booleanValue);
-        } else if (strcmp(typeName, "OBJECT") == 0) {
-            jfieldID stringField = env->GetFieldID(jsValueClass, "stringValue", "Ljava/lang/String;");
-            auto jStringValue = (jstring)env->GetObjectField(resultObj, stringField);
-            const char* stringValue = jStringValue ? env->GetStringUTFChars(jStringValue, nullptr) : nullptr;
-            if (stringValue) {
-                result = JS_ParseJSON(ctx, stringValue, strlen(stringValue), "<invokeFromJS>");
-                if (JS_IsException(result)) {
-                    result = JS_NULL; // Fallback to null on parsing error
-                }
-            } else {
-                result = JS_NewObject(ctx); // Empty object if stringValue is null
-            }
-            if (stringValue) env->ReleaseStringUTFChars(jStringValue, stringValue);
-            if (jStringValue) env->DeleteLocalRef(jStringValue);
-        } else if (strcmp(typeName, "ERROR") == 0) {
-            jfieldID errorField = env->GetFieldID(jsValueClass, "errorMessage", "Ljava/lang/String;");
-            auto jErrorMessage = (jstring)env->GetObjectField(resultObj, errorField);
-            const char* errorMessage = jErrorMessage ? env->GetStringUTFChars(jErrorMessage, nullptr) : "Unknown error";
-            result = JS_ThrowInternalError(ctx, "%s", errorMessage);
-            if (errorMessage) env->ReleaseStringUTFChars(jErrorMessage, errorMessage);
-            if (jErrorMessage) env->DeleteLocalRef(jErrorMessage);
-        } else {
-            result = JS_UNDEFINED; // Fallback for unexpected types
-        }
-
-        // Free JNI resources
-        env->ReleaseStringUTFChars(jTypeName, typeName);
-        env->DeleteLocalRef(jTypeName);
-        env->DeleteLocalRef(typeObj);
-        env->DeleteLocalRef(typeClass);
-        env->DeleteLocalRef(resultObj);
-        env->DeleteLocalRef(jsValueClass);
+    jsonObjectClass = env->FindClass("org/json/JSONObject");
+    if (env->ExceptionCheck() || !jsonObjectClass) {
+        cleanup();
+        return throwJavaExceptionOrInternalError(ctx, env, "Failed to find JSONObject class");
     }
 
-    return result;
+    jmethodID jsonObjectConstructor = env->GetMethodID(jsonObjectClass, "<init>", "(Ljava/lang/String;)V");
+    if (env->ExceptionCheck() || !jsonObjectConstructor) {
+        cleanup();
+        return throwJavaExceptionOrInternalError(ctx, env, "Failed to find JSONObject constructor");
+    }
+
+    jmethodID invokeMethod = env->GetMethodID(cls, "invokeFromJS", "(Lorg/json/JSONObject;)Lcom/didi/dimina/engine/qjs/JSValue;");
+    if (env->ExceptionCheck() || !invokeMethod) {
+        cleanup();
+        return throwJavaExceptionOrInternalError(ctx, env, "Failed to find invokeFromJS method");
+    }
+
+    jJsonData = env->NewStringUTF(jsonData);
+    if (env->ExceptionCheck() || !jJsonData) {
+        cleanup();
+        return throwJavaExceptionOrInternalError(ctx, env, "Failed to create invoke JSON string");
+    }
+
+    jsonObject = env->NewObject(jsonObjectClass, jsonObjectConstructor, jJsonData);
+    if (env->ExceptionCheck() || !jsonObject) {
+        cleanup();
+        return throwJavaExceptionOrInternalError(ctx, env, "Failed to create invoke JSONObject");
+    }
+
+    resultObj = env->CallObjectMethod(instance->engineObj, invokeMethod, jsonObject);
+    if (env->ExceptionCheck()) {
+        cleanup();
+        return throwJavaExceptionOrInternalError(ctx, env, "invokeFromJS threw an exception");
+    }
+
+    jobject localResult = resultObj;
+    resultObj = nullptr;
+    cleanup();
+    return convertJavaJSValueToQuickJS(env, ctx, localResult);
 }
 
 // DiminaServiceBridge publish method implementation
@@ -612,24 +822,72 @@ static JSValue js_dimina_publish(JSContext *ctx, JSValueConst this_val, int argc
         return JS_EXCEPTION;
     }
     
-    // Call the Kotlin publish method
-    jclass cls = env->GetObjectClass(instance->engineObj);
-    jclass jsonObjectClass = env->FindClass("org/json/JSONObject");
-    jmethodID jsonObjectConstructor = env->GetMethodID(jsonObjectClass, "<init>", "(Ljava/lang/String;)V");
-    jmethodID publishMethod = env->GetMethodID(cls, "publishFromJS", "(Ljava/lang/String;Lorg/json/JSONObject;)V");
-    
-    if (publishMethod && jsonObjectConstructor) {
-        jstring jId = env->NewStringUTF(id);
-        jstring jJsonData = env->NewStringUTF(jsonData);
-        jobject jsonObject = env->NewObject(jsonObjectClass, jsonObjectConstructor, jJsonData);
-        env->CallVoidMethod(instance->engineObj, publishMethod, jId, jsonObject);
-        env->DeleteLocalRef(jsonObject);
-        env->DeleteLocalRef(jJsonData);
-        env->DeleteLocalRef(jId);
+    jclass cls = nullptr;
+    jclass jsonObjectClass = nullptr;
+    jstring jId = nullptr;
+    jstring jJsonData = nullptr;
+    jobject jsonObject = nullptr;
+
+    auto cleanup = [&]() {
+        if (jsonObject) env->DeleteLocalRef(jsonObject);
+        if (jJsonData) env->DeleteLocalRef(jJsonData);
+        if (jId) env->DeleteLocalRef(jId);
+        if (jsonObjectClass) env->DeleteLocalRef(jsonObjectClass);
+        if (cls) env->DeleteLocalRef(cls);
+        JS_FreeCString(ctx, id);
+        JS_FreeCString(ctx, jsonData);
+    };
+
+    // Call the Kotlin publish method.
+    cls = env->GetObjectClass(instance->engineObj);
+    if (env->ExceptionCheck() || !cls) {
+        cleanup();
+        return throwJavaExceptionOrInternalError(ctx, env, "Failed to get QuickJSEngine class");
     }
-    
-    JS_FreeCString(ctx, id);
-    JS_FreeCString(ctx, jsonData);
+
+    jsonObjectClass = env->FindClass("org/json/JSONObject");
+    if (env->ExceptionCheck() || !jsonObjectClass) {
+        cleanup();
+        return throwJavaExceptionOrInternalError(ctx, env, "Failed to find JSONObject class");
+    }
+
+    jmethodID jsonObjectConstructor = env->GetMethodID(jsonObjectClass, "<init>", "(Ljava/lang/String;)V");
+    if (env->ExceptionCheck() || !jsonObjectConstructor) {
+        cleanup();
+        return throwJavaExceptionOrInternalError(ctx, env, "Failed to find JSONObject constructor");
+    }
+
+    jmethodID publishMethod = env->GetMethodID(cls, "publishFromJS", "(Ljava/lang/String;Lorg/json/JSONObject;)V");
+    if (env->ExceptionCheck() || !publishMethod) {
+        cleanup();
+        return throwJavaExceptionOrInternalError(ctx, env, "Failed to find publishFromJS method");
+    }
+
+    jId = env->NewStringUTF(id);
+    if (env->ExceptionCheck() || !jId) {
+        cleanup();
+        return throwJavaExceptionOrInternalError(ctx, env, "Failed to create publish id string");
+    }
+
+    jJsonData = env->NewStringUTF(jsonData);
+    if (env->ExceptionCheck() || !jJsonData) {
+        cleanup();
+        return throwJavaExceptionOrInternalError(ctx, env, "Failed to create publish JSON string");
+    }
+
+    jsonObject = env->NewObject(jsonObjectClass, jsonObjectConstructor, jJsonData);
+    if (env->ExceptionCheck() || !jsonObject) {
+        cleanup();
+        return throwJavaExceptionOrInternalError(ctx, env, "Failed to create publish JSONObject");
+    }
+
+    env->CallVoidMethod(instance->engineObj, publishMethod, jId, jsonObject);
+    if (env->ExceptionCheck()) {
+        cleanup();
+        return throwJavaExceptionOrInternalError(ctx, env, "publishFromJS threw an exception");
+    }
+
+    cleanup();
     
     return JS_UNDEFINED;
 }
@@ -652,6 +910,16 @@ static JSValue js_clear_timer(JSContext *ctx, JSValueConst this_val, int argc, J
     
     // Find and stop the timer
     auto timerIt = instance->uvTimers.find(timerId);
+    auto dataIt = instance->timerCallbacks.find(timerId);
+    if (dataIt != instance->timerCallbacks.end() && dataIt->second->isExecuting) {
+        dataIt->second->isCleared = true;
+        if (timerIt != instance->uvTimers.end()) {
+            uv_timer_stop(timerIt->second);
+        }
+        __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, "Marked running timer %d as cleared", timerId);
+        return JS_UNDEFINED;
+    }
+
     if (timerIt != instance->uvTimers.end()) {
         uv_timer_t* timer = timerIt->second;
         uv_timer_stop(timer);
@@ -659,7 +927,6 @@ static JSValue js_clear_timer(JSContext *ctx, JSValueConst this_val, int argc, J
         instance->uvTimers.erase(timerIt);
         
         // Clean up timer data
-        auto dataIt = instance->timerCallbacks.find(timerId);
         if (dataIt != instance->timerCallbacks.end()) {
             TimerData* data = dataIt->second;
             JS_FreeValue(ctx, data->callback);
@@ -721,8 +988,9 @@ static JSValue js_create_timer(JSContext *ctx, JSValueConst *argv, int argc, boo
         return JS_ThrowInternalError(ctx, "Failed to initialize timer");
     }
     
-    // For intervals, set repeat parameter; for timeouts, set repeat to 0
-    result = uv_timer_start(timer, uv_timer_callback, delay, isInterval ? delay : 0);
+    // libuv treats repeat=0 as non-repeating, so clamp 0 ms intervals to 1 ms.
+    uint64_t repeat = isInterval ? static_cast<uint64_t>(delay == 0 ? 1 : delay) : 0;
+    result = uv_timer_start(timer, uv_timer_callback, static_cast<uint64_t>(delay), repeat);
     if (result != 0) {
         __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, 
             "Failed to start uv_timer: %s", uv_strerror(result));
@@ -1003,7 +1271,11 @@ Java_com_didi_dimina_engine_qjs_QuickJSEngine_nativeEvaluateFromFile(
     // Check if there was an exception during evaluation
     if (val.isException()) {
         jstring errorMsg = handleJSError(env, ctx);
-        jobject errorResult = createJSError(env, env->GetStringUTFChars(errorMsg, nullptr));
+        const char* errorChars = errorMsg ? env->GetStringUTFChars(errorMsg, nullptr) : nullptr;
+        jobject errorResult = createJSError(env, errorChars);
+        if (errorChars) {
+            env->ReleaseStringUTFChars(errorMsg, errorChars);
+        }
         env->DeleteLocalRef(errorMsg);
         return errorResult;
     }
@@ -1053,7 +1325,11 @@ Java_com_didi_dimina_engine_qjs_QuickJSEngine_nativeEvaluate(
     // Check if there was an exception during evaluation
     if (val.isException()) {
         jstring errorMsg = handleJSError(env, ctx);
-        jobject errorResult = createJSError(env, env->GetStringUTFChars(errorMsg, nullptr));
+        const char* errorChars = errorMsg ? env->GetStringUTFChars(errorMsg, nullptr) : nullptr;
+        jobject errorResult = createJSError(env, errorChars);
+        if (errorChars) {
+            env->ReleaseStringUTFChars(errorMsg, errorChars);
+        }
         env->DeleteLocalRef(errorMsg);
         return errorResult;
     }

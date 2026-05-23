@@ -133,6 +133,12 @@ class DMPResourceManager {
 
     // jsapp的Bundle
     static var jsappBundle: Bundle? = {
+        #if SWIFT_PACKAGE
+        if let bundleURL = Bundle.module.url(forResource: "JsApp", withExtension: "bundle") {
+            return Bundle(url: bundleURL)
+        }
+        #endif
+
         guard let bundleURL = Bundle.main.url(forResource: "JsApp", withExtension: "bundle") else {
             return nil
         }
@@ -141,6 +147,12 @@ class DMPResourceManager {
 
     // jssdk的Bundle
     static var jssdkBundle: Bundle? = {
+        #if SWIFT_PACKAGE
+        if let bundleURL = Bundle.module.url(forResource: "JsSdk", withExtension: "bundle") {
+            return Bundle(url: bundleURL)
+        }
+        #endif
+
         if let bundleURL = Bundle(for: DMPResourceManager.self).url(forResource: "DiminaJsSdk", withExtension: "bundle") {
             return Bundle(url: bundleURL)
         }
@@ -154,11 +166,15 @@ class DMPResourceManager {
 
 
     public static var assetsBundle: Bundle? = {
+        #if SWIFT_PACKAGE
+        return Bundle.module
+        #else
         if let bundleURL = Bundle(for: DMPResourceManager.self).url(forResource: "DiminaAssets", withExtension: "bundle") {
             return Bundle(url: bundleURL)
         }
 
         return Bundle.main
+        #endif
     }()
 
 

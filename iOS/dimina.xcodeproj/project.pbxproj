@@ -7,14 +7,13 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		CC26B357888E5F58D5BB3052 /* Pods_dimina.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DC67CCFBB9EB82FE9F321325 /* Pods_dimina.framework */; };
+		1A2B3C4D5E6F700000000001 /* Alamofire in Frameworks */ = {isa = PBXBuildFile; productRef = 1A2B3C4D5E6F700000000101 /* Alamofire */; };
+		1A2B3C4D5E6F700000000002 /* MMKV in Frameworks */ = {isa = PBXBuildFile; productRef = 1A2B3C4D5E6F700000000102 /* MMKV */; };
+		1A2B3C4D5E6F700000000003 /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = 1A2B3C4D5E6F700000000103 /* ZIPFoundation */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		0A6F85D82DAE3D7D0047A006 /* dimina.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = dimina.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		54E5A8C053C34C4312ECE940 /* Pods-dimina.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-dimina.debug.xcconfig"; path = "Target Support Files/Pods-dimina/Pods-dimina.debug.xcconfig"; sourceTree = "<group>"; };
-		D31D74E3BEF4A7C9CC72A30F /* Pods-dimina.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-dimina.release.xcconfig"; path = "Target Support Files/Pods-dimina/Pods-dimina.release.xcconfig"; sourceTree = "<group>"; };
-		DC67CCFBB9EB82FE9F321325 /* Pods_dimina.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_dimina.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -32,7 +31,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				CC26B357888E5F58D5BB3052 /* Pods_dimina.framework in Frameworks */,
+				1A2B3C4D5E6F700000000001 /* Alamofire in Frameworks */,
+				1A2B3C4D5E6F700000000002 /* MMKV in Frameworks */,
+				1A2B3C4D5E6F700000000003 /* ZIPFoundation in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -44,8 +45,6 @@
 			children = (
 				0A6F85DA2DAE3D7D0047A006 /* dimina */,
 				0A6F85D92DAE3D7D0047A006 /* Products */,
-				12AD331D8D0D961AA7250C41 /* Pods */,
-				B5E441BDDC1970F9B9B0B9EE /* Frameworks */,
 			);
 			sourceTree = "<group>";
 		};
@@ -57,23 +56,6 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
-		12AD331D8D0D961AA7250C41 /* Pods */ = {
-			isa = PBXGroup;
-			children = (
-				54E5A8C053C34C4312ECE940 /* Pods-dimina.debug.xcconfig */,
-				D31D74E3BEF4A7C9CC72A30F /* Pods-dimina.release.xcconfig */,
-			);
-			path = Pods;
-			sourceTree = "<group>";
-		};
-		B5E441BDDC1970F9B9B0B9EE /* Frameworks */ = {
-			isa = PBXGroup;
-			children = (
-				DC67CCFBB9EB82FE9F321325 /* Pods_dimina.framework */,
-			);
-			name = Frameworks;
-			sourceTree = "<group>";
-		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -81,12 +63,10 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 0A6F85E62DAE3D7F0047A006 /* Build configuration list for PBXNativeTarget "dimina" */;
 			buildPhases = (
-				D0982C07978D220939E63535 /* [CP] Check Pods Manifest.lock */,
 				0A6F85D42DAE3D7D0047A006 /* Sources */,
 				0A6F85D52DAE3D7D0047A006 /* Frameworks */,
 				95105B9A2DDC3FF3004B4A04 /* Copy Shared Resources */,
 				0A6F85D62DAE3D7D0047A006 /* Resources */,
-				CEB89F58D51EE4FCB116AA0A /* [CP] Embed Pods Frameworks */,
 			);
 			buildRules = (
 			);
@@ -96,6 +76,11 @@
 				0A6F85DA2DAE3D7D0047A006 /* dimina */,
 			);
 			name = dimina;
+			packageProductDependencies = (
+				1A2B3C4D5E6F700000000101 /* Alamofire */,
+				1A2B3C4D5E6F700000000102 /* MMKV */,
+				1A2B3C4D5E6F700000000103 /* ZIPFoundation */,
+			);
 			productName = dimina;
 			productReference = 0A6F85D82DAE3D7D0047A006 /* dimina.app */;
 			productType = "com.apple.product-type.application";
@@ -124,6 +109,11 @@
 			);
 			mainGroup = 0A6F85CF2DAE3D7D0047A006;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				1A2B3C4D5E6F700000000201 /* XCRemoteSwiftPackageReference "Alamofire" */,
+				1A2B3C4D5E6F700000000202 /* XCRemoteSwiftPackageReference "MMKV" */,
+				1A2B3C4D5E6F700000000203 /* XCRemoteSwiftPackageReference "ZIPFoundation" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 0A6F85D92DAE3D7D0047A006 /* Products */;
 			projectDirPath = "";
@@ -163,45 +153,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "\"${SRCROOT}/copy-shared-resources.sh\"\n";
-			showEnvVarsInLog = 0;
-		};
-		CEB89F58D51EE4FCB116AA0A /* [CP] Embed Pods Frameworks */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-				"${PODS_ROOT}/Target Support Files/Pods-dimina/Pods-dimina-frameworks-${CONFIGURATION}-input-files.xcfilelist",
-			);
-			name = "[CP] Embed Pods Frameworks";
-			outputFileListPaths = (
-				"${PODS_ROOT}/Target Support Files/Pods-dimina/Pods-dimina-frameworks-${CONFIGURATION}-output-files.xcfilelist",
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-dimina/Pods-dimina-frameworks.sh\"\n";
-			showEnvVarsInLog = 0;
-		};
-		D0982C07978D220939E63535 /* [CP] Check Pods Manifest.lock */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-				"${PODS_PODFILE_DIR_PATH}/Podfile.lock",
-				"${PODS_ROOT}/Manifest.lock",
-			);
-			name = "[CP] Check Pods Manifest.lock";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-				"$(DERIVED_FILE_DIR)/Pods-dimina-checkManifestLockResult.txt",
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
 			showEnvVarsInLog = 0;
 		};
 /* End PBXShellScriptBuildPhase section */
@@ -338,7 +289,6 @@
 		};
 		0A6F85E72DAE3D7F0047A006 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 54E5A8C053C34C4312ECE940 /* Pods-dimina.debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -348,7 +298,8 @@
 				DEVELOPMENT_TEAM = C98HHZ37GN;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Dimina NSCameraUsageDescription";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Dimina NSMicrophoneUsageDescription";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Dimina NSPhotoLibraryUsageDescription";
@@ -362,7 +313,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.2.0;
+				MARKETING_VERSION = 1.3.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.didi.dimina;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -373,7 +324,6 @@
 		};
 		0A6F85E82DAE3D7F0047A006 /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = D31D74E3BEF4A7C9CC72A30F /* Pods-dimina.release.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -383,7 +333,8 @@
 				DEVELOPMENT_TEAM = C98HHZ37GN;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Dimina NSCameraUsageDescription";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Dimina NSMicrophoneUsageDescription";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Dimina NSPhotoLibraryUsageDescription";
@@ -397,7 +348,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.2.0;
+				MARKETING_VERSION = 1.3.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.didi.dimina;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -428,6 +379,51 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		1A2B3C4D5E6F700000000201 /* XCRemoteSwiftPackageReference "Alamofire" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/Alamofire/Alamofire.git";
+			requirement = {
+				kind = exactVersion;
+				version = 5.12.0;
+			};
+		};
+		1A2B3C4D5E6F700000000202 /* XCRemoteSwiftPackageReference "MMKV" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/Tencent/MMKV.git";
+			requirement = {
+				kind = exactVersion;
+				version = 2.4.0;
+			};
+		};
+		1A2B3C4D5E6F700000000203 /* XCRemoteSwiftPackageReference "ZIPFoundation" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/weichsel/ZIPFoundation.git";
+			requirement = {
+				kind = exactVersion;
+				version = 0.9.20;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		1A2B3C4D5E6F700000000101 /* Alamofire */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 1A2B3C4D5E6F700000000201 /* XCRemoteSwiftPackageReference "Alamofire" */;
+			productName = Alamofire;
+		};
+		1A2B3C4D5E6F700000000102 /* MMKV */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 1A2B3C4D5E6F700000000202 /* XCRemoteSwiftPackageReference "MMKV" */;
+			productName = MMKV;
+		};
+		1A2B3C4D5E6F700000000103 /* ZIPFoundation */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 1A2B3C4D5E6F700000000203 /* XCRemoteSwiftPackageReference "ZIPFoundation" */;
+			productName = ZIPFoundation;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 0A6F85D02DAE3D7D0047A006 /* Project object */;
 }

@@ -202,7 +202,7 @@ const computedPlaceholderStyle = computed(() => {
 			}
 		}
 		else if (props.placeholderStyle && typeof props.placeholderStyle === 'object') {
-			if (Object.hasOwn(props.placeholderStyle, 'color')) {
+			if (Object.prototype.hasOwnProperty.call(props.placeholderStyle, 'color')) {
 				return props.placeholderStyle.color
 			}
 		}
@@ -218,7 +218,7 @@ const computedPlaceholderStyle = computed(() => {
 			}
 		}
 		else if (props.placeholderStyle && typeof props.placeholderStyle === 'object') {
-			if (Object.hasOwn(props.placeholderStyle, 'font-size')) {
+			if (Object.prototype.hasOwnProperty.call(props.placeholderStyle, 'font-size')) {
 				size = props.placeholderStyle['font-size']
 			}
 		}
@@ -233,7 +233,7 @@ const computedPlaceholderStyle = computed(() => {
 			}
 		}
 		else if (props.placeholderStyle && typeof props.placeholderStyle === 'object') {
-			if (Object.hasOwn(props.placeholderStyle, 'font-weight')) {
+			if (Object.prototype.hasOwnProperty.call(props.placeholderStyle, 'font-weight')) {
 				return props.placeholderStyle['font-weight']
 			}
 		}

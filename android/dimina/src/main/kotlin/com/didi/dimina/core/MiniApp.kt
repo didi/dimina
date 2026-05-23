@@ -11,6 +11,7 @@ import com.didi.dimina.api.ext.ExtModuleHandler
 import com.didi.dimina.api.base.AppEventApi
 import com.didi.dimina.api.base.BaseAPI
 import com.didi.dimina.api.base.SystemApi
+import com.didi.dimina.api.base.UpdateApi
 import com.didi.dimina.api.device.ClipboardApi
 import com.didi.dimina.api.device.ContactApi
 import com.didi.dimina.api.device.KeyboardApi
@@ -24,6 +25,7 @@ import com.didi.dimina.api.storage.StorageApi
 import com.didi.dimina.api.ui.InteractionApi
 import com.didi.dimina.api.ui.MenuApi
 import com.didi.dimina.api.ui.NavigationBarApi
+import com.didi.dimina.api.ui.NativeComponentApi
 import com.didi.dimina.api.ui.ScrollApi
 import com.didi.dimina.bean.MiniProgram
 import com.didi.dimina.common.ApiUtils
@@ -87,6 +89,10 @@ class MiniApp private constructor() {
      */
     fun getJsCore(appId: String, context: Context? = null): JsCore {
         return getOrCreateJsCore(appId, context)
+    }
+
+    fun postUpdateStatus(appId: String, event: String) {
+        jsCoreMap[appId]?.postMessage("onUpdateStatusChange", mapOf("event" to event))
     }
 
     /**
@@ -168,6 +174,7 @@ class MiniApp private constructor() {
         // base
         BaseAPI().registerWith(apiRegistry)
         SystemApi().registerWith(apiRegistry)
+        UpdateApi().registerWith(apiRegistry)
 
         // device
         ClipboardApi().registerWith(apiRegistry)
@@ -191,6 +198,7 @@ class MiniApp private constructor() {
         NavigationBarApi().registerWith(apiRegistry)
         ScrollApi().registerWith(apiRegistry)
         MenuApi().registerWith(apiRegistry)
+        NativeComponentApi().registerWith(apiRegistry)
 
         // network
         com.didi.dimina.api.network.NetworkApi().registerWith(apiRegistry)
@@ -386,5 +394,3 @@ class MiniApp private constructor() {
         apiRegistry.clear()
     }
 }
-
-

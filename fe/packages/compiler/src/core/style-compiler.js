@@ -93,12 +93,12 @@ async function buildCompileCss(module, depthChain = [], compiledPaths = new Set(
 	// Circular dependency detected
 	if (depthChain.includes(currentPath)) {
 		console.warn('[style]', `检测到循环依赖: ${[...depthChain, currentPath].join(' -> ')}`)
-		return
+		return ''
 	}
 	// Deep dependency chain detected
 	if (depthChain.length > 20) {
 		console.warn('[style]', `检测到深度依赖: ${[...depthChain, currentPath].join(' -> ')}`)
-		return
+		return ''
 	}
 	if (compiledPaths.has(currentPath)) {
 		return ''
@@ -116,7 +116,7 @@ async function buildCompileCss(module, depthChain = [], compiledPaths = new Set(
 			if (!componentModule) {
 				continue
 			}
-			result += await buildCompileCss(componentModule, depthChain, compiledPaths)
+			result += await buildCompileCss(componentModule, depthChain, compiledPaths) || ''
 		}
 	}
 
@@ -127,16 +127,17 @@ async function enhanceCSS(module) {
 	const absolutePath = module.absolutePath ? module.absolutePath : getAbsolutePath(module.path)
 	if (!absolutePath) {
 		// 样式文件不存在
-		return
+		return ''
 	}
+	const cacheKey = `${absolutePath}::${module.id || ''}`
 
 	const inputCSS = getContentByPath(absolutePath)
 	if (!inputCSS) {
-		return
+		return ''
 	}
 
-	if (compileRes.has(absolutePath)) {
-		return compileRes.get(absolutePath)
+	if (compileRes.has(cacheKey)) {
+		return compileRes.get(cacheKey)
 	}
 
 	// 预处理器编译
@@ -242,7 +243,7 @@ async function enhanceCSS(module) {
 
 	const result = importCss + res.css
 
-	compileRes.set(module.path, result)
+	compileRes.set(cacheKey, result)
 
 	return result
 }

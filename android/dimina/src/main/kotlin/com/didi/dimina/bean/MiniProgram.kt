@@ -12,6 +12,7 @@ data class MiniProgram(
     val path: String?,
     val versionCode: Int = 0,
     val versionName: String = "",
+    val updateManifestUrl: String = "",
 ) : Parcelable {
 
     constructor(parcel: Parcel) : this(
@@ -20,7 +21,8 @@ data class MiniProgram(
         root = parcel.readInt() == 1,
         path = parcel.readString(),
         versionCode = parcel.readInt(),
-        versionName = parcel.readString() ?: ""
+        versionName = parcel.readString() ?: "",
+        updateManifestUrl = parcel.readString() ?: "",
     )
 
     override fun writeToParcel(parcel: Parcel, flags: Int) {
@@ -30,6 +32,7 @@ data class MiniProgram(
         parcel.writeString(path)
         parcel.writeInt(versionCode)
         parcel.writeString(versionName)
+        parcel.writeString(updateManifestUrl)
     }
 
     // 描述内容，通常返回 0

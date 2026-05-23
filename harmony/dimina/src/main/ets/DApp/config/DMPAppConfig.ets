@@ -39,6 +39,7 @@ export class DMPAppConfig {
   giftUrl?: string;
   debugGiftForceDownload: boolean = false;
   buildBundlePath?: string;
+  updateManifestUrl?: string;
   debugInterceptJSCore?: boolean;
   debugInterceptWebview?: boolean;
   //小程序在返回的时候不会被关闭

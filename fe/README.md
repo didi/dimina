@@ -15,13 +15,16 @@
 
 ## 环境要求
 
-建议使用 Node 18+, pnpm 8+。
+建议使用 Node.js 22+ 和 pnpm 7+。仓库已配置 Volta Node.js 22.22.3；如果使用 Volta，可直接在 `fe/` 目录执行 pnpm 命令。
 
 ## 开始上手
-
+ 
 ### 安装说明
 
 ```sh
+# 进入前端工作区
+cd fe
+
 # 安装依赖
 pnpm install
 ```
@@ -31,6 +34,9 @@ pnpm install
 ```sh
 # 编译 example/ 目录下的所有小程序
 pnpm compile
+
+# 忽略本地编译缓存，强制重新编译 example/ 目录下的所有小程序
+pnpm compile --force
 
 # 构建（开发环境，不压缩）
 pnpm build:dev
@@ -61,9 +67,25 @@ pnpm generate:sdk
 
 ### 资源生成工具
 
+#### pnpm compile
+
+编译 `example/` 目录下的所有小程序，并将产物输出到 `packages/container/public`。
+
+默认情况下，命令会读取 `packages/container/public/compile-cache.json`，跳过未发生变化的小程序以提升编译速度。如需忽略本地缓存并重新编译全部示例小程序，可以执行：
+
+```sh
+pnpm compile --force
+```
+
+也支持简写参数：
+
+```sh
+pnpm compile -f
+```
+
 #### pnpm generate:app
 
-将编译好的小程序打包并复制到共享目录 `shared/jsapp` 中。
+将编译好的小程序打包并复制到仓库根目录的 `shared/jsapp` 中。
 
 **注意事项：**
 - 运行前必须确保 `shared/jsapp` 目录已存在，否则命令将终止
@@ -72,12 +94,26 @@ pnpm generate:sdk
 
 #### pnpm generate:sdk
 
-将构建好的 SDK 打包并复制到共享目录 `shared/jssdk` 中。
+将构建好的 SDK 打包并复制到仓库根目录的 `shared/jssdk` 中。
 
 **注意事项：**
 - 运行前必须先执行构建命令 `pnpm build` 或 `pnpm build:dev`
 - 会自动递增 SDK 的版本号
 - 生成的资源包括 `config.json` 配置文件和 `main.zip` SDK 包
+
+### vConsole 调试
+
+JSSDK 直接依赖 vConsole，并随 pageFrame 静态同步打包；只有检测到 vConsole 启用标记时才会初始化。`pageFrame` 会在 render 初始化前检查 URL 参数，Web 容器会通过 pageFrame URL 参数默认启用；三端 SDK 的调试位开启后也会追加同一个 URL 参数。
+
+各端触发条件：
+- Web 容器：加载 pageFrame 时总是追加 `?vconsole=1`
+- Android：`Dimina.DiminaConfig.Builder().setDebugMode(true)`
+- iOS：Debug 构建，或 `DMPAppConfig.isDebugMode = true`
+- Harmony：debug HAP，或 `DMPAppConfig.isDebugMode = true`
+
+注意事项：
+- vConsole 随 pageFrame 静态同步打包，只有启用标记存在时才会初始化
+- Web 容器默认追加启用标记；三端 native 由各自 debug 位控制是否追加启用标记
 
 ### dmcc 编译工具
 

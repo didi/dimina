@@ -23,6 +23,7 @@ public class RouteAPI: DMPContainerApi {
     private static let REDIRECT_TO = "redirectTo"
     private static let NAVIGATE_BACK = "navigateBack"
     private static let RE_LAUNCH = "reLaunch"
+    private static let SWITCH_TAB = "switchTab"
 
     // Navigate to a new page
     @BridgeMethod(NAVIGATE_TO)
@@ -41,6 +42,13 @@ public class RouteAPI: DMPContainerApi {
         let urlData = DMPUtil.queryPath(path: url)
         let pagePath = urlData["pagePath"] as! String
         let query = urlData["query"] as! [String: Any]
+
+        if app?.getBundleAppConfig()?.isTabBarPage(pagePath: pagePath) == true {
+            let errorMap = DMPMap()
+            errorMap.set("errMsg", "\(RouteAPI.NAVIGATE_TO):fail can not navigateTo a tabbar page: \(url)")
+            DMPContainerApi.invokeFailure(callback: callback, param: errorMap, errMsg: "can not navigateTo a tabbar page: \(url)")
+            return DMPAsyncResult()
+        }
 
         Task { @MainActor in
             await app?.getNavigator()?.navigateTo(to: pagePath, query: query)
@@ -69,6 +77,13 @@ public class RouteAPI: DMPContainerApi {
         let urlData = DMPUtil.queryPath(path: url)
         let pagePath = urlData["pagePath"] as! String
         let query = urlData["query"] as! [String: Any]
+
+        if app?.getBundleAppConfig()?.isTabBarPage(pagePath: pagePath) == true {
+            let errorMap = DMPMap()
+            errorMap.set("errMsg", "\(RouteAPI.REDIRECT_TO):fail can not redirectTo a tabbar page: \(url)")
+            DMPContainerApi.invokeFailure(callback: callback, param: errorMap, errMsg: "can not redirectTo a tabbar page: \(url)")
+            return DMPAsyncResult()
+        }
 
         Task { @MainActor in
             await app?.getNavigator()?.redirectTo(to: pagePath, query: query)
@@ -123,6 +138,45 @@ public class RouteAPI: DMPContainerApi {
         let result = DMPMap()
         result.set("errMsg", "\(RouteAPI.RE_LAUNCH):ok")
         DMPContainerApi.invokeSuccess(callback: callback, param: result)
+        return DMPAsyncResult()
+    }
+
+    @BridgeMethod(SWITCH_TAB)
+    var switchTab: DMPBridgeMethodHandler = { param, env, callback in
+        let param = param.getMap()
+        guard let url = param.get("url") as? String, !url.isEmpty else {
+            let errorMap = DMPMap()
+            errorMap.set("errMsg", "\(RouteAPI.SWITCH_TAB):fail URL cannot be empty")
+            DMPContainerApi.invokeFailure(callback: callback, param: errorMap, errMsg: "URL cannot be empty")
+            return DMPAsyncResult()
+        }
+
+        let app = DMPAppManager.sharedInstance().getApp(appIndex: env.appIndex)
+
+        let urlData = DMPUtil.queryPath(path: url)
+        let pagePath = urlData["pagePath"] as! String
+        let query = urlData["query"] as! [String: Any]
+
+        guard app?.getBundleAppConfig()?.isTabBarPage(pagePath: pagePath) == true else {
+            let errorMap = DMPMap()
+            errorMap.set("errMsg", "\(RouteAPI.SWITCH_TAB):fail can not switchTab to a non-tabbar page: \(url)")
+            DMPContainerApi.invokeFailure(callback: callback, param: errorMap, errMsg: "can not switchTab to a non-tabbar page: \(url)")
+            return DMPAsyncResult()
+        }
+
+        Task { @MainActor in
+            let success = await app?.getNavigator()?.switchTab(to: pagePath, query: query) ?? false
+            if success {
+                let result = DMPMap()
+                result.set("errMsg", "\(RouteAPI.SWITCH_TAB):ok")
+                DMPContainerApi.invokeSuccess(callback: callback, param: result)
+            } else {
+                let errorMap = DMPMap()
+                errorMap.set("errMsg", "\(RouteAPI.SWITCH_TAB):fail can not switchTab to a non-tabbar page: \(url)")
+                DMPContainerApi.invokeFailure(callback: callback, param: errorMap, errMsg: "can not switchTab to a non-tabbar page: \(url)")
+            }
+        }
+
         return DMPAsyncResult()
     }
 }

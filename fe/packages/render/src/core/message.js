@@ -45,8 +45,8 @@ class Message {
 		return this.invoke(msg)
 	}
 
-	off(type) {
-		this.event.off(type)
+	off(type, callback) {
+		this.event.off(type, callback)
 	}
 
 	wait(eventName) {

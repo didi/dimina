@@ -33,6 +33,11 @@ FetchContent_Declare(
     GIT_TAG master
     GIT_SHALLOW TRUE
 )
+
+# Only the static libuv target is linked into libdimina.so. Keeping libuv's
+# shared target enabled produces a separately packaged libuv.so, which must also
+# satisfy Android 16 KB page-size alignment checks.
+set(LIBUV_BUILD_SHARED OFF CACHE BOOL "Build shared libuv" FORCE)
 FetchContent_MakeAvailable(libuv)
 
 # Handle the version file to prevent compilation errors

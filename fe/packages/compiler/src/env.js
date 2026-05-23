@@ -98,7 +98,7 @@ function storeAppConfig() {
 	const content = parseContentByPath(filePath)
 	const newObj = {}
 	for (const key in content) {
-		if (Object.hasOwn(content, key)) {
+		if (Object.prototype.hasOwnProperty.call(content, key)) {
 			// 兼容 subpackages / subPackages
 			if (key === 'subpackages') {
 				// 将值复制到新对象中，使用新的键名

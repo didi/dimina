@@ -59,6 +59,23 @@ const VUE_RUNTIME_HELPERS = {
 	_withDirectives: withDirectives,
 }
 
+const CANVAS_NODE_TYPE = 'dimina-canvas-node'
+const TYPED_ARRAY_CTORS = {
+	Int8Array,
+	Uint8Array,
+	Uint8ClampedArray,
+	Int16Array,
+	Uint16Array,
+	Int32Array,
+	Uint32Array,
+	Float32Array,
+	Float64Array,
+}
+
+function isCanvasElement(element) {
+	return element?.tagName?.toLowerCase() === 'canvas'
+}
+
 class Runtime {
 	constructor() {
 		this.app = null
@@ -69,6 +86,9 @@ class Runtime {
 		this.initializedModules = new Set()
 		this.preInitUpdates = new Map()
 		this.intersectionObservers = new Map()
+		this.canvasNodes = new Map()
+		this.canvasResources = new Map()
+		this.canvasRafIds = new Map()
 		// 追踪"mC 已发出但 service 侧 created 尚未完成"的组件 setup
 		// key: moduleId, value: Promise（created 完成时 resolve）
 		this._pendingSetups = new Map()
@@ -166,6 +186,15 @@ class Runtime {
 			},
 			setup(props) {
 				const state = reactive({})
+				const stateProxy = new Proxy(state, {
+					getOwnPropertyDescriptor(target, key) {
+						return Reflect.getOwnPropertyDescriptor(target, key) || (
+							typeof key === 'string' && !key.startsWith('$') && !key.startsWith('_')
+								? { configurable: true, enumerable: false, value: undefined }
+								: undefined
+						)
+					},
+				})
 				watchEffect(() => {
 					const newData = props.data || {}
 					for (const key in state) {
@@ -173,7 +202,7 @@ class Runtime {
 					}
 					Object.assign(state, newData)
 				})
-				return state
+				return stateProxy
 			},
 			render,
 		}
@@ -320,10 +349,10 @@ class Runtime {
 
 		const { accessCache, ctx } = internal
 		for (const [key, value] of Object.entries(changedData)) {
-			if (accessCache && Object.hasOwn(accessCache, key)) {
+			if (accessCache && Object.prototype.hasOwnProperty.call(accessCache, key)) {
 				delete accessCache[key]
 			}
-			if (ctx && !Object.hasOwn(ctx, key)) {
+			if (ctx && !Object.prototype.hasOwnProperty.call(ctx, key)) {
 				ctx[key] = value
 			}
 		}
@@ -568,7 +597,7 @@ class Runtime {
 				this.preInitUpdates.set(moduleId, pendingUpdate)
 			}
 			for (const key in data) {
-				if (!Object.hasOwn(setupData, key)) {
+				if (!Object.prototype.hasOwnProperty.call(setupData, key)) {
 					hasNewReactiveKey = true
 					newKeys[key] = data[key]
 				}
@@ -702,6 +731,209 @@ class Runtime {
 		return true
 	}
 
+	getCanvasNodeId(canvas) {
+		if (!canvas.__diminaCanvasNodeId) {
+			Object.defineProperty(canvas, '__diminaCanvasNodeId', {
+				value: `canvas_${uuid()}`,
+				configurable: true,
+			})
+		}
+		return canvas.__diminaCanvasNodeId
+	}
+
+	registerCanvasNode(canvas, type = canvas.getAttribute?.('type') || '2d') {
+		const nodeId = this.getCanvasNodeId(canvas)
+		const isNewNode = !this.canvasNodes.has(nodeId)
+		const rect = canvas.getBoundingClientRect?.()
+		const width = Math.round(rect?.width || 0)
+		const height = Math.round(rect?.height || 0)
+		if (isNewNode && width > 0 && height > 0) {
+			if (canvas.width !== width) {
+				canvas.width = width
+			}
+			if (canvas.height !== height) {
+				canvas.height = height
+			}
+		}
+
+		if (isNewNode) {
+			this.canvasNodes.set(nodeId, {
+				canvas,
+				contexts: new Map(),
+			})
+		}
+		return {
+			__diminaNodeType: CANVAS_NODE_TYPE,
+			nodeId,
+			type,
+			width: canvas.width || width || 300,
+			height: canvas.height || height || 150,
+		}
+	}
+
+	createOffscreenCanvas({ params }) {
+		const { nodeId, width = 300, height = 150, type = '2d' } = params
+		const canvas = document.createElement('canvas')
+		canvas.width = width
+		canvas.height = height
+		this.canvasNodes.set(nodeId, {
+			canvas,
+			type,
+			contexts: new Map(),
+		})
+	}
+
+	resolveCanvasArg(value) {
+		if (value === null || value === undefined) {
+			return value
+		}
+
+		if (Array.isArray(value)) {
+			return value.map(item => this.resolveCanvasArg(item))
+		}
+
+		if (typeof value !== 'object') {
+			return value
+		}
+
+		if (value.__canvasResourceId) {
+			return this.canvasResources.get(value.__canvasResourceId)
+		}
+
+		if (value.__canvasNodeId) {
+			return this.canvasNodes.get(value.__canvasNodeId)?.canvas
+		}
+
+		if (value.__canvasTypedArray) {
+			const Ctor = TYPED_ARRAY_CTORS[value.__canvasTypedArray]
+			if (Ctor) {
+				return new Ctor(value.data || [])
+			}
+			if (value.__canvasTypedArray === 'DataView') {
+				return new DataView(new Uint8Array(value.data || []).buffer)
+			}
+		}
+
+		if (value.__canvasArrayBuffer) {
+			return new Uint8Array(value.data || []).buffer
+		}
+
+		const result = {}
+		for (const [key, item] of Object.entries(value)) {
+			result[key] = this.resolveCanvasArg(item)
+		}
+		return result
+	}
+
+	getCanvasResource(id) {
+		return this.canvasResources.get(id)
+	}
+
+	setCanvasResource(id, value) {
+		if (id) {
+			this.canvasResources.set(id, value)
+		}
+	}
+
+	getCanvasImage(imageId) {
+		let image = this.getCanvasResource(imageId)
+		if (!image) {
+			image = new Image()
+			this.setCanvasResource(imageId, image)
+		}
+		return image
+	}
+
+	executeCanvasOperation(node, operation, bridgeId) {
+		switch (operation.op) {
+			case 'setCanvasProperty':
+				node.canvas[operation.prop] = operation.value
+				break
+			case 'getContext': {
+				const context = node.canvas.getContext(operation.contextType, this.resolveCanvasArg(operation.attributes))
+				node.contexts.set(operation.contextId, context)
+				this.setCanvasResource(operation.contextId, context)
+				break
+			}
+			case 'contextSetProperty': {
+				const context = this.getCanvasResource(operation.contextId)
+				if (context) {
+					context[operation.prop] = this.resolveCanvasArg(operation.value)
+				}
+				break
+			}
+			case 'contextCall': {
+				const context = this.getCanvasResource(operation.contextId)
+				const method = context?.[operation.method]
+				if (typeof method === 'function') {
+					const result = method.apply(context, (operation.args || []).map(arg => this.resolveCanvasArg(arg)))
+					this.setCanvasResource(operation.resultId, result)
+				}
+				break
+			}
+			case 'resourceCall': {
+				const resource = this.getCanvasResource(operation.resourceId)
+				const method = resource?.[operation.method]
+				if (typeof method === 'function') {
+					const result = method.apply(resource, (operation.args || []).map(arg => this.resolveCanvasArg(arg)))
+					this.setCanvasResource(operation.resultId, result)
+				}
+				break
+			}
+			case 'createImage':
+				this.getCanvasImage(operation.imageId)
+				break
+			case 'imageSetSrc': {
+				const image = this.getCanvasImage(operation.imageId)
+				image.onload = () => {
+					this.triggerCallback(bridgeId, operation.onload, {
+						width: image.width,
+						height: image.height,
+					})
+				}
+				image.onerror = () => {
+					this.triggerCallback(bridgeId, operation.onerror, {
+						errMsg: `createImage:fail ${operation.src}`,
+					})
+				}
+				image.src = operation.src
+				break
+			}
+			default:
+				console.warn('[system]', '[render]', `Unsupported canvas node operation: ${operation.op}`)
+		}
+	}
+
+	canvasNodeFlush({ bridgeId, params }) {
+		const node = this.canvasNodes.get(params.nodeId)
+		if (!node) {
+			console.warn('[system]', '[render]', `canvas node ${params.nodeId} not found`)
+			return
+		}
+
+		for (const operation of params.operations || []) {
+			this.executeCanvasOperation(node, operation, bridgeId)
+		}
+	}
+
+	canvasNodeRequestAnimationFrame({ bridgeId, params }) {
+		const key = `${params.nodeId}:${params.requestId}`
+		const frameId = requestAnimationFrame((timestamp) => {
+			this.canvasRafIds.delete(key)
+			this.triggerCallback(bridgeId, params.callback, timestamp)
+		})
+		this.canvasRafIds.set(key, frameId)
+	}
+
+	canvasNodeCancelAnimationFrame({ params }) {
+		const key = `${params.nodeId}:${params.requestId}`
+		const frameId = this.canvasRafIds.get(key)
+		if (frameId !== undefined) {
+			cancelAnimationFrame(frameId)
+			this.canvasRafIds.delete(key)
+		}
+	}
+
 	async selectorQuery(opts) {
 		const { bridgeId, params: { tasks, success } } = opts
 
@@ -762,6 +994,10 @@ class Runtime {
 		catch (error) {
 			console.error('[system]', '[render]', 'selectorQuery error:', error)
 		}
+	}
+
+	videoContext(opts) {
+		message.event.emit('videoContext', opts.params)
 	}
 
 	/**
@@ -873,9 +1109,11 @@ class Runtime {
 			data.computedStyle = styles
 		}
 
-		// TODO: 支持获取 Canvas 和 ScrollViewContext
-		// if (fields.node) {
-		// }
+		if (fields.node) {
+			data.node = isCanvasElement(targetElement)
+				? this.registerCanvasNode(targetElement)
+				: null
+		}
 		// TODO: 支持获取 VideoContext、CanvasContext、LivePlayerContext、EditorContext和 MapContext
 		// if (fields.context) {
 		// }

@@ -8,7 +8,8 @@ import { DomReadyListener, PopListener } from '../../Navigator/DMPNavigatorManag
 
 export enum DMPOpenType {
   NavigateTo = 0,
-  Insert
+  Insert,
+  Replace
 }
 
 export enum WebViewDefaultId {

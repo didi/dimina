@@ -8,17 +8,19 @@
 				<span class="status-bar__time"></span>
 			</div>
 			<div class="status-bar__right">
-			<!-- 信号强度 -->
-			<svg class="status-bar__signal" viewBox="0 0 1024 1024" width="18" height="18" fill="currentColor">
-				<path d="M0 704h208v192H0zM272 512h208v384H272zM544 288h208v608H544zM816 128h208v768H816z"
-					p-id="3570"></path>
-			</svg>
-			<!-- WiFi -->
-			<svg class="status-bar__wifi" viewBox="0 0 1346 1024" width="14" height="14" fill="currentColor">
-				<path
-					d="M614.762225 324.416035a578.94361 578.94361 0 0 0-397.653943 238.117618 89.918541 89.918541 0 1 0 154.434563 92.115133 407.432318 407.432318 0 0 1 262.421842-151.458536c118.438803-12.683545 237.054751 43.400399 352.482099 166.834678a89.95397 89.95397 0 0 0 131.370351-122.867416c-194.575504-207.825911-380.966932-235.81474-503.054912-222.741477z m60.866846 354.288972a172.645016 172.645016 0 1 0 172.574158 172.574159 172.645016 172.645016 0 0 0-172.645016-172.715874zM630.846944 0.985632C291.615253 16.609776 64.232591 258.695431 22.107632 307.055875a89.918541 89.918541 0 0 0 135.621819 118.049086c20.655047-23.701932 209.668214-232.023848 481.407855-244.459391 185.222275-8.502935 372.003421 75.746982 555.135391 250.553161a89.918541 89.918541 0 0 0 124.001141-130.130339C1098.366672 90.939602 867.015973-9.997326 630.846944 0.985632z"
-					p-id="3720"></path>
-			</svg>
+				<!-- 信号强度 -->
+				<svg class="status-bar__signal" viewBox="0 0 20 12" aria-hidden="true">
+					<rect x="1" y="7" width="3" height="4" rx="1" fill="currentColor" />
+					<rect x="6" y="5" width="3" height="6" rx="1" fill="currentColor" />
+					<rect x="11" y="3" width="3" height="8" rx="1" fill="currentColor" />
+					<rect x="16" y="1" width="3" height="10" rx="1" fill="currentColor" />
+				</svg>
+				<!-- WiFi -->
+				<svg class="status-bar__wifi" viewBox="0 0 19 14" aria-hidden="true">
+					<path fill-rule="evenodd" clip-rule="evenodd" d="M9.5 2.18c2.86 0 5.54.9 7.7 2.52.36.27.42.78.13 1.12l-.42.5c-.27.31-.73.36-1.06.11A10.12 10.12 0 0 0 9.5 4.35a10.12 10.12 0 0 0-6.35 2.08c-.33.25-.79.2-1.06-.11l-.42-.5a.77.77 0 0 1 .13-1.12A12.79 12.79 0 0 1 9.5 2.18zm0 1.05a11.62 11.62 0 0 0-6.53 1.94l.1.13A11.13 11.13 0 0 1 9.5 3.44a11.13 11.13 0 0 1 6.43 1.86l.1-.13A11.62 11.62 0 0 0 9.5 3.23z" fill="currentColor" />
+					<path fill-rule="evenodd" clip-rule="evenodd" d="M9.5 6.1c1.76 0 3.42.54 4.77 1.52.37.27.43.79.13 1.13l-.42.49c-.27.31-.74.36-1.07.12A5.82 5.82 0 0 0 9.5 8.28a5.82 5.82 0 0 0-3.41 1.08c-.33.24-.8.19-1.07-.12l-.42-.49a.77.77 0 0 1 .13-1.13A8.11 8.11 0 0 1 9.5 6.1zm0 1.04a7 7 0 0 0-3.75 1.02l.1.12A6.59 6.59 0 0 1 9.5 7.28c1.32 0 2.58.34 3.65 1l.1-.12A7 7 0 0 0 9.5 7.14z" fill="currentColor" />
+					<circle cx="9.5" cy="11.08" r="1.08" fill="currentColor" />
+				</svg>
 				<!-- 电池 -->
 				<svg class="status-bar__battery" width="25" height="13" viewBox="0 0 25 13" fill="none">
 					<rect x="0.75" y="0.75" width="20" height="11.5" rx="2.2" stroke="currentColor" stroke-width="1" />
@@ -33,18 +35,8 @@
 					alt="GitHub stars"></span>
 		</div>
 		<div class="iphone__apps"></div>
-		<div class="iphone__home-touch-bar"></div>
 	</div>
 
-	<!-- 静音键 -->
-	<div class="mute-btn"></div>
-
-	<!-- 音量增大键 -->
-	<div class="volume-up-btn"></div>
-
-	<!-- 音量减小键 -->
-	<div class="volume-down-btn"></div>
-
 	<!-- 电源键 -->
-	<div class="power-btn"></div>
+	<button class="power-btn" type="button" aria-label="电源键" aria-pressed="false"></button>
 </div>

@@ -222,6 +222,8 @@ public class DMPWebViewPool {
     private func cleanupWebView(_ webview: DMPWebview) {
         print("🧹 WebViewPool: Clean WebView (ID: \(webview.getWebViewId()))")
         
+        webview.getWebView().endEditing(true)
+        webview.getWebView().scrollView.endEditing(true)
         // Stop all network requests
         webview.getWebView().stopLoading()
         
@@ -407,6 +409,8 @@ extension DMPWebview {
     fileprivate func prepareForReuse() {
         print("🧽 WebView (ID: \(getWebViewId())) start preparing for reuse")
         
+        getWebView().endEditing(true)
+        getWebView().scrollView.endEditing(true)
         getWebView().stopLoading()
         
         let userContentController = getWebView().configuration.userContentController

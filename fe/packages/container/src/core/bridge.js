@@ -132,6 +132,16 @@ export class Bridge {
 				hostEnv: this.parent.getHostEnvSnapshot(),
 			},
 		})
+
+		if (this.opts.isRoot) {
+			this.jscore.postMessage({
+				type: 'onUpdateStatusChange',
+				body: {
+					bridgeId: this.id,
+					event: 'noupdate',
+				},
+			})
+		}
 	}
 
 	resetStatus() {

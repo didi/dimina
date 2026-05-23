@@ -2,10 +2,13 @@ import { DMPApp } from '../DApp/DMPApp';
 import { DMPWebViewController } from '../HybridContainer/DMPWebViewController';
 import { AsyncCallback } from '@kit.BasicServicesKit';
 import { DMPMap } from '../Utils/DMPMap';
+import { BusinessError } from '@ohos.base';
 
 
 export class DMPRender {
   controllerMap: Map<number, DMPWebViewController> = new Map()
+  private pendingScripts: Map<number, string[]> = new Map()
+  private readonly maxPendingScriptCount: number = 200
   app: DMPApp;
 
   constructor(app: DMPApp) {
@@ -18,12 +21,26 @@ export class DMPRender {
   executeScript(script: string, webViewId: number, callback?: AsyncCallback<string>) {
     const controller = this.controllerMap.get(webViewId)
     if (controller) {
-      controller.runJavaScript(script, (error, result) => {
-        if (error) {
-          console.info(`run JavaScript error: ` + JSON.stringify(error))
-          return;
+      if (!controller.isControllerAttached) {
+        this.enqueueScript(webViewId, script)
+        return
+      }
+      try {
+        controller.runJavaScript(script, (error, result) => {
+          if (error) {
+            console.info(`run JavaScript error: ` + JSON.stringify(error))
+            return;
+          }
+        });
+      } catch (error) {
+        const businessError = error as BusinessError
+        if (businessError?.code === 17100001) {
+          controller.isControllerAttached = false
+          this.enqueueScript(webViewId, script)
+          return
         }
-      });
+        console.info(`run JavaScript exception: ` + JSON.stringify(error))
+      }
     }
   }
 
@@ -38,6 +55,30 @@ export class DMPRender {
 
   removeController(webViewId: number) {
     this.controllerMap.delete(webViewId)
+    this.pendingScripts.delete(webViewId)
+  }
+
+  public flushPendingScripts(webViewId: number) {
+    const scripts = this.pendingScripts.get(webViewId)
+    if (!scripts || scripts.length === 0) {
+      return
+    }
+    this.pendingScripts.delete(webViewId)
+    scripts.forEach((script: string) => {
+      this.executeScript(script, webViewId)
+    })
+  }
+
+  private enqueueScript(webViewId: number, script: string) {
+    let scripts = this.pendingScripts.get(webViewId)
+    if (!scripts) {
+      scripts = []
+      this.pendingScripts.set(webViewId, scripts)
+    }
+    scripts.push(script)
+    if (scripts.length > this.maxPendingScriptCount) {
+      scripts.shift()
+    }
   }
 
   public fromContainerNext(data: DMPMap, webViewId: number) {

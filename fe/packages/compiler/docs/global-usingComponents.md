@@ -169,4 +169,4 @@ const mainPages = pages.map(path => {
 
 - [微信小程序官方文档 - 全局配置](https://developers.weixin.qq.com/miniprogram/dev/reference/configuration/app.html#usingComponents)
 - [Dimina 编译器文档](../README.md)
-- [示例项目](../examples/global-components-demo/) 
+- [相关测试用例](../__tests__/global-usingComponents.spec.js)

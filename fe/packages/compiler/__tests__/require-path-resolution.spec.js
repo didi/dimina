@@ -270,6 +270,46 @@ describe('Require Path Resolution', () => {
 		expect(pageModule.code).toContain('require("/miniprogram_npm/westore/index")')
 	})
 
+	it('should resolve same-directory bare requires when no npm package matches', async () => {
+		fs.mkdirSync('pages/bare-local', { recursive: true })
+
+		fs.writeFileSync('app.json', JSON.stringify({
+			pages: ['pages/bare-local/index']
+		}))
+
+		fs.writeFileSync('pages/bare-local/my-behavior.js', `
+			module.exports = Behavior({
+				data: {
+					name: 'local behavior'
+				}
+			})
+		`)
+
+		fs.writeFileSync('pages/bare-local/index.js', `
+			const myBehavior = require('my-behavior')
+
+			Page({
+				behaviors: [myBehavior]
+			})
+		`)
+
+		fs.writeFileSync('pages/bare-local/index.json', JSON.stringify({
+			navigationBarTitleText: 'Bare Local'
+		}))
+
+		storeInfo(tempDir)
+
+		const progress = { completedTasks: 0 }
+		const result = await compileJS([{ path: 'pages/bare-local/index' }], null, null, progress)
+
+		const modulePaths = result.map(module => module.path)
+		expect(modulePaths).toContain('/pages/bare-local/my-behavior')
+
+		const pageModule = result.find(module => module.path === 'pages/bare-local/index')
+		expect(pageModule.code).toContain('require("/pages/bare-local/my-behavior")')
+		expect(pageModule.code).not.toContain('require("my-behavior")')
+	})
+
 	it('should resolve npm directory requires to index modules', async () => {
 		fs.mkdirSync('pages/npm-dir', { recursive: true })
 		fs.mkdirSync('miniprogram_npm/@vant/weapp/util', { recursive: true })

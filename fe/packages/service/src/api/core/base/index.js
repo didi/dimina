@@ -17,6 +17,11 @@ export function env() {
 const builtInAPIs = new Set([
 	'nextTick',
 	'getUpdateManager',
+	'UpdateManager',
+	'UpdateManager.applyUpdate',
+	'UpdateManager.onCheckForUpdate',
+	'UpdateManager.onUpdateFailed',
+	'UpdateManager.onUpdateReady',
 	'getPerformance'
 ])
 	

@@ -50,6 +50,17 @@ export class DMPNavigator {
     DMPLogger.d(Tags.NAVIGATOR, 'navigateTo')
     const pagePath: string = params.get('pagePath')
 
+    const appConfig = this.app.bundleManager.getJsAppModuleConfig()
+    const tabBarPagePaths = appConfig?.getTabBarPagePaths() ?? new Set<string>()
+    if (tabBarPagePaths.has(pagePath)) {
+      const errorMsg = `navigateTo: fail can not navigateTo a tabbar page: ${pagePath}`
+      DMPLogger.e(Tags.NAVIGATOR, errorMsg)
+      promptAction.showToast({ message: errorMsg, duration: 2000, alignment: Alignment.Center })
+      this.app.container.isNavigating = false
+      // 抛错，桥层 .catch 后调用 wx.navigateTo 的 fail 回调
+      throw new Error(errorMsg)
+    }
+
     const callback: DMPBridgeCallback = (_: DMPMap, cbType: DMPBridgeCallbackType) => {
       if (cbType == DMPBridgeCallbackType.Success) {
         this.openPage(stackId, pagePath, params)
@@ -121,6 +132,16 @@ export class DMPNavigator {
   async redirectTo(stackId: number, params: DMPMap) {
     DMPLogger.d(Tags.NAVIGATOR, 'redirectTo')
     const pagePath: string = params.get('pagePath')
+
+    // 微信规范：redirectTo 不允许跳到 tabBar 页面
+    const appConfig = this.app.bundleManager.getJsAppModuleConfig()
+    const tabBarPagePaths = appConfig?.getTabBarPagePaths() ?? new Set<string>()
+    if (tabBarPagePaths.has(pagePath)) {
+      const errorMsg = `redirectTo:fail can not redirectTo a tabbar page: ${pagePath}`
+      DMPLogger.e(Tags.NAVIGATOR, errorMsg)
+      promptAction.showToast({ message: errorMsg, duration: 2000, alignment: Alignment.Center })
+      throw new Error(errorMsg)
+    }
 
     const callback: DMPBridgeCallback = (_, cbType: DMPBridgeCallbackType) => {
       if (cbType == DMPBridgeCallbackType.Success) {
@@ -202,7 +223,9 @@ export class DMPNavigator {
           return
         }
       }
-      let currentPageRecord = this.app.navigatorManager.getTopPageRecord();
+      // 用 getActivePageRecord：tab 模式下从 navigateTo 推入页面退回时，
+      // 应当 onShow 真实的当前 tab，而非栈底初始 tab
+      let currentPageRecord = this.app.navigatorManager.getActivePageRecord();
       this.pageLifecycle.onShow(currentPageRecord?.webViewId ?? -1)
 
     } catch (err) {
@@ -213,6 +236,94 @@ export class DMPNavigator {
   async navigateBack(delta: number, animated: boolean = true, canDestroy = true, isReLaunch = false) {
     DMPLogger.d(Tags.NAVIGATOR, 'navigateBack')
     this.pop(delta, animated, canDestroy, isReLaunch)
+  }
+
+  /**
+   * Switch to a TabBar page
+   * Simplified logic that works with DMPTabBarContainerView's lazy loading:
+   * 1. Clear all non-tabBar pages from stack (leave only tab container)
+   * 2. Emit event to let TabBarContainerView handle lazy loading and visibility switching
+   *
+   * 失败场景会抛错，由桥层 await 后转成 wx.switchTab 的 fail 回调：
+   *   - 目标路径不在 app.tabBar.list 中
+   *   - 当前没有可用的 TabBar 容器（清栈后栈为空）
+   *   - eventHub.emit 抛错
+   */
+  async switchTab(params: DMPMap) {
+    const pagePath: string = params.get('pagePath')
+    DMPLogger.i(Tags.NAVIGATOR, `switchTab to: ${pagePath}`)
+
+    // Get tabBar page paths
+    const appConfig = this.app.bundleManager.getJsAppModuleConfig()
+    const tabBarPagePaths = appConfig?.getTabBarPagePaths() ?? new Set<string>()
+
+    // Validate that target path is actually a tab page
+    if (!tabBarPagePaths.has(pagePath)) {
+      DMPLogger.e(Tags.TABBAR, `Target path is not a tabBar page: ${pagePath}`)
+      throw new Error(`switchTab:fail can not find target page "${pagePath}"`)
+    }
+
+    // 判断之前可见的页面是不是 tab：
+    //   - 栈高 === 1 + 栈顶是 tab → 用户当前就在 tab 上 → 切换时需要 onHide 旧 tab
+    //   - 栈高 > 1（tab 之上有 navigateTo 推入的页面）→ 旧 tab 早在 navigateTo 时已 onHide，
+    //     此时只需要给上方非 tab 页面发 onUnload，**不要**重复 onHide 旧 tab
+    // 这个判断必须在 pop 循环之前算，pop 之后栈结构已经变了
+    const stackTopBeforePop = this._stacks.data[this._stacks.data.length - 1]
+    const wasPrevTabVisible = this._stacks.data.length === 1
+      && stackTopBeforePop !== undefined
+      && tabBarPagePaths.has(stackTopBeforePop.pagePath)
+
+    // Remove ALL non-tabBar pages from stack
+    // Keep popping from top until we reach a tabBar page or empty stack
+    let poppedCount = 0
+
+    while (this._stacks.data.length > 0) {
+      const topRecord = this._stacks.data[this._stacks.data.length - 1]
+
+      // If top is a tabBar page, stop
+      if (tabBarPagePaths.has(topRecord.pagePath)) {
+        DMPLogger.d(Tags.TABBAR, `Reached tabBar page: ${topRecord.pagePath}, stopping pop`)
+        break
+      }
+
+      // Pop non-tabBar page
+      DMPLogger.d(Tags.TABBAR, `Popping non-tabBar page: ${topRecord.pagePath}`)
+
+      // Unload lifecycle（非 tab 页面是真正销毁，应当走 onUnload 而不是 onHide）
+      this.pageLifecycle.onUnload(topRecord.webViewId)
+
+      // Pop from actual Navigation stack
+      DRouter.getInstance().pop(false) // animated = false for batch operations
+
+      // Remove from internal stack
+      this._stacks.data.pop()
+      this.app.navigatorManager.popGlobalPageRecord()
+
+      poppedCount++
+    }
+
+    if (this._stacks.data.length === 0) {
+      DMPLogger.e(Tags.TABBAR, `No tabBar page found in stack after clearing!`)
+      throw new Error('switchTab:fail no tabBar context (stack empty after clearing)')
+    }
+
+    DMPLogger.d(Tags.TABBAR, `Cleared ${poppedCount} non-tabBar pages. Remaining stack size: ${this._stacks.data.length}, wasPrevTabVisible=${wasPrevTabVisible}`)
+
+    // Emit event to TabBarContainerView to handle:
+    // - Lazy loading the tab if not yet loaded
+    // - Switching visibility to the target tab
+    // - Calling updateTabBarSelection after loading is complete
+    // wasPrevTabVisible: 告诉容器是否需要给旧 tab 发 onHide
+    try {
+      getContext(this.app).eventHub.emit('tabbar_switch_webview', {
+        'pagePath': pagePath,
+        'wasPrevTabVisible': wasPrevTabVisible
+      })
+      DMPLogger.d(Tags.TABBAR, `Emitted switch event for tab: ${pagePath}. TabBarContainerView will handle lazy loading.`)
+    } catch (err) {
+      DMPLogger.e(Tags.TABBAR, `Failed to emit tabbar switch event: ${err}`)
+      throw new Error(`switchTab:fail event emit failed: ${(err as Error)?.message ?? err}`)
+    }
   }
 
   //打开页面
@@ -271,7 +382,9 @@ export class DMPNavigator {
     const newWebViewId = webViewNodeController.webViewId
 
     //创建页面记录
-    const currentPageRecord = this.app.navigatorManager.getTopPageRecord();
+    // 用 getActivePageRecord：navigateTo 自 tabB 时，新页面的 parentWebViewId
+    // 应该是 tabB 而不是栈底的初始 tab
+    const currentPageRecord = this.app.navigatorManager.getActivePageRecord();
     const pageRecord =
       new DMPPageRecord(newWebViewId, currentPageRecord?.webViewId ?? -1, pagePath, this.app.appIndex,
         webViewNodeController)
@@ -282,5 +395,87 @@ export class DMPNavigator {
     webViewNodeController.loadResource(pagePath)
     DMPLogger.i(Tags.LAUNCH, "preLoadPage end")
     return pageRecord;
+  }
+
+  /**
+   * Find an existing page record by page path in the current navigator stack
+   */
+  public findPageRecordByPath(pagePath: string): DMPPageRecord | undefined {
+    for (let record of this._stacks.data) {
+      if (record.pagePath === pagePath) {
+        return record
+      }
+    }
+    return undefined
+  }
+
+  /**
+   * Create a page record for a tab page without adding to navigator stack
+   * Tab pages are managed by TabBarContainerView, not in navigator stack
+   * This keeps DMPStack consistent with actual Router stack
+   */
+  public createPageRecordForTab(pagePath: string): DMPPageRecord {
+    DMPLogger.i(Tags.TABBAR, `Creating page record for tab: ${pagePath}`)
+    const params = new DMPMap()
+    params.set('query', new DMPMap())
+
+    const webViewNodeController = this.app.webViewCachePool.getWebViewNodeController(pagePath, params)
+    const newWebViewId = webViewNodeController.webViewId
+
+    const currentPageRecord = this.app.navigatorManager.getTopPageRecord()
+    const pageRecord = new DMPPageRecord(
+      newWebViewId,
+      currentPageRecord?.webViewId ?? -1,
+      pagePath,
+      this.app.appIndex,
+      webViewNodeController
+    )
+    pageRecord.params = params
+    const navStyle = this.app.bundleManager.getJsAppModuleConfig()!.getPageConfigNext(pagePath)
+    pageRecord.pageStyle = new DMPPageStyle(navStyle ?? new DMPMap(), this.app.appIndex)
+
+    // IMPORTANT: Do NOT push to stack - tab pages are managed by TabBarContainerView
+    // this.pushPageRecordStack(pageRecord)  // Removed to keep stack consistent
+
+    // Register to global Map so getPageRecordById can find it
+    this.app.navigatorManager.registerTabPageRecord(pageRecord)
+
+    webViewNodeController.loadResource(pagePath)
+
+    DMPLogger.i(Tags.TABBAR, `Created and registered tab page record: ${pagePath}, webViewId: ${newWebViewId}`)
+    return pageRecord
+  }
+
+  /**
+   * Handle tab lifecycle events (onHide/onShow) for tab switching
+   * Since tab pages are NOT in navigator stack, this only manages lifecycle
+   * Called from TabBarContainerView when switching tabs
+   *
+   * @param previousWebViewId 旧选中 tab 的 webViewId，<0 表示无（初始化场景）
+   * @param currentWebViewId  新选中 tab 的 webViewId
+   * @param triggerPrevHide   是否给旧 tab 发 onHide：
+   *   - true：旧 tab 之前就是可见页面（用户在 tab 上点击切换 / 初始化）
+   *   - false：旧 tab 不可见（navigateTo 推入页面在上方，旧 tab 早已 onHide 过），避免重复
+   */
+  public updateTabBarSelection(previousWebViewId: number, currentWebViewId: number, triggerPrevHide: boolean = true) {
+    DMPLogger.i(Tags.TABBAR, `Switching tab lifecycle: ${previousWebViewId} -> ${currentWebViewId}, triggerPrevHide=${triggerPrevHide}`)
+
+    // Trigger onHide for previous tab (if it was actually visible)
+    if (triggerPrevHide && previousWebViewId >= 0) {
+      this.pageLifecycle.onHide(previousWebViewId)
+      DMPLogger.d(Tags.TABBAR, `onHide called for tab webViewId: ${previousWebViewId}`)
+    }
+
+    // Trigger onShow for current tab
+    this.pageLifecycle.onShow(currentWebViewId)
+    DMPLogger.d(Tags.TABBAR, `onShow called for tab webViewId: ${currentWebViewId}`)
+  }
+
+  /**
+   * Get the current page path (for TabBar initialization)
+   */
+  public getCurrentPagePath(): string | undefined {
+    const topRecord = this._stacks.data[this._stacks.data.length - 1]
+    return topRecord?.pagePath
   }
 }

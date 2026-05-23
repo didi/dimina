@@ -71,7 +71,7 @@ export class Component {
 		if (this.__isComponent__) {
 			for (const key in this.__info__.properties) {
 				// 先取逻辑层的属性默认值
-				if (!Object.hasOwn(this.opts.properties, key) || this.opts.properties[key] === undefined) {
+				if (!Object.prototype.hasOwnProperty.call(this.opts.properties, key) || this.opts.properties[key] === undefined) {
 					this.data[key] = this.__info__.properties[key]?.value ?? null
 				}
 				else {
@@ -527,7 +527,7 @@ export class Component {
 		for (const [prop, val] of Object.entries(data)) {
 			if (
 				this.__pendingSyncedProps__
-				&& Object.hasOwn(this.__pendingSyncedProps__, prop)
+				&& Object.prototype.hasOwnProperty.call(this.__pendingSyncedProps__, prop)
 				&& deepEqual(this.__pendingSyncedProps__[prop], val)
 			) {
 				this.data[prop] = val

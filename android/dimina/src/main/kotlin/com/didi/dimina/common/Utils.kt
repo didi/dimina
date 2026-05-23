@@ -7,9 +7,13 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.drawable.BitmapDrawable
 import android.os.Environment
+import android.os.Build
 import android.provider.MediaStore
 import android.util.TypedValue
 import android.widget.Toast
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import com.didi.dimina.BuildConfig
 import coil.imageLoader
 import coil.request.ImageRequest
 import com.didi.dimina.bean.App
@@ -27,6 +31,7 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.util.zip.ZipInputStream
 import kotlin.math.absoluteValue
+import kotlin.math.roundToInt
 
 /**
  * Author: Doslin
@@ -192,15 +197,107 @@ object Utils {
         }
     }
 
-    // Helper method to get status bar height
+    // Mini program system APIs expect CSS/logical px, not Android physical px.
     @SuppressLint("InternalInsetResource")
     fun getStatusBarHeight(currentActivity: Activity): Int {
-        var result = 0
-        val resourceId = currentActivity.resources.getIdentifier("status_bar_height", "dimen", "android")
-        if (resourceId > 0) {
-            result = currentActivity.resources.getDimensionPixelSize(resourceId)
+        val statusBarInsetPx = ViewCompat.getRootWindowInsets(currentActivity.window.decorView)
+            ?.getInsets(WindowInsetsCompat.Type.statusBars())
+            ?.top
+            ?: 0
+        val statusBarHeightPx = listOf(
+            getAndroidDimensionPixelSize(currentActivity, "status_bar_height_default"),
+            getAndroidDimensionPixelSize(currentActivity, "status_bar_height"),
+            statusBarInsetPx
+        ).filter { it > 0 }.minOrNull() ?: 0
+        return pxToDpInt(statusBarHeightPx, currentActivity)
+    }
+
+    fun getNavigationBarHeight(currentActivity: Activity): Int {
+        val navigationBarInset = ViewCompat.getRootWindowInsets(currentActivity.window.decorView)
+            ?.getInsets(WindowInsetsCompat.Type.navigationBars())
+            ?.bottom
+            ?: 0
+        return pxToDpInt(navigationBarInset, currentActivity)
+    }
+
+    fun pxToDpInt(px: Int, context: Context): Int {
+        val density = context.resources.displayMetrics.density.takeIf { it > 0f } ?: 1f
+        return (px / density).roundToInt()
+    }
+
+    @SuppressLint("InternalInsetResource")
+    private fun getAndroidDimensionPixelSize(context: Context, name: String): Int {
+        val resourceId = context.resources.getIdentifier(name, "dimen", "android")
+        return if (resourceId > 0) {
+            context.resources.getDimensionPixelSize(resourceId)
+        } else {
+            0
         }
-        return result
+    }
+
+    fun getMiniProgramSystemInfo(currentActivity: Activity): JSONObject {
+        val displayMetrics = currentActivity.resources.displayMetrics
+        val screenWidth = pxToDpInt(displayMetrics.widthPixels, currentActivity)
+        val screenHeight = pxToDpInt(displayMetrics.heightPixels, currentActivity)
+        val statusBarHeight = getStatusBarHeight(currentActivity)
+        val navigationBarHeight = getNavigationBarHeight(currentActivity)
+        val safeAreaTop = statusBarHeight
+        val safeAreaBottom = (screenHeight - navigationBarHeight).coerceAtLeast(safeAreaTop)
+        val safeAreaHeight = (safeAreaBottom - safeAreaTop).coerceAtLeast(0)
+
+        return JSONObject().apply {
+            put("brand", Build.BRAND)
+            put("model", Build.MODEL)
+            put("pixelRatio", displayMetrics.density)
+            put("screenWidth", screenWidth)
+            put("screenHeight", screenHeight)
+            put("windowWidth", screenWidth)
+            put("windowHeight", safeAreaHeight)
+            put("statusBarHeight", statusBarHeight)
+            put("screenTop", statusBarHeight)
+            put("safeArea", JSONObject().apply {
+                put("left", 0)
+                put("right", screenWidth)
+                put("top", safeAreaTop)
+                put("bottom", safeAreaBottom)
+                put("width", screenWidth)
+                put("height", safeAreaHeight)
+            })
+            put("language", currentActivity.resources.configuration.locale.language)
+            put("version", Build.VERSION.RELEASE)
+            put("system", "Android ${Build.VERSION.RELEASE}")
+            put("platform", "android")
+            put("SDKVersion", BuildConfig.SDK_VERSION)
+            put("deviceOrientation", currentActivity.resources.configuration.orientation.let {
+                when (it) {
+                    android.content.res.Configuration.ORIENTATION_PORTRAIT -> "portrait"
+                    android.content.res.Configuration.ORIENTATION_LANDSCAPE -> "landscape"
+                    else -> "undefined"
+                }
+            })
+        }
+    }
+
+    fun getMenuButtonBoundingClientRect(currentActivity: Activity): JSONObject {
+        val systemInfo = getMiniProgramSystemInfo(currentActivity)
+        val width = 87
+        val height = 32
+        val navigationBarContentHeight = 64
+        val top = systemInfo.getInt("statusBarHeight") + (navigationBarContentHeight - height) / 2
+        val right = systemInfo.getInt("windowWidth") - 10
+        val left = right - width
+        val bottom = top + height
+
+        return JSONObject().apply {
+            put("width", width)
+            put("height", height)
+            put("top", top)
+            put("right", right)
+            put("bottom", bottom)
+            put("left", left)
+            put("x", left)
+            put("y", top)
+        }
     }
 
     fun saveImageToGallery(context: Context, url: String) {

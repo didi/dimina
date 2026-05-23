@@ -19,6 +19,7 @@ import { DMPRawFileUtils } from '../Utils/DMPRawFileUtils';
 
 
 const workerPort: ThreadWorkerGlobalScope = worker.workerPort;
+type DMPBridgeParams = DMPMap | number | string | boolean | object;
 
 let appIndex = -1;
 let jsEngine: DMPJSEngine = new DMPJSEngine()
@@ -43,7 +44,11 @@ const serviceToContainer = (t: number, wid: number, msg: string, ab: ArrayBuffer
       // DMPLogger.d(Tags.JS_ENGINE, `worker methodName: ${methodName}`)
 
       if (obj) {
-        const params = DMPMap.createFromObject(body['params'])
+        const rawParams: DMPBridgeParams | null | undefined = body['params'];
+        let params: DMPBridgeParams = new Object();
+        if (rawParams !== undefined && rawParams !== null) {
+          params = typeof rawParams === 'object' ? DMPMap.createFromObject(rawParams as Object) : rawParams;
+        }
         const callback: DMPBridgeCallback = (args: DMPMap, cbType: DMPBridgeCallbackType) => {
           if (params instanceof DMPMap) {
             let id = ''

@@ -22,17 +22,17 @@ export class Device {
 
 	updateStatusBarTime() {
 		const timeElement = this.root.querySelector('.status-bar__time')
-		
+
 		const updateTime = () => {
 			const now = new Date()
 			const hours = now.getHours().toString().padStart(2, '0')
 			const minutes = now.getMinutes().toString().padStart(2, '0')
 			timeElement.textContent = `${hours}:${minutes}`
 		}
-		
+
 		// 立即更新一次
 		updateTime()
-		
+
 		// 每分钟更新一次（60000毫秒 = 1分钟）
 		setInterval(updateTime, 60000)
 	}
@@ -55,15 +55,26 @@ export class Device {
 			island.classList.remove('island-hover')
 		})
 
+		let pendingPointer = null
+		let pointerFrame = 0
 		const syncPointer = ({ x: pointerX, y: pointerY }) => {
-			const x = pointerX.toFixed(2)
-			const y = pointerY.toFixed(2)
-			const xp = (pointerX / window.innerWidth).toFixed(2)
-			const yp = (pointerY / window.innerHeight).toFixed(2)
-			document.documentElement.style.setProperty('--x', x)
-			document.documentElement.style.setProperty('--xp', xp)
-			document.documentElement.style.setProperty('--y', y)
-			document.documentElement.style.setProperty('--yp', yp)
+			pendingPointer = { pointerX, pointerY }
+			if (pointerFrame) {
+				return
+			}
+
+			pointerFrame = requestAnimationFrame(() => {
+				const { pointerX, pointerY } = pendingPointer
+				const x = pointerX.toFixed(2)
+				const y = pointerY.toFixed(2)
+				const xp = (pointerX / window.innerWidth).toFixed(2)
+				const yp = (pointerY / window.innerHeight).toFixed(2)
+				document.documentElement.style.setProperty('--x', x)
+				document.documentElement.style.setProperty('--xp', xp)
+				document.documentElement.style.setProperty('--y', y)
+				document.documentElement.style.setProperty('--yp', yp)
+				pointerFrame = 0
+			})
 		}
 		document.body.addEventListener('pointermove', syncPointer)
 	}
@@ -71,14 +82,28 @@ export class Device {
 	bindPowerButton() {
 		const powerButton = this.root.querySelector('.power-btn')
 
-		powerButton?.addEventListener('click', () => {
-			if (this.isScreenSleeping) {
-				this.wakeScreen()
-			}
-			else {
-				this.sleepScreen()
-			}
+		powerButton?.addEventListener('pointerdown', (event) => {
+			event.preventDefault()
+			this.toggleScreen()
 		})
+
+		powerButton?.addEventListener('keydown', (event) => {
+			if (event.repeat || (event.key !== 'Enter' && event.key !== ' ')) {
+				return
+			}
+
+			event.preventDefault()
+			this.toggleScreen()
+		})
+	}
+
+	toggleScreen() {
+		if (this.isScreenSleeping) {
+			this.wakeScreen()
+		}
+		else {
+			this.sleepScreen()
+		}
 	}
 
 	sleepScreen() {
@@ -88,6 +113,7 @@ export class Device {
 
 		this.isScreenSleeping = true
 		this.root.querySelector('.iphone__screen')?.classList.add('iphone__screen--sleeping')
+		this.root.querySelector('.power-btn')?.setAttribute('aria-pressed', 'true')
 		this.application?.sleepActiveView?.()
 	}
 
@@ -98,27 +124,21 @@ export class Device {
 
 		this.isScreenSleeping = false
 		this.root.querySelector('.iphone__screen')?.classList.remove('iphone__screen--sleeping')
+		this.root.querySelector('.power-btn')?.setAttribute('aria-pressed', 'false')
 		this.application?.wakeActiveView?.()
 	}
 
 	// black white
 	updateDeviceBarColor(color) {
 		const statusBar = this.root.querySelector('.iphone__status-bar')
-		const homeBar = this.root.querySelector('.iphone__home-touch-bar')
 
 		if (color === 'black') {
 			statusBar.classList.remove('iphone__status-bar--white')
 			statusBar.classList.add('iphone__status-bar--black')
-
-			homeBar.classList.remove('iphone__home-touch-bar--white')
-			homeBar.classList.add('iphone__home-touch-bar--black')
 		}
 		else if (color === 'white') {
 			statusBar.classList.add('iphone__status-bar--white')
 			statusBar.classList.remove('iphone__status-bar--black')
-
-			homeBar.classList.add('iphone__home-touch-bar--white')
-			homeBar.classList.remove('iphone__home-touch-bar--black')
 		}
 	}
 

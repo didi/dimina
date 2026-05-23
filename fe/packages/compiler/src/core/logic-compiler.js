@@ -3,13 +3,13 @@ import { resolve, sep } from 'node:path'
 import { isMainThread, parentPort } from 'node:worker_threads'
 import { parseSync } from 'oxc-parser'
 import { walk } from 'oxc-walker'
-import { transformSync } from 'oxc-transform'
 import MagicString from 'magic-string'
 import { transform } from 'esbuild'
-import ts from 'typescript'
+import { getWxMemberName, warnUnsupportedWxApi } from '../common/compatibility.js'
 import { collectAssets, hasCompileInfo } from '../common/utils.js'
 import { mergeSourcemap } from './sourcemap.js'
 import { getAppConfigInfo, getAppId, getComponent, getContentByPath, getNpmResolver, getTargetPath, getWorkPath, resetStoreInfo, resolveAppAlias } from '../env.js'
+import { mergeSourcemap, remapSourcemap } from './sourcemap.js'
 
 // 用于缓存已处理的模块
 const processedModules = new Set()
@@ -163,12 +163,16 @@ async function buildJSByPath(packageName, module, compileRes, mainCompileRes, ad
 		console.warn('[logic]', `找不到模块文件: ${src}`)
 		return
 	}
+	const diagnosticSource = modulePath.startsWith(getWorkPath())
+		? modulePath.slice(getWorkPath().length)
+		: src
 	
 	const sourceCode = getContentByPath(modulePath)
 	if (!sourceCode) {
 		console.warn('[logic]', `无法读取模块文件: ${modulePath}`)
 		return
 	}
+	const isTypeScript = modulePath.endsWith('.ts')
 
 	// 记录源文件路径，用于 sourcemap
 	if (enableSourcemap) {
@@ -177,37 +181,16 @@ async function buildJSByPath(packageName, module, compileRes, mainCompileRes, ad
 			? modulePath.slice(workPath.length)
 			: src
 	}
-	
-	// 如果是 TypeScript 文件，先编译为 JavaScript
-	let jsCode = sourceCode
-	if (modulePath.endsWith('.ts')) {
-		try {
-			const result = ts.transpileModule(sourceCode, {
-				compilerOptions: {
-					target: ts.ScriptTarget.ES2020,
-					module: ts.ModuleKind.ESNext, // 保持 ES6 模块语法，让 oxc-transform 后续处理
-					strict: false,
-					esModuleInterop: true,
-					skipLibCheck: true,
-				},
-			})
-			jsCode = result.outputText
-		} catch (error) {
-			console.error(`[logic] TypeScript 编译失败 ${modulePath}:`, error.message)
-			// 如果 TypeScript 编译失败，尝试使用原始代码
-			jsCode = sourceCode
-		}
-	}
-	
+
 	// 使用 oxc-parser 解析代码
-	const parseResult = parseSync(modulePath, jsCode, {
+	const parseResult = parseSync(modulePath, sourceCode, {
 		sourceType: 'module',
-		lang: modulePath.endsWith('.ts') ? 'ts' : 'js'
+		lang: isTypeScript ? 'ts' : 'js'
 	})
 	const ast = parseResult.program
 	
 	// 使用 MagicString 进行代码修改
-	const s = new MagicString(jsCode)
+	const s = new MagicString(sourceCode)
 
 	// 构建 extraInfo 对象（使用 JSON 而不是 AST）
 	const extraInfo = {
@@ -279,6 +262,15 @@ async function buildJSByPath(packageName, module, compileRes, mainCompileRes, ad
 
 	walk(ast, {
 		enter(node, parent) {
+			const wxMemberName = getWxMemberName(node)
+			if (wxMemberName) {
+				warnUnsupportedWxApi(
+					wxMemberName,
+					compileInfo.sourceFile || diagnosticSource,
+					node.loc?.start?.line || getLineByIndex(sourceCode, node.start),
+				)
+			}
+
 			if ((node.type === 'StringLiteral' || node.type === 'Literal') && isLocalAssetString(node.value)) {
 				pathReplacements.push({
 					start: node.start,
@@ -291,26 +283,28 @@ async function buildJSByPath(packageName, module, compileRes, mainCompileRes, ad
 			if (node.type === 'CallExpression') {
 				// 检查是否是 require() 调用
 				const isRequire = node.callee.type === 'Identifier' && node.callee.name === 'require'
-				const isRequireProperty = node.callee.type === 'MemberExpression' && 
-					node.callee.object?.type === 'Identifier' && 
-					node.callee.object?.name === 'require'
-				
-				if ((isRequire || isRequireProperty) && 
-					node.arguments.length > 0 && 
-					(node.arguments[0].type === 'StringLiteral' || node.arguments[0].type === 'Literal')) {
+				const isRequireProperty = node.callee.type === 'MemberExpression'
+					&& node.callee.object?.type === 'Identifier'
+					&& node.callee.object?.name === 'require'
+
+				if (
+					(isRequire || isRequireProperty)
+					&& node.arguments.length > 0
+					&& (node.arguments[0].type === 'StringLiteral' || node.arguments[0].type === 'Literal')
+				) {
 					const arg = node.arguments[0]
 					const requirePath = arg.value
-					
+
 					if (requirePath) {
 						const { id, shouldProcess } = resolveDependencyId(requirePath, modulePath, false)
-						
+
 						if (shouldProcess) {
 							pathReplacements.push({
 								start: arg.start,
 								end: arg.end,
-								newValue: id
+								newValue: id,
 							})
-							
+
 							if (!processedModules.has(packageName + id)) {
 								dependenciesToProcess.push(id)
 							}
@@ -318,20 +312,44 @@ async function buildJSByPath(packageName, module, compileRes, mainCompileRes, ad
 					}
 				}
 			}
-			
+
 			// 处理 ES6 import 语句
 			if (node.type === 'ImportDeclaration') {
 				const importPath = node.source.value
 				if (importPath) {
 					const { id, shouldProcess } = resolveDependencyId(importPath, modulePath, true)
-					
+
 					if (shouldProcess) {
 						pathReplacements.push({
 							start: node.source.start,
 							end: node.source.end,
-							newValue: id
+							newValue: id,
 						})
-						
+
+						if (!processedModules.has(packageName + id)) {
+							dependenciesToProcess.push(id)
+						}
+					}
+				}
+			}
+
+			// 处理 TypeScript import equals，如 import helper = require('./helper')
+			if (
+				node.type === 'TSImportEqualsDeclaration'
+				&& node.moduleReference?.type === 'TSExternalModuleReference'
+			) {
+				const importPathNode = node.moduleReference.expression
+				const importPath = importPathNode?.value
+				if (importPath) {
+					const { id, shouldProcess } = resolveDependencyId(importPath, modulePath, false)
+
+					if (shouldProcess) {
+						pathReplacements.push({
+							start: importPathNode.start,
+							end: importPathNode.end,
+							newValue: id,
+						})
+
 						if (!processedModules.has(packageName + id)) {
 							dependenciesToProcess.push(id)
 						}
@@ -375,112 +393,52 @@ async function buildJSByPath(packageName, module, compileRes, mainCompileRes, ad
 		s.overwrite(replacement.start, replacement.end, `'${replacement.newValue}'`)
 	}
 
-	// 使用 oxc-transform 进行 TypeScript 和 JSX 转换
 	const modifiedCode = s.toString()
-	let transformedCode = modifiedCode
-	
-	// 如果是 TypeScript 文件，使用 oxc-transform 进行类型擦除
-	if (modulePath.endsWith('.ts') || modulePath.endsWith('.tsx')) {
-		try {
-			const result = transformSync(modulePath, modifiedCode, {
-				sourceType: 'module',
-				lang: modulePath.endsWith('.tsx') ? 'tsx' : 'ts',
-				target: 'es2020',
-				typescript: {
-					onlyRemoveTypeImports: true
-				}
-			})
-			transformedCode = result.code
-		} catch (error) {
-			console.error(`[logic] oxc-transform 转换失败 ${modulePath}:`, error.message)
-			// 如果转换失败，使用修改后的代码
-			transformedCode = modifiedCode
-		}
+	let preEsbuildMap = null
+	if (enableSourcemap && compileInfo.sourceFile) {
+		const generatedMap = JSON.parse(s.generateMap({
+			file: compileInfo.sourceFile,
+			source: compileInfo.sourceFile,
+			includeContent: true,
+			hires: true,
+		}).toString())
+		generatedMap.file = compileInfo.sourceFile
+		generatedMap.sources = [compileInfo.sourceFile]
+		generatedMap.sourcesContent = [sourceCode]
+		preEsbuildMap = JSON.stringify(generatedMap)
 	}
-	
+
 	// 使用 esbuild 进行最终的 CommonJS 转换和压缩
-	// 这是必需的，因为 oxc-transform 不支持模块格式转换
 	try {
 		const esbuildOpts = {
 			format: 'cjs',
 			target: 'es2020',
 			platform: 'neutral',
-			loader: 'js',
+			loader: isTypeScript ? 'ts' : 'js',
 		}
 		/*
-		 * 当前 sourcemap 精度为行级别：
-		 * - JS 文件：MagicString 路径重写和 esbuild 之后的 require 路径修正
-		 *   仅影响列偏移，行映射保持准确
-		 * - TS 文件：esbuild 之前的 ts.transpileModule 和 oxc-transform 类型擦除
-		 *   会改变行号，导致行映射不准确，暂未处理
-		 * 后续可通过 MagicString.generateMap() + remapping 串联多步 map 来提升精度
+		 * 当前 sourcemap 会串联 MagicString 和 esbuild 两步 map：
+		 * - JS / TS 都先经过 MagicString 路径重写，再交给 esbuild 生成 map
+		 * - 这样可避免 TS 先被 transpile 成 JS 后再伪装为 .ts 输出 sourcemap
+		 * - bundle 阶段只做 modDefine 包裹和模块拼接，因此 sourcemap 模式会跳过最终 minify
 		 */
 		if (enableSourcemap && compileInfo.sourceFile) {
 			esbuildOpts.sourcemap = true
 			esbuildOpts.sourcefile = compileInfo.sourceFile
 			esbuildOpts.sourcesContent = true
 		}
-		const esbuildResult = await transform(transformedCode, esbuildOpts)
+		const esbuildResult = await transform(modifiedCode, esbuildOpts)
 
 		if (enableSourcemap && esbuildResult.map) {
-			compileInfo.map = esbuildResult.map
+			compileInfo.map = preEsbuildMap
+				? remapSourcemap(esbuildResult.map, preEsbuildMap)
+				: esbuildResult.map
 		}
-
-		// esbuild 转换后，需要再次处理生成的 require 调用
-		// 因为 esbuild 可能生成新的 require 调用（从 import 转换而来）
-		const esbuildCode = esbuildResult.code
-		
-		// 解析 esbuild 输出的代码
-		const esbuildAst = parseSync(modulePath, esbuildCode, {
-			sourceType: 'module',
-			lang: 'js'
-		})
-		
-		// 再次收集需要修改的 require 路径
-		const postEsbuildReplacements = []
-		walk(esbuildAst.program, {
-			enter(node) {
-				if (node.type === 'CallExpression') {
-					const isRequire = node.callee.type === 'Identifier' && node.callee.name === 'require'
-					const isRequireProperty = node.callee.type === 'MemberExpression' && 
-						node.callee.object?.type === 'Identifier' && 
-						node.callee.object?.name === 'require'
-					
-					if ((isRequire || isRequireProperty) && 
-						node.arguments.length > 0 && 
-						(node.arguments[0].type === 'StringLiteral' || node.arguments[0].type === 'Literal')) {
-						const arg = node.arguments[0]
-						const requirePath = arg.value
-						
-						// 只处理仍然是相对路径的 require（说明没有被正确转换）
-						if (requirePath && (requirePath.startsWith('./') || requirePath.startsWith('../'))) {
-							const { id } = resolveDependencyId(requirePath, modulePath, false)
-							
-							postEsbuildReplacements.push({
-								start: arg.start,
-								end: arg.end,
-								newValue: id
-							})
-						}
-					}
-				}
-			}
-		})
-		
-		// 如果有需要修改的路径，应用修改
-		if (postEsbuildReplacements.length > 0) {
-			const finalMagicString = new MagicString(esbuildCode)
-			for (const replacement of postEsbuildReplacements.reverse()) {
-				finalMagicString.overwrite(replacement.start, replacement.end, `"${replacement.newValue}"`)
-			}
-			compileInfo.code = finalMagicString.toString()
-		} else {
-			compileInfo.code = esbuildCode
-		}
+		compileInfo.code = esbuildResult.code
 	} catch (error) {
 		console.error(`[logic] esbuild 转换失败 ${modulePath}:`, error.message)
-		// 如果 esbuild 转换失败，使用 oxc 转换后的代码
-		compileInfo.code = transformedCode
+		// 如果 esbuild 转换失败，使用路径改写后的源码
+		compileInfo.code = modifiedCode
 	}
 	
 	// 将当前模块标记为已处理
@@ -493,6 +451,20 @@ function isLocalAssetString(value) {
 		&& !value.startsWith('//')
 		&& (value.startsWith('/') || value.startsWith('./') || value.startsWith('../'))
 		&& /\.(?:png|jpe?g|gif|svg)(?:\?.*)?$/.test(value)
+}
+
+function getLineByIndex(content, index) {
+	if (typeof index !== 'number' || index < 0) {
+		return null
+	}
+
+	let line = 1
+	for (let i = 0; i < index; i++) {
+		if (content.charCodeAt(i) === 10) {
+			line++
+		}
+	}
+	return line
 }
 
 /**
@@ -555,9 +527,17 @@ function resolveDependencyId(specifier, modulePath, allowAbsolute) {
 
 	if (specifier.startsWith('@') || isBareModuleSpecifier(specifier)) {
 		const npmModuleId = resolveNpmModuleId(specifier, modulePath)
+		if (npmModuleId) {
+			return {
+				id: npmModuleId,
+				shouldProcess: true,
+			}
+		}
+
+		const siblingModuleId = resolveBareSiblingModuleId(specifier, modulePath)
 		return {
-			id: npmModuleId || specifier,
-			shouldProcess: Boolean(npmModuleId),
+			id: siblingModuleId || specifier,
+			shouldProcess: Boolean(siblingModuleId),
 		}
 	}
 
@@ -572,6 +552,11 @@ function resolveRelativeModuleId(specifier, modulePath) {
 	const requireFullPath = resolve(modulePath, `../${specifier}`)
 	const relativeId = requireFullPath.split(`${getWorkPath()}${sep}`)[1]
 	return normalizeModuleId(relativeId)
+}
+
+function resolveBareSiblingModuleId(specifier, modulePath) {
+	const siblingModuleId = resolveRelativeModuleId(`./${specifier}`, modulePath)
+	return resolveModuleIdToExistingPath(siblingModuleId)
 }
 
 function normalizeModuleId(moduleId) {

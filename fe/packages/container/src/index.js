@@ -40,8 +40,8 @@ window.onload = function () {
 	application.initRootView(appListPage)
 	device.open(application)
 
-	// 刷新后从 hash 恢复小程序及完整页面栈
-	const parsed = HashRouter.parse(window.location.hash)
+	// 刷新后从 query 路由恢复小程序及页面；兼容旧 hash 路由
+	const parsed = HashRouter.parse(window.location.hash, window.location.search)
 	if (parsed) {
 		const rootPage = parsed.stack[0]
 		// path 格式为 pagePath?query，queryPath 会统一处理

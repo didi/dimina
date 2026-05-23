@@ -33,19 +33,25 @@ public class DMPWebViewPublish {
     }
     
     public func injectPublishJavaScript(webview: DMPWebview) {
-        let publishScript = """
-        // 添加publish方法
-        window.DiminaRenderBridge = window.DiminaRenderBridge || {};
-        window.DiminaRenderBridge.publish = function(msg) {
-            if (typeof msg !== 'string') {
-                console.error('DiminaRenderBridge.publish: 消息必须是字符串类型', msg);
-                return;
-            }
-            
-            window.webkit.messageHandlers.publishHandler.postMessage(msg);
-        };
-        """
-        
-        webview.executeJavaScript(publishScript)
+        let publishScript = WKUserScript(source: """
+        (function() {
+            window.DiminaRenderBridge = window.DiminaRenderBridge || {};
+            window.DiminaRenderBridge.publish = function(msg) {
+                if (typeof msg !== 'string') {
+                    console.error('DiminaRenderBridge.publish: 消息必须是字符串类型', msg);
+                    return;
+                }
+
+                if (!window.webkit || !window.webkit.messageHandlers || !window.webkit.messageHandlers.publishHandler) {
+                    console.error('DiminaRenderBridge.publish: native handler not ready');
+                    return;
+                }
+
+                window.webkit.messageHandlers.publishHandler.postMessage(msg);
+            };
+        })();
+        """, injectionTime: .atDocumentStart, forMainFrameOnly: false)
+
+        webview.getWebView().configuration.userContentController.addUserScript(publishScript)
     }    
 } 

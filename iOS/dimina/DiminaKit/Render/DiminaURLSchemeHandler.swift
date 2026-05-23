@@ -23,12 +23,7 @@ class DiminaURLSchemeHandler: NSObject, WKURLSchemeHandler {
             return
         }
         
-        var path = ""
-        if url.path.contains("pageFrame") || url.path.contains("vconsole") {
-            path = DMPSandboxManager.sdkMainBundlePath() + url.path
-        } else {
-            path = DMPSandboxManager.sandboxPath() + url.path
-        }
+        let path = resolvePath(for: url)
         print("📦 DiminaURLSchemeHandler loading resource: \(path)")
         
         // Check if the file exists
@@ -43,9 +38,7 @@ class DiminaURLSchemeHandler: NSObject, WKURLSchemeHandler {
             // Read file data
             let data = try Data(contentsOf: URL(fileURLWithPath: path))
             
-            // Set response headers
             let mimeType = mimeTypeForPath(path)
-            let headers = ["Content-Type": mimeType, "Access-Control-Allow-Origin": "*"]
             let response = URLResponse(url: url, mimeType: mimeType, expectedContentLength: data.count, textEncodingName: "UTF-8")
             
             // Return response and data
@@ -63,6 +56,27 @@ class DiminaURLSchemeHandler: NSObject, WKURLSchemeHandler {
     func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {
         // Cleanup operations when the task is stopped
         print("🛑 Stopping resource loading")
+    }
+
+    private func resolvePath(for url: URL) -> String {
+        let path = url.path
+
+        if path == "/pageFrame.html" || path.contains("vconsole") {
+            return sdkPath(for: path)
+        }
+
+        if path.hasPrefix("/assets/") {
+            let sdkResourcePath = sdkPath(for: path)
+            if FileManager.default.fileExists(atPath: sdkResourcePath) {
+                return sdkResourcePath
+            }
+        }
+
+        return DMPSandboxManager.sandboxPath() + path
+    }
+
+    private func sdkPath(for path: String) -> String {
+        return DMPSandboxManager.sdkMainBundlePath() + path
     }
     
     // Get MIME type based on file path

@@ -205,13 +205,15 @@ function invokeAPI(apiName, { params, bridgeId }) {
 }
 
 function onEvent(eventName, callback) {
-	window.__message.on(eventName, (msg) => {
+	const handler = (msg) => {
 		callback?.(msg)
-	})
+	}
+	window.__message.on(eventName, handler)
+	return () => window.__message.off(eventName, handler)
 }
 
-function offEvent(eventName) {
-	window.__message.off(eventName)
+function offEvent(eventName, callback) {
+	window.__message.off(eventName, callback)
 }
 
 /**

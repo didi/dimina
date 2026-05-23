@@ -12,7 +12,7 @@ import { DMPContainer } from '../Container/DMPContainer'
 import { DMPLogger } from '../EventTrack/DMPLogger'
 import { Tags } from '../EventTrack/Tags'
 import window from '@ohos.window'
-import { ImageKnife } from '@ohos/imageknife'
+import { ImageKnife } from '@ohos/imageknifepro'
 import { DMPWebViewController } from '../HybridContainer/DMPWebViewController'
 import { DMPAppModuleManager } from '../Bridges/DMPAppModuleManager'
 import { DMPExtModuleHandler } from '../Bridges/DMPExtModuleHandler'
@@ -30,6 +30,7 @@ import { DMPNavigatorManager } from '../Navigator/DMPNavigatorManager'
 import { DRouter } from '../Navigator/DRouter'
 import { DMPAppLifecycle } from './DMPAppLifecycle'
 import { DMPDeviceUtil } from '../Utils/DMPDeviceUtils'
+import { DMPRemoteUpdateManager } from '../Bundle/DMPRemoteUpdateManager'
 export type DMPBundleUpdateCallback = () => void;
 
 export interface DMPAppInitOptions {
@@ -41,7 +42,7 @@ export class DMPApp {
   appIndex: number;
   appConfig: DMPAppConfig
   customConfig: DMPCustomConfig = new DMPCustomConfig();
-  private onUpdateResult?: DMPBundleUpdateCallback
+  private onUpdateResults: DMPBundleUpdateCallback[] = []
   private _container: DMPContainer = new DMPContainer(this)
   private static _context: common.UIAbilityContext
   private static _apiNamespaces: string[] = []
@@ -121,7 +122,9 @@ export class DMPApp {
   }
 
   public get currentWebViewId(): number {
-    return this.navigatorManager!.getTopPageRecord()?.webViewId ?? -1
+    // 走 getActivePageRecord：tab 模式下返回真实选中 tab，
+    // 否则返回栈顶（含 navigateTo 推入的页面 / 非 tab 场景）
+    return this.navigatorManager!.getActivePageRecord()?.webViewId ?? -1
   }
 
   public static getWindowStage(): window.WindowStage {
@@ -132,7 +135,11 @@ export class DMPApp {
     DMPApp._entryContext = context;
     DMPApp._context = DMPApp._entryContext.getContext();
     DMPApp._apiNamespaces = options?.apiNamespaces ?? [];
-    ImageKnife.with(DMPApp._entryContext.getContext())
+    ImageKnife.getInstance()
+      .initFileCache(DMPApp._entryContext.getContext())
+      .catch((error: Error) => {
+        DMPLogger.e(Tags.LAUNCH, `ImageKnifePro initFileCache failed: ${error.message}`)
+      })
     context.getWindowStage().on('windowStageEvent', DMPAppLifecycle.onWindowStageEvent);
     DMPDeviceUtil.prepareSafeAreaAndDisplayWH(DMPApp._entryContext.getContext())
   }
@@ -238,6 +245,7 @@ export class DMPApp {
         this._service.updateWorkerAppData();
         await this.startEngineService()
         await this.startMainService()
+        this.startRemoteUpdateCheck()
 
         this._engineStatus.setStatus(EngineStatus.RUN)
       };
@@ -317,10 +325,8 @@ export class DMPApp {
   }
 
   invokeUpdateResult() {
-    if (this.onUpdateResult) {
-      this.onUpdateResult()
-      this.onUpdateResult = undefined
-    }
+    const callbacks = this.onUpdateResults.splice(0)
+    callbacks.forEach((callback) => callback())
   }
 
   onUpdateManagerCall(method: string, arg: DMPMap) {
@@ -333,10 +339,29 @@ export class DMPApp {
     if (this._container.isResourceLoaded(this.currentWebViewId)) {
       DMPChannelProxyNext.ContainerToService(msg, this.appIndex)
     } else {
-      this.onUpdateResult = () => {
+      this.onUpdateResults.push(() => {
         DMPChannelProxyNext.ContainerToService(msg, this.appIndex)
-      }
+      })
     }
+  }
+
+  private startRemoteUpdateCheck() {
+    DMPRemoteUpdateManager.sharedInstance()
+      .checkForUpdate(this)
+      .catch((error: Error) => {
+        DMPLogger.e(Tags.LOAD_REMOTE_BUNDLE, `远程更新检查失败: ${error.message}`)
+        this.notifyUpdateManagerStatus('noupdate')
+      })
+  }
+
+  public notifyUpdateManagerStatus(event: string) {
+    const msg: DMPMap = new DMPMap({
+      type: 'onUpdateStatusChange',
+      body: {
+        event,
+      }
+    })
+    this._service.postMessage(msg)
   }
 
   public getWindowBottomSafeArea(): number {

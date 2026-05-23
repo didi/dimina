@@ -222,6 +222,7 @@ public class DMPWebViewOptimizer {
         // Performance-related settings
         webView.allowsBackForwardNavigationGestures = false
         webView.allowsLinkPreview = false
+        applyScrollOptimizations(to: webView)
         
         print("🚀 WebViewOptimizer: Optimized WebView instance")
     }
@@ -235,6 +236,9 @@ public class DMPWebViewOptimizer {
             // iOS 13+ scroll optimization
             if #available(iOS 13.0, *) {
                 scrollView.automaticallyAdjustsScrollIndicatorInsets = false
+            }
+            if #available(iOS 11.0, *) {
+                scrollView.contentInsetAdjustmentBehavior = .never
             }
         }
     }
