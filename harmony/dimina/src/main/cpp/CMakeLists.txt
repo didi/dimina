@@ -21,27 +21,18 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(quickjs)
 
-# Handle the version file to prevent compilation errors
-set(VERSION_FILE "${quickjs_SOURCE_DIR}/version")
+# Handle the VERSION file to prevent conflicts with C++ standard <version> header
+# on case-insensitive filesystems (macOS). QuickJS ships a plain-text VERSION file
+# which shadows the C++17/20 <version> header when quickjs_SOURCE_DIR is in the
+# include path, causing "expected unqualified-id" errors in C++ compilations.
+set(VERSION_FILE "${quickjs_SOURCE_DIR}/VERSION")
 set(VERSION_H_FILE "${quickjs_SOURCE_DIR}/version.h")
-set(VERSION_TXT_FILE "${quickjs_SOURCE_DIR}/version.txt")
 
-# 只在首次配置时处理 version 文件
-if(EXISTS "${VERSION_FILE}" AND NOT EXISTS "${VERSION_H_FILE}")
-    # Read the version content
+if(EXISTS "${VERSION_FILE}")
     file(READ "${VERSION_FILE}" QJS_VERSION)
     string(STRIP "${QJS_VERSION}" QJS_VERSION)
-    
-    # Create a version.h file
     file(WRITE "${VERSION_H_FILE}" "#define QJS_VERSION \"${QJS_VERSION}\"\n")
-    
-    # Rename the original version file to prevent it from being compiled
-    file(RENAME "${VERSION_FILE}" "${VERSION_TXT_FILE}")
-elseif(NOT EXISTS "${VERSION_FILE}" AND NOT EXISTS "${VERSION_H_FILE}" AND EXISTS "${VERSION_TXT_FILE}")
-    # 如果 version.txt 已存在,从它创建 version.h
-    file(READ "${VERSION_TXT_FILE}" QJS_VERSION)
-    string(STRIP "${QJS_VERSION}" QJS_VERSION)
-    file(WRITE "${VERSION_H_FILE}" "#define QJS_VERSION \"${QJS_VERSION}\"\n")
+    file(REMOVE "${VERSION_FILE}")
 endif()
 
 # Set build type to Release for optimization
@@ -88,6 +79,9 @@ if(DIMINA_UPDATE_QUICKJS_ON_BUILD)
     add_custom_target(update_quickjs_latest
         COMMAND ${GIT_EXECUTABLE} fetch --depth=1 origin master
         COMMAND ${GIT_EXECUTABLE} reset --hard FETCH_HEAD
+        # Remove the VERSION file to prevent conflicts with the C++ standard <version> header
+        # on case-insensitive filesystems (macOS). The version value is already in version.h.
+        COMMAND ${CMAKE_COMMAND} -E rm -f "${quickjs_SOURCE_DIR}/VERSION"
         WORKING_DIRECTORY ${quickjs_SOURCE_DIR}
         COMMENT "Updating QuickJS to latest origin/master"
     )
