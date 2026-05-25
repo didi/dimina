@@ -144,14 +144,14 @@ class MiniApp private constructor() {
                                 // Inject custom API namespaces before loading service.js
                                 val namespaces = Dimina.getInstance().getApiNamespaces()
                                 if (namespaces.isNotEmpty()) {
-                                    val json = namespaces.joinToString(",") { "\"$it\"" }
-                                    evaluate("globalThis.__diminaApiNamespaces = [$json]")
+                                    val json = org.json.JSONArray(namespaces).toString()
+                                    evaluate("globalThis.__diminaApiNamespaces = $json")
                                 }
-                                // 注入已注册的 API 名字，使 service 层的 wx Proxy 能枚举到它们
+                                // 注入已注册的 API 名字，使 service 层的 wx 对象能枚举到它们
                                 val registeredApis = getAvailableApis()
                                 if (registeredApis.isNotEmpty()) {
-                                    val apisJson = registeredApis.joinToString(",") { "\"$it\"" }
-                                    evaluate("globalThis.__diminaRegisteredApis = [$apisJson]")
+                                    val apisJson = org.json.JSONArray(registeredApis).toString()
+                                    evaluate("globalThis.__diminaRegisteredApis = $apisJson")
                                 }
 
                                 evaluateFromFile(
