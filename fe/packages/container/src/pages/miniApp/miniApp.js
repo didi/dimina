@@ -903,10 +903,9 @@ export class MiniApp {
 		this.tabBarEl = this.el.querySelector('.dimina-mini-app__tabbar')
 		if (!this.tabBarEl) return
 
-		const { color, backgroundColor, borderStyle, list } = this.tabBarConfig
+		const { color, backgroundColor, list } = this.tabBarConfig
 		const normalColor = this._sanitizeCssColor(color) || '#999999'
 		const bg = this._sanitizeCssColor(backgroundColor) || '#ffffff'
-		const borderColor = borderStyle === 'white' ? '#FFFFFF' : '#E0E0E0'
 
 		// 用 DOM API 构建，避免 innerHTML 拼接被配置中的引号 / HTML 片段污染宿主 DOM
 		this.tabBarEl.textContent = ''

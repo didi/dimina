@@ -29,7 +29,7 @@ export function invokeAPI(name, data, target = 'container') {
 			success: callback.store(data, true),
 		}
 	}
-	else if (data.hasOwnProperty('success') || data.hasOwnProperty('fail') || data.hasOwnProperty('complete')) {
+	else if (Object.prototype.hasOwnProperty.call(data, 'success') || Object.prototype.hasOwnProperty.call(data, 'fail') || Object.prototype.hasOwnProperty.call(data, 'complete')) {
 		const { success, fail, complete, keep, evtId, ...rest} = data
 
 		params = rest
