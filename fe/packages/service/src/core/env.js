@@ -1,5 +1,5 @@
 import { modDefine, modRequire } from '@dimina/common'
-import globalApi, { setEnumerableApiNames } from '../api'
+import globalApi, { registerEnumerableApiNames } from '../api'
 import { ComponentModule } from '../instance/component/component-module'
 import { PageModule } from '../instance/page/page-module'
 import loader from './loader'
@@ -27,7 +27,7 @@ class Env {
 				}
 			} catch (e) {}
 		}
-		setEnumerableApiNames(registeredApis)
+		registerEnumerableApiNames(registeredApis)
 		for (const name of ['dd', 'wx', ...customNamespaces]) {
 			globalThis[name] = globalApi
 		}

@@ -2,10 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Mock all heavy dependencies — we only care about the namespace logic
 const mockGlobalApi = { __mock: true }
-// setEnumerableApiNames is a named export of ../src/api; mock it here so
+// registerEnumerableApiNames is a named export of ../src/api; mock it here so
 // env.js can import it, and so we can assert env.init() forwards the
 // registeredApis list to it.
-const mockSetEnumerableApiNames = vi.fn()
+const mockRegisterEnumerableApiNames = vi.fn()
 
 vi.mock('@dimina/common', () => ({
 	modDefine: vi.fn(),
@@ -13,7 +13,7 @@ vi.mock('@dimina/common', () => ({
 }))
 vi.mock('../src/api', () => ({
 	default: mockGlobalApi,
-	setEnumerableApiNames: mockSetEnumerableApiNames,
+	registerEnumerableApiNames: mockRegisterEnumerableApiNames,
 }))
 vi.mock('../src/instance/component/component-module', () => ({ ComponentModule: { type: 'component' } }))
 vi.mock('../src/instance/page/page-module', () => ({ PageModule: { type: 'page' } }))
@@ -32,7 +32,7 @@ describe('env.js API namespace registration', () => {
 		delete globalThis.wx
 		// Simulate Worker's self (not available in Node)
 		globalThis.self = { name: '' }
-		mockSetEnumerableApiNames.mockClear()
+		mockRegisterEnumerableApiNames.mockClear()
 	})
 
 	afterEach(() => {
@@ -96,17 +96,17 @@ describe('env.js API namespace registration', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Tests for the registeredApis → setEnumerableApiNames forwarding: env.js
+// Tests for the registeredApis → registerEnumerableApiNames forwarding: env.js
 // reads __diminaRegisteredApis / globalThis.name.registeredApis and calls
-// setEnumerableApiNames with the result.
+// registerEnumerableApiNames with the result.
 // ---------------------------------------------------------------------------
-describe('env.js registeredApis → setEnumerableApiNames forwarding', () => {
+describe('env.js registeredApis → registerEnumerableApiNames forwarding', () => {
 	beforeEach(() => {
 		delete globalThis.__diminaRegisteredApis
 		delete globalThis.__diminaApiNamespaces
 		delete globalThis.name
 		globalThis.self = { name: '' }
-		mockSetEnumerableApiNames.mockClear()
+		mockRegisterEnumerableApiNames.mockClear()
 	})
 
 	afterEach(() => {
@@ -117,24 +117,24 @@ describe('env.js registeredApis → setEnumerableApiNames forwarding', () => {
 	// Bug caught: env.js never reads __diminaRegisteredApis, so custom APIs
 	// injected by the host container are never made enumerable on globalApi.
 	// -----------------------------------------------------------------------
-	it('should call setEnumerableApiNames with names from __diminaRegisteredApis (native global source)', async () => {
+	it('should call registerEnumerableApiNames with names from __diminaRegisteredApis (native global source)', async () => {
 		globalThis.__diminaRegisteredApis = ['myCustomPay', 'myCustomLogin']
 
 		await import('../src/core/env.js')
 
-		expect(mockSetEnumerableApiNames).toHaveBeenCalledWith(['myCustomPay', 'myCustomLogin'])
+		expect(mockRegisterEnumerableApiNames).toHaveBeenCalledWith(['myCustomPay', 'myCustomLogin'])
 	})
 
 	// -----------------------------------------------------------------------
 	// Bug caught: env.js falls back to self.name for apiNamespaces but does
 	// not do the same for registeredApis, so JSON-encoded config is ignored.
 	// -----------------------------------------------------------------------
-	it('should call setEnumerableApiNames with names from self.name JSON when __diminaRegisteredApis is absent (JSON fallback source)', async () => {
+	it('should call registerEnumerableApiNames with names from self.name JSON when __diminaRegisteredApis is absent (JSON fallback source)', async () => {
 		globalThis.name = JSON.stringify({ registeredApis: ['jsonApi1', 'jsonApi2'] })
 
 		await import('../src/core/env.js')
 
-		expect(mockSetEnumerableApiNames).toHaveBeenCalledWith(['jsonApi1', 'jsonApi2'])
+		expect(mockRegisterEnumerableApiNames).toHaveBeenCalledWith(['jsonApi1', 'jsonApi2'])
 	})
 
 	// -----------------------------------------------------------------------
@@ -147,26 +147,26 @@ describe('env.js registeredApis → setEnumerableApiNames forwarding', () => {
 
 		await import('../src/core/env.js')
 
-		const calls = mockSetEnumerableApiNames.mock.calls
+		const calls = mockRegisterEnumerableApiNames.mock.calls
 		// Must have been called exactly with the native list, not the JSON list
 		expect(calls.some(call => JSON.stringify(call[0]) === JSON.stringify(['nativeApi']))).toBe(true)
 		expect(calls.every(call => !call[0].includes('jsonApi'))).toBe(true)
 	})
 
 	// -----------------------------------------------------------------------
-	// Bug caught: setEnumerableApiNames is called with undefined or null when
+	// Bug caught: registerEnumerableApiNames is called with undefined or null when
 	// neither source provides registeredApis, corrupting the internal Set.
 	// -----------------------------------------------------------------------
-	it('should call setEnumerableApiNames with an empty array when neither source provides registeredApis', async () => {
+	it('should call registerEnumerableApiNames with an empty array when neither source provides registeredApis', async () => {
 		// Neither __diminaRegisteredApis nor self.name.registeredApis is set
 		globalThis.__diminaRegisteredApis = undefined
 		globalThis.name = JSON.stringify({ apiNamespaces: ['qd'] }) // no registeredApis key
 
 		await import('../src/core/env.js')
 
-		// setEnumerableApiNames must be called (not skipped) and must receive []
-		expect(mockSetEnumerableApiNames).toHaveBeenCalled()
-		const firstCall = mockSetEnumerableApiNames.mock.calls[0]
+		// registerEnumerableApiNames must be called (not skipped) and must receive []
+		expect(mockRegisterEnumerableApiNames).toHaveBeenCalled()
+		const firstCall = mockRegisterEnumerableApiNames.mock.calls[0]
 		expect(firstCall[0]).toEqual([])
 	})
 })
