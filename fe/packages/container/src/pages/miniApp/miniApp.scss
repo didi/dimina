@@ -646,9 +646,11 @@
 	box-sizing: border-box;
 	height: calc($deviceWidth / 750 * 122px);
 	margin-bottom: env(safe-area-inset-bottom);
+	border-top: 1px solid #e0e0e0;
 }
 
 .dimina-tabbar-item {
+	position: relative;
 	flex: 1;
 	display: flex;
 	flex-direction: column;
@@ -684,4 +686,37 @@
 	line-height: 1.2;
 	text-align: center;
 	transition: color 0.2s ease;
+}
+
+.dimina-tabbar-badge {
+	position: absolute;
+	top: calc($deviceWidth / 750 * 14px);
+	left: 50%;
+	min-width: calc($deviceWidth / 750 * 28px);
+	max-width: calc($deviceWidth / 750 * 96px);
+	box-sizing: border-box;
+	padding: calc($deviceWidth / 750 * 2px) calc($deviceWidth / 750 * 8px);
+	border-radius: calc($deviceWidth / 750 * 14px);
+	background: #fa5151;
+	color: #fff;
+	font-size: calc($deviceWidth / 750 * 16px);
+	line-height: 1;
+	text-align: center;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	transform: translateX(calc($deviceWidth / 750 * 14px));
+	pointer-events: none;
+}
+
+.dimina-tabbar-red-dot {
+	position: absolute;
+	top: calc($deviceWidth / 750 * 16px);
+	left: 50%;
+	width: calc($deviceWidth / 750 * 12px);
+	height: calc($deviceWidth / 750 * 12px);
+	border-radius: 50%;
+	background: #fa5151;
+	transform: translateX(calc($deviceWidth / 750 * 20px));
+	pointer-events: none;
 }

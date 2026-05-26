@@ -137,9 +137,17 @@ public class DMPApp {
         print("loadBundle")
         // Inject custom API namespaces before loading service.js
         let namespaces = DMPAppManager.sharedInstance().apiNamespaces
-        if !namespaces.isEmpty {
-            let json = namespaces.map { "\"\($0)\"" }.joined(separator: ",")
-            await service?.evaluateScript("globalThis.__diminaApiNamespaces = [\(json)]")
+        if !namespaces.isEmpty,
+           let data = try? JSONSerialization.data(withJSONObject: namespaces),
+           let json = String(data: data, encoding: .utf8) {
+            await service?.evaluateScript("globalThis.__diminaApiNamespaces = \(json)")
+        }
+        // 注入已注册的 API 名字，使 service 层的 wx 对象能枚举到它们
+        let registeredApis = DMPContainerApi.getAllRegisteredMethods()
+        if !registeredApis.isEmpty,
+           let data = try? JSONSerialization.data(withJSONObject: registeredApis),
+           let json = String(data: data, encoding: .utf8) {
+            await service?.evaluateScript("globalThis.__diminaRegisteredApis = \(json)")
         }
         await service?.loadFile(path: DMPSandboxManager.sdkServicePath())
         await service?.loadFile(path: DMPSandboxManager.appServicePath(appId: appId))

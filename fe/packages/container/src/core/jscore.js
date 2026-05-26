@@ -13,7 +13,11 @@ export class JSCore {
 		// 使用下面的形式会使 hash 失效
 		// this.worker = new Worker(new URL('@dimina/service', import.meta.url))；
 		const namespaces = this.parent.getApiNamespaces?.() || []
-		const workerName = JSON.stringify({ apiNamespaces: namespaces })
+		// 把已注册的 API 名字随 worker 启动配置传给 service 层，
+		// 使它们在 wx（globalApi Proxy）上可被枚举，
+		// 供 Taro 等按 Object.keys(wx) 建表的框架识别。
+		const registeredApis = Object.keys(this.parent.apiRegistry ?? {})
+		const workerName = JSON.stringify({ apiNamespaces: namespaces, registeredApis })
 		this.worker = new Worker(serviceURL, { type: 'classic', name: workerName })
 
 		// 监听逻辑线程的消息

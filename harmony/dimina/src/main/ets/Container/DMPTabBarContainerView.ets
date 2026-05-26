@@ -1,5 +1,5 @@
 import { DMPTabBar } from '../Components/DMPTabBar'
-import { DMPTabBarConfig } from '../Bundle/Model/DMPBundleAppConfigNext'
+import { DMPTabBarConfig, DMPTabBarItem } from '../Bundle/Model/DMPBundleAppConfigNext'
 import { DMPPageContainer } from '../DPages/DMPPageContainer'
 import { DMPApp } from '../DApp/DMPApp'
 import { DMPAppManager } from '../DApp/DMPAppManager'
@@ -15,8 +15,11 @@ import { DMPPageRecord } from '../Navigator/DMPPageRecord'
 export struct DMPTabBarContainerView {
   @Prop appIndex: number
   private app: DMPApp | undefined = undefined
-  private tabBarConfig: DMPTabBarConfig | undefined = undefined
+  @State tabBarConfig: DMPTabBarConfig | undefined = undefined
   @State selectedIndex: number = 0
+  @State tabBarVisible: boolean = true
+  @State badges: string[] = []
+  @State redDots: boolean[] = []
   // Use Map to track loaded tab pages (index -> DMPPageRecord)
   @State tabPageRecords: Map<number, DMPPageRecord> = new Map()
 
@@ -106,6 +109,11 @@ export struct DMPTabBarContainerView {
       return
     }
 
+    // Initialize badges and redDots arrays
+    const listLength = this.tabBarConfig.list.length
+    this.badges = new Array<string>(listLength).fill('')
+    this.redDots = new Array<boolean>(listLength).fill(false)
+
     // 把 list 中的 iconPath / selectedIconPath 解析为沙盒中真实的 static 文件绝对路径
     // 编译器输出形如 /<appId>/main/static/<prefix>_<file>，需要换成 ${jsAppDir}/main/static/...
     // 才能被 ArkUI Image 加载
@@ -142,7 +150,132 @@ export struct DMPTabBarContainerView {
       }
     })
 
+    // Listen to tabbar API events (setTabBarStyle, setTabBarItem, showTabBar, hideTabBar, etc.)
+    getContext(this).eventHub.on('tabbar_api', (data: ESObject) => {
+      this.handleTabBarApiEvent(data)
+    })
+
     DMPLogger.d(Tags.TABBAR, `TabBarContainer initialized. Initial tab loaded: ${this.selectedIndex}`)
+  }
+
+  /**
+   * Handle tabbar API events from bridge module
+   */
+  private handleTabBarApiEvent(data: ESObject) {
+    const type: string = data.get('type')
+    DMPLogger.d(Tags.TABBAR, `Received tabbar_api event: ${type}`)
+
+    switch (type) {
+      case 'setTabBarStyle':
+        this.handleSetTabBarStyle(data)
+        break
+      case 'setTabBarItem':
+        this.handleSetTabBarItem(data)
+        break
+      case 'showTabBar':
+        this.tabBarVisible = true
+        break
+      case 'hideTabBar':
+        this.tabBarVisible = false
+        break
+      case 'setTabBarBadge':
+        this.handleSetTabBarBadge(data)
+        break
+      case 'removeTabBarBadge':
+        this.handleRemoveTabBarBadge(data)
+        break
+      case 'showTabBarRedDot':
+        this.handleShowTabBarRedDot(data)
+        break
+      case 'hideTabBarRedDot':
+        this.handleHideTabBarRedDot(data)
+        break
+    }
+  }
+
+  private handleSetTabBarStyle(data: ESObject) {
+    if (!this.tabBarConfig) return
+
+    const color: string | undefined = data.get('color')
+    const selectedColor: string | undefined = data.get('selectedColor')
+    const backgroundColor: string | undefined = data.get('backgroundColor')
+
+    // Create a new config object to trigger @State change
+    const newConfig: DMPTabBarConfig = {
+      color: color ?? this.tabBarConfig.color,
+      selectedColor: selectedColor ?? this.tabBarConfig.selectedColor,
+      backgroundColor: backgroundColor ?? this.tabBarConfig.backgroundColor,
+      borderStyle: this.tabBarConfig.borderStyle,
+      list: this.tabBarConfig.list
+    }
+    this.tabBarConfig = newConfig
+    DMPLogger.d(Tags.TABBAR, `TabBar style updated`)
+  }
+
+  private handleSetTabBarItem(data: ESObject) {
+    if (!this.tabBarConfig) return
+
+    const index: number = data.get('index')
+    if (index < 0 || index >= this.tabBarConfig.list.length) return
+
+    const oldItem = this.tabBarConfig.list[index]
+    const text: string | undefined = data.get('text')
+    const iconPath: string | undefined = data.get('iconPath')
+    const selectedIconPath: string | undefined = data.get('selectedIconPath')
+
+    const newItem: DMPTabBarItem = {
+      pagePath: oldItem.pagePath,
+      text: text ?? oldItem.text,
+      iconPath: iconPath !== undefined ? this.resolveBundleAssetPath(iconPath) : oldItem.iconPath,
+      selectedIconPath: selectedIconPath !== undefined ? this.resolveBundleAssetPath(selectedIconPath) : oldItem.selectedIconPath,
+    }
+
+    const newList = [...this.tabBarConfig.list]
+    newList[index] = newItem
+
+    // Create a new config object to trigger @State change
+    const updatedConfig: DMPTabBarConfig = {
+      color: this.tabBarConfig.color,
+      selectedColor: this.tabBarConfig.selectedColor,
+      backgroundColor: this.tabBarConfig.backgroundColor,
+      borderStyle: this.tabBarConfig.borderStyle,
+      list: newList
+    }
+    this.tabBarConfig = updatedConfig
+    DMPLogger.d(Tags.TABBAR, `TabBar item ${index} updated`)
+  }
+
+  private handleSetTabBarBadge(data: ESObject) {
+    const index: number = data.get('index')
+    const text: string = data.get('text')
+    if (index >= 0 && index < this.badges.length) {
+      this.badges[index] = text
+      // Setting badge clears red dot
+      this.redDots[index] = false
+    }
+  }
+
+  private handleRemoveTabBarBadge(data: ESObject) {
+    const index: number = data.get('index')
+    if (index >= 0 && index < this.badges.length) {
+      this.badges[index] = ''
+    }
+  }
+
+  private handleShowTabBarRedDot(data: ESObject) {
+    const index: number = data.get('index')
+    if (index >= 0 && index < this.redDots.length) {
+      this.redDots[index] = true
+      // Setting red dot clears badge
+      this.badges[index] = ''
+    }
+  }
+
+  private handleHideTabBarRedDot(data: ESObject) {
+    const index: number = data.get('index')
+    if (index >= 0 && index < this.redDots.length) {
+      this.redDots[index] = false
+    }
   }
 
   /**
@@ -273,10 +406,12 @@ export struct DMPTabBarContainerView {
       .width('100%')
 
       // TabBar at container level
-      if (this.tabBarConfig) {
+      if (this.tabBarConfig && this.tabBarVisible) {
         DMPTabBar({
           selectedIndex: this.selectedIndex,
           tabBarConfig: this.tabBarConfig,
+          badges: this.badges,
+          redDots: this.redDots,
           onTabSelected: (index: number) => {
             this.handleTabSelected(index)
           }

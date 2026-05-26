@@ -48,6 +48,8 @@ struct ContentView: View {
     }
 
     var body: some View {
+        let items = filteredItems
+
         NavigationView {
             VStack(spacing: 0) {
                 HStack {
@@ -72,15 +74,19 @@ struct ContentView: View {
                         .padding(.horizontal)
                         .padding(.vertical, 8)
 
-                    List(filteredItems) { item in
-                        AppListItemView(item: item)
-                            .onTapGesture {
-                                navigateToDetail(item: item)
+                    ScrollView {
+                        LazyVStack(spacing: 0) {
+                            ForEach(items.indices, id: \.self) { index in
+                                AppListRowView(
+                                    item: items[index],
+                                    showsSeparator: index < items.count - 1
+                                ) {
+                                    navigateToDetail(item: items[index])
+                                }
                             }
+                        }
                     }
-                    .listStyle(.plain)
                     .background(Color(.systemGray6))
-                    .modifier(AppListBackgroundModifier())
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color(.systemGray6).ignoresSafeArea(.container, edges: .bottom))
@@ -124,16 +130,6 @@ struct ContentView: View {
     }
 }
 
-private struct AppListBackgroundModifier: ViewModifier {
-    func body(content: Content) -> some View {
-        if #available(iOS 16.0, *) {
-            content.scrollContentBackground(.hidden)
-        } else {
-            content
-        }
-    }
-}
-
 struct AppListItemView: View {
     let item: DMPAppConfig
 
@@ -154,6 +150,31 @@ struct AppListItemView: View {
             Spacer()
         }
         .padding(.vertical, 4)
+    }
+}
+
+private struct AppListRowView: View {
+    let item: DMPAppConfig
+    let showsSeparator: Bool
+    let onTap: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Button(action: onTap) {
+                AppListItemView(item: item)
+                    .padding(.horizontal)
+                    .padding(.vertical, 4)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if showsSeparator {
+                Divider()
+                    .padding(.leading, 74)
+            }
+        }
+        .background(Color(.systemBackground))
     }
 }
 

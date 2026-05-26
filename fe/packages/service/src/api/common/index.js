@@ -48,6 +48,118 @@ const hostEnvResolvers = {
     getMenuButtonBoundingClientRect: () => hostEnv.getMenuRect(),
 };
 
+const promiseUnsupportedApis = new Set([
+	'connectSocket',
+	'downloadFile',
+	'loadSubpackage',
+	'preDownloadSubpackage',
+	'request',
+	'uploadFile',
+])
+
+const optionalParamPromiseApis = new Set([
+	'FileSystemManager.getSavedFileList',
+	'clearStorage',
+	'chooseImage',
+	'chooseMedia',
+	'chooseVideo',
+	'closeBluetoothAdapter',
+	'getClipboardData',
+	'getBluetoothAdapterState',
+	'getBluetoothDevices',
+	'getLocation',
+	'getNetworkType',
+	'getPrivacySetting',
+	'getStorageInfo',
+	'getSystemInfo',
+	'getSystemInfoAsync',
+	'getUserInfo',
+	'hideKeyboard',
+	'hideLoading',
+	'hideShareMenu',
+	'hideTabBar',
+	'hideToast',
+	'login',
+	'navigateBack',
+	'openAppAuthorizeSetting',
+	'openBluetoothAdapter',
+	'openSetting',
+	'openSystemBluetoothSetting',
+	'showNavigationBarLoading',
+	'showShareMenu',
+	'showTabBar',
+	'startPullDownRefresh',
+	'startRecord',
+	'stopPullDownRefresh',
+	'stopBluetoothDevicesDiscovery',
+	'stopLocationUpdate',
+	'stopRecord',
+	'vibrateLong',
+	'vibrateShort',
+])
+
+function hasCallbackField(data) {
+	return Object.prototype.hasOwnProperty.call(data, 'success')
+		|| Object.prototype.hasOwnProperty.call(data, 'fail')
+		|| Object.prototype.hasOwnProperty.call(data, 'complete')
+}
+
+function canReturnPromise(name, data) {
+	if (promiseUnsupportedApis.has(name) || (typeof name === 'string' && name.endsWith('Sync'))) {
+		return false
+	}
+	if (data === undefined) {
+		return optionalParamPromiseApis.has(name)
+	}
+	return true
+}
+
+function invokeMessage(name, params, target) {
+	const msg = {
+		type: 'invokeAPI',
+		target,
+		body: {
+			name,
+			bridgeId: router.getPageInfo().id,
+			params,
+		},
+	}
+	if (target === 'container') {
+		return message.invoke(msg)
+	}
+	else {
+		return message.send(msg)
+	}
+}
+
+function invokePromiseAPI(name, params, target) {
+	return new Promise((resolve, reject) => {
+		let successId
+		let failId
+		const cleanup = () => {
+			callback.remove(successId)
+			callback.remove(failId)
+		}
+		successId = callback.store((res) => {
+			cleanup()
+			resolve(res)
+		})
+		failId = callback.store((res) => {
+			cleanup()
+			reject(res)
+		})
+		params.success = successId
+		params.fail = failId
+		try {
+			invokeMessage(name, params, target)
+		}
+		catch (error) {
+			cleanup()
+			reject(error)
+		}
+	})
+}
+
 export function invokeAPI(name, data, target = 'container') {
 	const resolveFromHostEnv = hostEnvResolvers[name]
 	if (target === 'container' && resolveFromHostEnv) {
@@ -58,7 +170,13 @@ export function invokeAPI(name, data, target = 'container') {
 	}
 
 	let params
-	if (data === undefined || typeof data === 'string' || Array.isArray(data)) {
+	if (data === undefined) {
+		if (canReturnPromise(name, data)) {
+			return invokePromiseAPI(name, {}, target)
+		}
+		params = data
+	}
+	else if (typeof data === 'string' || Array.isArray(data)) {
 		params = data
 	}
 	else if (isFunction(data)) {
@@ -66,8 +184,8 @@ export function invokeAPI(name, data, target = 'container') {
 			success: callback.store(data, true),
 		}
 	}
-	else if (Object.prototype.hasOwnProperty.call(data, 'success') || Object.prototype.hasOwnProperty.call(data, 'fail') || Object.prototype.hasOwnProperty.call(data, 'complete')) {
-		const { success, fail, complete, keep, evtId, ...rest} = data
+	else if (hasCallbackField(data)) {
+		const { success, fail, complete, keep, evtId, ...rest } = data
 
 		params = rest
 
@@ -87,45 +205,14 @@ export function invokeAPI(name, data, target = 'container') {
 		}
 	}
 	else {
-		const { keep, evtId, ...rest } = data
-		if (!keep) {
+		const { keep, ...rest } = data
+		delete rest.evtId
+		if (!keep && canReturnPromise(name, data)) {
 			params = { ...rest }
-			return new Promise((resolve) => {
-				params.success = callback.store((res) => resolve(res))
-				params.fail = callback.store((res) => resolve(res))
-				const msg = {
-					type: 'invokeAPI',
-					target,
-					body: {
-						name,
-						bridgeId: router.getPageInfo().id,
-						params,
-					},
-				}
-				if (target === 'container') {
-					message.invoke(msg)
-				}
-				else {
-					message.send(msg)
-				}
-			})
+			return invokePromiseAPI(name, params, target)
 		}
 		params = rest
 	}
 
-	const msg = {
-		type: 'invokeAPI',
-		target,
-		body: {
-			name,
-			bridgeId: router.getPageInfo().id,
-			params,
-		},
-	}
-	if (target === 'container') {
-		return message.invoke(msg)
-	}
-	else {
-		return message.send(msg)
-	}
+	return invokeMessage(name, params, target)
 }

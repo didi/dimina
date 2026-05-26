@@ -7,6 +7,29 @@ for (const f of Object.values(apiInfo)) {
 		api[k] = v
 	}
 }
+
+// 把容器/原生侧承接、core 目录里无实现的 API 名字登记成 api 上真实的
+// own enumerable property，让 Object.keys(wx) 能直接枚举到它们，
+// 供 Taro 等按 Object.keys(wx) 建表的框架识别。
+// 撞 Object.prototype 成员（toString 等）或与已有实现重名的名字直接跳过。
+export function registerEnumerableApiNames(names) {
+	for (const name of names || []) {
+		if (
+			typeof name !== 'string'
+			|| Object.prototype.hasOwnProperty.call(api, name)
+			|| name in Object.prototype
+		) {
+			continue
+		}
+		Object.defineProperty(api, name, {
+			value: (...args) => invokeAPI(name, ...args),
+			writable: true,
+			enumerable: true,
+			configurable: true,
+		})
+	}
+}
+
 const handler = {
 	get(target, prop, receiver) {
 		const origMethod = Reflect.get(target, prop, receiver)
