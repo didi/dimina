@@ -1544,25 +1544,25 @@ export class MiniApp {
 		const onComplete = this.createCallbackFunction(complete)
 
 		onSuccess?.({
-			statusBarHeight: bar.height,
-			brand: 'devtools',
-			mode: 'default',
-			model: 'web',
-			platform: 'devtools',
-			system: 'web',
-			deviceOrientation: 'portrait',
-			SDKVersion: '3.0.0',
-			language: 'zh_CN',
-			wifiEnabled: true,
-			safeArea: {
-				width: wb.width,
-				height: wb.height,
-				top: wb.top,
-				bottom: wb.bottom,
-				left: wb.left,
-				right: wb.right,
-			},
-		})
+            statusBarHeight: bar.height,
+            brand: "devtools",
+            mode: "default",
+            model: "web",
+            platform: "devtools",
+            system: "web",
+            deviceOrientation: "portrait",
+            SDKVersion: "3.0.0",
+            language: "zh_CN",
+            wifiEnabled: true,
+            safeArea: {
+                width: wb.width,
+                height: wb.height,
+                top: wb.top,
+                bottom: wb.bottom,
+                left: wb.left,
+                right: wb.right,
+            },
+        });
 		onComplete?.()
 	}
 
@@ -1602,26 +1602,33 @@ export class MiniApp {
 		const statusBarHeight = statusBar?.getBoundingClientRect().height || 20
 
 		return {
-			brand: 'devtools',
-			model: 'web',
-			platform: 'devtools',
-			system: 'web',
-			SDKVersion: '3.0.0', // vant组件库 判断  canIUseModel version 需要大于 2.9.3
-			pixelRatio: globalThis.devicePixelRatio || 1,
-			screenWidth: width,
-			screenHeight: height,
-			windowWidth: width,
-			windowHeight: height,
-			statusBarHeight,
-			safeArea: {
-				left: 0,
-				right: width,
-				top: statusBarHeight,
-				bottom: height,
-				width,
-				height: Math.max(height - statusBarHeight, 0),
-			},
-		}
+            brand: "devtools",
+            model: "web",
+            platform: "devtools",
+            system: "web",
+            SDKVersion: "3.0.0", // vant组件库 判断  canIUseModel version 需要大于 2.9.3
+            pixelRatio: globalThis.devicePixelRatio || 1,
+            screenWidth: width,
+            screenHeight: height,
+            windowWidth: width,
+            windowHeight: height,
+            statusBarHeight,
+            safeArea: {
+                left: 0,
+                right: width,
+                top: statusBarHeight,
+                bottom: height,
+                width,
+                height: Math.max(height - statusBarHeight, 0),
+            },
+            enableDebug: false,
+            host: { appId: "" },
+            language: navigator.language || "zh_CN",
+            version: "",
+            theme: globalThis.matchMedia?.('(prefers-color-scheme: dark)')?.matches ? "dark" : "light",
+            fontSizeScaleFactor: 1,
+            fontSizeSetting: 16,
+        };
 	}
 
 	showToast(opts = {}) {

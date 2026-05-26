@@ -3,13 +3,50 @@ import hostEnv from '../../core/host-env'
 import message from '../../core/message'
 import router from '../../core/router'
 
-const hostEnvResolvers = {
-	getWindowInfo: () => hostEnv.getSystemInfo(),
-	getSystemInfoSync: () => hostEnv.getSystemInfo(),
-	getAppBaseInfo: () => hostEnv.getSystemInfo(),
-	getDeviceInfo: () => hostEnv.getSystemInfo(),
-	getMenuButtonBoundingClientRect: () => hostEnv.getMenuRect(),
+function pick(obj, keys) {
+    if (!obj) return obj;
+    const result = {};
+    for (const key of keys) {
+        if (key in obj) result[key] = obj[key];
+    }
+    return result;
 }
+
+const hostEnvResolvers = {
+    getWindowInfo: () =>
+        pick(hostEnv.getSystemInfo(), [
+            "pixelRatio",
+            "screenWidth",
+            "screenHeight",
+            "windowWidth",
+            "windowHeight",
+            "statusBarHeight",
+            "safeArea",
+            "screenTop",
+        ]),
+    getSystemInfoSync: () => hostEnv.getSystemInfo(),
+    getAppBaseInfo: () =>
+        pick(hostEnv.getSystemInfo(), [
+            "SDKVersion",
+            "enableDebug",
+            "host",
+            "language",
+            "version",
+            "theme",
+            "fontSizeScaleFactor",
+            "fontSizeSetting",
+        ]),
+    getDeviceInfo: () =>
+        pick(hostEnv.getSystemInfo(), [
+            "abi",
+            "benchmarkLevel",
+            "brand",
+            "model",
+            "platform",
+            "system",
+        ]),
+    getMenuButtonBoundingClientRect: () => hostEnv.getMenuRect(),
+};
 
 const promiseUnsupportedApis = new Set([
 	'connectSocket',

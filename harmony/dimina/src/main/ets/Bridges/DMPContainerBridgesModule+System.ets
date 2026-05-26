@@ -4,11 +4,12 @@ import { DMPLogger } from '../EventTrack/DMPLogger';
 import batteryInfo from '@ohos.batteryInfo';
 import deviceInfo from '@ohos.deviceInfo';
 import { DMPDeviceUtil } from '../Utils/DMPDeviceUtils';
-import { bundleManager } from '@kit.AbilityKit';
+import { bundleManager, ConfigurationConstant, common } from '@kit.AbilityKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { DMPMap } from '../Utils/DMPMap';
 import BuildProfile from '../../../../BuildProfile';
 import { access } from '@kit.ConnectivityKit';
+import { i18n } from '@kit.LocalizationKit';
 
 export class DMPContainerBridgesModuleSystem extends DMPContainerBridgesModule {
   private bundleInfo?: bundleManager.BundleInfo
@@ -17,7 +18,7 @@ export class DMPContainerBridgesModuleSystem extends DMPContainerBridgesModule {
 
   getExportMethods(): string[] {
     return ['getSystemInfoSync', 'getEnv', 'getSystemInfoAsync', 'getAccountInfoSync', 'getSystemInfo',
-      'getDiminaCurStackPages', 'getSystemSetting', 'getWindowInfo'];
+      'getDiminaCurStackPages', 'getSystemSetting', 'getWindowInfo', 'getAppBaseInfo'];
   }
 
   getWindowInfo(data: DMPMap, callback: DMPBridgeCallback) {
@@ -61,6 +62,20 @@ export class DMPContainerBridgesModuleSystem extends DMPContainerBridgesModule {
       console.error('errCode: ' + (err as BusinessError).code + ', errMessage: ' + (err as BusinessError).message);
       return new DMPMap();
     }
+  }
+
+  getAppBaseInfo(data: DMPMap, callback: DMPBridgeCallback) {
+    const info = this.systemInfo()
+    const keys = ['SDKVersion', 'enableDebug', 'host', 'language', 'version',
+      'theme', 'fontSizeScaleFactor', 'fontSizeSetting']
+    const result = new DMPMap()
+    for (const key of keys) {
+      const value: string | number | boolean | object | undefined = info.get(key)
+      if (value !== undefined) {
+        result.set(key, value)
+      }
+    }
+    return result
   }
 
   getSystemInfoSync(data: DMPMap, callback: DMPBridgeCallback) {
@@ -135,7 +150,35 @@ export class DMPContainerBridgesModuleSystem extends DMPContainerBridgesModule {
 
     //星河sdk版本
     result.set('SDKVersion', BuildProfile.HAR_VERSION);
+    result.set('enableDebug', this.app.appConfig.isDebugMode);
     result.set('debugEnv', this.app.appConfig.isDebugMode ? 1 : 0)
+
+    // language: 微信客户端设置的语言
+    const locale = i18n.System.getSystemLocale()
+    result.set('language', locale)
+
+    // theme: 系统当前主题
+    try {
+      const uiContext = getContext(this) as common.UIAbilityContext
+      const colorMode = uiContext.config.colorMode
+      result.set('theme', colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK ? 'dark' : 'light')
+    } catch (e) {
+      result.set('theme', 'light')
+    }
+
+    // host: 宿主信息
+    result.set('host', { appId: this.app.appConfig.appId })
+
+    // font settings
+    try {
+      const uiCtx = getContext(this) as common.UIAbilityContext
+      const fontSizeScale: number = uiCtx.config.fontSizeScale ?? 1.0
+      result.set('fontSizeScaleFactor', fontSizeScale)
+      result.set('fontSizeSetting', Math.round(16 * fontSizeScale))
+    } catch (e) {
+      result.set('fontSizeScaleFactor', 1.0)
+      result.set('fontSizeSetting', 16)
+    }
     try {
 
       result.set('appid', this.app.bundleManager.getBundleInfo().appId)
