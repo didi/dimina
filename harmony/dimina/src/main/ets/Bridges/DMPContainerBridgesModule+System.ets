@@ -196,6 +196,7 @@ export class DMPContainerBridgesModuleSystem extends DMPContainerBridgesModule {
     }
 
     result.setAll(DMPDeviceUtil.getSafeAreaAndDisplayWHSync());
+    result.set('screenTop', 0);
 
     return result;
   }

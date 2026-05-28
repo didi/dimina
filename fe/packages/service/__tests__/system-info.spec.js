@@ -21,6 +21,7 @@ describe('system info api', () => {
 			screenWidth: 375,
 			screenHeight: 667,
 			pixelRatio: 2,
+			screenTop: 0,
 			safeArea: { top: 20, bottom: 667, left: 0, right: 375, width: 375, height: 647 },
 			// app base info fields
 			SDKVersion: '3.0.0',
@@ -47,6 +48,7 @@ describe('system info api', () => {
 			windowWidth: 375,
 			windowHeight: 667,
 			statusBarHeight: 20,
+			screenTop: 0,
 			safeArea: { top: 20, bottom: 667, left: 0, right: 375, width: 375, height: 647 },
 		})
 		expect(getSystemInfoSync()).toBe(systemInfo)

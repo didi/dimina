@@ -74,6 +74,7 @@ export class DMPHostEnvBuilder {
     result.set('windowWidth', whData.get('windowWidth') as number)
     result.set('windowHeight', whData.get('windowHeight') as number)
     result.set('statusBarHeight', whData.get('statusBarHeight') as number)
+    result.set('screenTop', 0)
     const safeAreaData: DMPMap | undefined = whData.get('safeArea') as DMPMap | undefined
     if (safeAreaData) {
       result.set('safeArea', safeAreaData.toJSON())

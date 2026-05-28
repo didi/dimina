@@ -1628,6 +1628,7 @@ export class MiniApp {
             theme: globalThis.matchMedia?.('(prefers-color-scheme: dark)')?.matches ? "dark" : "light",
             fontSizeScaleFactor: 1,
             fontSizeSetting: 16,
+            screenTop: 0,
         };
 	}
 
