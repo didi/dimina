@@ -191,7 +191,7 @@ async function handleUp() {
 	color: #000000;
 	background-color: #f8f8f8;
 
-	&[hidden] {
+	&:where([hidden]) {
 		display: none;
 	}
 }
@@ -209,17 +209,17 @@ async function handleUp() {
 	box-sizing: border-box;
 	border-radius: 10px;
 }
-.dd-button[native] {
+.dd-button:where([native]) {
 	padding-left: 0;
 	padding-right: 0;
 }
-.dd-button[native] .dd-button-cover-view-wrapper {
+.dd-button:where([native]) .dd-button-cover-view-wrapper {
 	border: inherit;
 	border-color: inherit;
 	border-radius: inherit;
 	background-color: inherit;
 }
-.dd-button[native] .dd-button-cover-view-inner {
+.dd-button:where([native]) .dd-button-cover-view-inner {
 	padding-left: 14px;
 	padding-right: 14px;
 }
@@ -227,96 +227,96 @@ async function handleUp() {
 	line-height: inherit;
 	white-space: inherit;
 }
-.dd-button[type='default'] {
+.dd-button:where([type='default']) {
 	color: #000000;
 	background-color: #f8f8f8;
 }
-.dd-button[type='primary'] {
+.dd-button:where([type='primary']) {
 	color: #ffffff;
 	background-color: #1aad19;
 }
-.dd-button[type='warn'] {
+.dd-button:where([type='warn']) {
 	color: #ffffff;
 	background-color: #e64340;
 }
-.dd-button[disabled] {
+.dd-button:where([disabled]) {
 	color: rgba(255, 255, 255, 0.6);
 }
-.dd-button[disabled][type='default'],
-.dd-button[disabled]:not([type]) {
+.dd-button:where([disabled][type='default']),
+.dd-button:where([disabled]:not([type])) {
 	color: rgba(0, 0, 0, 0.3);
 	background-color: #f7f7f7;
 }
-.dd-button[disabled][type='primary'] {
+.dd-button:where([disabled][type='primary']) {
 	background-color: #9ed99d;
 }
-.dd-button[disabled][type='warn'] {
+.dd-button:where([disabled][type='warn']) {
 	background-color: #ec8b89;
 }
-.dd-button[type='primary'][plain] {
+.dd-button:where([type='primary'][plain]) {
 	color: #1aad19;
 	border: 1px solid #1aad19;
 	background-color: transparent;
 }
-.dd-button[type='primary'][plain][disabled] {
+.dd-button:where([type='primary'][plain][disabled]) {
 	color: rgba(0, 0, 0, 0.2);
 	border-color: rgba(0, 0, 0, 0.2);
 }
-.dd-button[type='primary'][plain]:after {
+.dd-button:where([type='primary'][plain]):after {
 	border-width: 0;
 }
-.dd-button[type='default'][plain] {
+.dd-button:where([type='default'][plain]) {
 	color: #353535;
 	border: 1px solid #353535;
 	background-color: transparent;
 }
-.dd-button[type='default'][plain][disabled] {
+.dd-button:where([type='default'][plain][disabled]) {
 	color: rgba(0, 0, 0, 0.2);
 	border-color: rgba(0, 0, 0, 0.2);
 }
-.dd-button[type='default'][plain]:after {
+.dd-button:where([type='default'][plain]):after {
 	border-width: 0;
 }
-.dd-button[plain] {
+.dd-button:where([plain]) {
 	color: #353535;
 	border: 1px solid #353535;
 	background-color: transparent;
 }
-.dd-button[plain][disabled] {
+.dd-button:where([plain][disabled]) {
 	color: rgba(0, 0, 0, 0.2);
 	border-color: rgba(0, 0, 0, 0.2);
 }
-.dd-button[plain]:after {
+.dd-button:where([plain]):after {
 	border-width: 0;
 }
-.dd-button[plain][native] .dd-button-cover-view-inner {
+.dd-button:where([plain][native]) .dd-button-cover-view-inner {
 	padding: 0;
 }
-.dd-button[type='warn'][plain] {
+.dd-button:where([type='warn'][plain]) {
 	color: #e64340;
 	border: 1px solid #e64340;
 	background-color: transparent;
 }
-.dd-button[type='warn'][plain][disabled] {
+.dd-button:where([type='warn'][plain][disabled]) {
 	color: rgba(0, 0, 0, 0.2);
 	border-color: rgba(0, 0, 0, 0.2);
 }
-.dd-button[type='warn'][plain]:after {
+.dd-button:where([type='warn'][plain]):after {
 	border-width: 0;
 }
-.dd-button[size='mini'] {
+.dd-button:where([size='mini']) {
 	display: inline-block;
 	line-height: 2.3;
 	font-size: 13px;
 	padding: 0 1.34em;
 }
-.dd-button[size='mini'][native] {
+.dd-button:where([size='mini'][native]) {
 	padding: 0;
 }
-.dd-button[size='mini'][native] .dd-button-cover-view-inner {
+.dd-button:where([size='mini'][native]) .dd-button-cover-view-inner {
 	padding: 0 1.34em;
 }
-.dd-button[loading]:before {
+.dd-button:where([loading]):before {
 	content: ' ';
 	display: inline-block;
 	width: 18px;
@@ -328,31 +328,31 @@ async function handleUp() {
 		no-repeat;
 	background-size: 100%;
 }
-.dd-button[loading][type='primary'] {
+.dd-button:where([loading][type='primary']) {
 	color: rgba(255, 255, 255, 0.6);
 	background-color: #179b16;
 }
-.dd-button[loading][type='primary'][plain] {
+.dd-button:where([loading][type='primary'][plain]) {
 	color: #1aad19;
 	background-color: transparent;
 }
-.dd-button[loading][type='default'] {
+.dd-button:where([loading][type='default']) {
 	color: rgba(0, 0, 0, 0.6);
 	background-color: #dedede;
 }
-.dd-button[loading][type='default'][plain] {
+.dd-button:where([loading][type='default'][plain]) {
 	color: #353535;
 	background-color: transparent;
 }
-.dd-button[loading][type='warn'] {
+.dd-button:where([loading][type='warn']) {
 	color: rgba(255, 255, 255, 0.6);
 	background-color: #ce3c39;
 }
-.dd-button[loading][type='warn'][plain] {
+.dd-button:where([loading][type='warn'][plain]) {
 	color: #e64340;
 	background-color: transparent;
 }
-.dd-button[loading][native]:before {
+.dd-button:where([loading][native]):before {
 	content: none;
 }
 @keyframes dd-button-loading-animate {
@@ -367,34 +367,34 @@ async function handleUp() {
 	color: rgba(0, 0, 0, 0.6);
 	background-color: #dedede;
 }
-.button-hover[plain] {
+.button-hover:where([plain]) {
 	color: rgba(53, 53, 53, 0.6);
 	border-color: rgba(53, 53, 53, 0.6);
 	background-color: transparent;
 }
-.button-hover[type='primary'] {
+.button-hover:where([type='primary']) {
 	color: rgba(255, 255, 255, 0.6);
 	background-color: #179b16;
 }
-.button-hover[type='primary'][plain] {
+.button-hover:where([type='primary'][plain]) {
 	color: rgba(26, 173, 25, 0.6);
 	border-color: rgba(26, 173, 25, 0.6);
 	background-color: transparent;
 }
-.button-hover[type='default'] {
+.button-hover:where([type='default']) {
 	color: rgba(0, 0, 0, 0.6);
 	background-color: #dedede;
 }
-.button-hover[type='default'][plain] {
+.button-hover:where([type='default'][plain]) {
 	color: rgba(53, 53, 53, 0.6);
 	border-color: rgba(53, 53, 53, 0.6);
 	background-color: transparent;
 }
-.button-hover[type='warn'] {
+.button-hover:where([type='warn']) {
 	color: rgba(255, 255, 255, 0.6);
 	background-color: #ce3c39;
 }
-.button-hover[type='warn'][plain] {
+.button-hover:where([type='warn'][plain]) {
 	color: rgba(230, 67, 64, 0.6);
 	border-color: rgba(230, 67, 64, 0.6);
 	background-color: transparent;
