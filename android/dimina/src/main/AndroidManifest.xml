@@ -12,6 +12,8 @@
     <uses-permission android:name="android.permission.READ_CONTACTS" />
     <uses-permission android:name="android.permission.WRITE_CONTACTS" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <application>
         <activity
@@ -24,6 +26,13 @@
 
         <activity
             android:name=".ui.container.ImagePreviewActivity"
+            android:screenOrientation="portrait"
+            android:exported="false"
+            android:theme="@style/Theme.DiminaAndroid"
+            tools:ignore="DiscouragedApi" />
+
+        <activity
+            android:name=".ui.container.ScanCodeActivity"
             android:screenOrientation="portrait"
             android:exported="false"
             android:theme="@style/Theme.DiminaAndroid"

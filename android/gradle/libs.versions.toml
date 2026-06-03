@@ -18,6 +18,10 @@ okhttp = "5.2.1"
 orgJson = "20250107"
 uiTooling = "1.8.2"
 webkit = "1.15.0"
+camerax = "1.5.0"
+mlkitBarcode = "17.3.0"
+zxing = "3.5.3"
+androidsvg = "1.4"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -44,6 +48,13 @@ okhttp = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp" }
 org-json = { module = "org.json:json", version.ref = "orgJson" }
 ui-tooling = { module = "androidx.compose.ui:ui-tooling", version.ref = "uiTooling" }
 androidx-webkit = { group = "androidx.webkit", name = "webkit", version.ref = "webkit" }
+androidx-camera-core = { group = "androidx.camera", name = "camera-core", version.ref = "camerax" }
+androidx-camera-camera2 = { group = "androidx.camera", name = "camera-camera2", version.ref = "camerax" }
+androidx-camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "camerax" }
+androidx-camera-view = { group = "androidx.camera", name = "camera-view", version.ref = "camerax" }
+mlkit-barcode-scanning = { group = "com.google.mlkit", name = "barcode-scanning", version.ref = "mlkitBarcode" }
+zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxing" }
+androidsvg = { group = "com.caverock", name = "androidsvg", version.ref = "androidsvg" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
