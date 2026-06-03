@@ -120,7 +120,14 @@ class MiniApp private constructor() {
                                     val newVersionCode = sdkObject.getInt("versionCode")
                                     val versionName = sdkObject.getString("versionName")
                                     val oldVersionCode = VersionUtils.getJSVersion()
-                                    if (newVersionCode > oldVersionCode) {
+                                    // 检查本地存储的 JSSDK 文件是否实际存在
+                                    val jsSdkDir = File(context.filesDir, "jssdk/$oldVersionCode/main")
+                                    val jsSdkFilesExist = jsSdkDir.exists() && File(jsSdkDir, "pageFrame.html").exists()
+
+                                    if (newVersionCode > oldVersionCode || !jsSdkFilesExist) {
+                                        if (!jsSdkFilesExist && newVersionCode <= oldVersionCode) {
+                                            LogUtils.w(tag, "JSSDK files missing for version $oldVersionCode, re-extracting version $newVersionCode")
+                                        }
                                         LogUtils.d(tag, "JSSDK update found: $versionName($newVersionCode)")
                                         if (Utils.unzipAssets(
                                                 context,

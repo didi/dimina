@@ -100,6 +100,7 @@ import com.didi.dimina.core.RemoteUpdateManager
 import com.didi.dimina.ui.theme.DiminaAndroidTheme
 import com.didi.dimina.ui.view.ActionSheet
 import com.didi.dimina.ui.view.ContactPicker
+import com.didi.dimina.ui.view.ScanCodeHandler
 import com.didi.dimina.ui.view.DiminaTabBar
 import com.didi.dimina.ui.view.DiminaWebView
 import com.didi.dimina.ui.view.MediaPickerRoot
@@ -172,6 +173,9 @@ class DiminaActivity : ComponentActivity() {
 
     // Contact picker for handling contact-related operations
     private lateinit var contactPicker: ContactPicker
+
+    // Scan code handler for barcode/QR code scanning
+    private lateinit var scanCodeHandler: ScanCodeHandler
 
     private var imageChooseCallback: ((List<String>) -> Unit)? = null
     
@@ -250,6 +254,10 @@ class DiminaActivity : ComponentActivity() {
 
     fun handleChooseContact(callback: (Boolean, JSONObject) -> Unit) {
         contactPicker.handleChooseContact(callback)
+    }
+
+    fun handleScanCode(onlyFromCamera: Boolean, continuous: Boolean = false, config: ScanCodeConfig = ScanCodeConfig.DEFAULT, callback: (Boolean, JSONObject) -> Unit) {
+        scanCodeHandler.handleScanCode(onlyFromCamera = onlyFromCamera, continuous = continuous, config = config, callback = callback)
     }
 
     private fun openSystemGallery(type: MediaType, maxCount: Int) {
@@ -331,6 +339,8 @@ class DiminaActivity : ComponentActivity() {
 
         // Initialize the ContactPicker
         contactPicker = ContactPicker(this)
+        // Initialize the ScanCodeHandler
+        scanCodeHandler = ScanCodeHandler(this)
 
         setContent {
             DiminaAndroidTheme {

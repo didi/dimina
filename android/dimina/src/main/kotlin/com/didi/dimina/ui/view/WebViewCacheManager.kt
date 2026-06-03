@@ -509,9 +509,15 @@ private class DiminaPathHandler(
             return null
         }
 
-        val mimeType = MimeTypeMap.getSingleton()
-            .getMimeTypeFromExtension(targetCanonical.extension)
-            ?: "application/octet-stream"
+        // ES Module 要求 JS 文件必须有正确的 MIME type
+        // 部分国产设备 MimeTypeMap 缺少 .js 映射，需显式处理
+        val mimeType = if (targetCanonical.extension.equals("js", ignoreCase = true)) {
+            "text/javascript"
+        } else {
+            MimeTypeMap.getSingleton()
+                .getMimeTypeFromExtension(targetCanonical.extension)
+                ?: "application/octet-stream"
+        }
         return WebResourceResponse(mimeType, "UTF-8", targetCanonical.inputStream())
     }
 }
@@ -536,7 +542,10 @@ internal fun createWebViewClientWithInterceptor(
     context: Context,
     onPageFinished: (String) -> Unit = {}
 ): WebViewClient {
+    val appContext = context.applicationContext
     val assetLoader = createWebViewAssetLoader(context)
+    val currentJsVersion = VersionUtils.getJSVersion()
+    val fallbackHandler = DiminaPathHandler(appContext.filesDir, currentJsVersion)
     return object : WebViewClient() {
         override fun onPageFinished(view: WebView, url: String) {
             super.onPageFinished(view, url)
@@ -549,7 +558,20 @@ internal fun createWebViewClientWithInterceptor(
         override fun shouldInterceptRequest(
             view: WebView,
             request: WebResourceRequest
-        ) = assetLoader.shouldInterceptRequest(request.url)
+        ): WebResourceResponse? {
+            // 优先使用 WebViewAssetLoader
+            val response = assetLoader.shouldInterceptRequest(request.url)
+            if (response != null) {
+                return response
+            }
+            // 回退：直接读取本地文件（兼容 WebViewAssetLoader 失效的设备）
+            if (request.url.host == PathUtils.WEBVIEW_ASSET_DOMAIN) {
+                val path = request.url.path?.trimStart('/') ?: return null
+                LogUtils.d(WEBVIEW_TAG, "WebViewAssetLoader miss, serving directly: $path")
+                return fallbackHandler.handle(path)
+            }
+            return null
+        }
     }
 }
 

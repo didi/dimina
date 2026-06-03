@@ -187,6 +187,7 @@ DMPApp.init(context, { apiNamespaces: ["myapp"] })
 | 媒体 - 视频   | chooseMedia                      | ✓       | ✓   | ✓       | ✗   |
 | 设备 - 联系人 | chooseContact                    | ✓       | ✓   | ✓       | ✗   |
 |               | addPhoneContact                  | ✓       | ✓   | ✓       | ✗   |
+| 设备 - 扫码   | scanCode                         | ✓       | □   | ✓       | ✗   |
 | 设备 - 剪贴板 | setClipboardData                 | ✓       | ✓   | ✓       | ✓   |
 |               | getClipboardData                 | ✓       | ✓   | ✓       | ✓   |
 | 设备 - 震动   | vibrateShort                     | ✓       | ✓   | ✓       | ✗   |
@@ -204,6 +205,90 @@ DMPApp.init(context, { apiNamespaces: ["myapp"] })
 - "□" 表示当前不支持。
 - "✗" 表示明确不支持该平台。
 - `getUpdateManager` 只负责更新状态通知和重启入口，包下载、校验和动态下发流程请参考[小程序包更新说明](./MiniProgram-Update.md)。
+
+---
+
+## wx.scanCode 参数说明
+
+扫码 API，支持二维码和条码（1D/2D）识别。Android 端扫码引擎策略：**Android 9+ 使用 ML Kit**，**Android < 9 使用 ZXing**。
+
+### 基本用法
+
+```js
+wx.scanCode({
+  success(res) {
+    console.log(res.result)    // 扫码内容
+    console.log(res.scanType)  // 条码类型：QR_CODE / CODE_128 / EAN_13 ...
+  },
+  fail(err) {
+    console.log(err.errMsg)
+  }
+})
+```
+
+### 参数列表
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `onlyFromCamera` | boolean | `false` | 是否仅从相机扫码（禁止相册选图） |
+| `continuous` | boolean | `false` | 连续扫码模式，扫码后不关闭相机，结果在界面下方累加 |
+| `title` | string | `"扫码"` | 顶部标题文字 |
+| `titleColor` | string | `"#FFFFFF"` | 标题文字颜色，#RRGGBB 或 #AARRGGBB 格式 |
+| `hint` | string | `"将条码/二维码放入框内自动扫描"` | 底部提示文字 |
+| `hintColor` | string | `"#FFFFFF"` | 提示文字颜色 |
+| `frameColor` | string | `"#FFFFFF"` | 扫描框边框颜色 |
+| `cornerColor` | string | `"#00C853"` | 扫描框四角色彩 |
+| `albumText` | string | `"从相册选择"` | 相册选图按钮文字（仅 `onlyFromCamera=false` 时显示） |
+| `albumTextColor` | string | `"#00C853"` | 相册按钮文字颜色 |
+| `backText` | string | `"← 返回"` | 返回按钮文字 |
+| `backTextColor` | string | `"#FFFFFF"` | 返回按钮文字颜色 |
+| `continuousHint` | string | `"已识别 %d 个，继续扫码中…"` | 连续模式下结果列表上方的状态提示，`%d` 会被替换为已扫数量 |
+| `finishText` | string | `"完成 (%d)"` | 连续模式下底部完成按钮文字，`%d` 替换为已扫数量 |
+| `frameWidthRatio` | number | `0.75` | 扫描框宽度占屏幕宽度的比例，范围 `0.2~0.95` |
+| `frameAspectRatio` | number | `0.7` | 扫描框高宽比（高度 = 宽度 × 此值），范围 `0.3~1.5` |
+| `frameVerticalOffset` | number | `0.8` | 扫描框垂直位置偏移系数，`1.0`=正中间，`<1.0`=偏上，`>1.0`=偏下，范围 `0.3~1.7` |
+
+### 返回结果
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `result` | string | 扫码内容（连续模式下为 JSON 数组字符串） |
+| `scanType` | string | 条码/二维码类型，如 `QR_CODE`、`CODE_128`、`EAN_13` 等 |
+| `charSet` | string | 字符集，固定 `"utf-8"` |
+| `errMsg` | string | 调用结果信息，如 `"scanCode:ok"` |
+| `batch` | boolean | 连续模式下为 `true`，此时 `result` 为批量结果数组 |
+
+### 连续扫码
+
+连续扫码模式下，`success` 回调的 `res` 包含 `batch: true`，`result` 为数组：
+
+```js
+wx.scanCode({
+  continuous: true,
+  success(res) {
+    if (res.batch) {
+      const list = res.result  // [{result, scanType, charSet}, ...]
+      console.log('共扫描了', list.length, '个条码')
+    }
+  }
+})
+```
+
+### 支持的条码格式
+
+| 类别 | 格式 |
+|------|------|
+| **1D 条码** | CODE_128, CODE_39, CODE_93, EAN-13, EAN-8, UPC-A, UPC-E, Codabar, ITF |
+| **2D 条码** | QR_CODE, DATA_MATRIX, PDF417, AZTEC |
+
+### 平台支持
+
+| 平台 | 状态 | 引擎 |
+|------|------|------|
+| Android | ✓ | Android 9+: ML Kit / Android <9: ZXing |
+| iOS | □ | 待实现 |
+| Harmony | ✓ | ScanKit（仅支持二维码） |
+| Web | ✗ | 不支持 |
 
 ---
 
