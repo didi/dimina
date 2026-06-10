@@ -1,0 +1,41 @@
+android/dimina/src/main/kotlin/com/didi/dimina/ui/container/ScanCodeActivity.kt
+  f52a3cecea8135b1 1-180
+android/dimina/src/main/AndroidManifest.xml
+  f52a3cecea8135b1 15,33-39,51
+iOS/dimina/DiminaKit/Container/Api/DMPContainerApi.swift
+  f52a3cecea8135b1 80
+android/dimina/src/main/kotlin/com/didi/dimina/api/device/ScanApi.kt
+  f52a3cecea8135b1 6,30-45,52-60
+android/dimina/build.gradle.kts
+  f52a3cecea8135b1 74
+android/dimina/src/main/kotlin/com/didi/dimina/ui/container/DiminaActivity.kt
+  f52a3cecea8135b1 86,109,177,258-261,341
+android/gradle/libs.versions.toml
+  f52a3cecea8135b1 22,50
+android/dimina/src/main/kotlin/com/didi/dimina/ui/view/ScanCodeLauncher.kt
+  f52a3cecea8135b1 1-66
+android/dimina/src/main/kotlin/com/didi/dimina/api/device/ScanCodeContract.kt
+  f52a3cecea8135b1 1-129
+iOS/dimina/DiminaKit/Container/Api/Device/ScanAPI.swift
+  f52a3cecea8135b1 1-400
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "057330dae4ef64607b8513c1cbd74ed237727d0e",
+  "prompts": {
+    "f52a3cecea8135b1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019eb090-8817-78a1-b3c5-9019860da5be",
+        "model": "gpt-5.5"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 902,
+      "total_deletions": 82,
+      "accepted_lines": 822,
+      "overriden_lines": 0
+    }
+  }
+}
