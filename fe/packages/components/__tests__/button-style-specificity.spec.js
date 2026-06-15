@@ -57,7 +57,7 @@ describe('Button built-in style specificity', () => {
 	})
 
 	it('exposes class modifiers for styled button states', () => {
-		expect(template).toContain('`dd-button--${type}`')
+		expect(template).toContain(`\`dd-button--\${type}\``)
 		expect(template).toContain("size === 'mini' && 'dd-button--mini'")
 		expect(template).toContain("plainParsed && 'dd-button--plain'")
 		expect(template).toContain("disabledParsed && 'dd-button--disabled'")
