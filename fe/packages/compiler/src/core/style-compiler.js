@@ -9,9 +9,8 @@ import postcss from 'postcss'
 import selectorParser from 'postcss-selector-parser'
 import * as sass from 'sass'
 import { collectAssets, tagWhiteList, transformRpx } from '../common/utils.js'
-import { getAppId, getComponent, getContentByPath, getTargetPath, getWorkPath, resetStoreInfo } from '../env.js'
+import { getAppId, getComponent, getContentByPath, getStyleExts, getTargetPath, getWorkPath, resetStoreInfo } from '../env.js'
 
-const fileType = ['.wxss', '.ddss', '.less', '.scss', '.sass']
 const compileRes = new Map()
 
 if (!isMainThread) {
@@ -273,7 +272,7 @@ function getAbsolutePath(modulePath) {
 	const workPath = getWorkPath()
 	const src = modulePath.startsWith('/') ? modulePath : `/${modulePath}`
 
-	for (const ssType of fileType) {
+	for (const ssType of getStyleExts()) {
 		const ssFullPath = `${workPath}${src}${ssType}`
 		if (fs.existsSync(ssFullPath)) {
 			return ssFullPath

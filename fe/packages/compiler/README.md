@@ -126,6 +126,27 @@ miniprogram_npm/      ->  npm包构建   (npm组件支持)
 
 详细使用说明请参考：[TypeScript、Less 和 SCSS 支持文档](./docs/typescript-less-scss-support.md)
 
+### 自定义文件类型（custom file types）
+
+编译器内置识别 `wx*`（`.wxml/.wxss/.wxs`）与 `dd*`（`.ddml/.ddss`）系扩展名。通过编程入口 `build()` 的 `options.fileTypes`，可在内置之上**追加**自定义品牌扩展名（如 `.qdml/.qdss/.qds`），使其与对应内置类型等价编译：
+
+```js
+import build from '@dimina/compiler'
+
+await build(targetPath, workPath, true, {
+  fileTypes: {
+    template: ['qdml'],   // 追加模板扩展名，与 .wxml/.ddml 等价 -> view.js
+    style: ['qdss'],      // 追加样式扩展名，与 .wxss/.ddss 等价 -> style.css
+    viewScript: ['qds'],  // 追加 WXS 类视图脚本：同时覆盖 .qds 文件与内联 <qds> 标签
+  },
+})
+```
+
+- 自动归一化：补前导点、转小写、去重；内置项在前、自定义项在后即查找优先级。
+- 内置 `wx`/`dd` 系永远保留，仅追加不替换。
+- `viewScript` 同时作用于**文件扩展名**（`.qds`）与**内联标签**（`<qds module>`）。
+- CLI 暂未开放对应 flag，自定义文件类型能力通过编程入口注入。
+
 ### npm 组件支持
 
 编译器现已支持微信小程序的 npm 包功能，遵循微信官方的 npm 支持规范：

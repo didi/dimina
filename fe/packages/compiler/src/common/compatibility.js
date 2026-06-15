@@ -1,4 +1,5 @@
 import { Parser } from 'htmlparser2'
+import { getViewScriptTags } from '../env.js'
 import { supportedBuiltinComponents, supportedWxApis } from './compatibility-reference.js'
 
 let cachedReference = null
@@ -125,7 +126,9 @@ function warnUnsupportedWxApi(apiName, filePath, line) {
 
 function warnUnsupportedComponent(tagName, filePath, line) {
 	const { supportedBuiltinComponents } = loadReference()
-	if (!tagName || supportedBuiltinComponents.has(tagName)) {
+	// 视图脚本标签（wxs、dds 及自定义标签）不是组件，需动态豁免。
+	// 兼容性清单仅包含 wxs，因此还需在此放行 dds 和自定义标签，避免误报。
+	if (!tagName || supportedBuiltinComponents.has(tagName) || getViewScriptTags().includes(tagName)) {
 		return
 	}
 

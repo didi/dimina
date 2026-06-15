@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { getStyleExts, getTemplateExts, getViewScriptExts } from '../env.js'
 
 /**
  * npm 构建工具
@@ -145,7 +146,9 @@ class NpmBuilder {
 	 * @returns {boolean} 是否为小程序文件
 	 */
 	isMiniprogramFile(filename) {
-		const miniprogramExts = ['.js', '.json', '.wxml', '.wxss', '.wxs', '.ts', '.less', '.scss', '.styl']
+		// 根据自定义文件类型配置组合扩展名，覆盖内置 wx/dd 类型、样式预处理器和自定义扩展名。
+		// getStyleExts 已包含 .less/.scss/.sass；NpmBuilder 在主线程中构造，可直接读取 env getter。
+		const miniprogramExts = ['.js', '.json', '.ts', ...getTemplateExts(), ...getStyleExts(), ...getViewScriptExts()]
 		const ext = path.extname(filename).toLowerCase()
 		
 		return miniprogramExts.includes(ext) || 

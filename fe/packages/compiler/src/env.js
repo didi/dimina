@@ -10,29 +10,141 @@ let pathInfo = {}
 let configInfo = {}
 let npmResolver = null
 
+// 小程序自定义文件类型：可扩展的文件扩展名和内联标签。
+// 始终保留内置 wx/dd 类型；调用方通过 build() 或 storeInfo() 的 options.fileTypes 追加自定义项。
+const DEFAULT_TEMPLATE_EXTS = ['.wxml', '.ddml']
+const DEFAULT_STYLE_EXTS = ['.wxss', '.ddss', '.less', '.scss', '.sass']
+const DEFAULT_VIEW_SCRIPT_EXTS = ['.wxs']
+const DEFAULT_VIEW_SCRIPT_TAGS = ['wxs', 'dds']
+
+// 保留扩展名：所有内置类型 + 逻辑(.js/.ts) + 配置(.json)。自定义项不得占用，
+// 否则会跨角色串编（如 template:['js'] 会把页面逻辑文件当成模板解析）。
+const RESERVED_EXTS = new Set([
+	...DEFAULT_TEMPLATE_EXTS,
+	...DEFAULT_STYLE_EXTS,
+	...DEFAULT_VIEW_SCRIPT_EXTS,
+	'.js',
+	'.ts',
+	'.json',
+])
+
+// 编译选项单例。env 会跨多次 build() 持久化；每次 storeInfo() 根据当前 options 重建，避免自定义文件类型串用。
+let compilerOptions = normalizeFileTypes()
+
+/**
+ * 将单项规范化为扩展名：去除首尾空白、转小写并补一个前导点。
+ * 仅接受字母、数字、连字符和下划线；空字符串、路径分隔符或其他元字符
+ * 均返回 null，由调用方丢弃。扩展名会用于生成尾部匹配正则和查找文件，
+ * 放行元字符可能导致误匹配。
+ */
+function normalizeExt(raw) {
+	if (typeof raw !== 'string') {
+		return null
+	}
+	const v = raw.trim().toLowerCase().replace(/^\.+/, '')
+	if (!/^[a-z0-9_-]+$/.test(v)) {
+		return null
+	}
+	return `.${v}`
+}
+
+/**
+ * 将单项规范化为内联标签名：去除首尾空白、转小写并移除前导点。
+ * 标签名会用于拼接 Cheerio 选择器（如 transTagWxs），因此必须以字母开头，
+ * 且只能包含字母、数字、连字符和下划线。拒绝选择器元字符，避免 'qds,view'
+ * 误选并删除 <view>，破坏编译产物。
+ */
+function normalizeTag(raw) {
+	if (typeof raw !== 'string') {
+		return null
+	}
+	const v = raw.trim().toLowerCase().replace(/^\.+/, '')
+	if (!/^[a-z][a-z0-9_-]*$/.test(v)) {
+		return null
+	}
+	return v
+}
+
+/**
+ * 合并并去重内置项和自定义项；内置项在前，顺序即同名文件的查找优先级。
+ * 传入 reserved 时，落在其中的自定义项被丢弃（防止占用其他角色/逻辑/配置的扩展名）。
+ */
+function mergeUnique(builtins, custom, normalizer, reserved) {
+	const out = [...builtins]
+	const seen = new Set(builtins)
+	if (Array.isArray(custom)) {
+		for (const raw of custom) {
+			const n = normalizer(raw)
+			if (n && !seen.has(n) && !reserved?.has(n)) {
+				seen.add(n)
+				out.push(n)
+			}
+		}
+	}
+	return out
+}
+
+/**
+ * 根据 options.fileTypes 生成本次构建使用的自定义扩展名和标签。
+ * viewScript 同时用于生成文件扩展名和内联标签。
+ */
+function normalizeFileTypes(fileTypes = {}) {
+	const ft = fileTypes || {}
+	return {
+		templateExts: mergeUnique(DEFAULT_TEMPLATE_EXTS, ft.template, normalizeExt, RESERVED_EXTS),
+		styleExts: mergeUnique(DEFAULT_STYLE_EXTS, ft.style, normalizeExt, RESERVED_EXTS),
+		viewScriptExts: mergeUnique(DEFAULT_VIEW_SCRIPT_EXTS, ft.viewScript, normalizeExt, RESERVED_EXTS),
+		viewScriptTags: mergeUnique(DEFAULT_VIEW_SCRIPT_TAGS, ft.viewScript, normalizeTag),
+	}
+}
+
 /**
  * 持久化编译过程的上下文
+ * @param {string} workPath 编译工作目录
+ * @param {{ fileTypes?: { template?: string[], style?: string[], viewScript?: string[] } }} [options] 构建选项
  */
-function storeInfo(workPath) {
+function storeInfo(workPath, options = {}) {
 	storePathInfo(workPath)
 	storeProjectConfig()
 	storeAppConfig()
 	storePageConfig()
 
+	// 根据当前 options 重建，避免上一次 build() 注入的自定义文件类型影响本次构建。
+	compilerOptions = normalizeFileTypes(options.fileTypes)
+
 	return {
 		pathInfo,
 		configInfo,
+		compilerOptions,
 	}
 }
 
 function resetStoreInfo(opts) {
 	pathInfo = opts.pathInfo
 	configInfo = opts.configInfo
-	
+	// Worker 恢复上下文时使用主线程生成的自定义文件类型配置，缺省时回退到内置配置。
+	compilerOptions = opts.compilerOptions || normalizeFileTypes()
+
 	// 重新初始化 npm 解析器
 	if (pathInfo.workPath) {
 		npmResolver = new NpmResolver(pathInfo.workPath)
 	}
+}
+
+function getTemplateExts() {
+	return compilerOptions.templateExts
+}
+
+function getStyleExts() {
+	return compilerOptions.styleExts
+}
+
+function getViewScriptExts() {
+	return compilerOptions.viewScriptExts
+}
+
+function getViewScriptTags() {
+	return compilerOptions.viewScriptTags
 }
 
 function storePathInfo(workPath) {
@@ -381,7 +493,11 @@ export {
 	getPageConfigInfo,
 	getPages,
 	getProjectConfig,
+	getStyleExts,
 	getTargetPath,
+	getTemplateExts,
+	getViewScriptExts,
+	getViewScriptTags,
 	getWorkPath,
 	resetStoreInfo,
 	resolveAppAlias,
