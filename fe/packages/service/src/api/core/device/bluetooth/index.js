@@ -5,7 +5,7 @@ import { invokeAPI } from '@/api/common'
  * https://developers.weixin.qq.com/miniprogram/dev/api/device/bluetooth/wx.stopBluetoothDevicesDiscovery.html
  */
 export function stopBluetoothDevicesDiscovery(opts) {
-	invokeAPI('stopBluetoothDevicesDiscovery', opts)
+	return invokeAPI('stopBluetoothDevicesDiscovery', opts)
 }
 
 /**
@@ -13,7 +13,7 @@ export function stopBluetoothDevicesDiscovery(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/device/bluetooth/wx.startBluetoothDevicesDiscovery.html
  */
 export function startBluetoothDevicesDiscovery(opts) {
-	invokeAPI('startBluetoothDevicesDiscovery', opts)
+	return invokeAPI('startBluetoothDevicesDiscovery', opts)
 }
 
 /**
@@ -21,7 +21,7 @@ export function startBluetoothDevicesDiscovery(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/device/bluetooth/wx.openBluetoothAdapter.html
  */
 export function openBluetoothAdapter(opts) {
-	invokeAPI('openBluetoothAdapter', opts)
+	return invokeAPI('openBluetoothAdapter', opts)
 }
 
 /**
@@ -29,7 +29,7 @@ export function openBluetoothAdapter(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/device/bluetooth/wx.onBluetoothDeviceFound.html
  */
 export function onBluetoothDeviceFound(opts) {
-	invokeAPI('onBluetoothDeviceFound', opts)
+	return invokeAPI('onBluetoothDeviceFound', opts)
 }
 
 /**
@@ -37,7 +37,7 @@ export function onBluetoothDeviceFound(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/device/bluetooth/wx.onBluetoothAdapterStateChange.html
  */
 export function onBluetoothAdapterStateChange(opts) {
-	invokeAPI('onBluetoothAdapterStateChange', opts)
+	return invokeAPI('onBluetoothAdapterStateChange', opts)
 }
 
 /**
@@ -45,7 +45,7 @@ export function onBluetoothAdapterStateChange(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/device/bluetooth/wx.offBluetoothDeviceFound.html
  */
 export function offBluetoothDeviceFound() {
-	invokeAPI('offBluetoothDeviceFound')
+	return invokeAPI('offBluetoothDeviceFound')
 }
 
 /**
@@ -53,7 +53,7 @@ export function offBluetoothDeviceFound() {
  * https://developers.weixin.qq.com/miniprogram/dev/api/device/bluetooth/wx.offBluetoothAdapterStateChange.html
  */
 export function offBluetoothAdapterStateChange() {
-	invokeAPI('offBluetoothAdapterStateChange')
+	return invokeAPI('offBluetoothAdapterStateChange')
 }
 
 /**
@@ -61,7 +61,7 @@ export function offBluetoothAdapterStateChange() {
  * https://developers.weixin.qq.com/miniprogram/dev/api/device/bluetooth/wx.getConnectedBluetoothDevices.html
  */
 export function getConnectedBluetoothDevices(opts) {
-	invokeAPI('getConnectedBluetoothDevices', opts)
+	return invokeAPI('getConnectedBluetoothDevices', opts)
 }
 
 /**
@@ -69,7 +69,7 @@ export function getConnectedBluetoothDevices(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/device/bluetooth/wx.getBluetoothDevices.html
  */
 export function getBluetoothDevices(opts) {
-	invokeAPI('getBluetoothDevices', opts)
+	return invokeAPI('getBluetoothDevices', opts)
 }
 
 /**
@@ -77,7 +77,7 @@ export function getBluetoothDevices(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/device/bluetooth/wx.getBluetoothAdapterState.html
  */
 export function getBluetoothAdapterState(opts) {
-	invokeAPI('getBluetoothAdapterState', opts)
+	return invokeAPI('getBluetoothAdapterState', opts)
 }
 
 /**
@@ -85,5 +85,5 @@ export function getBluetoothAdapterState(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/device/bluetooth/wx.closeBluetoothAdapter.html
  */
 export function closeBluetoothAdapter(opts) {
-	invokeAPI('closeBluetoothAdapter', opts)
+	return invokeAPI('closeBluetoothAdapter', opts)
 }

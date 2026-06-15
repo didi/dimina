@@ -6,5 +6,5 @@ import { invokeAPI } from '@/api/common'
  * @param {*} opts
  */
 export function downloadFile(opts) {
-	invokeAPI('downloadFile', opts)
+	return invokeAPI('downloadFile', opts)
 }

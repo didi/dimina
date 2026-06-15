@@ -6,5 +6,5 @@ import { invokeAPI } from '@/api/common'
  * @param {*} opts
  */
 export function getNetworkType(opts) {
-	invokeAPI('getNetworkType', opts)
+	return invokeAPI('getNetworkType', opts)
 }

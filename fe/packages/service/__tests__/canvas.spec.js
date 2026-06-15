@@ -54,7 +54,7 @@ describe('canvas api', () => {
 	})
 
 	it('should publish export task to render', () => {
-		canvasToTempFilePath({ canvasId: 'main-canvas' }, { __id__: 'component_2' })
+		const result = canvasToTempFilePath({ canvasId: 'main-canvas' }, { __id__: 'component_2' })
 
 		expect(globalThis.DiminaServiceBridge.publish).toHaveBeenCalledTimes(1)
 		const [bridgeId, message] = globalThis.DiminaServiceBridge.publish.mock.calls[0]
@@ -62,6 +62,7 @@ describe('canvas api', () => {
 		expect(message.body.name).toBe('canvasToTempFilePath')
 		expect(message.body.params.canvasId).toBe('main-canvas')
 		expect(message.body.params.moduleId).toBe('component_2')
+		expect(result).toBeInstanceOf(Promise)
 	})
 
 	it('should hydrate selector query canvas node results', () => {

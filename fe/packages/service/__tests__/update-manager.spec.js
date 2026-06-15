@@ -43,6 +43,7 @@ describe('UpdateManager API', () => {
 		const { canIUse } = await import('../src/api/core/base/index.js')
 
 		expect(canIUse('getUpdateManager')).toBe(true)
+		expect(canIUse('UpdateManager')).toBe(true)
 		expect(canIUse('UpdateManager.applyUpdate')).toBe(true)
 		expect(canIUse('UpdateManager.onCheckForUpdate')).toBe(true)
 		expect(canIUse('UpdateManager.onUpdateFailed')).toBe(true)

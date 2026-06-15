@@ -1,0 +1,40 @@
+<view class="page-body">
+  <view class="section">
+    <view class="section-title">本地用户文件</view>
+    <view class="path">{{userDataPath}}</view>
+    <textarea class="textarea" value="{{userContent}}" bindinput="onContentInput" />
+    <view class="btn-row">
+      <button type="primary" bindtap="writeUserFile">写入</button>
+      <button bindtap="readUserFile">读取</button>
+    </view>
+    <view class="btn-row">
+      <button bindtap="refreshUserFiles">列目录</button>
+      <button type="warn" bindtap="removeUserFile">删除</button>
+    </view>
+    <view class="content-box">{{readContentText}}</view>
+    <view class="file-list">
+      <view class="file-item" wx:for="{{userFiles}}" wx:key="*this">{{item}}</view>
+    </view>
+  </view>
+
+  <view class="section">
+    <view class="section-title">临时文件和缓存文件</view>
+    <button type="primary" bindtap="chooseTempFile">选择图片生成临时文件</button>
+    <view class="path">{{tempFilePathText}}</view>
+    <image wx:if="{{hasTempFile}}" class="preview" mode="aspectFit" src="{{tempFilePath}}" />
+    <view class="btn-row">
+      <button bindtap="saveTempFile">保存为缓存文件</button>
+      <button bindtap="refreshSavedFiles">缓存列表</button>
+    </view>
+    <button type="warn" bindtap="removeSavedFile">删除当前缓存文件</button>
+    <view class="path">{{savedFilePathText}}</view>
+    <view class="file-list">
+      <view class="file-item" wx:for="{{savedFiles}}" wx:key="*this">{{item}}</view>
+    </view>
+  </view>
+
+  <view class="result {{resultType}}">
+    <view class="result-title">{{resultTitle}}</view>
+    <view class="result-detail">{{resultDetail}}</view>
+  </view>
+</view>

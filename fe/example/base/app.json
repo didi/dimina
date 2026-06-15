@@ -27,6 +27,7 @@
 		"pages/mark/index",
 		"pages/intersection-observer/index",
 		"pages/api/index",
+		"pages/file-system/index",
 		"pages/project-mixed/pages/home/index",
 		"pages/project-mixed/pages/detail/index",
 		"pages/package/index",

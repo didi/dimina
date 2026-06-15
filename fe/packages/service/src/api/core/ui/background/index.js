@@ -5,7 +5,7 @@ import { invokeAPI } from '@/api/common'
  * https://developers.weixin.qq.com/miniprogram/dev/api/ui/background/wx.setBackgroundTextStyle.html
  */
 export function setBackgroundTextStyle(opts) {
-	invokeAPI('setBackgroundTextStyle', opts)
+	return invokeAPI('setBackgroundTextStyle', opts)
 }
 
 /**
@@ -13,5 +13,5 @@ export function setBackgroundTextStyle(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/ui/background/wx.setBackgroundColor.html
  */
 export function setBackgroundColor(opts) {
-	invokeAPI('setBackgroundColor', opts)
+	return invokeAPI('setBackgroundColor', opts)
 }

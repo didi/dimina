@@ -5,5 +5,5 @@ import { invokeAPI } from '@/api/common'
  * https://developers.weixin.qq.com/miniprogram/dev/api/payment/wx.requestPayment.html
  */
 export function requestPayment(opts) {
-	invokeAPI('requestPayment', opts)
+	return invokeAPI('requestPayment', opts)
 }

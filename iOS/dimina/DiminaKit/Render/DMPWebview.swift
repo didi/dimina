@@ -63,6 +63,7 @@ public class DMPWebview: NSObject, WKNavigationDelegate, WKScriptMessageHandler,
     internal var logger: DMPWebViewLogger?
 
     private var webViewId: Int
+    internal var appId: String
     internal var pagePath: String
     internal var query: [String: Any] = [:]
     
@@ -105,6 +106,7 @@ public class DMPWebview: NSObject, WKNavigationDelegate, WKScriptMessageHandler,
         }
         self.delegate = delegate
         self.webViewId = DMPIdProvider.generateWebViewId()
+        self.appId = appId
         self.pagePath = ""
         self.appName = appName
 

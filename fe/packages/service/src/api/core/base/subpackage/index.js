@@ -5,7 +5,7 @@ import { invokeAPI } from '@/api/common'
  * https://developers.weixin.qq.com/miniprogram/dev/api/base/subpackage/wx.preDownloadSubpackage.html
  */
 export function preDownloadSubpackage(opts) {
-	invokeAPI('preDownloadSubpackage', opts)
+	return invokeAPI('preDownloadSubpackage', opts)
 }
 
 /**
@@ -13,5 +13,5 @@ export function preDownloadSubpackage(opts) {
  * https://developers.weixin.qq.com/minigame/dev/api/base/subpackage/wx.loadSubpackage.html
  */
 export function loadSubpackage(opts) {
-	invokeAPI('loadSubpackage', opts)
+	return invokeAPI('loadSubpackage', opts)
 }

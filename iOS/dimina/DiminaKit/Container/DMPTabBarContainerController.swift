@@ -2,7 +2,7 @@
 //  DMPTabBarContainerController.swift
 //  dimina
 //
-//  Created by OpenAI on 2026/5/17.
+//  Created by Doslin on 2026/5/17.
 //
 
 import UIKit
@@ -11,7 +11,7 @@ final class DMPTabBarContainerController: UIViewController {
     private let appConfig: DMPAppConfig
     private weak var app: DMPApp?
     private weak var navigator: DMPNavigator?
-    private let tabBarConfig: DMPTabBarConfig
+    private var tabBarConfig: DMPTabBarConfig
     private let initialPath: String
     private let initialQuery: [String: Any]?
     private let showsLaunchLoading: Bool
@@ -135,6 +135,63 @@ final class DMPTabBarContainerController: UIViewController {
         return tabPageRecords[index]
     }
 
+    func setTabBarStyle(
+        color: String?,
+        selectedColor: String?,
+        backgroundColor: String?,
+        borderStyle: String?
+    ) {
+        tabBarConfig.color = color ?? tabBarConfig.color
+        tabBarConfig.selectedColor = selectedColor ?? tabBarConfig.selectedColor
+        tabBarConfig.backgroundColor = backgroundColor ?? tabBarConfig.backgroundColor
+        if borderStyle == "black" || borderStyle == "white" {
+            tabBarConfig.borderStyle = borderStyle!
+        }
+
+        view.backgroundColor = DMPUtil.colorFromHexString(tabBarConfig.backgroundColor) ?? .white
+        tabBarView.updateStyle(config: tabBarConfig)
+    }
+
+    func setTabBarItem(
+        index: Int,
+        text: String?,
+        iconPath: String?,
+        selectedIconPath: String?
+    ) {
+        guard index >= 0, index < tabBarConfig.list.count else {
+            return
+        }
+
+        var item = tabBarConfig.list[index]
+        item.text = text ?? item.text
+        item.iconPath = iconPath ?? item.iconPath
+        item.selectedIconPath = selectedIconPath ?? item.selectedIconPath
+        tabBarConfig.list[index] = item
+        tabBarView.updateItem(index: index, item: item)
+    }
+
+    func setTabBarVisible(_ visible: Bool) {
+        tabBarView.isHidden = !visible
+        updateTabBarHeight()
+        view.layoutIfNeeded()
+    }
+
+    func setTabBarBadge(index: Int, text: String) {
+        tabBarView.setBadge(index: index, text: text)
+    }
+
+    func removeTabBarBadge(index: Int) {
+        tabBarView.removeBadge(index: index)
+    }
+
+    func showTabBarRedDot(index: Int) {
+        tabBarView.showRedDot(index: index)
+    }
+
+    func hideTabBarRedDot(index: Int) {
+        tabBarView.hideRedDot(index: index)
+    }
+
     func destroy() {
         tabControllers.values.forEach { $0.destroy() }
     }
@@ -237,7 +294,7 @@ final class DMPTabBarContainerController: UIViewController {
     }
 
     private func updateTabBarHeight() {
-        tabBarHeightConstraint?.constant = tabBarHeight
+        tabBarHeightConstraint?.constant = tabBarView.isHidden ? 0 : tabBarHeight
     }
 
     deinit {
@@ -246,7 +303,7 @@ final class DMPTabBarContainerController: UIViewController {
 }
 
 private final class DMPTabBarView: UIView {
-    private let config: DMPTabBarConfig
+    private var config: DMPTabBarConfig
     private let appId: String
     private let borderView = UIView()
     private let stackView = UIStackView()
@@ -321,18 +378,60 @@ private final class DMPTabBarView: UIView {
         }
     }
 
+    func updateStyle(config: DMPTabBarConfig) {
+        self.config = config
+        backgroundColor = DMPUtil.colorFromHexString(config.backgroundColor) ?? .white
+        borderView.backgroundColor = config.borderStyle == "white"
+            ? .white
+            : UIColor(red: 224 / 255, green: 224 / 255, blue: 224 / 255, alpha: 1)
+
+        let normalColor = DMPUtil.colorFromHexString(config.color) ?? UIColor(white: 0.6, alpha: 1)
+        let selectedColor = DMPUtil.colorFromHexString(config.selectedColor) ?? .systemBlue
+        itemControls.forEach {
+            $0.updateStyle(normalColor: normalColor, selectedColor: selectedColor)
+        }
+        updateSelection()
+    }
+
+    func updateItem(index: Int, item: DMPTabBarItem) {
+        guard index >= 0, index < itemControls.count else {
+            return
+        }
+        config.list[index] = item
+        itemControls[index].updateItem(item)
+        updateSelection()
+    }
+
+    func setBadge(index: Int, text: String) {
+        itemControls[safe: index]?.setBadge(text)
+    }
+
+    func removeBadge(index: Int) {
+        itemControls[safe: index]?.removeBadge()
+    }
+
+    func showRedDot(index: Int) {
+        itemControls[safe: index]?.setRedDotVisible(true)
+    }
+
+    func hideRedDot(index: Int) {
+        itemControls[safe: index]?.setRedDotVisible(false)
+    }
+
     @objc private func handleItemTap(_ sender: UIControl) {
         onSelect?(sender.tag)
     }
 }
 
 private final class DMPTabBarItemControl: UIControl {
-    private let item: DMPTabBarItem
+    private var item: DMPTabBarItem
     private let appId: String
-    private let normalColor: UIColor
-    private let selectedColor: UIColor
+    private var normalColor: UIColor
+    private var selectedColor: UIColor
     private let imageView = UIImageView()
     private let titleLabel = UILabel()
+    private let badgeLabel = DMPTabBarBadgeLabel()
+    private let redDotView = UIView()
 
     override var isSelected: Bool {
         didSet {
@@ -370,7 +469,23 @@ private final class DMPTabBarItemControl: UIControl {
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.text = item.text
 
+        badgeLabel.translatesAutoresizingMaskIntoConstraints = false
+        badgeLabel.font = .systemFont(ofSize: 10)
+        badgeLabel.textColor = .white
+        badgeLabel.textAlignment = .center
+        badgeLabel.backgroundColor = UIColor(red: 250 / 255, green: 81 / 255, blue: 81 / 255, alpha: 1)
+        badgeLabel.layer.cornerRadius = 8
+        badgeLabel.clipsToBounds = true
+        badgeLabel.isHidden = true
+
+        redDotView.translatesAutoresizingMaskIntoConstraints = false
+        redDotView.backgroundColor = UIColor(red: 250 / 255, green: 81 / 255, blue: 81 / 255, alpha: 1)
+        redDotView.layer.cornerRadius = 4
+        redDotView.isHidden = true
+
         addSubview(stackView)
+        addSubview(badgeLabel)
+        addSubview(redDotView)
         NSLayoutConstraint.activate([
             stackView.centerXAnchor.constraint(equalTo: centerXAnchor),
             stackView.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -380,7 +495,48 @@ private final class DMPTabBarItemControl: UIControl {
             imageView.widthAnchor.constraint(equalToConstant: 24),
             imageView.heightAnchor.constraint(equalToConstant: 24),
             titleLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 72),
+
+            badgeLabel.centerXAnchor.constraint(equalTo: centerXAnchor, constant: 18),
+            badgeLabel.topAnchor.constraint(equalTo: stackView.topAnchor, constant: -2),
+            badgeLabel.heightAnchor.constraint(greaterThanOrEqualToConstant: 16),
+            badgeLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 16),
+
+            redDotView.centerXAnchor.constraint(equalTo: centerXAnchor, constant: 18),
+            redDotView.topAnchor.constraint(equalTo: stackView.topAnchor),
+            redDotView.widthAnchor.constraint(equalToConstant: 8),
+            redDotView.heightAnchor.constraint(equalToConstant: 8),
         ])
+    }
+
+    func updateStyle(normalColor: UIColor, selectedColor: UIColor) {
+        self.normalColor = normalColor
+        self.selectedColor = selectedColor
+        updateContent()
+    }
+
+    func updateItem(_ item: DMPTabBarItem) {
+        self.item = item
+        titleLabel.text = item.text
+        updateContent()
+    }
+
+    func setBadge(_ text: String) {
+        badgeLabel.text = text
+        badgeLabel.isHidden = text.isEmpty
+        redDotView.isHidden = true
+    }
+
+    func removeBadge() {
+        badgeLabel.text = nil
+        badgeLabel.isHidden = true
+    }
+
+    func setRedDotVisible(_ visible: Bool) {
+        redDotView.isHidden = !visible
+        if visible {
+            badgeLabel.text = nil
+            badgeLabel.isHidden = true
+        }
     }
 
     private func updateContent() {
@@ -437,5 +593,30 @@ private final class DMPTabBarItemControl: UIControl {
         }
 
         return URL(fileURLWithPath: (appRoot as NSString).appendingPathComponent("main/\(rawPath)"))
+    }
+}
+
+private final class DMPTabBarBadgeLabel: UILabel {
+    private let contentInsets = UIEdgeInsets(top: 1, left: 4, bottom: 1, right: 4)
+
+    override var intrinsicContentSize: CGSize {
+        let size = super.intrinsicContentSize
+        return CGSize(
+            width: size.width + contentInsets.left + contentInsets.right,
+            height: size.height + contentInsets.top + contentInsets.bottom
+        )
+    }
+
+    override func drawText(in rect: CGRect) {
+        super.drawText(in: rect.inset(by: contentInsets))
+    }
+}
+
+private extension Array {
+    subscript(safe index: Int) -> Element? {
+        guard indices.contains(index) else {
+            return nil
+        }
+        return self[index]
     }
 }

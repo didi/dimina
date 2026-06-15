@@ -17,6 +17,8 @@ set(NATIVERENDER_ROOT_PATH ${CMAKE_CURRENT_SOURCE_DIR})
 # Include FetchContent for downloading dependencies
 include(FetchContent)
 
+option(DIMINA_UPDATE_QUICKJS_ON_BUILD "Update QuickJS from origin/master before each native build" ON)
+
 # Download QuickJS from GitHub
 FetchContent_Declare(
     quickjs
@@ -40,6 +42,12 @@ FetchContent_Declare(
 set(LIBUV_BUILD_SHARED OFF CACHE BOOL "Build shared libuv" FORCE)
 FetchContent_MakeAvailable(libuv)
 
+if(ANDROID AND TARGET uv_a)
+    # Android NDK r28 does not expose LLONG_MAX from <limits.h> in libuv's
+    # default GNU90 mode, while current libuv uses it in src/unix/linux.c.
+    set_property(TARGET uv_a PROPERTY C_STANDARD 99)
+endif()
+
 # Handle the version file to prevent compilation errors
 set(VERSION_FILE "${quickjs_SOURCE_DIR}/version")
 if(EXISTS "${VERSION_FILE}")
@@ -53,6 +61,19 @@ if(EXISTS "${VERSION_FILE}")
     # Remove or rename the original version file to prevent it from being compiled
     file(RENAME "${VERSION_FILE}" "${quickjs_SOURCE_DIR}/version.txt")
 endif()
+
+# QuickJS ships a plain text file named "version". If the QuickJS source root
+# is added as a normal -I directory, libc++'s #include <version> can resolve to
+# that text file instead of the standard C++ header. Expose only the public
+# headers qjs.cpp needs through a clean generated include directory.
+set(QUICKJS_PUBLIC_INCLUDE_DIR "${CMAKE_CURRENT_BINARY_DIR}/quickjs_public_include")
+file(MAKE_DIRECTORY "${QUICKJS_PUBLIC_INCLUDE_DIR}")
+foreach(QUICKJS_PUBLIC_HEADER quickjs.h cutils.h libregexp.h libunicode.h)
+    file(WRITE
+        "${QUICKJS_PUBLIC_INCLUDE_DIR}/${QUICKJS_PUBLIC_HEADER}"
+        "#pragma once\n#include \"${quickjs_SOURCE_DIR}/${QUICKJS_PUBLIC_HEADER}\"\n"
+    )
+endforeach()
 
 # Set build type to Release for optimization
 if(NOT CMAKE_BUILD_TYPE)
@@ -72,7 +93,7 @@ add_compile_options(
 include_directories(
         ${NATIVERENDER_ROOT_PATH}
         ${NATIVERENDER_ROOT_PATH}/include
-        ${quickjs_SOURCE_DIR}  # Include the downloaded QuickJS source directory
+        ${QUICKJS_PUBLIC_INCLUDE_DIR}  # Avoid exposing QuickJS's "version" file as <version>
         ${libuv_SOURCE_DIR}/include  # Include libuv headers
 )
 
@@ -104,6 +125,17 @@ set(QUICKJS_SOURCES
 # for GameActivity/NativeActivity derived applications, the same library name must be
 # used in the AndroidManifest.xml file.
 add_library(dimina SHARED ${sources} ${QUICKJS_SOURCES})
+
+if(DIMINA_UPDATE_QUICKJS_ON_BUILD)
+    find_package(Git REQUIRED)
+    add_custom_target(update_quickjs_latest
+        COMMAND ${GIT_EXECUTABLE} fetch --depth=1 origin master
+        COMMAND ${GIT_EXECUTABLE} reset --hard FETCH_HEAD
+        WORKING_DIRECTORY ${quickjs_SOURCE_DIR}
+        COMMENT "Updating QuickJS to latest origin/master"
+    )
+    add_dependencies(dimina update_quickjs_latest)
+endif()
 
 # Add linker option for 16KB page size compatibility
 # This helps ensure the .so is compatible with systems using 16KB page sizes,

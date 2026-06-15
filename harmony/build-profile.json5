@@ -24,19 +24,6 @@
       }
     ],
     "signingConfigs": [
-      {
-        "name": "default",
-        "type": "HarmonyOS",
-        "material": {
-          "certpath": "./keystore/debug.cer",
-          "keyAlias": "debugKey",
-          "keyPassword": "0000001B242B64273942B1A977DF17CF706879A153717AC4FFBBBA65ED5212E68330277EC28FF997590D27",
-          "profile": "./keystore/debug.p7b",
-          "signAlg": "SHA256withECDSA",
-          "storeFile": "./keystore/debug.p12",
-          "storePassword": "0000001BEF593204165A11BFFE05CA8EBA6AB41D2678113A10D651BAF822A698564905B8D7D7DC8BC3E3D3"
-        }
-      }
     ]
   },
   "modules": [

@@ -5,5 +5,5 @@ import { invokeAPI } from '@/api/common'
  * https://developers.weixin.qq.com/miniprogram/dev/api/device/keyboard/wx.hideKeyboard.html
  */
 export function hideKeyboard(opts) {
-	invokeAPI('hideKeyboard', opts)
+	return invokeAPI('hideKeyboard', opts)
 }

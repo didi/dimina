@@ -165,7 +165,14 @@ async function handleUp() {
 <template>
 	<span
 		:id="id" v-bind="$attrs" class="dd-button" :type="type" :size="size" :loading="loadingParsed"
-		:plain="plainParsed" :disabled="disabledParsed" :class="[isActive ? hoverClass : undefined]"
+		:plain="plainParsed" :disabled="disabledParsed" :class="[
+			`dd-button--${type}`,
+			size === 'mini' && 'dd-button--mini',
+			plainParsed && 'dd-button--plain',
+			disabledParsed && 'dd-button--disabled',
+			loadingParsed && 'dd-button--loading',
+			isActive ? hoverClass : undefined,
+		]"
 		@click="handleClicked" @mousedown="handleDown" @mouseup="handleUp"
 	>
 		<slot />
@@ -227,96 +234,95 @@ async function handleUp() {
 	line-height: inherit;
 	white-space: inherit;
 }
-.dd-button[type='default'] {
+.dd-button--default {
 	color: #000000;
 	background-color: #f8f8f8;
 }
-.dd-button[type='primary'] {
+.dd-button--primary {
 	color: #ffffff;
 	background-color: #1aad19;
 }
-.dd-button[type='warn'] {
+.dd-button--warn {
 	color: #ffffff;
 	background-color: #e64340;
 }
-.dd-button[disabled] {
+.dd-button--disabled {
 	color: rgba(255, 255, 255, 0.6);
 }
-.dd-button[disabled][type='default'],
-.dd-button[disabled]:not([type]) {
+.dd-button--disabled.dd-button--default {
 	color: rgba(0, 0, 0, 0.3);
 	background-color: #f7f7f7;
 }
-.dd-button[disabled][type='primary'] {
+.dd-button--disabled.dd-button--primary {
 	background-color: #9ed99d;
 }
-.dd-button[disabled][type='warn'] {
+.dd-button--disabled.dd-button--warn {
 	background-color: #ec8b89;
 }
-.dd-button[type='primary'][plain] {
+.dd-button--primary.dd-button--plain {
 	color: #1aad19;
 	border: 1px solid #1aad19;
 	background-color: transparent;
 }
-.dd-button[type='primary'][plain][disabled] {
+.dd-button--primary.dd-button--plain.dd-button--disabled {
 	color: rgba(0, 0, 0, 0.2);
 	border-color: rgba(0, 0, 0, 0.2);
 }
-.dd-button[type='primary'][plain]:after {
+.dd-button--primary.dd-button--plain:after {
 	border-width: 0;
 }
-.dd-button[type='default'][plain] {
+.dd-button--default.dd-button--plain {
 	color: #353535;
 	border: 1px solid #353535;
 	background-color: transparent;
 }
-.dd-button[type='default'][plain][disabled] {
+.dd-button--default.dd-button--plain.dd-button--disabled {
 	color: rgba(0, 0, 0, 0.2);
 	border-color: rgba(0, 0, 0, 0.2);
 }
-.dd-button[type='default'][plain]:after {
+.dd-button--default.dd-button--plain:after {
 	border-width: 0;
 }
-.dd-button[plain] {
+.dd-button--plain {
 	color: #353535;
 	border: 1px solid #353535;
 	background-color: transparent;
 }
-.dd-button[plain][disabled] {
+.dd-button--plain.dd-button--disabled {
 	color: rgba(0, 0, 0, 0.2);
 	border-color: rgba(0, 0, 0, 0.2);
 }
-.dd-button[plain]:after {
+.dd-button--plain:after {
 	border-width: 0;
 }
-.dd-button[plain][native] .dd-button-cover-view-inner {
+.dd-button--plain[native] .dd-button-cover-view-inner {
 	padding: 0;
 }
-.dd-button[type='warn'][plain] {
+.dd-button--warn.dd-button--plain {
 	color: #e64340;
 	border: 1px solid #e64340;
 	background-color: transparent;
 }
-.dd-button[type='warn'][plain][disabled] {
+.dd-button--warn.dd-button--plain.dd-button--disabled {
 	color: rgba(0, 0, 0, 0.2);
 	border-color: rgba(0, 0, 0, 0.2);
 }
-.dd-button[type='warn'][plain]:after {
+.dd-button--warn.dd-button--plain:after {
 	border-width: 0;
 }
-.dd-button[size='mini'] {
+.dd-button--mini {
 	display: inline-block;
 	line-height: 2.3;
 	font-size: 13px;
 	padding: 0 1.34em;
 }
-.dd-button[size='mini'][native] {
+.dd-button--mini[native] {
 	padding: 0;
 }
-.dd-button[size='mini'][native] .dd-button-cover-view-inner {
+.dd-button--mini[native] .dd-button-cover-view-inner {
 	padding: 0 1.34em;
 }
-.dd-button[loading]:before {
+.dd-button--loading:before {
 	content: ' ';
 	display: inline-block;
 	width: 18px;
@@ -328,31 +334,31 @@ async function handleUp() {
 		no-repeat;
 	background-size: 100%;
 }
-.dd-button[loading][type='primary'] {
+.dd-button--loading.dd-button--primary {
 	color: rgba(255, 255, 255, 0.6);
 	background-color: #179b16;
 }
-.dd-button[loading][type='primary'][plain] {
+.dd-button--loading.dd-button--primary.dd-button--plain {
 	color: #1aad19;
 	background-color: transparent;
 }
-.dd-button[loading][type='default'] {
+.dd-button--loading.dd-button--default {
 	color: rgba(0, 0, 0, 0.6);
 	background-color: #dedede;
 }
-.dd-button[loading][type='default'][plain] {
+.dd-button--loading.dd-button--default.dd-button--plain {
 	color: #353535;
 	background-color: transparent;
 }
-.dd-button[loading][type='warn'] {
+.dd-button--loading.dd-button--warn {
 	color: rgba(255, 255, 255, 0.6);
 	background-color: #ce3c39;
 }
-.dd-button[loading][type='warn'][plain] {
+.dd-button--loading.dd-button--warn.dd-button--plain {
 	color: #e64340;
 	background-color: transparent;
 }
-.dd-button[loading][native]:before {
+.dd-button--loading[native]:before {
 	content: none;
 }
 @keyframes dd-button-loading-animate {
@@ -367,34 +373,34 @@ async function handleUp() {
 	color: rgba(0, 0, 0, 0.6);
 	background-color: #dedede;
 }
-.button-hover[plain] {
+.button-hover.dd-button--plain {
 	color: rgba(53, 53, 53, 0.6);
 	border-color: rgba(53, 53, 53, 0.6);
 	background-color: transparent;
 }
-.button-hover[type='primary'] {
+.button-hover.dd-button--primary {
 	color: rgba(255, 255, 255, 0.6);
 	background-color: #179b16;
 }
-.button-hover[type='primary'][plain] {
+.button-hover.dd-button--primary.dd-button--plain {
 	color: rgba(26, 173, 25, 0.6);
 	border-color: rgba(26, 173, 25, 0.6);
 	background-color: transparent;
 }
-.button-hover[type='default'] {
+.button-hover.dd-button--default {
 	color: rgba(0, 0, 0, 0.6);
 	background-color: #dedede;
 }
-.button-hover[type='default'][plain] {
+.button-hover.dd-button--default.dd-button--plain {
 	color: rgba(53, 53, 53, 0.6);
 	border-color: rgba(53, 53, 53, 0.6);
 	background-color: transparent;
 }
-.button-hover[type='warn'] {
+.button-hover.dd-button--warn {
 	color: rgba(255, 255, 255, 0.6);
 	background-color: #ce3c39;
 }
-.button-hover[type='warn'][plain] {
+.button-hover.dd-button--warn.dd-button--plain {
 	color: rgba(230, 67, 64, 0.6);
 	border-color: rgba(230, 67, 64, 0.6);
 	background-color: transparent;

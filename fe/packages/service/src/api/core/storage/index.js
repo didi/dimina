@@ -4,7 +4,7 @@ import { invokeAPI } from '@/api/common'
  * https://developers.weixin.qq.com/miniprogram/dev/api/storage/wx.setStorageSync.html
  */
 export function setStorageSync(...opts) {
-	invokeAPI('setStorageSync', opts)
+	return invokeAPI('setStorageSync', opts)
 }
 
 /**
@@ -27,32 +27,32 @@ export function removeStorageSync(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/storage/wx.clearStorageSync.html
  */
 export function clearStorageSync() {
-	invokeAPI('clearStorageSync')
+	return invokeAPI('clearStorageSync')
 }
 
 /**
  * https://developers.weixin.qq.com/miniprogram/dev/api/storage/wx.setStorage.html
  */
 export function setStorage(opts) {
-	invokeAPI('setStorage', opts)
+	return invokeAPI('setStorage', opts)
 }
 
 /**
  * https://developers.weixin.qq.com/miniprogram/dev/api/storage/wx.getStorage.html
  */
 export function getStorage(opts) {
-	invokeAPI('getStorage', opts)
+	return invokeAPI('getStorage', opts)
 }
 
 /**
  * https://developers.weixin.qq.com/miniprogram/dev/api/storage/wx.removeStorage.html
  */
 export function removeStorage(opts) {
-	invokeAPI('removeStorage', opts)
+	return invokeAPI('removeStorage', opts)
 }
 
 export function clearStorage() {
-	invokeAPI('clearStorage')
+	return invokeAPI('clearStorage')
 }
 
 /**
@@ -66,5 +66,5 @@ export function getStorageInfoSync() {
  * https://developers.weixin.qq.com/miniprogram/dev/api/storage/wx.getStorageInfo.html
  */
 export function getStorageInfo(opts) {
-	invokeAPI('getStorageInfo', opts)
+	return invokeAPI('getStorageInfo', opts)
 }

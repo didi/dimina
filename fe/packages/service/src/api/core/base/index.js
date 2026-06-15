@@ -1,16 +1,13 @@
 import { invokeAPI } from '@/api/common'
+import { fileSystemManagerAPINames } from '@/api/core/file'
+import { updateManagerAPINames } from '@/api/core/base/update/api-names'
 
 /**
- * 文件系统
- * https://developers.weixin.qq.com/miniprogram/dev/framework/ability/file-system.html
- *
  * 环境变量
  * https://developers.weixin.qq.com/miniprogram/dev/api/base/wx.env.html
  */
-export function env() {
-	return {
-		USER_DATA_PATH: 'difile://',
-	}
+export const env = {
+	USER_DATA_PATH: 'difile://usr',
 }
 
 // JS 层内置支持的API列表
@@ -18,11 +15,11 @@ const builtInAPIs = new Set([
 	'nextTick',
 	'getUpdateManager',
 	'UpdateManager',
-	'UpdateManager.applyUpdate',
-	'UpdateManager.onCheckForUpdate',
-	'UpdateManager.onUpdateFailed',
-	'UpdateManager.onUpdateReady',
-	'getPerformance'
+	...updateManagerAPINames.map(name => `UpdateManager.${name}`),
+	'getPerformance',
+	'getFileSystemManager',
+	'FileSystemManager',
+	...fileSystemManagerAPINames.map(name => `FileSystemManager.${name}`),
 ])
 	
 /**

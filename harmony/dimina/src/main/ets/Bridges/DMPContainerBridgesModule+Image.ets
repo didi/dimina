@@ -47,10 +47,10 @@ export class DMPContainerBridgesModuleImage extends DMPContainerBridgesModule {
    * count：9 1次选择的图片个数，默认1，范围：【1-9】
    * */
   chooseImage(data: DMPMap, callback: DMPBridgeCallback) {
-    const sourceType: [string] = data.get('sourceType');
-    const sizeType: [string] = data.get('sizeType');
-    const count: number = data.get('count');
-    if ('album' == sourceType?.[0]) {
+    const sourceType: string[] = data.getArray<string>('sourceType') ?? ['album', 'camera'];
+    const count: number = data.getNumber('count') ?? 9;
+    const source = sourceType[0] ?? 'album';
+    if ('album' == source) {
       let path = DMPContextUtils.getUIAbilityContext().cacheDir + '/chooseImage';
       PhotoPicker.selectPhotos(DMPContextUtils.getUIAbilityContext(), path, count).then((photoModels) => {
         if (photoModels != null) {
@@ -71,7 +71,7 @@ export class DMPContainerBridgesModuleImage extends DMPContainerBridgesModule {
           this.invokeFailureCallback(callback, null, '选择照片失败')
         }
       });
-    } else if ('camera' == sourceType?.[0]) {
+    } else if ('camera' == source) {
       try {
         // 这里是处理文件名 , 应该是系统有bug , 无法使用 saveuri , 需要选择后保存
         let path =DMPContextUtils.getUIAbilityContext().cacheDir + '/chooseImage';

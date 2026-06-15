@@ -9,7 +9,7 @@ import router from '@/core/router'
  */
 export function switchTab(opts) {
 	opts.url = parsePath(router.getPageInfo().route, opts.url)
-	invokeAPI('switchTab', opts)
+	return invokeAPI('switchTab', opts)
 }
 
 /**
@@ -19,7 +19,7 @@ export function switchTab(opts) {
  */
 export function reLaunch(opts) {
 	opts.url = parsePath(router.getPageInfo().route, opts.url)
-	invokeAPI('reLaunch', opts)
+	return invokeAPI('reLaunch', opts)
 }
 
 /**
@@ -33,7 +33,7 @@ export function redirectTo(opts) {
 		return
 	}
 	opts.url = url
-	invokeAPI('redirectTo', opts)
+	return invokeAPI('redirectTo', opts)
 }
 
 /**
@@ -43,7 +43,7 @@ export function redirectTo(opts) {
  */
 export function navigateTo(opts) {
 	opts.url = parsePath(router.getPageInfo().route, opts.url)
-	invokeAPI('navigateTo', opts)
+	return invokeAPI('navigateTo', opts)
 }
 
 /**
@@ -52,5 +52,5 @@ export function navigateTo(opts) {
  * @param {*} opts
  */
 export function navigateBack(opts) {
-	invokeAPI('navigateBack', opts)
+	return invokeAPI('navigateBack', opts)
 }

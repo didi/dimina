@@ -5,7 +5,7 @@ import { invokeAPI } from '@/api/common'
  * https://developers.weixin.qq.com/miniprogram/dev/api/media/image/wx.saveImageToPhotosAlbum.html
  */
 export function saveImageToPhotosAlbum(opts) {
-	invokeAPI('saveImageToPhotosAlbum', opts)
+	return invokeAPI('saveImageToPhotosAlbum', opts)
 }
 
 /**
@@ -13,7 +13,7 @@ export function saveImageToPhotosAlbum(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/media/image/wx.previewImage.html
  */
 export function previewImage(opts) {
-	invokeAPI('previewImage', opts)
+	return invokeAPI('previewImage', opts)
 }
 
 /**
@@ -21,7 +21,7 @@ export function previewImage(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/media/image/wx.compressImage.html
  */
 export function compressImage(opts) {
-	invokeAPI('compressImage', opts)
+	return invokeAPI('compressImage', opts)
 }
 
 /**
@@ -29,5 +29,5 @@ export function compressImage(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/media/image/wx.chooseImage.html
  */
 export function chooseImage(opts) {
-	invokeAPI('chooseImage', opts)
+	return invokeAPI('chooseImage', opts)
 }

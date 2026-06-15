@@ -10,10 +10,23 @@ import { transform } from 'esbuild'
 import * as htmlparser2 from 'htmlparser2'
 import { checkTemplateCompatibility } from '../common/compatibility.js'
 import { collectAssets, getAbsolutePath, tagWhiteList, transformRpx } from '../common/utils.js'
-import { getAppId, getComponent, getContentByPath, getTargetPath, getWorkPath, resetStoreInfo } from '../env.js'
+import { getAppId, getComponent, getContentByPath, getTargetPath, getTemplateExts, getViewScriptExts, getViewScriptTags, getWorkPath, resetStoreInfo } from '../env.js'
 import { parseBindings } from '../common/expression-parser.js'
 
-const fileType = ['.wxml', '.ddml']
+/**
+ * 根据扩展名列表生成匹配尾部扩展名的正则，如 ['.wxs', '.qds'] -> /(\.wxs|\.qds)$/
+ */
+function buildExtStripRegex(exts) {
+	const alt = exts.map(e => e.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')
+	return new RegExp(`(${alt})$`)
+}
+
+/**
+ * 移除视图脚本文件路径末尾的扩展名，支持 .wxs 和自定义扩展名
+ */
+function stripViewScriptExt(p) {
+	return p.replace(buildExtStripRegex(getViewScriptExts()), '')
+}
 
 /**
  * 解析 JavaScript 代码
@@ -308,9 +321,9 @@ function scanWxsFiles(dir, workPath) {
 			if (stat.isDirectory()) {
 				// 递归扫描子目录
 				scanWxsFiles(fullPath, workPath)
-			} else if (stat.isFile() && item.endsWith('.wxs')) {
+			} else if (stat.isFile() && getViewScriptExts().some(ext => item.endsWith(ext))) {
 				// 处理 wxs 文件
-				const relativePath = fullPath.replace(workPath, '').replace(/\.wxs$/, '')
+				const relativePath = stripViewScriptExt(fullPath.replace(workPath, ''))
 				const moduleName = relativePath.replace(/[\/\\@\-]/g, '_').replace(/^_/, '')
 
 				// 建立模块名到文件路径的映射
@@ -651,8 +664,8 @@ function processWxsContent(wxsContent, wxsFilePath, scriptModule, workPath, file
 							const currentWxsDir = path.dirname(wxsFilePath)
 							resolvedWxsPath = path.resolve(currentWxsDir, requirePath)
 
-							// 转换为相对于工作目录的路径，并移除 .wxs 扩展名
-							const relativePath = resolvedWxsPath.replace(workPath, '').replace(/\.wxs$/, '')
+							// 转换为相对于工作目录的路径，并移除视图脚本扩展名
+							const relativePath = stripViewScriptExt(resolvedWxsPath.replace(workPath, ''))
 
 							// 生成唯一的模块名（移除特殊字符）
 							const moduleName = relativePath.replace(/[\/\\@\-]/g, '_').replace(/^_/, '')
@@ -671,7 +684,7 @@ function processWxsContent(wxsContent, wxsFilePath, scriptModule, workPath, file
 							// 对于普通组件，使用原有逻辑
 							const currentWxsDir = path.dirname(wxsFilePath)
 							resolvedWxsPath = path.resolve(currentWxsDir, requirePath)
-							const relativePath = resolvedWxsPath.replace(workPath, '').replace(/\.wxs$/, '')
+							const relativePath = stripViewScriptExt(resolvedWxsPath.replace(workPath, ''))
 							const depModuleName = relativePath.replace(/[\/\\@\-]/g, '_').replace(/^_/, '')
 
 							// 递归处理依赖
@@ -999,7 +1012,7 @@ function toCompileTemplate(isComponent, path, components, componentPlaceholder, 
 		if (src) {
 			const includeFullPath = getAbsolutePath(workPath, path, src)
 			// 计算被包含文件的路径（去掉扩展名），用于 wxs 路径解析
-			let includePath = includeFullPath.replace(workPath, '').replace(/\.(wxml|ddml)$/, '')
+			let includePath = includeFullPath.replace(workPath, '').replace(buildExtStripRegex(getTemplateExts()), '')
 			const includeDiagnosticSource = includeFullPath.startsWith(workPath)
 				? includeFullPath.slice(workPath.length)
 				: includePath
@@ -1038,8 +1051,7 @@ function toCompileTemplate(isComponent, path, components, componentPlaceholder, 
 				processIncludedFileWxsDependencies(includeContent, includePath, scriptModule, components, processedPaths)
 
 				$includeContent('template').remove()
-				$includeContent('wxs').remove()
-				$includeContent('dds').remove()
+				$includeContent(getViewScriptTags().join(',')).remove()
 
 				// 处理条件属性并替换
 				const processedContent = processIncludeConditionalAttrs($, elem, $includeContent.html())
@@ -1069,7 +1081,7 @@ function toCompileTemplate(isComponent, path, components, componentPlaceholder, 
 		const src = $(elem).attr('src')
 		if (src) {
 			const importFullPath = getAbsolutePath(workPath, path, src)
-			let importPath = importFullPath.replace(workPath, '').replace(/\.(wxml|ddml)$/, '')
+			let importPath = importFullPath.replace(workPath, '').replace(buildExtStripRegex(getTemplateExts()), '')
 			const importDiagnosticSource = importFullPath.startsWith(workPath)
 				? importFullPath.slice(workPath.length)
 				: importPath
@@ -1133,8 +1145,7 @@ function transTagTemplate($, templateModule, path, components, componentPlacehol
 		// 转化模板内代码
 		templateContent.find('import').remove()
 		templateContent.find('include').remove()
-		templateContent.find('wxs').remove()
-		templateContent.find('dds').remove()
+		templateContent.find(getViewScriptTags().join(',')).remove()
 		transAsses($, templateContent.find('image'), path)
 		const res = []
 		transHtmlTag(templateContent.html(), res, components, componentPlaceholder)
@@ -1579,7 +1590,7 @@ function parseKeyExpression(exp, itemName = 'item', indexName = 'index') {
  */
 function getViewPath(workPath, src) {
 	const aSrc = src.startsWith('/') ? src : `/${src}`
-	for (const mlType of fileType) {
+	for (const mlType of getTemplateExts()) {
 		const mlFullPath = `${workPath}${aSrc}${mlType}`
 		if (fs.existsSync(mlFullPath)) {
 			return mlFullPath
@@ -1755,10 +1766,8 @@ function parseTemplateDataExp(exp) {
 }
 
 function transTagWxs($, scriptModule, filePath) {
-	let wxsNodes = $('wxs')
-	if (wxsNodes.length === 0) {
-		wxsNodes = $('dds')
-	}
+	// 同时处理所有视图脚本标签（wxs、dds 及自定义标签），避免同一文件混用多种标签时漏编译。
+	const wxsNodes = $(getViewScriptTags().join(','))
 
 	wxsNodes.each((_, elem) => {
 		const smName = $(elem).attr('module')
@@ -1792,7 +1801,7 @@ function transTagWxs($, scriptModule, filePath) {
 
 				if (wxsFilePath) {
 					// 为外部 wxs 文件生成唯一的模块名和缓存键
-					const relativePath = wxsFilePath.replace(workPath, '').replace(/\.wxs$/, '')
+					const relativePath = stripViewScriptExt(wxsFilePath.replace(workPath, ''))
 					uniqueModuleName = relativePath.replace(/[\/\\@\-]/g, '_').replace(/^_/, '')
 					cacheKey = wxsFilePath // 使用文件路径作为缓存键确保唯一性
 				}
@@ -1901,16 +1910,12 @@ function collectAllWxsModules(scriptRes, collectedPaths = new Set(), scriptModul
  * @returns {Object|null} 加载的模块对象或 null
  */
 function loadWxsModule(modulePath, workPath, scriptModule) {
-	// 如果模块路径不是 wxs 模块特征，直接返回 null
-	if (!modulePath.startsWith('miniprogram_npm__') || !modulePath.includes('_wxs_')) {
-		return null
-	}
-
-	// 从预先建立的路径映射中查找文件路径
+	// wxsFilePathMap 记录 miniprogram_npm 下使用任意已配置扩展名的视图脚本文件，
+	// 用于判断并定位模块。不能依赖 '_wxs_' 路径片段，否则会漏掉自定义扩展名
+	// （如 .qds），以及路径中不含 wxs 目录的 .wxs 文件。
 	const wxsFilePath = wxsFilePathMap.get(modulePath)
 
 	if (!wxsFilePath) {
-		console.warn(`[view] 无法找到 wxs 模块文件: ${modulePath}`)
 		return null
 	}
 
@@ -2030,6 +2035,8 @@ export {
 	compileML,
 	generateVModelTemplate,
 	generateSlotDirective,
+	initWxsFilePathMap,
+	loadWxsModule,
 	parseBraceExp,
 	parseClassRules,
 	parseKeyExpression,

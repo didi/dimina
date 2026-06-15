@@ -17,7 +17,9 @@ export class DMPTSUtil {
     if (!params) {
       params = new Object();
     }
-    if (webViewId > 0) {
+    if (originMethod.startsWith('FileSystemManager.') && obj.dispatchFileSystemManager) {
+      result = obj.dispatchFileSystemManager.call(obj, originMethod, params, callback)
+    } else if (webViewId > 0) {
       result = obj[originMethod].call(obj, params, callback, webViewId)
     } else {
       result = obj[originMethod].call(obj, params, callback)

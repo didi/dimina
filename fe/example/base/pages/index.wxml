@@ -68,6 +68,9 @@
   <navigator class="intro" url="api/index">
     <view class="weui-cell__bd">API调用</view>
   </navigator>
+  <navigator class="intro" url="file-system/index">
+    <view class="weui-cell__bd">文件系统</view>
+  </navigator>
   <navigator class="intro" url="intersection-observer/index">
     <view class="weui-cell__bd">元素交叉观察</view>
   </navigator>

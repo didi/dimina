@@ -19,8 +19,17 @@ object PathUtils {
     }
 
     fun pathToReal(context: Context, path: String): String {
+        return pathToReal(context, path, "")
+    }
+
+    fun pathToReal(context: Context, path: String, appId: String): String {
         return if (isLegalPath(path)) {
-            File(context.cacheDir, path.substring(VIRTUAL_DOMAIN_URL.length)).absolutePath
+            val relative = path.substring(VIRTUAL_DOMAIN_URL.length).trimStart('/')
+            if (appId.isNotEmpty() && relative.startsWith("usr/")) {
+                File(context.filesDir, "dimina-file-system/$appId/$relative").absolutePath
+            } else {
+                File(context.cacheDir, relative).absolutePath
+            }
         } else {
             path
         }

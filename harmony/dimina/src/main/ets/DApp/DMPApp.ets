@@ -401,8 +401,14 @@ export class DMPApp {
     // Inject custom API namespaces before loading service.js
     const namespaces = DMPApp._apiNamespaces
     if (namespaces.length > 0) {
-      const json = namespaces.map((n: string) => `"${n}"`).join(",")
-      this._service.executeScript(`globalThis.__diminaApiNamespaces = [${json}]`)
+      const json = JSON.stringify(namespaces)
+      this._service.executeScript(`globalThis.__diminaApiNamespaces = ${json}`)
+    }
+    // 注入已注册的 API 名字，使 service 层的 wx 对象能枚举到它们
+    const registeredApis = this._appModuleManager.getAllRegisteredApiNames()
+    if (registeredApis.length > 0) {
+      const apisJson = JSON.stringify(registeredApis)
+      this._service.executeScript(`globalThis.__diminaRegisteredApis = ${apisJson}`)
     }
     const serviceJsPath = await this._bundleManager.requestServiceJsUri();
     await this._service.loadFileUri(serviceJsPath);

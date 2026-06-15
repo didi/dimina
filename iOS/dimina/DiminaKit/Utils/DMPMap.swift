@@ -50,11 +50,26 @@ public class DMPMap: NSObject, NSCopying {
     }
     
     func getInt(key: String) -> Int? {
-        return dictionary[key] as? Int
+        if let value = dictionary[key] as? Int {
+            return value
+        }
+        if let value = dictionary[key] as? NSNumber {
+            return value.intValue
+        }
+        if let value = dictionary[key] as? String {
+            return Int(value)
+        }
+        return nil
     }
     
     func getBool(key: String) -> Bool? {
-        return dictionary[key] as? Bool
+        if let value = dictionary[key] as? Bool {
+            return value
+        }
+        if let value = dictionary[key] as? NSNumber {
+            return value.boolValue
+        }
+        return nil
     }
     
     func getDMPMap(key: String) -> DMPMap? {

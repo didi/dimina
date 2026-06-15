@@ -5,9 +5,9 @@ import { invokeAPI } from '@/api/common'
  * https://developers.weixin.qq.com/miniprogram/dev/api/data-analysis/wx.reportAnalytics.html
  */
 export function reportAnalytics(...opts) {
-	invokeAPI('reportAnalytics', opts)
+	return invokeAPI('reportAnalytics', opts)
 }
 
 export function reportEvent(eventId, data) {
-	invokeAPI('reportAnalytics', { eventId, data })
+	return invokeAPI('reportAnalytics', { eventId, data })
 }

@@ -39,7 +39,7 @@ export function canvasToTempFilePath(opts = {}, component) {
 		moduleId: opts.moduleId || resolveModuleId(component || opts.component),
 	}
 	delete params.component
-	invokeAPI('canvasToTempFilePath', params, 'render')
+	return invokeAPI('canvasToTempFilePath', params, 'render')
 }
 
 function resolveModuleId(component) {

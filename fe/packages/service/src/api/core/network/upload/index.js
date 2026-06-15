@@ -5,5 +5,5 @@ import { invokeAPI } from '@/api/common'
  *https://developers.weixin.qq.com/miniprogram/dev/api/network/upload/wx.uploadFile.html
  */
 export function uploadFile(opts) {
-	invokeAPI('uploadFile', opts)
+	return invokeAPI('uploadFile', opts)
 }

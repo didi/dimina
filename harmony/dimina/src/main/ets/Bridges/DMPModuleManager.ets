@@ -9,6 +9,14 @@ import { DMPMap } from '../Utils/DMPMap';
 export abstract class DMPModuleManager {
   abstract exportModules: Map<string, DMPExportModule>
 
+  /** 累积已注册的 API 方法名，供 service 层 wx Proxy 枚举使用 */
+  registeredApiNames: string[] = []
+
+  /** 返回所有已注册的 API 方法名（已去重） */
+  getAllRegisteredApiNames(): string[] {
+    return Array.from(new Set(this.registeredApiNames))
+  }
+
   registerModule(moduleObject: DMPContainerBridgesModule) {
     this.registerModuleByName(moduleObject, 'DMPContainerBridgesModule')
   }
@@ -80,6 +88,7 @@ export abstract class DMPModuleManager {
       const exportMethods = module.exportMethods
       methodList.forEach((methodName) => {
         exportMethods[methodName] = moduleObject
+        this.registeredApiNames.push(methodName)
       })
     }
   }

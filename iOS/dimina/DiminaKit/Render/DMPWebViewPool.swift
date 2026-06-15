@@ -33,10 +33,6 @@ public class DMPWebViewPool {
     // MARK: - Initialization
     private init() {
         setupNotifications()
-        // Pre-warm during initialization - on main thread
-        Task { @MainActor in
-            await preloadWebViews()
-        }
     }
     
     deinit {
@@ -94,7 +90,7 @@ public class DMPWebViewPool {
         
         let webview: DMPWebview
         
-        if let availableWebView = findAvailableWebView() {
+        if let availableWebView = findAvailableWebView(appId: appId) {
             // Reuse existing WebView
             webview = availableWebView
             
@@ -128,7 +124,7 @@ public class DMPWebViewPool {
         
         // Asynchronous preload more WebViews - on main thread
         Task { @MainActor in
-            await preloadWebViewsIfNeeded()
+            await preloadWebViewsIfNeeded(appId: appId)
         }
         
         return webview
@@ -185,9 +181,9 @@ public class DMPWebViewPool {
     }
     
     /// Warm up WebView pool
-    public func warmUp() {
+    public func warmUp(appId: String = "") {
         Task { @MainActor in
-            await preloadWebViews()
+            await preloadWebViews(appId: appId)
         }
     }
     
@@ -282,8 +278,13 @@ public class DMPWebViewPool {
     // MARK: - Private Methods
     
     /// Preload WebViews
-    private func preloadWebViews() async {
-        let currentCount = webViews.count
+    private func preloadWebViews(appId: String) async {
+        guard !appId.isEmpty else {
+            print("🔧 WebViewPool: Skip preload without appId")
+            return
+        }
+
+        let currentCount = webViews.filter { $0.appId == appId }.count
         let neededCount = max(0, minPoolSize - currentCount) // Ensure not negative
         
         print("🔧 WebViewPool: Current pool has \(currentCount) WebViews, need to preload \(neededCount)")
@@ -301,7 +302,7 @@ public class DMPWebViewPool {
                 break
             }
             
-            let webview = createNewWebView(delegate: nil, appName: "", appId: "")
+            let webview = createNewWebView(delegate: nil, appName: "", appId: appId)
             webview.poolState = .available  // Preloaded WebViews should be available state
             webViews.append(webview)
             print("🔧 WebViewPool: Preload WebView \(i+1)/\(neededCount) (ID: \(webview.getWebViewId())), state: \(webview.poolState.description)")
@@ -311,13 +312,17 @@ public class DMPWebViewPool {
     }
     
     /// Preload more WebViews as needed
-    private func preloadWebViewsIfNeeded() async {
+    private func preloadWebViewsIfNeeded(appId: String) async {
+        guard !appId.isEmpty else {
+            return
+        }
+
         let currentCount = webViews.count
-        let availableCount = webViews.filter { $0.poolState.canReuse }.count
+        let availableCount = webViews.filter { $0.poolState.canReuse && $0.appId == appId }.count
         
         // Only preload when available WebViews are less than minimum and total count is less than max
         if availableCount < minPoolSize && currentCount < maxPoolSize {
-            let webview = createNewWebView(delegate: nil, appName: "", appId: "")
+            let webview = createNewWebView(delegate: nil, appName: "", appId: appId)
             webview.poolState = .available  // Preloaded WebViews should be available state
             webViews.append(webview)
             print("🔧 WebViewPool: Preload WebView as needed (ID: \(webview.getWebViewId())), state: \(webview.poolState.description), current pool has \(webViews.count) WebViews")
@@ -340,9 +345,14 @@ public class DMPWebViewPool {
     }
     
     /// Find available WebView
-    private func findAvailableWebView() -> DMPWebview? {
+    private func findAvailableWebView(appId: String) -> DMPWebview? {
         // Select from WebViews in reusable state
         for webview in webViews where webview.poolState.canReuse {
+            if webview.appId != appId {
+                print("🟡 WebViewPool: WebView (ID: \(webview.getWebViewId())) appId mismatch, skipping")
+                continue
+            }
+
             // Check if WebView is in a state suitable for reuse
             if webview.getWebView().isLoading {
                 print("🟡 WebViewPool: WebView (ID: \(webview.getWebViewId())) is still loading, skipping")
@@ -494,6 +504,7 @@ extension DMPWebview {
         
         // Update application information
         self.appName = appName
+        self.appId = appId
         
         if self.logger == nil {
             // Re-initialize logger (only when no logger exists)

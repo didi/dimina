@@ -10,6 +10,9 @@ set(NATIVERENDER_ROOT_PATH ${CMAKE_CURRENT_SOURCE_DIR})
 # Include FetchContent for downloading dependencies
 include(FetchContent)
 
+option(DIMINA_UPDATE_QUICKJS_ON_BUILD "Update QuickJS from origin/master before each native build" ON)
+option(DIMINA_UPDATE_BROTLI_ON_BUILD "Update Brotli from origin/master before each native build" ON)
+
 # Download QuickJS from GitHub
 FetchContent_Declare(
     quickjs
@@ -19,27 +22,53 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(quickjs)
 
-# Handle the version file to prevent compilation errors
-set(VERSION_FILE "${quickjs_SOURCE_DIR}/version")
-set(VERSION_H_FILE "${quickjs_SOURCE_DIR}/version.h")
-set(VERSION_TXT_FILE "${quickjs_SOURCE_DIR}/version.txt")
+# Brotli decoder used by FileSystemManager.readCompressedFile({ compressionAlgorithm: "br" }).
+FetchContent_Declare(
+    brotli
+    GIT_REPOSITORY https://github.com/google/brotli.git
+    GIT_TAG master
+    GIT_SHALLOW TRUE
+)
+FetchContent_GetProperties(brotli)
+if(NOT brotli_POPULATED)
+    FetchContent_Populate(brotli)
+endif()
 
-# 只在首次配置时处理 version 文件
-if(EXISTS "${VERSION_FILE}" AND NOT EXISTS "${VERSION_H_FILE}")
-    # Read the version content
+file(GLOB BROTLI_COMMON_SOURCES
+    ${brotli_SOURCE_DIR}/c/common/*.c
+)
+file(GLOB BROTLI_DEC_SOURCES
+    ${brotli_SOURCE_DIR}/c/dec/*.c
+)
+add_library(brotlicommon STATIC ${BROTLI_COMMON_SOURCES})
+add_library(brotlidec STATIC ${BROTLI_DEC_SOURCES})
+target_include_directories(brotlicommon PUBLIC ${brotli_SOURCE_DIR}/c/include)
+target_include_directories(brotlidec PUBLIC ${brotli_SOURCE_DIR}/c/include)
+target_link_libraries(brotlidec PUBLIC brotlicommon)
+
+if(DIMINA_UPDATE_BROTLI_ON_BUILD)
+    find_package(Git REQUIRED)
+    add_custom_target(update_brotli_latest
+        COMMAND ${GIT_EXECUTABLE} fetch --depth=1 origin master
+        COMMAND ${GIT_EXECUTABLE} reset --hard FETCH_HEAD
+        WORKING_DIRECTORY ${brotli_SOURCE_DIR}
+        COMMENT "Updating Brotli to latest origin/master"
+    )
+    add_dependencies(brotlicommon update_brotli_latest)
+endif()
+
+# Handle the VERSION file to prevent conflicts with C++ standard <version> header
+# on case-insensitive filesystems (macOS). QuickJS ships a plain-text VERSION file
+# which shadows the C++17/20 <version> header when quickjs_SOURCE_DIR is in the
+# include path, causing "expected unqualified-id" errors in C++ compilations.
+set(VERSION_FILE "${quickjs_SOURCE_DIR}/VERSION")
+set(VERSION_H_FILE "${quickjs_SOURCE_DIR}/version.h")
+
+if(EXISTS "${VERSION_FILE}")
     file(READ "${VERSION_FILE}" QJS_VERSION)
     string(STRIP "${QJS_VERSION}" QJS_VERSION)
-    
-    # Create a version.h file
     file(WRITE "${VERSION_H_FILE}" "#define QJS_VERSION \"${QJS_VERSION}\"\n")
-    
-    # Rename the original version file to prevent it from being compiled
-    file(RENAME "${VERSION_FILE}" "${VERSION_TXT_FILE}")
-elseif(NOT EXISTS "${VERSION_FILE}" AND NOT EXISTS "${VERSION_H_FILE}" AND EXISTS "${VERSION_TXT_FILE}")
-    # 如果 version.txt 已存在,从它创建 version.h
-    file(READ "${VERSION_TXT_FILE}" QJS_VERSION)
-    string(STRIP "${QJS_VERSION}" QJS_VERSION)
-    file(WRITE "${VERSION_H_FILE}" "#define QJS_VERSION \"${QJS_VERSION}\"\n")
+    file(REMOVE "${VERSION_FILE}")
 endif()
 
 # Set build type to Release for optimization
@@ -81,8 +110,23 @@ set(QUICKJS_SOURCES
 # Add shared library target
 add_library(dimina SHARED ${sources} ${QUICKJS_SOURCES})
 
+if(DIMINA_UPDATE_QUICKJS_ON_BUILD)
+    find_package(Git REQUIRED)
+    add_custom_target(update_quickjs_latest
+        COMMAND ${GIT_EXECUTABLE} fetch --depth=1 origin master
+        COMMAND ${GIT_EXECUTABLE} reset --hard FETCH_HEAD
+        # Remove the VERSION file to prevent conflicts with the C++ standard <version> header
+        # on case-insensitive filesystems (macOS). The version value is already in version.h.
+        COMMAND ${CMAKE_COMMAND} -E rm -f "${quickjs_SOURCE_DIR}/VERSION"
+        WORKING_DIRECTORY ${quickjs_SOURCE_DIR}
+        COMMENT "Updating QuickJS to latest origin/master"
+    )
+    add_dependencies(dimina update_quickjs_latest)
+endif()
+
 # Link necessary libraries
 target_link_libraries(dimina PUBLIC libace_napi.z.so libhilog_ndk.z.so libuv.so)
+target_link_libraries(dimina PUBLIC brotlidec brotlicommon)
 
 # Additional target properties for Release mode
 if(CMAKE_BUILD_TYPE STREQUAL "Release")

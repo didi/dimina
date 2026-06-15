@@ -42,7 +42,7 @@ class ImageApi : BaseApiHandler() {
             SAVE_IMAGE_TO_PHOTOS_ALBUM -> {
                 val filePath = params.optString("filePath")
                 if (PathUtils.isLegalPath(filePath)) {
-                    Utils.saveImageToGallery(activity, PathUtils.pathToReal(activity, filePath))
+                    Utils.saveImageToGallery(activity, PathUtils.pathToReal(activity, filePath, appId))
                     AsyncResult(JSONObject().apply {
                         put("errMsg", "$SAVE_IMAGE_TO_PHOTOS_ALBUM:ok")
                     })
@@ -77,7 +77,7 @@ class ImageApi : BaseApiHandler() {
                 val src = params.optString("src")
                 if (PathUtils.isLegalPath(src)) {
                     val quality = params.optInt("quality", 80)
-                    val bitmap = BitmapFactory.decodeFile(PathUtils.pathToReal(activity, src))
+                    val bitmap = BitmapFactory.decodeFile(PathUtils.pathToReal(activity, src, appId))
                     val compressedFile = File.createTempFile(
                         "IMG_${System.currentTimeMillis()}",
                         ".jpg",
@@ -132,10 +132,11 @@ class ImageApi : BaseApiHandler() {
                     val tempFiles = JSONArray()
 
                     imagePaths.take(count).forEach { path ->
+                        val file = File(PathUtils.pathToReal(activity, path, appId))
                         tempFilePaths.put(path)
                         tempFiles.put(JSONObject().apply {
                             put("path", path)
-                            put("size", File(path).length())
+                            put("size", file.length())
                         })
                     }
                     val result = JSONObject().apply {

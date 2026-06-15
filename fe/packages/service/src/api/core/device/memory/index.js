@@ -6,7 +6,7 @@ import { invokeAPI } from '@/api/common'
  * https://developers.weixin.qq.com/miniprogram/dev/api/device/memory/wx.onMemoryWarning.html
  */
 export function onMemoryWarning(opts) {
-	invokeAPI('onMemoryWarning', opts)
+	return invokeAPI('onMemoryWarning', opts)
 }
 
 /**
@@ -14,5 +14,5 @@ export function onMemoryWarning(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/device/memory/wx.offMemoryWarning.html
  */
 export function offMemoryWarning(opts) {
-	invokeAPI('offMemoryWarning', opts)
+	return invokeAPI('offMemoryWarning', opts)
 }

@@ -131,6 +131,9 @@ export class MiniApp {
 		this.currentTabPath = null          // 当前激活的 tab 路径；null 表示当前不在任何 tab 页
 		this.tabBarEl = null                // .dimina-mini-app__tabbar 根节点
 		this.tabBarHeight = 0               // TabBar 实际高度，用于给 tab 页 webview 单独预留底部空间
+		this.tabBarBadges = []              // 每个 tab item 的 badge 文本
+		this.tabBarRedDots = []             // 每个 tab item 的红点显示状态
+		this.tabBarApiVisible = true        // wx.showTabBar/hideTabBar 控制的显隐开关
 		// showModal 用 LIFO stack：后来的 modal 压在前一个之上（z-index 递增），
 		// 关闭顶上 modal 露出下方；前后 modal 互不干扰，各自 success/complete 独立。
 		this._modalStack = []
@@ -555,6 +558,14 @@ export class MiniApp {
 					},
 				})
 			}
+		}
+	}
+
+	_createApiCallbacks({ success, fail, complete } = {}) {
+		return {
+			onSuccess: this.createCallbackFunction(success),
+			onFail: this.createCallbackFunction(fail),
+			onComplete: this.createCallbackFunction(complete),
 		}
 	}
 
@@ -983,6 +994,9 @@ export class MiniApp {
 		}
 		this.tabBarConfig = tabBar
 		this.tabBarPaths = tabBar.list.map(item => this._normalizePagePath(item.pagePath))
+		this.tabBarBadges = tabBar.list.map(() => '')
+		this.tabBarRedDots = tabBar.list.map(() => false)
+		this.tabBarApiVisible = true
 		this._renderTabBar()
 	}
 
@@ -996,14 +1010,13 @@ export class MiniApp {
 		const { color, backgroundColor, borderStyle, list } = this.tabBarConfig
 		const normalColor = this._sanitizeCssColor(color) || '#999999'
 		const bg = this._sanitizeCssColor(backgroundColor) || '#ffffff'
-		const borderColor = borderStyle === 'white' ? '#FFFFFF' : '#E0E0E0'
 
 		// 用 DOM API 构建，避免 innerHTML 拼接被配置中的引号 / HTML 片段污染宿主 DOM
 		this.tabBarEl.textContent = ''
 		const tabbar = document.createElement('div')
 		tabbar.className = 'dimina-tabbar'
-		tabbar.style.backgroundColor = bg
-		tabbar.style.borderTop = `0.5px solid ${borderColor}`
+		tabbar.style.backgroundColor = bg;
+		tabbar.style.borderTopColor = this._getTabBarBorderColor(borderStyle)
 
 		list.forEach((item, index) => {
 			const path = this._normalizePagePath(item.pagePath)
@@ -1027,6 +1040,16 @@ export class MiniApp {
 			text.style.color = normalColor
 			text.textContent = item.text || ''
 			itemEl.appendChild(text)
+
+			const badge = document.createElement('span')
+			badge.className = 'dimina-tabbar-badge'
+			badge.hidden = true
+			itemEl.appendChild(badge)
+
+			const redDot = document.createElement('span')
+			redDot.className = 'dimina-tabbar-red-dot'
+			redDot.hidden = true
+			itemEl.appendChild(redDot)
 
 			tabbar.appendChild(itemEl)
 		})
@@ -1084,6 +1107,10 @@ export class MiniApp {
 			return ''
 		}
 		return v
+	}
+
+	_getTabBarBorderColor(borderStyle) {
+		return borderStyle === 'white' ? '#ffffff' : '#e0e0e0'
 	}
 
 	/**
@@ -1182,7 +1209,11 @@ export class MiniApp {
 	 */
 	_setTabBarVisible(visible) {
 		if (!this.tabBarEl) return
-		this.tabBarEl.style.display = visible ? 'block' : 'none'
+		const topBridge = this.bridgeList[this.bridgeList.length - 1]
+		const topPath = this._normalizePagePath(topBridge?.opts?.pagePath)
+		const isTopTabPage = !!topPath && topPath === this.currentTabPath && this._isTabBarPage(topPath)
+		const shouldDisplay = visible && this.tabBarApiVisible && isTopTabPage
+		this.tabBarEl.style.display = shouldDisplay ? 'block' : 'none'
 		// display 切换通常不会触发 ResizeObserver，主动同步一次
 		this._syncTabBarHeightVar()
 	}
@@ -1207,6 +1238,48 @@ export class MiniApp {
 			if (selectedIcon) selectedIcon.style.display = isSelected ? 'block' : 'none'
 			item.classList.toggle('dimina-tabbar-item--selected', isSelected)
 		})
+	}
+
+	_getTabBarItemEl(index) {
+		return this.tabBarEl?.querySelector(`.dimina-tabbar-item[data-index="${index}"]`) || null
+	}
+
+	_validateTabBarIndex(apiName, index, onFail, onComplete) {
+		const listLength = this.tabBarConfig?.list?.length || 0
+		if (!listLength || !this.tabBarEl) {
+			onFail?.({ errMsg: `${apiName}:fail tabBar not configured` })
+			onComplete?.()
+			return false
+		}
+		const normalizedIndex = Number(index)
+		if (index === undefined || index === null || !Number.isInteger(normalizedIndex) || normalizedIndex < 0 || normalizedIndex >= listLength) {
+			onFail?.({ errMsg: `${apiName}:fail invalid index ${index}` })
+			onComplete?.()
+			return false
+		}
+		return true
+	}
+
+	_replaceTabBarItemIcons(itemEl, item) {
+		const textEl = itemEl.querySelector('.dimina-tabbar-text')
+		itemEl.querySelectorAll('.dimina-tabbar-icon-default, .dimina-tabbar-icon-selected')
+			.forEach(icon => icon.remove())
+
+		const defaultIconUrl = this._resolveTabBarIcon(item.iconPath)
+		if (defaultIconUrl) {
+			itemEl.insertBefore(
+				this._createTabBarIcon(defaultIconUrl, 'dimina-tabbar-icon-default'),
+				textEl,
+			)
+		}
+
+		const selectedIconUrl = this._resolveTabBarIcon(item.selectedIconPath)
+		if (selectedIconUrl) {
+			itemEl.insertBefore(
+				this._createTabBarIcon(selectedIconUrl, 'dimina-tabbar-icon-selected'),
+				textEl,
+			)
+		}
 	}
 
 	/**
@@ -1252,17 +1325,142 @@ export class MiniApp {
 		// 2. 更新已渲染的 tabbar DOM（背景 / 边框）
 		const tabbar = this.tabBarEl.querySelector('.dimina-tabbar')
 		if (tabbar) {
-			if (safeBg) tabbar.style.backgroundColor = safeBg
-			if (validBorderStyle) {
-				const borderColor = validBorderStyle === 'white' ? '#FFFFFF' : '#E0E0E0'
-				tabbar.style.borderTop = `0.5px solid ${borderColor}`
-			}
+			if (safeBg) tabbar.style.backgroundColor = safeBg;
+			if (validBorderStyle) tabbar.style.borderTopColor = this._getTabBarBorderColor(validBorderStyle)
 		}
 
 		// 3. 文字颜色按当前选中态重新刷一遍（同时处理 color 和 selectedColor）
 		this._updateTabBarSelection(this.currentTabPath)
 
 		onSuccess?.({ errMsg: 'setTabBarStyle:ok' })
+		onComplete?.()
+	}
+
+	setTabBarItem(opts = {}) {
+		const { index, text, iconPath, selectedIconPath } = opts
+		const { onSuccess, onFail, onComplete } = this._createApiCallbacks(opts)
+		if (!this._validateTabBarIndex('setTabBarItem', index, onFail, onComplete)) {
+			return
+		}
+
+		const tabIndex = Number(index)
+		const oldItem = this.tabBarConfig.list[tabIndex]
+		const newItem = {
+			...oldItem,
+			text: text !== undefined ? text : oldItem.text,
+			iconPath: iconPath !== undefined ? iconPath : oldItem.iconPath,
+			selectedIconPath: selectedIconPath !== undefined ? selectedIconPath : oldItem.selectedIconPath,
+		}
+		this.tabBarConfig.list[tabIndex] = newItem
+
+		const itemEl = this._getTabBarItemEl(tabIndex)
+		if (itemEl) {
+			const textEl = itemEl.querySelector('.dimina-tabbar-text')
+			if (textEl) textEl.textContent = newItem.text || ''
+			if (iconPath !== undefined || selectedIconPath !== undefined) {
+				this._replaceTabBarItemIcons(itemEl, newItem)
+			}
+			this._updateTabBarSelection(this.currentTabPath)
+		}
+
+		onSuccess?.({ errMsg: 'setTabBarItem:ok' })
+		onComplete?.()
+	}
+
+	showTabBar(opts = {}) {
+		const { onSuccess, onComplete } = this._createApiCallbacks(opts)
+		this.tabBarApiVisible = true
+		this._setTabBarVisible(true)
+		onSuccess?.({ errMsg: 'showTabBar:ok' })
+		onComplete?.()
+	}
+
+	hideTabBar(opts = {}) {
+		const { onSuccess, onComplete } = this._createApiCallbacks(opts)
+		this.tabBarApiVisible = false
+		this._setTabBarVisible(false)
+		onSuccess?.({ errMsg: 'hideTabBar:ok' })
+		onComplete?.()
+	}
+
+	setTabBarBadge(opts = {}) {
+		const { index, text = '' } = opts
+		const { onSuccess, onFail, onComplete } = this._createApiCallbacks(opts)
+		if (!this._validateTabBarIndex('setTabBarBadge', index, onFail, onComplete)) {
+			return
+		}
+
+		const tabIndex = Number(index)
+		this.tabBarBadges[tabIndex] = String(text)
+		this.tabBarRedDots[tabIndex] = false
+		const itemEl = this._getTabBarItemEl(tabIndex)
+		const badgeEl = itemEl?.querySelector('.dimina-tabbar-badge')
+		const redDotEl = itemEl?.querySelector('.dimina-tabbar-red-dot')
+		if (badgeEl) {
+			badgeEl.textContent = this.tabBarBadges[tabIndex]
+			badgeEl.hidden = this.tabBarBadges[tabIndex].length === 0
+		}
+		if (redDotEl) redDotEl.hidden = true
+
+		onSuccess?.({ errMsg: 'setTabBarBadge:ok' })
+		onComplete?.()
+	}
+
+	removeTabBarBadge(opts = {}) {
+		const { index } = opts
+		const { onSuccess, onFail, onComplete } = this._createApiCallbacks(opts)
+		if (!this._validateTabBarIndex('removeTabBarBadge', index, onFail, onComplete)) {
+			return
+		}
+
+		const tabIndex = Number(index)
+		this.tabBarBadges[tabIndex] = ''
+		const badgeEl = this._getTabBarItemEl(tabIndex)?.querySelector('.dimina-tabbar-badge')
+		if (badgeEl) {
+			badgeEl.textContent = ''
+			badgeEl.hidden = true
+		}
+
+		onSuccess?.({ errMsg: 'removeTabBarBadge:ok' })
+		onComplete?.()
+	}
+
+	showTabBarRedDot(opts = {}) {
+		const { index } = opts
+		const { onSuccess, onFail, onComplete } = this._createApiCallbacks(opts)
+		if (!this._validateTabBarIndex('showTabBarRedDot', index, onFail, onComplete)) {
+			return
+		}
+
+		const tabIndex = Number(index)
+		this.tabBarRedDots[tabIndex] = true
+		this.tabBarBadges[tabIndex] = ''
+		const itemEl = this._getTabBarItemEl(tabIndex)
+		const badgeEl = itemEl?.querySelector('.dimina-tabbar-badge')
+		const redDotEl = itemEl?.querySelector('.dimina-tabbar-red-dot')
+		if (badgeEl) {
+			badgeEl.textContent = ''
+			badgeEl.hidden = true
+		}
+		if (redDotEl) redDotEl.hidden = false
+
+		onSuccess?.({ errMsg: 'showTabBarRedDot:ok' })
+		onComplete?.()
+	}
+
+	hideTabBarRedDot(opts = {}) {
+		const { index } = opts
+		const { onSuccess, onFail, onComplete } = this._createApiCallbacks(opts)
+		if (!this._validateTabBarIndex('hideTabBarRedDot', index, onFail, onComplete)) {
+			return
+		}
+
+		const tabIndex = Number(index)
+		this.tabBarRedDots[tabIndex] = false
+		const redDotEl = this._getTabBarItemEl(tabIndex)?.querySelector('.dimina-tabbar-red-dot')
+		if (redDotEl) redDotEl.hidden = true
+
+		onSuccess?.({ errMsg: 'hideTabBarRedDot:ok' })
 		onComplete?.()
 	}
 
@@ -1358,25 +1556,25 @@ export class MiniApp {
 		const onComplete = this.createCallbackFunction(complete)
 
 		onSuccess?.({
-			statusBarHeight: bar.height,
-			brand: 'devtools',
-			mode: 'default',
-			model: 'web',
-			platform: 'devtools',
-			system: 'web',
-			deviceOrientation: 'portrait',
-			SDKVersion: '3.0.0',
-			language: 'zh_CN',
-			wifiEnabled: true,
-			safeArea: {
-				width: wb.width,
-				height: wb.height,
-				top: wb.top,
-				bottom: wb.bottom,
-				left: wb.left,
-				right: wb.right,
-			},
-		})
+            statusBarHeight: bar.height,
+            brand: "devtools",
+            mode: "default",
+            model: "web",
+            platform: "devtools",
+            system: "web",
+            deviceOrientation: "portrait",
+            SDKVersion: "3.0.0",
+            language: "zh_CN",
+            wifiEnabled: true,
+            safeArea: {
+                width: wb.width,
+                height: wb.height,
+                top: wb.top,
+                bottom: wb.bottom,
+                left: wb.left,
+                right: wb.right,
+            },
+        });
 		onComplete?.()
 	}
 
@@ -1416,26 +1614,33 @@ export class MiniApp {
 		const statusBarHeight = statusBar?.getBoundingClientRect().height || 20
 
 		return {
-			brand: 'devtools',
-			model: 'web',
-			platform: 'devtools',
-			system: 'web',
-			SDKVersion: '3.0.0', // vant组件库 判断  canIUseModel version 需要大于 2.9.3
-			pixelRatio: globalThis.devicePixelRatio || 1,
-			screenWidth: width,
-			screenHeight: height,
-			windowWidth: width,
-			windowHeight: height,
-			statusBarHeight,
-			safeArea: {
-				left: 0,
-				right: width,
-				top: statusBarHeight,
-				bottom: height,
-				width,
-				height: Math.max(height - statusBarHeight, 0),
-			},
-		}
+            brand: "devtools",
+            model: "web",
+            platform: "devtools",
+            system: "web",
+            SDKVersion: "3.0.0", // vant组件库 判断  canIUseModel version 需要大于 2.9.3
+            pixelRatio: globalThis.devicePixelRatio || 1,
+            screenWidth: width,
+            screenHeight: height,
+            windowWidth: width,
+            windowHeight: height,
+            statusBarHeight,
+            safeArea: {
+                left: 0,
+                right: width,
+                top: statusBarHeight,
+                bottom: height,
+                width,
+                height: Math.max(height - statusBarHeight, 0),
+            },
+            enableDebug: false,
+            host: { appId: "" },
+            language: navigator.language || "zh_CN",
+            version: "",
+            theme: globalThis.matchMedia?.('(prefers-color-scheme: dark)')?.matches ? "dark" : "light",
+            fontSizeScaleFactor: 1,
+            fontSizeSetting: 16,
+        };
 	}
 
 	showToast(opts = {}) {

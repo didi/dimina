@@ -10,8 +10,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -19,6 +22,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -36,6 +40,8 @@ fun DiminaTabBar(
     selectedIndex: Int,
     appId: String,
     filesDir: File,
+    badges: List<String> = emptyList(),
+    redDots: List<Boolean> = emptyList(),
     onSelected: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -73,6 +79,8 @@ fun DiminaTabBar(
                     selectedColor = tabBarConfig.selectedColor,
                     appId = appId,
                     filesDir = filesDir,
+                    badge = badges.getOrElse(index) { "" },
+                    showRedDot = redDots.getOrElse(index) { false },
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight()
@@ -91,6 +99,8 @@ private fun DiminaTabBarItem(
     selectedColor: String,
     appId: String,
     filesDir: File,
+    badge: String,
+    showRedDot: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val textColor = parseComposeColor(if (selected) selectedColor else color, Color(0xFF999999))
@@ -103,35 +113,64 @@ private fun DiminaTabBarItem(
         resolveTabBarIconModel(iconPath, appId, filesDir)
     }
 
-    Column(
+    Box(
         modifier = modifier,
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+        contentAlignment = Alignment.Center
     ) {
-        if (imageModel != null) {
-            CoilImage(
-                imageModel = { imageModel },
-                imageOptions = ImageOptions(
-                    contentScale = ContentScale.Fit,
-                    alignment = Alignment.Center
-                ),
-                modifier = Modifier.size(24.dp)
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            if (imageModel != null) {
+                CoilImage(
+                    imageModel = { imageModel },
+                    imageOptions = ImageOptions(
+                        contentScale = ContentScale.Fit,
+                        alignment = Alignment.Center
+                    ),
+                    modifier = Modifier.size(24.dp)
+                )
+            } else {
+                Spacer(modifier = Modifier.size(24.dp))
+            }
+
+            Spacer(modifier = Modifier.height(2.dp))
+
+            Text(
+                text = item.text,
+                color = textColor,
+                fontSize = 10.sp,
+                maxLines = 1,
+                textAlign = TextAlign.Center,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.width(72.dp)
             )
-        } else {
-            Spacer(modifier = Modifier.size(24.dp))
         }
 
-        Spacer(modifier = Modifier.height(2.dp))
-
-        Text(
-            text = item.text,
-            color = textColor,
-            fontSize = 10.sp,
-            maxLines = 1,
-            textAlign = TextAlign.Center,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.width(72.dp)
-        )
+        if (badge.isNotEmpty()) {
+            Text(
+                text = badge,
+                color = Color.White,
+                fontSize = 10.sp,
+                maxLines = 1,
+                textAlign = TextAlign.Center,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .offset(x = 16.dp, y = 4.dp)
+                    .background(Color(0xFFFA5151), RoundedCornerShape(8.dp))
+                    .widthIn(min = 16.dp)
+                    .padding(horizontal = 4.dp, vertical = 1.dp)
+            )
+        } else if (showRedDot) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .offset(x = 16.dp, y = 6.dp)
+                    .size(8.dp)
+                    .background(Color(0xFFFA5151), RoundedCornerShape(4.dp))
+            )
+        }
     }
 }
 

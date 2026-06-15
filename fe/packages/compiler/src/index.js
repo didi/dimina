@@ -15,10 +15,15 @@ let isPrinted = false
  * 构建命令入口
  * @param {string} targetPath 编译产物目标路径
  * @param {string} workPath 编译工作目录
- * @param {boolean} useAppIdDir 产物根目录是否包含appId
+ * @param {boolean} useAppIdDir 产物根目录是否包含 appId
+ * @param {object} [options] 构建选项
+ * @param {boolean} [options.sourcemap] 是否生成 sourcemap
+ * @param {{ template?: string[], style?: string[], viewScript?: string[] }} [options.fileTypes]
+ *   自定义文件类型，在内置 wx/dd 类型基础上追加；template 为模板扩展名，style 为样式扩展名，
+ *   viewScript 为视图脚本扩展名和内联标签名
  */
 export default async function build(targetPath, workPath, useAppIdDir = true, options = {}) {
-	const { sourcemap = false } = options
+	const { sourcemap = false, fileTypes } = options
 	if (!isPrinted) {
 		artCode()
 		isPrinted = true
@@ -33,7 +38,7 @@ export default async function build(targetPath, workPath, useAppIdDir = true, op
 							{
 								title: '收集配置信息',
 								task: (ctx) => {
-									ctx.storeInfo = storeInfo(workPath)
+									ctx.storeInfo = storeInfo(workPath, { fileTypes })
 								},
 							},
 							{

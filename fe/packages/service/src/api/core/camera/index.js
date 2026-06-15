@@ -11,14 +11,14 @@ class CameraContext {
 	}
 
 	takePhoto(data) {
-		invokeAPI('takePhoto', data)
+		return invokeAPI('takePhoto', data)
 	}
 
 	startRecord() {
-		invokeAPI('startRecord')
+		return invokeAPI('startRecord')
 	}
 
 	stopRecord() {
-		invokeAPI('stopRecord')
+		return invokeAPI('stopRecord')
 	}
 }

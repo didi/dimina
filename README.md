@@ -110,6 +110,10 @@ Dimina 遵循[小程序标准化白皮书](https://www.w3.org/TR/mini-app-white-
 - 讨论和提案欢迎到 [Discussions](https://github.com/didi/dimina/discussions) 进行交流
 - 代码贡献请参考 [Contribution Guidelines](./CONTRIBUTING.md)
 
+## 微信群
+
+<img src="./static/wechat.png" alt="WeChat" width="240" height="240" />
+
 ## 星标趋势
 
 如果你觉得 Dimina 对你有帮助，欢迎点击右上角 ⭐Star 支持我们，让更多人了解和使用这个项目。

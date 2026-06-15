@@ -2,6 +2,7 @@ import { DMPBridges } from '../Bridges/DMPBridges';
 import { DMPApp } from '../DApp/DMPApp';
 import { DMPChannelProxyNext } from '../Service/DMPChannelProxyNext';
 import { DMPMap } from '../Utils/DMPMap';
+import { DMPHostEnvBuilder } from '../Utils/DMPHostEnvBuilder';
 
 export enum ResourceLoadType {
   Init = 0 << 0,
@@ -43,6 +44,7 @@ export class DMPContainer {
         appId: this.app.appConfig.appId,
         pagePath: pagePath,
         root: root,
+        hostEnv: DMPHostEnvBuilder.buildSnapshot(this.app),
       }
     })
 

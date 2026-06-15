@@ -152,7 +152,8 @@ object WebViewCacheManager : ComponentCallbacks2 {
     fun getWebView(
         context: Context,
         onPageLoadFinished: () -> Unit,
-        identifier: String = generateIdentifier()
+        identifier: String = generateIdentifier(),
+        appId: String = ""
     ): WebView {
         return mainHandler.runOnUiThread {
             // 检查是否已有活跃实例
@@ -177,19 +178,19 @@ object WebViewCacheManager : ComponentCallbacks2 {
             
             val webView = if (cachedWebView != null) {
                 // 重置WebView状态
-                resetWebView(cachedWebView.webView, onPageLoadFinished)
+                resetWebView(cachedWebView.webView, onPageLoadFinished, appId)
                 cachedWebView.updateLastUsedTime()
                 cachedWebView.webView
             } else {
                 // 创建新的WebView实例
                 LogUtils.d(TAG, "Creating new WebView for: $identifier")
-                createWebView(context, onPageLoadFinished)
+                createWebView(context, onPageLoadFinished, appId)
             }
             
             // 添加到活跃列表
             activeWebViews[identifier] = webView
             webView
-        } ?: createWebView(context, onPageLoadFinished) // 备用方案
+        } ?: createWebView(context, onPageLoadFinished, appId) // 备用方案
     }
     
     /**
@@ -250,7 +251,7 @@ object WebViewCacheManager : ComponentCallbacks2 {
         mainHandler.post {
             while (preCreatedWebViews.size < PRE_CREATE_SIZE) {
                 try {
-                    val webView = createWebView(context) {}
+                    val webView = createWebView(context, onPageLoadFinished = {})
                     preCreatedWebViews.offer(CachedWebView(webView))
                     LogUtils.d(TAG, "Pre-created WebView instance")
                 } catch (e: Exception) {
@@ -264,7 +265,7 @@ object WebViewCacheManager : ComponentCallbacks2 {
     /**
      * 重置WebView状态以便复用
      */
-    private fun resetWebView(webView: WebView, onPageLoadFinished: () -> Unit) {
+    private fun resetWebView(webView: WebView, onPageLoadFinished: () -> Unit, appId: String = "") {
         try {
             // 停止加载
             webView.stopLoading()
@@ -276,7 +277,7 @@ object WebViewCacheManager : ComponentCallbacks2 {
             webView.clearCache(true)
             
             // 重新设置WebViewClient
-            webView.webViewClient = createWebViewClientWithInterceptor(webView.context) { onPageLoadFinished() }
+            webView.webViewClient = createWebViewClientWithInterceptor(webView.context, appId) { onPageLoadFinished() }
             
         } catch (e: Exception) {
             LogUtils.e(TAG, "Failed to reset WebView", e)
@@ -477,6 +478,19 @@ object WebViewCacheManager : ComponentCallbacks2 {
 // 文件级别的TAG常量，用于日志记录
 private const val WEBVIEW_TAG = "WebViewAssetLoader"
 
+internal fun resolveWebResourceMimeType(
+    extension: String,
+    lookup: (String) -> String? = { normalizedExtension ->
+        MimeTypeMap.getSingleton().getMimeTypeFromExtension(normalizedExtension)
+    }
+): String {
+    val normalizedExtension = extension.lowercase()
+    return when (normalizedExtension) {
+        "js" -> "text/javascript"
+        else -> lookup(normalizedExtension) ?: "application/octet-stream"
+    }
+}
+
 private class DiminaPathHandler(
     private val filesDir: File,
     private val currentJsVersion: Int
@@ -509,9 +523,7 @@ private class DiminaPathHandler(
             return null
         }
 
-        val mimeType = MimeTypeMap.getSingleton()
-            .getMimeTypeFromExtension(targetCanonical.extension)
-            ?: "application/octet-stream"
+        val mimeType = resolveWebResourceMimeType(targetCanonical.extension)
         return WebResourceResponse(mimeType, "UTF-8", targetCanonical.inputStream())
     }
 }
@@ -534,6 +546,7 @@ private fun createWebViewAssetLoader(context: Context): WebViewAssetLoader {
  */
 internal fun createWebViewClientWithInterceptor(
     context: Context,
+    appId: String = "",
     onPageFinished: (String) -> Unit = {}
 ): WebViewClient {
     val assetLoader = createWebViewAssetLoader(context)
@@ -549,9 +562,38 @@ internal fun createWebViewClientWithInterceptor(
         override fun shouldInterceptRequest(
             view: WebView,
             request: WebResourceRequest
-        ) = assetLoader.shouldInterceptRequest(request.url)
+        ): WebResourceResponse? {
+            if (request.url.scheme == "difile") {
+                return handleVirtualFileRequest(context, request.url, appId)
+            }
+            return assetLoader.shouldInterceptRequest(request.url)
+        }
     }
 }
+
+private fun handleVirtualFileRequest(context: Context, uri: android.net.Uri, appId: String): WebResourceResponse? {
+    return try {
+        val appContext = context.applicationContext
+        val targetFile = File(PathUtils.pathToReal(appContext, uri.toString(), appId)).canonicalFile
+        val cacheRoot = appContext.cacheDir.canonicalFile
+        val filesRoot = appContext.filesDir.canonicalFile
+        if (!isUnderRoot(targetFile, cacheRoot) && !isUnderRoot(targetFile, filesRoot)) {
+            return null
+        }
+        if (!targetFile.exists() || targetFile.isDirectory) {
+            return null
+        }
+
+        val mimeType = resolveWebResourceMimeType(targetFile.extension)
+        WebResourceResponse(mimeType, "UTF-8", targetFile.inputStream())
+    } catch (e: Exception) {
+        LogUtils.e(WEBVIEW_TAG, "Failed to intercept virtual file: ${uri}", e)
+        null
+    }
+}
+
+private fun isUnderRoot(file: File, root: File): Boolean =
+    file.path == root.path || file.path.startsWith(root.path + File.separator)
 
 /**
  * 创建配置好的WebView实例
@@ -562,7 +604,7 @@ internal fun createWebViewClientWithInterceptor(
  * @return 配置完成的WebView实例
  */
 @SuppressLint("SetJavaScriptEnabled")
-internal fun createWebView(context: Context, onPageLoadFinished: () -> Unit): WebView {
+internal fun createWebView(context: Context, onPageLoadFinished: () -> Unit, appId: String = ""): WebView {
     return WebView(context).apply {
         // Ensure WebView has explicit layoutParams.
         // Chromium determines viewport size during initial layout.
@@ -591,7 +633,7 @@ internal fun createWebView(context: Context, onPageLoadFinished: () -> Unit): We
         }
 
         // Configure WebViewClient with file interceptor
-        webViewClient = createWebViewClientWithInterceptor(context) { onPageLoadFinished() }
+        webViewClient = createWebViewClientWithInterceptor(context, appId) { onPageLoadFinished() }
     }
 }
 

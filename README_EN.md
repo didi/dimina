@@ -110,6 +110,10 @@ Since various mini program solutions in the industry have been iterating for man
 - Discussions and proposals are discussed in [Discussions](https://github.com/didi/dimina/discussions)
 - Code contributions should follow the [Contribution Guidelines](./CONTRIBUTING.md)
 
+## WeChat Group
+
+<img src="./static/wechat.png" alt="WeChat" width="240" height="240" />
+
 ## Star Trend
 
 If you find Dimina helpful, please click the ⭐Star button in the upper right to support us and help more people discover this project.

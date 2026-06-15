@@ -5,7 +5,7 @@ import { invokeAPI } from '@/api/common'
  * https://developers.weixin.qq.com/miniprogram/dev/api/share/wx.showShareMenu.html
  */
 export function showShareMenu(opts) {
-	invokeAPI('shareShareMenu', opts)
+	return invokeAPI('shareShareMenu', opts)
 }
 
 /**
@@ -13,7 +13,7 @@ export function showShareMenu(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/share/wx.showShareImageMenu.html
  */
 export function showShareImageMenu(opts) {
-	invokeAPI('showShareImageMenu', opts)
+	return invokeAPI('showShareImageMenu', opts)
 }
 
 /**
@@ -21,5 +21,5 @@ export function showShareImageMenu(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/share/wx.hideShareMenu.html
  */
 export function hideShareMenu(opts) {
-	invokeAPI('hideShareMenu', opts)
+	return invokeAPI('hideShareMenu', opts)
 }

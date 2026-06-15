@@ -20,7 +20,7 @@ export function extBridge({ event, module, data = {}, success, fail, complete },
 		overrideComplete = complete
 	}
 
-	invokeAPI(event, {
+	return invokeAPI(event, {
 		module,
 		data,
 		keep: data.isSustain ?? true,
