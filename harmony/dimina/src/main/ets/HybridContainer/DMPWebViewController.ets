@@ -67,7 +67,7 @@ export class DMPWebViewController extends web_webview.WebviewController {
       const path = `${mainPkgPath}/${pagePath}${vConsoleQuery}`
       return path;
     } else {
-      path = `http://127.0.0.1/pageFrame.html${vConsoleQuery}`;
+      path = `https://mp.qiandao.com/pageFrame.html${vConsoleQuery}`;
     }
 
     return path;

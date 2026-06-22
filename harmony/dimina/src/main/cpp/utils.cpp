@@ -614,7 +614,7 @@ std::string getJsValueString(JSContext *ctx, JSValueConst jsValue, int indentLev
     } else if (JS_IsNumber(jsValue)) {
         int tag = JS_VALUE_GET_TAG(jsValue);
         if (tag == JS_TAG_INT) {
-            int value = jsValue.u.int32;
+            int value = JS_VALUE_GET_INT(jsValue);
             output = std::to_string(value);
         } else if (tag == JS_TAG_FLOAT64) {
             double num;
