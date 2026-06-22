@@ -562,10 +562,6 @@ class CanvasRenderingContext2DProxy {
 		return this.canvas.toDataURL(type, quality)
 	}
 
-	toBlob(callbackOrType, type, quality) {
-		return this.canvas.toBlob(callbackOrType, type, quality)
-	}
-
 	call(method, args) {
 		if (method === 'measureText') {
 			return { width: String(args[0] ?? '').length * 10 }
@@ -795,96 +791,44 @@ export class CanvasNode {
 	}
 
 	getImageData({ contextId, x, y, width, height }) {
-		return new Promise((resolve) => {
-			const callbackId = callback.store((res) => {
-				resolve(deserializeImageData(res))
-			})
-			this.enqueueOperation({
-				op: 'getImageData',
-				contextId,
-				x,
-				y,
-				width,
-				height,
-				callback: callbackId,
-			})
-		})
+		return new Promise((resolve, reject) => {
+            const callbackId = callback.store((res) => {
+                try {
+                    if (res.width && res.height && res.data) {
+                        resolve(deserializeImageData(res));
+                    } else {
+                        reject(new Error("getImageData: invalid format"));
+                    }
+                } catch (error) {
+                    reject(error);
+                }
+            });
+            this.enqueueOperation({
+                op: "getImageData",
+                contextId,
+                x,
+                y,
+                width,
+                height,
+                callback: callbackId,
+                errorCallback: errorCallbackId,
+            });
+        });
 	}
 
 	toDataURL(type = 'image/png', quality) {
-		return new Promise((resolve) => {
-			const callbackId = callback.store((dataURL) => {
-				resolve(dataURL)
-			})
-			this.enqueueOperation({
-				op: 'toDataURL',
-				mimeType: type,
-				quality,
-				callback: callbackId,
-			})
-		})
-	}
-
-	toBlob(callbackOrType, typeOrQuality, qualityArg) {
-		// Support both HTML Canvas API: toBlob(callback, type, quality)
-		// and Promise API: toBlob(type, quality)
-		let userCallback, mimeType, quality
-		if (typeof callbackOrType === 'function') {
-			userCallback = callbackOrType
-			mimeType = typeOrQuality || 'image/png'
-			quality = qualityArg
-		} else {
-			mimeType = callbackOrType || 'image/png'
-			quality = typeOrQuality
-		}
-
-		const toBlobResult = (dataURL) => {
-			if (!dataURL || typeof dataURL !== 'string') {
-				return null
-			}
-			const base64 = dataURL.replace(/^data:[^;]+;base64,/, '')
-			const bytes = base64ToUint8ClampedArray(base64)
-			// Return a Blob-like object with size and type properties
-			const buffer = bytes.buffer
-			return { size: buffer.byteLength, type: mimeType, arrayBuffer: buffer }
-		}
-
-		if (userCallback) {
-			const callbackId = callback.store((dataURL) => {
-				try {
-					userCallback(toBlobResult(dataURL))
-				} catch (error) {
-					console.error('[canvas]', 'toBlob callback error:', error)
-				}
-			})
-			this.enqueueOperation({
-				op: 'toDataURL',
-				mimeType,
-				quality,
-				callback: callbackId,
-			})
-		} else {
-			return new Promise((resolve, reject) => {
-				const callbackId = callback.store((dataURL) => {
-					try {
-						const blob = toBlobResult(dataURL)
-						if (!blob) {
-							reject(new Error('toBlob: empty response'))
-							return
-						}
-						resolve(blob)
-					} catch (error) {
-						reject(error)
-					}
-				})
-				this.enqueueOperation({
-					op: 'toDataURL',
-					mimeType,
-					quality,
-					callback: callbackId,
-				})
-			})
-		}
+		return new Promise((resolve, reject) => {
+            const callbackId = callback.store((dataURL) => {
+                resolve(dataURL);
+            });
+            this.enqueueOperation({
+                op: "toDataURL",
+                mimeType: type,
+                quality,
+                callback: callbackId,
+                errorCallback: errorCallbackId,
+            });
+        });
 	}
 
 	enqueueOperation(operation) {

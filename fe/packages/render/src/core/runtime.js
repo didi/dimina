@@ -85,6 +85,7 @@ function uint8ArrayToBase64(uint8Array) {
 	return btoa(binary)
 }
 
+
 class Runtime {
 	constructor() {
 		this.app = null
@@ -847,8 +848,7 @@ class Runtime {
 	getCanvasImage(imageId) {
 		let image = this.getCanvasResource(imageId)
 		if (!image) {
-			image = new Image()
-			image.crossOrigin = 'anonymous'
+			image = new Image();
 			this.setCanvasResource(imageId, image)
 		}
 		return image
@@ -909,31 +909,6 @@ class Runtime {
 				image.src = operation.src
 				break
 			}
-			case 'getImageData': {
-				const ctx = this.getCanvasResource(operation.contextId)
-				if (ctx) {
-					try {
-						const imageData = ctx.getImageData(operation.x, operation.y, operation.width, operation.height)
-						const base64 = uint8ArrayToBase64(imageData.data)
-						const result = { width: imageData.width, height: imageData.height, data: base64 }
-						this.triggerCallback(bridgeId, operation.callback, result)
-					}
-					catch (error) {
-						this.triggerCallback(bridgeId, operation.callback, null)
-					}
-				}
-				break
-			}
-			case 'toDataURL': {
-				try {
-					const dataURL = node.canvas.toDataURL(operation.mimeType || 'image/png', operation.quality)
-					this.triggerCallback(bridgeId, operation.callback, dataURL)
-				} catch (error) {
-					console.error('[canvas]', '[render]', 'toDataURL error:', error.message)
-					this.triggerCallback(bridgeId, operation.callback, '')
-				}
-				break
-			}
 			default:
 				console.warn('[system]', '[render]', `Unsupported canvas node operation: ${operation.op}`)
 		}
@@ -966,58 +941,6 @@ class Runtime {
 		if (frameId !== undefined) {
 			cancelAnimationFrame(frameId)
 			this.canvasRafIds.delete(key)
-		}
-	}
-
-	canvasGetImageData({ bridgeId, params }) {
-		console.log('[canvas]', '[render]', 'canvasGetImageData nodeId=' + params.nodeId + ' contextId=' + params.contextId + ' x=' + params.x + ' y=' + params.y + ' w=' + params.width + ' h=' + params.height)
-		const node = this.canvasNodes.get(params.nodeId)
-		if (!node) {
-			console.log('[canvas]', '[render]', 'canvasGetImageData FAIL node not found')
-			const errResult = { errMsg: `getImageData:fail canvas node ${params.nodeId} not found` }
-			this.triggerCallback(bridgeId, params.fail, [errResult], errResult)
-			return
-		}
-		const ctx = this.getCanvasResource(params.contextId)
-		if (!ctx) {
-			console.log('[canvas]', '[render]', 'canvasGetImageData FAIL context not found')
-			const errResult = { errMsg: `getImageData:fail context ${params.contextId} not found` }
-			this.triggerCallback(bridgeId, params.fail, [errResult], errResult)
-			return
-		}
-		try {
-			const imageData = ctx.getImageData(params.x, params.y, params.width, params.height)
-			const base64 = uint8ArrayToBase64(imageData.data)
-			const result = { width: imageData.width, height: imageData.height, data: base64 }
-			console.log('[canvas]', '[render]', 'canvasGetImageData OK w=' + result.width + ' h=' + result.height + ' base64Len=' + base64.length)
-			this.triggerCallback(bridgeId, params.success, [result], result)
-		}
-		catch (error) {
-			console.log('[canvas]', '[render]', 'canvasGetImageData FAIL ' + error.message)
-			const errResult = { errMsg: `getImageData:fail ${error.message}` }
-			this.triggerCallback(bridgeId, params.fail, [errResult], errResult)
-		}
-	}
-
-	canvasToDataURL({ bridgeId, params }) {
-		console.log('[canvas]', '[render]', 'canvasToDataURL nodeId=' + params.nodeId + ' type=' + params.type)
-		const node = this.canvasNodes.get(params.nodeId)
-		if (!node) {
-			console.log('[canvas]', '[render]', 'canvasToDataURL FAIL node not found')
-			const errResult = { errMsg: `toDataURL:fail canvas node ${params.nodeId} not found` }
-			this.triggerCallback(bridgeId, params.fail, [errResult], errResult)
-			return
-		}
-		try {
-			const dataURL = node.canvas.toDataURL(params.type || 'image/png', params.quality)
-			console.log('[canvas]', '[render]', 'canvasToDataURL OK len=' + dataURL.length)
-			const result = { dataURL, errMsg: 'toDataURL:ok' }
-			this.triggerCallback(bridgeId, params.success, [result], result)
-		}
-		catch (error) {
-			console.log('[canvas]', '[render]', 'canvasToDataURL FAIL ' + error.message)
-			const errResult = { errMsg: `toDataURL:fail ${error.message}` }
-			this.triggerCallback(bridgeId, params.fail, [errResult], errResult)
 		}
 	}
 
@@ -1376,8 +1299,17 @@ class Runtime {
 	}
 
 	async canvasToTempFilePath({ bridgeId, params }) {
-		const { canvasId, x = 0, y = 0, width, height, destWidth, destHeight, fileType = 'png', quality = 1 } = params
-
+		const {
+            canvasId,
+            x = 0,
+            y = 0,
+            width,
+            height,
+            destWidth,
+            destHeight,
+            fileType = "png",
+            quality = 1,
+        } = params;
 		const canvas = await this.getCanvasElement(canvasId, params.moduleId)
 		if (!canvas) {
 			this.triggerCanvasFailure(bridgeId, params, `canvasToTempFilePath:fail canvas ${canvasId} not found`)
@@ -1385,6 +1317,7 @@ class Runtime {
 		}
 
 		try {
+			this.ensureCanvasResolution(canvas);
 			const exportWidth = width || canvas.width
 			const exportHeight = height || canvas.height
 			const outputCanvas = document.createElement('canvas')
