@@ -6,7 +6,8 @@ import { walk } from 'oxc-walker'
 import MagicString from 'magic-string'
 import { transform } from 'esbuild'
 import { getWxMemberName, warnUnsupportedWxApi } from '../common/compatibility.js'
-import { collectAssets, hasCompileInfo } from "../common/utils.js";
+import { collectAssets, hasCompileInfo } from '../common/utils.js'
+import { mergeSourcemap } from './sourcemap.js'
 import { getAppConfigInfo, getAppId, getComponent, getContentByPath, getNpmResolver, getTargetPath, getWorkPath, resetStoreInfo, resolveAppAlias } from '../env.js'
 import { mergeSourcemap, remapSourcemap } from './sourcemap.js'
 

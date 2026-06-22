@@ -397,38 +397,6 @@ function serializeCanvasArgs(args) {
 	return Array.from(args).map(arg => serializeCanvasArg(arg))
 }
 
-const BASE64_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
-const BASE64_LOOKUP = new Uint8Array(128)
-for (let i = 0; i < BASE64_CHARS.length; i++) {
-	BASE64_LOOKUP[BASE64_CHARS.charCodeAt(i)] = i
-}
-
-function base64ToUint8ClampedArray(base64) {
-	let end = base64.length
-	while (end > 0 && base64[end - 1] === '=') end--
-	const byteLen = (end * 3 / 4) | 0
-	const bytes = new Uint8ClampedArray(byteLen)
-	let j = 0
-	for (let i = 0; i < end; i += 4) {
-		const a = BASE64_LOOKUP[base64.charCodeAt(i)]
-		const b = BASE64_LOOKUP[base64.charCodeAt(i + 1)]
-		const c = BASE64_LOOKUP[base64.charCodeAt(i + 2)]
-		const d = BASE64_LOOKUP[base64.charCodeAt(i + 3)]
-		bytes[j++] = (a << 2) | (b >> 4)
-		if (j < byteLen) bytes[j++] = ((b & 0xF) << 4) | (c >> 2)
-		if (j < byteLen) bytes[j++] = ((c & 0x3) << 6) | d
-	}
-	return bytes
-}
-
-function deserializeImageData(res) {
-	return {
-		width: res.width,
-		height: res.height,
-		data: base64ToUint8ClampedArray(res.data),
-	}
-}
-
 function makeResourceId(prefix = 'canvas_resource') {
 	return `${prefix}_${uuid()}`
 }
@@ -550,20 +518,6 @@ class CanvasRenderingContext2DProxy {
 				return true
 			},
 		})
-	}
-
-	getImageData(x, y, w, h) {
-		return this.canvas.getImageData({
-			contextId: this.contextId, x, y, width: w, height: h,
-		})
-	}
-
-	toDataURL(type, quality) {
-		return this.canvas.toDataURL(type, quality)
-	}
-
-	toBlob(callbackOrType, type, quality) {
-		return this.canvas.toBlob(callbackOrType, type, quality)
 	}
 
 	call(method, args) {
@@ -792,99 +746,6 @@ export class CanvasNode {
 			nodeId: this.nodeId,
 			requestId,
 		})
-	}
-
-	getImageData({ contextId, x, y, width, height }) {
-		return new Promise((resolve) => {
-			const callbackId = callback.store((res) => {
-				resolve(deserializeImageData(res))
-			})
-			this.enqueueOperation({
-				op: 'getImageData',
-				contextId,
-				x,
-				y,
-				width,
-				height,
-				callback: callbackId,
-			})
-		})
-	}
-
-	toDataURL(type = 'image/png', quality) {
-		return new Promise((resolve) => {
-			const callbackId = callback.store((dataURL) => {
-				resolve(dataURL)
-			})
-			this.enqueueOperation({
-				op: 'toDataURL',
-				mimeType: type,
-				quality,
-				callback: callbackId,
-			})
-		})
-	}
-
-	toBlob(callbackOrType, typeOrQuality, qualityArg) {
-		// Support both HTML Canvas API: toBlob(callback, type, quality)
-		// and Promise API: toBlob(type, quality)
-		let userCallback, mimeType, quality
-		if (typeof callbackOrType === 'function') {
-			userCallback = callbackOrType
-			mimeType = typeOrQuality || 'image/png'
-			quality = qualityArg
-		} else {
-			mimeType = callbackOrType || 'image/png'
-			quality = typeOrQuality
-		}
-
-		const toBlobResult = (dataURL) => {
-			if (!dataURL || typeof dataURL !== 'string') {
-				return null
-			}
-			const base64 = dataURL.replace(/^data:[^;]+;base64,/, '')
-			const bytes = base64ToUint8ClampedArray(base64)
-			// Return a Blob-like object with size and type properties
-			const buffer = bytes.buffer
-			return { size: buffer.byteLength, type: mimeType, arrayBuffer: buffer }
-		}
-
-		if (userCallback) {
-			const callbackId = callback.store((dataURL) => {
-				try {
-					userCallback(toBlobResult(dataURL))
-				} catch (error) {
-					console.error('[canvas]', 'toBlob callback error:', error)
-				}
-			})
-			this.enqueueOperation({
-				op: 'toDataURL',
-				mimeType,
-				quality,
-				callback: callbackId,
-			})
-		} else {
-			return new Promise((resolve, reject) => {
-				const callbackId = callback.store((dataURL) => {
-					try {
-						const blob = toBlobResult(dataURL)
-						if (!blob) {
-							reject(new Error('toBlob: empty response'))
-							return
-						}
-						resolve(blob)
-					} catch (error) {
-						reject(error)
-					}
-				})
-				this.enqueueOperation({
-					op: 'toDataURL',
-					mimeType,
-					quality,
-					callback: callbackId,
-				})
-			})
-		}
 	}
 
 	enqueueOperation(operation) {
