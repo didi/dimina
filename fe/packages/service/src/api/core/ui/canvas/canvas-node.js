@@ -811,7 +811,6 @@ export class CanvasNode {
                 width,
                 height,
                 callback: callbackId,
-                errorCallback: errorCallbackId,
             });
         });
 	}
@@ -826,7 +825,6 @@ export class CanvasNode {
                 mimeType: type,
                 quality,
                 callback: callbackId,
-                errorCallback: errorCallbackId,
             });
         });
 	}

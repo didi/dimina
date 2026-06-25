@@ -76,15 +76,6 @@ function isCanvasElement(element) {
 	return element?.tagName?.toLowerCase() === 'canvas'
 }
 
-function uint8ArrayToBase64(uint8Array) {
-	let binary = ''
-	const len = uint8Array.length
-	for (let i = 0; i < len; i++) {
-		binary += String.fromCharCode(uint8Array[i])
-	}
-	return btoa(binary)
-}
-
 
 class Runtime {
 	constructor() {
