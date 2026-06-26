@@ -515,71 +515,88 @@ class CanvasImage {
 }
 
 class CanvasRenderingContext2DProxy {
-	constructor(canvas, contextId) {
-		this.canvas = canvas
-		this.contextId = contextId
-		this.state = {
-			fillStyle: '#000000',
-			strokeStyle: '#000000',
-			font: '10px sans-serif',
-			globalAlpha: 1,
-			lineWidth: 1,
-		}
+    constructor(canvas, contextId) {
+        this.canvas = canvas;
+        this.contextId = contextId;
+        this.state = {
+            fillStyle: "#000000",
+            strokeStyle: "#000000",
+            font: "10px sans-serif",
+            globalAlpha: 1,
+            lineWidth: 1,
+        };
 
-		return new Proxy(this, {
-			get(target, prop) {
-				if (prop in target) {
-					return target[prop]
-				}
-				if (prop in target.state) {
-					return target.state[prop]
-				}
-				if (typeof prop === 'symbol') {
-					return undefined
-				}
-				return (...args) => target.call(prop, args)
-			},
-			set(target, prop, value) {
-				target.state[prop] = value
-				target.canvas.enqueueOperation({
-					op: 'contextSetProperty',
-					contextId,
-					prop,
-					value: serializeCanvasArg(value),
-				})
-				return true
-			},
-		})
-	}
+        return new Proxy(this, {
+            get(target, prop) {
+                if (prop in target) {
+                    return target[prop];
+                }
+                if (prop in target.state) {
+                    return target.state[prop];
+                }
+                if (typeof prop === "symbol") {
+                    return undefined;
+                }
+                return (...args) => target.call(prop, args);
+            },
+            set(target, prop, value) {
+                target.state[prop] = value;
+                target.canvas.enqueueOperation({
+                    op: "contextSetProperty",
+                    contextId,
+                    prop,
+                    value: serializeCanvasArg(value),
+                });
+                return true;
+            },
+        });
+    }
 
-	getImageData(x, y, w, h) {
-		return this.canvas.getImageData({
-			contextId: this.contextId, x, y, width: w, height: h,
-		})
-	}
+    async getImageData(x, y, w, h) {
+        const result = await this.canvas.getImageData({
+            contextId: this.contextId,
+            x,
+            y,
+            width: w,
+            height: h,
+        });
+        return result;
+    }
 
-	toDataURL(type, quality) {
-		return this.canvas.toDataURL(type, quality)
-	}
+    toDataURL(type, quality) {
+        return this.canvas.toDataURL(type, quality);
+    }
 
-	call(method, args) {
-		if (method === 'measureText') {
-			return { width: String(args[0] ?? '').length * 10 }
-		}
+    call(method, args) {
+        if (method === "measureText") {
+            return { width: String(args[0] ?? "").length * 10 };
+        }
 
-		const resultId = CANVAS_2D_RESOURCE_METHODS.has(method) ? makeResourceId() : undefined
-		this.canvas.enqueueOperation({
-			op: 'contextCall',
-			contextId: this.contextId,
-			method,
-			args: serializeCanvasArgs(args),
-			resultId,
-		})
+        if (method === "createImageData") {
+            const w = args[0];
+            const h = args[1];
+            return {
+                width: w,
+                height: h,
+                data: new Uint8ClampedArray(w * h * 4),
+            };
+        }
 
-		if (resultId) {
-			return new CanvasResource(this.canvas, resultId)
-		}
-	}
+        const resultId = CANVAS_2D_RESOURCE_METHODS.has(method)
+            ? makeResourceId()
+            : undefined;
+        this.canvas.enqueueOperation({
+            op: "contextCall",
+            contextId: this.contextId,
+            method,
+            args: serializeCanvasArgs(args),
+            resultId,
+        });
+
+        if (resultId) {
+            return new CanvasResource(this.canvas, resultId);
+        }
+    }
 }
 
 class WebGLRenderingContextProxy {
@@ -793,15 +810,7 @@ export class CanvasNode {
 	getImageData({ contextId, x, y, width, height }) {
 		return new Promise((resolve, reject) => {
 			const callbackId = callback.store((res) => {
-				try {
-					if (res.width && res.height && res.data) {
-						resolve(deserializeImageData(res))
-					} else {
-						reject(new Error('getImageData: invalid format'))
-					}
-				} catch (error) {
-					reject(error)
-				}
+                resolve(res);
 			})
 			this.enqueueOperation({
 				op: 'getImageData',

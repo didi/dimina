@@ -839,6 +839,7 @@ class Runtime {
 		let image = this.getCanvasResource(imageId)
 		if (!image) {
 			image = new Image()
+			image.crossOrigin = "anonymous";
 			this.setCanvasResource(imageId, image)
 		}
 		return image
@@ -846,62 +847,107 @@ class Runtime {
 
 	executeCanvasOperation(node, operation, bridgeId) {
 		switch (operation.op) {
-			case 'setCanvasProperty':
-				node.canvas[operation.prop] = operation.value
-				break
-			case 'getContext': {
-				const context = node.canvas.getContext(operation.contextType, this.resolveCanvasArg(operation.attributes))
-				node.contexts.set(operation.contextId, context)
-				this.setCanvasResource(operation.contextId, context)
-				break
-			}
-			case 'contextSetProperty': {
-				const context = this.getCanvasResource(operation.contextId)
-				if (context) {
-					context[operation.prop] = this.resolveCanvasArg(operation.value)
-				}
-				break
-			}
-			case 'contextCall': {
-				const context = this.getCanvasResource(operation.contextId)
-				const method = context?.[operation.method]
-				if (typeof method === 'function') {
-					const result = method.apply(context, (operation.args || []).map(arg => this.resolveCanvasArg(arg)))
-					this.setCanvasResource(operation.resultId, result)
-				}
-				break
-			}
-			case 'resourceCall': {
-				const resource = this.getCanvasResource(operation.resourceId)
-				const method = resource?.[operation.method]
-				if (typeof method === 'function') {
-					const result = method.apply(resource, (operation.args || []).map(arg => this.resolveCanvasArg(arg)))
-					this.setCanvasResource(operation.resultId, result)
-				}
-				break
-			}
-			case 'createImage':
-				this.getCanvasImage(operation.imageId)
-				break
-			case 'imageSetSrc': {
-				const image = this.getCanvasImage(operation.imageId)
-				image.onload = () => {
-					this.triggerCallback(bridgeId, operation.onload, {
-						width: image.width,
-						height: image.height,
-					})
-				}
-				image.onerror = () => {
-					this.triggerCallback(bridgeId, operation.onerror, {
-						errMsg: `createImage:fail ${operation.src}`,
-					})
-				}
-				image.src = operation.src
-				break
-			}
-			default:
-				console.warn('[system]', '[render]', `Unsupported canvas node operation: ${operation.op}`)
-		}
+            case "setCanvasProperty":
+                node.canvas[operation.prop] = operation.value;
+                break;
+            case "getContext": {
+                const context = node.canvas.getContext(
+                    operation.contextType,
+                    this.resolveCanvasArg(operation.attributes),
+                );
+                node.contexts.set(operation.contextId, context);
+                this.setCanvasResource(operation.contextId, context);
+                break;
+            }
+            case "contextSetProperty": {
+                const context = this.getCanvasResource(operation.contextId);
+                if (context) {
+                    context[operation.prop] = this.resolveCanvasArg(
+                        operation.value,
+                    );
+                }
+                break;
+            }
+            case "contextCall": {
+                const context = this.getCanvasResource(operation.contextId);
+                const method = context?.[operation.method];
+                if (typeof method === "function") {
+                    const result = method.apply(
+                        context,
+                        (operation.args || []).map((arg) =>
+                            this.resolveCanvasArg(arg),
+                        ),
+                    );
+                    this.setCanvasResource(operation.resultId, result);
+                }
+                break;
+            }
+            case "resourceCall": {
+                const resource = this.getCanvasResource(operation.resourceId);
+                const method = resource?.[operation.method];
+                if (typeof method === "function") {
+                    const result = method.apply(
+                        resource,
+                        (operation.args || []).map((arg) =>
+                            this.resolveCanvasArg(arg),
+                        ),
+                    );
+                    this.setCanvasResource(operation.resultId, result);
+                }
+                break;
+            }
+            case "createImage":
+                this.getCanvasImage(operation.imageId);
+                break;
+            case "imageSetSrc": {
+                const image = this.getCanvasImage(operation.imageId);
+                image.onload = () => {
+                    this.triggerCallback(bridgeId, operation.onload, {
+                        width: image.width,
+                        height: image.height,
+                    });
+                };
+                image.onerror = () => {
+                    this.triggerCallback(bridgeId, operation.onerror, {
+                        errMsg: `createImage:fail ${operation.src}`,
+                    });
+                };
+                image.src = operation.src;
+                break;
+            }
+            case "getImageData": {
+                const context = this.getCanvasResource(operation.contextId);
+                if (context) {
+                    const imageData = context.getImageData(
+                        operation.x,
+                        operation.y,
+                        operation.width,
+                        operation.height,
+                    );
+                    this.triggerCallback(bridgeId, operation.callback, {
+                        data: Array.from(imageData.data),
+                        width: imageData.width,
+                        height: imageData.height,
+                    });
+                }
+                break;
+            }
+            case "toDataURL": {
+                const mimeType = operation.mimeType || "image/png";
+                const dataURL =
+                    operation.quality !== undefined
+                        ? node.canvas.toDataURL(mimeType, operation.quality)
+                        : node.canvas.toDataURL(mimeType);
+                this.triggerCallback(bridgeId, operation.callback, dataURL);
+                break;
+            }
+            default:
+                console.warn(
+                    "[system]",
+                    "[render]",
+                    `Unsupported canvas node operation: ${operation.op}`,
+                );
+        }
 	}
 
 	canvasNodeFlush({ bridgeId, params }) {
@@ -1297,45 +1343,75 @@ class Runtime {
 		}
 
 		try {
-			this.ensureCanvasResolution(canvas)
-			const exportWidth = width || canvas.width
-			const exportHeight = height || canvas.height
-			const outputCanvas = document.createElement('canvas')
-			outputCanvas.width = destWidth || exportWidth
-			outputCanvas.height = destHeight || exportHeight
-			const outputContext = outputCanvas.getContext('2d')
-			outputContext.drawImage(
-				canvas,
-				x,
-				y,
-				exportWidth,
-				exportHeight,
-				0,
-				0,
-				outputCanvas.width,
-				outputCanvas.height,
-			)
+            this.ensureCanvasResolution(canvas);
+            const exportWidth = width || canvas.width;
+            const exportHeight = height || canvas.height;
+            const outputCanvas = document.createElement("canvas");
+            outputCanvas.width = destWidth || exportWidth;
+            outputCanvas.height = destHeight || exportHeight;
+            const outputContext = outputCanvas.getContext("2d");
+            outputContext.drawImage(
+                canvas,
+                x,
+                y,
+                exportWidth,
+                exportHeight,
+                0,
+                0,
+                outputCanvas.width,
+                outputCanvas.height,
+            );
 
-			const mimeType = fileType === 'jpg' || fileType === 'jpeg' ? 'image/jpeg' : 'image/png'
-			const dataURL = outputCanvas.toDataURL(mimeType, quality)
+            const mimeType =
+                fileType === "jpg" || fileType === "jpeg"
+                    ? "image/jpeg"
+                    : "image/png";
+            const dataURL = outputCanvas.toDataURL(mimeType, quality);
 
-			// Forward to Container to write base64 to a temp file and return a real file path
-			message.invoke({
-				type: 'invokeAPI',
-				target: 'container',
-				body: {
-					name: 'saveCanvasTempFile',
-					bridgeId,
-					params: {
-						dataURL,
-						fileType,
-						success: params.success,
-						fail: params.fail,
-						complete: params.complete,
-					},
-				},
-			})
-		}
+            // TODO: 添加一个 H5 的容器标识在 userAgent
+            // const byteString = atob(dataURL.split(",")[1]);
+            // const ab = new ArrayBuffer(byteString.length);
+            // const ia = new Uint8Array(ab);
+            // for (let i = 0; i < byteString.length; i++) {
+            //     ia[i] = byteString.charCodeAt(i);
+            // }
+            // const blob = new Blob([ab], { type: mimeType });
+            // const tempFilePath = URL.createObjectURL(blob);
+
+            // const result = {
+            //     tempFilePath,
+            //     errMsg: "canvasToTempFilePath:ok",
+            // };
+            // this.triggerCallback(
+            //     bridgeId,
+            //     params.success,
+            //     [result],
+            //     result,
+            // );
+            // this.triggerCallback(
+            //     bridgeId,
+            //     params.complete,
+            //     [result],
+            //     result,
+            // );
+
+            // Forward to Container to write base64 to a temp file and return a real file path
+            message.invoke({
+                type: "invokeAPI",
+                target: "container",
+                body: {
+                    name: "saveCanvasTempFile",
+                    bridgeId,
+                    params: {
+                        dataURL,
+                        fileType,
+                        success: params.success,
+                        fail: params.fail,
+                        complete: params.complete,
+                    },
+                },
+            });
+        }
 		catch (error) {
 			this.triggerCanvasFailure(bridgeId, params, `canvasToTempFilePath:fail ${error.message}`)
 		}
