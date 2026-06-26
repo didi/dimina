@@ -397,38 +397,6 @@ function serializeCanvasArgs(args) {
 	return Array.from(args).map(arg => serializeCanvasArg(arg))
 }
 
-const BASE64_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
-const BASE64_LOOKUP = new Uint8Array(128)
-for (let i = 0; i < BASE64_CHARS.length; i++) {
-	BASE64_LOOKUP[BASE64_CHARS.charCodeAt(i)] = i
-}
-
-function base64ToUint8ClampedArray(base64) {
-	let end = base64.length
-	while (end > 0 && base64[end - 1] === '=') end--
-	const byteLen = (end * 3 / 4) | 0
-	const bytes = new Uint8ClampedArray(byteLen)
-	let j = 0
-	for (let i = 0; i < end; i += 4) {
-		const a = BASE64_LOOKUP[base64.charCodeAt(i)]
-		const b = BASE64_LOOKUP[base64.charCodeAt(i + 1)]
-		const c = BASE64_LOOKUP[base64.charCodeAt(i + 2)]
-		const d = BASE64_LOOKUP[base64.charCodeAt(i + 3)]
-		bytes[j++] = (a << 2) | (b >> 4)
-		if (j < byteLen) bytes[j++] = ((b & 0xF) << 4) | (c >> 2)
-		if (j < byteLen) bytes[j++] = ((c & 0x3) << 6) | d
-	}
-	return bytes
-}
-
-function deserializeImageData(res) {
-	return {
-		width: res.width,
-		height: res.height,
-		data: base64ToUint8ClampedArray(res.data),
-	}
-}
-
 function makeResourceId(prefix = 'canvas_resource') {
 	return `${prefix}_${uuid()}`
 }
