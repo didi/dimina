@@ -792,41 +792,41 @@ export class CanvasNode {
 
 	getImageData({ contextId, x, y, width, height }) {
 		return new Promise((resolve, reject) => {
-            const callbackId = callback.store((res) => {
-                try {
-                    if (res.width && res.height && res.data) {
-                        resolve(deserializeImageData(res));
-                    } else {
-                        reject(new Error("getImageData: invalid format"));
-                    }
-                } catch (error) {
-                    reject(error);
-                }
-            });
-            this.enqueueOperation({
-                op: "getImageData",
-                contextId,
-                x,
-                y,
-                width,
-                height,
-                callback: callbackId,
-            });
-        });
+			const callbackId = callback.store((res) => {
+				try {
+					if (res.width && res.height && res.data) {
+						resolve(deserializeImageData(res))
+					} else {
+						reject(new Error('getImageData: invalid format'))
+					}
+				} catch (error) {
+					reject(error)
+				}
+			})
+			this.enqueueOperation({
+				op: 'getImageData',
+				contextId,
+				x,
+				y,
+				width,
+				height,
+				callback: callbackId,
+			})
+		})
 	}
 
 	toDataURL(type = 'image/png', quality) {
-		return new Promise((resolve, reject) => {
-            const callbackId = callback.store((dataURL) => {
-                resolve(dataURL);
-            });
-            this.enqueueOperation({
-                op: "toDataURL",
-                mimeType: type,
-                quality,
-                callback: callbackId,
-            });
-        });
+		return new Promise((resolve) => {
+			const callbackId = callback.store((dataURL) => {
+				resolve(dataURL)
+			})
+			this.enqueueOperation({
+				op: 'toDataURL',
+				mimeType: type,
+				quality,
+				callback: callbackId,
+			})
+		})
 	}
 
 	enqueueOperation(operation) {

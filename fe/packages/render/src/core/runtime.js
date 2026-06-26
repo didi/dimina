@@ -76,7 +76,6 @@ function isCanvasElement(element) {
 	return element?.tagName?.toLowerCase() === 'canvas'
 }
 
-
 class Runtime {
 	constructor() {
 		this.app = null
@@ -839,7 +838,7 @@ class Runtime {
 	getCanvasImage(imageId) {
 		let image = this.getCanvasResource(imageId)
 		if (!image) {
-			image = new Image();
+			image = new Image()
 			this.setCanvasResource(imageId, image)
 		}
 		return image
@@ -1290,17 +1289,7 @@ class Runtime {
 	}
 
 	async canvasToTempFilePath({ bridgeId, params }) {
-		const {
-            canvasId,
-            x = 0,
-            y = 0,
-            width,
-            height,
-            destWidth,
-            destHeight,
-            fileType = "png",
-            quality = 1,
-        } = params;
+		const { canvasId, x = 0, y = 0, width, height, destWidth, destHeight, fileType = 'png', quality = 1 } = params
 		const canvas = await this.getCanvasElement(canvasId, params.moduleId)
 		if (!canvas) {
 			this.triggerCanvasFailure(bridgeId, params, `canvasToTempFilePath:fail canvas ${canvasId} not found`)
@@ -1308,7 +1297,7 @@ class Runtime {
 		}
 
 		try {
-			this.ensureCanvasResolution(canvas);
+			this.ensureCanvasResolution(canvas)
 			const exportWidth = width || canvas.width
 			const exportHeight = height || canvas.height
 			const outputCanvas = document.createElement('canvas')

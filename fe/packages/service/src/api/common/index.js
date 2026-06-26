@@ -133,30 +133,31 @@ function invokeMessage(name, params, target) {
 }
 
 export function invokePromiseAPI(name, params, target) {
-    return new Promise((resolve, reject) => {
-        let successId;
-        let failId;
-        const cleanup = () => {
-            callback.remove(successId);
-            callback.remove(failId);
-        };
-        successId = callback.store((res) => {
-            cleanup();
-            resolve(res);
-        });
-        failId = callback.store((res) => {
-            cleanup();
-            reject(res);
-        });
-        params.success = successId;
-        params.fail = failId;
-        try {
-            invokeMessage(name, params, target);
-        } catch (error) {
-            cleanup();
-            reject(error);
-        }
-    });
+	return new Promise((resolve, reject) => {
+		let successId
+		let failId
+		const cleanup = () => {
+			callback.remove(successId)
+			callback.remove(failId)
+		}
+		successId = callback.store((res) => {
+			cleanup()
+			resolve(res)
+		})
+		failId = callback.store((res) => {
+			cleanup()
+			reject(res)
+		})
+		params.success = successId
+		params.fail = failId
+		try {
+			invokeMessage(name, params, target)
+		}
+		catch (error) {
+			cleanup()
+			reject(error)
+		}
+	})
 }
 
 export function invokeAPI(name, data, target = 'container') {
