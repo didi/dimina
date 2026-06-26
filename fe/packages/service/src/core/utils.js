@@ -32,12 +32,12 @@ export { deepEqual }
  * 只能在实例初始化完成后从框架运行时读取。目前通过 __mpxProxy 访问，
  * 后续若框架侧暴露标准字段（如 moduleInfo.__computedKeys），可在此替换为更通用的读取方式。
  */
-export function addComputedData(self) {
-	const computed = self.__mpxProxy?.options?.computed
+export function addComputedData(ctx) {
+	const computed = ctx.__mpxProxy?.options?.computed
 	if (computed) {
 		for (const ck of Object.keys(computed)) {
-			if (!Object.prototype.hasOwnProperty.call(self.data, ck)) {
-				self.data[ck] = null
+			if (!Object.prototype.hasOwnProperty.call(ctx.data, ck)) {
+				ctx.data[ck] = null
 			}
 		}
 	}

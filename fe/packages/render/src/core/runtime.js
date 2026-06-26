@@ -216,7 +216,7 @@ class Runtime {
 		const { id, usingComponents, tplComponents } = pageModule.moduleInfo
 		this.pageId = pageId
 		const components = this.createComponent(path, bridgeId, usingComponents)
-		const self = this
+		const that = this
 		const rootCom = 'dd-page'
 		const sId = `data-v-${id}`
 		return {
@@ -248,15 +248,15 @@ class Runtime {
 							provide('bridgeId', bridgeId)
 							provide('path', path)
 							provide(path, {
-								id: self.pageId,
+								id: that.pageId,
 							})
 							provide('info', {
-								id: self.pageId,
+								id: that.pageId,
 								sId,
 							})
 							const instance = getCurrentInstance().proxy
 							instance.__page__ = true
-							self.setModuleInstance(self.pageId, instance)
+							that.setModuleInstance(that.pageId, instance)
 
 							let ticking = false
 							const handleScroll = () => {
@@ -267,7 +267,7 @@ class Runtime {
 											target: 'service',
 											body: {
 												bridgeId,
-												moduleId: self.pageId,
+												moduleId: that.pageId,
 												scrollTop: window.scrollY,
 											},
 										})
@@ -285,7 +285,7 @@ class Runtime {
 										target: 'service',
 										body: {
 											bridgeId,
-											moduleId: self.pageId,
+											moduleId: that.pageId,
 										},
 									})
 								})
@@ -296,9 +296,9 @@ class Runtime {
 							})
 
 						const data = reactive({})
-						self.setupData.set(self.pageId, data)
-						const initData = await message.wait(self.pageId)
-						self.applyInitialData(self.pageId, data, initData)
+						that.setupData.set(that.pageId, data)
+						const initData = await message.wait(that.pageId)
+						that.applyInitialData(that.pageId, data, initData)
 						return data
 					},
 					components,
@@ -386,7 +386,7 @@ class Runtime {
 		}
 
 		const components = {}
-		const self = this
+		const that = this
 		const newDepthChain = [...depthChain, path]
 
 		for (const [componentName, componentPath] of Object.entries(usingComponents)) {
@@ -417,7 +417,7 @@ class Runtime {
 						sId: parentInfo.sId,
 					})
 					const vueInstance = getCurrentInstance()
-					const vueParentId = self.getParentModuleId(vueInstance)
+					const vueParentId = that.getParentModuleId(vueInstance)
 					const parentId = vueParentId || parentInfo.id
 					const pageInfo = inject(path)
 					const pageId = pageInfo.id
@@ -433,7 +433,7 @@ class Runtime {
 						pageId,
 					})
 					const instance = vueInstance.proxy
-					self.setModuleInstance(moduleId, instance)
+					that.setModuleInstance(moduleId, instance)
 
 				const externalClasses = []
 					for (const [k, v] of Object.entries(module.props ?? {})) {
@@ -482,7 +482,7 @@ class Runtime {
 					_pendingResolved = true
 					_resolvePending?.()
 				}
-				self._pendingSetups.set(moduleId, new Promise(r => (_resolvePending = r)))
+				that._pendingSetups.set(moduleId, new Promise(r => (_resolvePending = r)))
 
 				onMounted(() => {
 						nextTick(() => {
@@ -523,16 +523,16 @@ class Runtime {
 							moduleId,
 						},
 					})
-					self.deleteModuleInstance(moduleId)
-					self.setupData.delete(moduleId)
-					self.initializedModules.delete(moduleId)
-					self.preInitUpdates.delete(moduleId)
-					self._pendingSetups.delete(moduleId)
+					that.deleteModuleInstance(moduleId)
+					that.setupData.delete(moduleId)
+					that.initializedModules.delete(moduleId)
+					that.preInitUpdates.delete(moduleId)
+					that._pendingSetups.delete(moduleId)
 					_pendingResolve()
 				})
 
 			const data = reactive({})
-			self.setupData.set(moduleId, data)
+			that.setupData.set(moduleId, data)
 			let skipInitialPropsNotify = true
 			
 		watch(
@@ -572,9 +572,9 @@ class Runtime {
 			)
 					
 					const initData = await message.wait(moduleId)
-					self._pendingSetups.delete(moduleId)
+					that._pendingSetups.delete(moduleId)
 					_pendingResolve()
-					self.applyInitialData(moduleId, data, initData)
+					that.applyInitialData(moduleId, data, initData)
 					return data
 				},
 				render: module.moduleInfo.render,
