@@ -38,6 +38,7 @@ const supportedBuiltinComponents = [
 	"view",
 	"web-view",
 	"wxs",
+	"qds",
 	"include",
 	"import",
 ]

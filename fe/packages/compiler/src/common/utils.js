@@ -150,6 +150,7 @@ const tagWhiteList = [
 	'block',
 	'button',
 	'camera',
+	'canvas',
 	'checkbox-group',
 	'checkbox',
 	'cover-image',

@@ -1208,7 +1208,7 @@ function transTag(opts) {
 	else if (components && components[tag]) {
 		res = `dd-${tag}`
 	}
-	else if (tag === 'component' || tag === 'canvas') {
+	else if (tag === 'component') {
 		// 动态组件
 		res = tag
 	}

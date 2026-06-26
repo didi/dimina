@@ -7,6 +7,8 @@ export const CANVAS_NODE_TYPE = 'dimina-canvas-node'
 const CONTEXT_2D_TYPES = new Set(['2d'])
 const WEBGL_CONTEXT_TYPES = new Set(['webgl', 'experimental-webgl', 'webgl2'])
 const CANVAS_2D_RESOURCE_METHODS = new Set(['createLinearGradient', 'createPattern', 'createRadialGradient'])
+// Methods that return ImageData-like objects (need special handling, not CanvasResource proxy)
+const CANVAS_2D_IMAGEDATA_METHODS = new Set(['getImageData', 'createImageData'])
 const WEBGL_RESOURCE_METHODS = new Set([
 	'createBuffer',
 	'createFramebuffer',
@@ -401,6 +403,21 @@ function makeResourceId(prefix = 'canvas_resource') {
 	return `${prefix}_${uuid()}`
 }
 
+/**
+ * Proxy for ImageData returned by getImageData/createImageData.
+ * Provides .width, .height, .data properties like the Web ImageData interface.
+ * Also carries __canvasResourceId so it can be serialized back for putImageData.
+ */
+class ImageDataProxy {
+	constructor(canvas, resourceId, width, height) {
+		this.__canvasResourceId = resourceId
+		this.canvas = canvas
+		this.width = width
+		this.height = height
+		this.data = new Uint8ClampedArray(width * height * 4)
+	}
+}
+
 class CanvasResource {
 	constructor(canvas, resourceId) {
 		this.__canvasResourceId = resourceId
@@ -523,6 +540,33 @@ class CanvasRenderingContext2DProxy {
 	call(method, args) {
 		if (method === 'measureText') {
 			return { width: String(args[0] ?? '').length * 10 }
+		}
+
+		// getImageData/createImageData return ImageData-like objects, not CanvasResource proxies
+		if (CANVAS_2D_IMAGEDATA_METHODS.has(method)) {
+			const resultId = makeResourceId()
+			this.canvas.enqueueOperation({
+				op: 'contextCall',
+				contextId: this.contextId,
+				method,
+				args: serializeCanvasArgs(args),
+				resultId,
+			})
+			let width, height
+			if (method === 'getImageData') {
+				width = args[2] || 0
+				height = args[3] || 0
+			} else if (typeof args[0] === 'number') {
+				width = args[0] || 0
+				height = args[1] || 0
+			} else if (args[0] && args[0].width) {
+				width = args[0].width
+				height = args[0].height
+			} else {
+				width = 0
+				height = 0
+			}
+			return new ImageDataProxy(this.canvas, resultId, width, height)
 		}
 
 		const resultId = CANVAS_2D_RESOURCE_METHODS.has(method) ? makeResourceId() : undefined
@@ -669,6 +713,7 @@ export class CanvasNode {
 		this.flushScheduled = false
 		this._width = width
 		this._height = height
+		console.log('[canvas-node] CanvasNode created nodeId=' + nodeId + ' bridgeId=' + bridgeId + ' size=' + width + 'x' + height + ' type=' + type + ' offscreen=' + offscreen)
 	}
 
 	get width() {
@@ -700,14 +745,17 @@ export class CanvasNode {
 	getContext(type = '2d', attributes) {
 		const contextType = String(type).toLowerCase()
 		if (!CONTEXT_2D_TYPES.has(contextType) && !WEBGL_CONTEXT_TYPES.has(contextType)) {
+			console.error('[canvas-node] getContext unsupported type:', type)
 			return null
 		}
 
 		if (this.contexts.has(contextType)) {
+			console.log('[canvas-node] getContext cache hit nodeId=' + this.nodeId + ' type=' + contextType)
 			return this.contexts.get(contextType)
 		}
 
 		const contextId = makeResourceId('canvas_context')
+		console.log('[canvas-node] getContext nodeId=' + this.nodeId + ' type=' + contextType + ' contextId=' + contextId)
 		this.enqueueOperation({
 			op: 'getContext',
 			contextId,
@@ -748,6 +796,48 @@ export class CanvasNode {
 		})
 	}
 
+	toDataURL(type = 'image/png', quality, cb) {
+		this.flushOperations()
+		const callbackId = callback.store((result) => {
+			const dataUrl = (result && result.dataUrl) || ''
+			if (isFunction(cb)) cb(dataUrl)
+		})
+		sendCanvasMessage(this.bridgeId, 'canvasNodeToDataURL', {
+			nodeId: this.nodeId,
+			type,
+			quality,
+			callback: callbackId,
+		})
+	}
+
+	canvasToTempFilePath(opts = {}) {
+		return new Promise((resolve, reject) => {
+			const callbackId = callback.store((result) => {
+				if (result && result.tempFilePath) {
+					resolve(result)
+					if (isFunction(opts.success)) opts.success(result)
+				} else {
+					const err = { errMsg: result?.errMsg || 'canvasToTempFilePath:fail' }
+					reject(err)
+					if (isFunction(opts.fail)) opts.fail(err)
+				}
+				if (isFunction(opts.complete)) opts.complete(result)
+			})
+			sendCanvasMessage(this.bridgeId, 'canvasNodeToTempFilePath', {
+				nodeId: this.nodeId,
+				x: opts.x || 0,
+				y: opts.y || 0,
+				width: opts.width,
+				height: opts.height,
+				destWidth: opts.destWidth,
+				destHeight: opts.destHeight,
+				fileType: opts.fileType || 'png',
+				quality: opts.quality || 1.0,
+				callback: callbackId,
+			})
+		})
+	}
+
 	enqueueOperation(operation) {
 		this.pendingOperations.push(operation)
 		if (this.flushScheduled) {
@@ -760,10 +850,13 @@ export class CanvasNode {
 	flushOperations() {
 		this.flushScheduled = false
 		if (this.pendingOperations.length === 0) {
+			console.warn('[canvas-node] flush skipped: no pending operations for', this.nodeId)
 			return
 		}
 		const operations = this.pendingOperations
 		this.pendingOperations = []
+		const opSummary = operations.map(o => o.op + (o.method ? ':' + o.method : o.prop ? ':' + o.prop : ''))
+		console.log('[canvas-node] flush nodeId=' + this.nodeId + ' bridgeId=' + this.bridgeId + ' ops(' + operations.length + '):', JSON.stringify(opSummary))
 		sendCanvasMessage(this.bridgeId, 'canvasNodeFlush', {
 			nodeId: this.nodeId,
 			operations,

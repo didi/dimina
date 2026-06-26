@@ -24,6 +24,19 @@
       }
     ],
     "signingConfigs": [
+      {
+        "name": "default",
+        "type": "HarmonyOS",
+        "material": {
+          "certpath": "/Users/hierifer/.ohos/config/default_harmony_IJHoYWcdtqapWKVRlrpX8I67utSK4-z9d_SutEj2PMA=.cer",
+          "keyAlias": "debugKey",
+          "keyPassword": "0000001B75D294ED3A74FC3236F022E9FA833B5B90A3DDE129E1F5543516E0650390B1C427EA3F84841E7F",
+          "profile": "/Users/hierifer/.ohos/config/default_harmony_IJHoYWcdtqapWKVRlrpX8I67utSK4-z9d_SutEj2PMA=.p7b",
+          "signAlg": "SHA256withECDSA",
+          "storeFile": "/Users/hierifer/.ohos/config/default_harmony_IJHoYWcdtqapWKVRlrpX8I67utSK4-z9d_SutEj2PMA=.p12",
+          "storePassword": "0000001BA49130F8AE83DF994C82DDDBD6E0F22CD7339CA451195DBD8CF485E64BF6072D937502D4702917"
+        }
+      }
     ]
   },
   "modules": [

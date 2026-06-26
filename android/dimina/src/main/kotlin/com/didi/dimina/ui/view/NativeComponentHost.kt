@@ -273,6 +273,7 @@ class NativeComponentHost(
         return when (type) {
             COVER_VIEW_TYPE -> NativeCoverViewComponent(id)
             COVER_IMAGE_TYPE -> NativeCoverImageComponent(id)
+            CANVAS_TYPE -> NativeCanvasComponent(id)
             else -> NativeVideoComponent(id)
         }
     }
@@ -494,6 +495,25 @@ class NativeComponentHost(
                     })
                 }
             }
+        }
+    }
+
+    private inner class NativeCanvasComponent(id: String) :
+        BaseNativeComponent(id, CANVAS_TYPE) {
+        private val canvasView = NativeCanvasView(activity)
+        override val view: View = canvasView
+
+        init {
+            CanvasManager.instance.register(id, canvasView)
+        }
+
+        override fun update(params: JSONObject) {
+            super.update(params)
+        }
+
+        override fun release() {
+            CanvasManager.instance.unregister(id)
+            canvasView.clearAll()
         }
     }
 
@@ -916,7 +936,8 @@ class NativeComponentHost(
         private const val TOUCH_ACTION_POINTER_UP = "pointerUp"
         private const val TOUCH_ACTION_UP = "up"
         private const val TOUCH_ACTION_CANCEL = "cancel"
-        private val SUPPORTED_TYPES = setOf(VIDEO_TYPE, COVER_VIEW_TYPE, COVER_IMAGE_TYPE)
+        private const val CANVAS_TYPE = "native/canvas"
+        private val SUPPORTED_TYPES = setOf(VIDEO_TYPE, COVER_VIEW_TYPE, COVER_IMAGE_TYPE, CANVAS_TYPE)
     }
 
     private fun pxToSp(px: Float): Float {

@@ -59,6 +59,7 @@ Vue 作为底层的渲染框架，自然会与小程序的语法存在一定的�
 | view               |
 | web-view           |
 | wxs                |
+| qds                |
 | include            |
 | import             |
 

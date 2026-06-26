@@ -84,12 +84,17 @@ public class DMPEngine: NSObject {
         }
         
         context.evaluateScript("DiminaServiceBridge = {};")
-        
+
         DMPEngineLog.injectConsole(to: context)
         DMPEngineTimer.registerTimerFunctions(to: context)
         DMPEngineInvoke.registerInvoke(to: context)
         DMPEnginePublish.registerPublish(to: context)
-        
+
+        // Register __SkiaCanvas stub for Skia Canvas detection.
+        // When Skia SDK is integrated, 'available' will be set to true
+        // and createCanvas/destroyCanvas will be implemented with real Skia bindings.
+        context.evaluateScript("globalThis.__SkiaCanvas = { available: false };")
+
     }
     
     @discardableResult

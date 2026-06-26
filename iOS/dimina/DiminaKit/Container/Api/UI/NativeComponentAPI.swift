@@ -41,7 +41,7 @@ public class NativeComponentAPI: DMPContainerApi {
     private static func handleComponent(apiName: String, param: DMPBridgeParam, env: DMPBridgeEnv) {
         let params = param.getMap()
         let type = params.getString(key: "type") ?? "native/video"
-        guard type == "native/video" else { return }
+        guard type == "native/video" || type == "native/canvas" else { return }
 
         guard let app = DMPAppManager.sharedInstance().getApp(appIndex: env.appIndex),
               let webview = app.render?.getWebView(byId: env.webViewId) else {
@@ -70,6 +70,7 @@ private final class DMPIOSNativeComponentHost {
     private let webViewId: Int
     private let overlayView = DMPPassthroughView()
     private var videos: [String: DMPIOSNativeVideoComponent] = [:]
+    private var canvases: [String: NativeCanvasView] = [:]
     private var scrollObservation: NSKeyValueObservation?
 
     static func host(for webview: DMPWebview, app: DMPApp, webViewId: Int) -> DMPIOSNativeComponentHost {
@@ -108,17 +109,32 @@ private final class DMPIOSNativeComponentHost {
 
     func handle(apiName: String, params: DMPMap) {
         guard let id = params.getString(key: "id"), !id.isEmpty else { return }
-        switch apiName {
-        case "componentMount":
-            mountVideo(id: id, params: params)
-        case "propsUpdate":
-            updateVideo(id: id, params: params)
-        case "componentUnmount":
-            unmountVideo(id: id)
-        case "videoContext":
-            videos[id]?.handleCommand(params)
-        default:
-            break
+        let type = params.getString(key: "type") ?? "native/video"
+
+        if type == "native/canvas" {
+            switch apiName {
+            case "componentMount":
+                mountCanvas(id: id, params: params)
+            case "propsUpdate":
+                updateCanvas(id: id, params: params)
+            case "componentUnmount":
+                unmountCanvas(id: id)
+            default:
+                break
+            }
+        } else {
+            switch apiName {
+            case "componentMount":
+                mountVideo(id: id, params: params)
+            case "propsUpdate":
+                updateVideo(id: id, params: params)
+            case "componentUnmount":
+                unmountVideo(id: id)
+            case "videoContext":
+                videos[id]?.handleCommand(params)
+            default:
+                break
+            }
         }
     }
 
@@ -126,6 +142,12 @@ private final class DMPIOSNativeComponentHost {
         scrollObservation = nil
         videos.values.forEach { $0.release() }
         videos.removeAll()
+        canvases.forEach { (id, view) in
+            CanvasManager.shared.unregister(id)
+            view.clearAll()
+            view.removeFromSuperview()
+        }
+        canvases.removeAll()
         overlayView.removeFromSuperview()
     }
 
@@ -152,9 +174,45 @@ private final class DMPIOSNativeComponentHost {
         video.view.removeFromSuperview()
     }
 
+    // MARK: - Canvas
+
+    private func mountCanvas(id: String, params: DMPMap) {
+        let canvasView = canvases[id] ?? NativeCanvasView()
+        if canvases[id] == nil {
+            canvases[id] = canvasView
+            overlayView.addSubview(canvasView)
+            CanvasManager.shared.register(id, canvasView)
+        }
+        updateCanvasLayout(id: id, params: params)
+    }
+
+    private func updateCanvas(id: String, params: DMPMap) {
+        if canvases[id] != nil {
+            updateCanvasLayout(id: id, params: params)
+        } else {
+            mountCanvas(id: id, params: params)
+        }
+    }
+
+    private func unmountCanvas(id: String) {
+        guard let canvasView = canvases.removeValue(forKey: id) else { return }
+        CanvasManager.shared.unregister(id)
+        canvasView.clearAll()
+        canvasView.removeFromSuperview()
+    }
+
+    private func updateCanvasLayout(id: String, params: DMPMap) {
+        guard let canvasView = canvases[id],
+              let frame = calculateLayout(params) else { return }
+        let hidden = params.getBool(key: "hidden") ?? false
+        canvasView.isHidden = hidden
+        canvasView.frame = frame
+    }
+
     fileprivate func updateLayouts() {
         overlayView.frame = wkWebView?.bounds ?? .zero
         videos.values.forEach { $0.applyLastLayout() }
+        // Canvas views don't store lastParams, layout is set on mount/update
     }
 
     fileprivate func calculateLayout(_ params: DMPMap) -> CGRect? {

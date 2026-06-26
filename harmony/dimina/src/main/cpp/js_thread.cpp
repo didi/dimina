@@ -494,10 +494,13 @@ napi_value dispatchJsTaskPath(napi_env env, napi_callback_info info) {
     return nullptr;
 }
 
+void registerSkiaCanvas(JSContext *ctx);
+
 void registerFunc(JSContext *ctx) {
     initBridges(ctx);
     registerInvoke(ctx);
     registerPublish(ctx);
+    registerSkiaCanvas(ctx);
 }
 
 // StartJsEngine 对应JS代码中的接口实现
@@ -608,4 +611,19 @@ void registerPublish(JSContext *ctx) {
     JS_FreeValue(ctx, bridge);
 
     OHLog("registerPublish done");
+}
+
+// Register __SkiaCanvas global object (stub for Skia Canvas detection).
+// When Skia SDK is integrated, 'available' will be set to true
+// and createCanvas/destroyCanvas will be implemented with real Skia bindings.
+void registerSkiaCanvas(JSContext *ctx) {
+    JSValue global = JS_GetGlobalObject(ctx);
+    JSValue skiaCanvas = JS_NewObject(ctx);
+
+    JS_SetPropertyStr(ctx, skiaCanvas, "available", JS_FALSE);
+
+    JS_SetPropertyStr(ctx, global, "__SkiaCanvas", skiaCanvas);
+    JS_FreeValue(ctx, global);
+
+    OHLog("registerSkiaCanvas done");
 }

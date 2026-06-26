@@ -2,6 +2,7 @@
 import { BuilderNode, FrameNode, NodeController, NodeRenderType } from '@kit.ArkUI';
 import { CameraBuilder } from './DMPCameraComponent';
 import { VideoBuilder } from './DMPVideoComponent';
+import { CanvasBuilder } from './DMPCanvasComponent';
 import { DMPLogger } from '../../EventTrack/DMPLogger';
 import { Tags } from '../../EventTrack/Tags';
 import { DMPMap } from '../../Utils/DMPMap';
@@ -119,6 +120,8 @@ export class DMPNodeController extends NodeController {
       this.rootNode.build(wrapBuilder(MapBuilder), this.params)
     } else if (this.type === 'native/webview'){
       this.rootNode.build(wrapBuilder(WebViewBuilder), this.params)
+    } else if (this.type === 'native/canvas') {
+      this.rootNode.build(wrapBuilder(CanvasBuilder), this.params)
     }
     // 返回FrameNode节点。
     return this.rootNode.getFrameNode();

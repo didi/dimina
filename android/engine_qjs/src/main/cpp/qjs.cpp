@@ -1119,6 +1119,19 @@ static void register_timer_functions(JSContext *ctx) {
     JS_FreeValue(ctx, global);
 }
 
+// Register __SkiaCanvas global object (stub for Skia Canvas detection)
+// When Skia SDK is integrated, the 'available' flag will be set to true
+// and createCanvas/destroyCanvas will be implemented with real Skia bindings.
+static void register_skia_canvas(JSContext *ctx) {
+    JSValue global = JS_GetGlobalObject(ctx);
+    JSValue skiaCanvas = JS_NewObject(ctx);
+
+    JS_SetPropertyStr(ctx, skiaCanvas, "available", JS_FALSE);
+
+    JS_SetPropertyStr(ctx, global, "__SkiaCanvas", skiaCanvas);
+    JS_FreeValue(ctx, global);
+}
+
 // Register DiminaServiceBridge global object and methods
 static void register_dimina_service_bridge(JSContext *ctx) {
     // Create the DiminaServiceBridge object
@@ -1195,12 +1208,15 @@ Java_com_didi_dimina_engine_qjs_QuickJSEngine_nativeInitialize(
     
     // Register DiminaServiceBridge global object
     register_dimina_service_bridge(instance->ctx);
-    
+
     // Register console API
     register_console_api(instance->ctx);
-    
+
     // Register timer functions
     register_timer_functions(instance->ctx);
+
+    // Register __SkiaCanvas stub (Skia Canvas detection)
+    register_skia_canvas(instance->ctx);
     
     // Store pointers in Java object
     jclass cls = env->GetObjectClass(thiz);

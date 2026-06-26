@@ -6,6 +6,7 @@ import { DMPMap } from '../Utils/DMPMap';
 import { DMPPageRecord } from '../Navigator/DMPPageRecord';
 import { ResourceLoadType } from '../Container/DMPContainer';
 import { Tags } from '../EventTrack/Tags';
+import { DMPCanvasManager } from '../Render/SameLayer/DMPCanvasManager';
 
 export class DMPChannelProxyNext {
   public static messageHandlerNext(type: string, body: DMPMap,
@@ -127,12 +128,18 @@ export class DMPChannelProxyNext {
     }
   }
 
-  // 不再解析直接透传
+  // 不再解析直接透传（canvas 消息除外，拦截到原生处理）
   public static ServiceToRenderWithAppIndex(dataString: string, webViewId: number, appIndex: number) {
     // DMPLogger.d(Tags.BRIDGE, `ServiceToRenderWithAppIndex ${dataString} `);
     const app = DMPAppManager.sharedInstance().getApp(appIndex);
     if (app) {
-      app.render.fromServiceNext(dataString, webViewId);
+      // Intercept canvas messages and route to native canvas handler
+      if (DMPCanvasManager.sharedInstance().shouldIntercept(dataString)) {
+        DMPLogger.i(Tags.BRIDGE, `ServiceToRender INTERCEPTED canvas message, webViewId=${webViewId}, appIndex=${appIndex}`);
+        DMPCanvasManager.sharedInstance().handleMessage(dataString, webViewId, appIndex);
+      } else {
+        app.render.fromServiceNext(dataString, webViewId);
+      }
     } else {
       DMPLogger.d(Tags.BRIDGE, `ServiceToRender消息失效, appIndex:${appIndex},webviewId:${Number},${dataString}`)
     }

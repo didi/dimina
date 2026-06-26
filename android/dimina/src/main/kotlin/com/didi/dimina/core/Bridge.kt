@@ -9,6 +9,7 @@ import com.didi.dimina.common.PathUtils
 import com.didi.dimina.common.Utils
 import com.didi.dimina.common.VersionUtils
 import com.didi.dimina.engine.qjs.JSValue
+import com.didi.dimina.ui.view.CanvasManager
 import com.didi.dimina.ui.view.DiminaNativeComponentBridge
 import com.didi.dimina.ui.container.DiminaActivity
 import com.didi.dimina.ui.view.DiminaRenderBridge
@@ -191,8 +192,14 @@ class Bridge(
             //  转发到逻辑线程
             options.jscore.postMessage(msg.toString())
         } else if (target == "render") {
-            // 转发到渲染线程
-            options.webview.postMessage(msg.toString())
+            // Intercept canvas messages to native handler
+            val msgStr = msg.toString()
+            if (CanvasManager.shouldIntercept(msgStr)) {
+                CanvasManager.instance.handleMessage(msgStr, this)
+            } else {
+                // 转发到渲染线程
+                options.webview.postMessage(msgStr)
+            }
         }
 
 

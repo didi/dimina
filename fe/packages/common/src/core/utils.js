@@ -352,9 +352,9 @@ export const isAndroid = isBrowser && /Android/i.test(navigator.userAgent)
 
 export const isIOS = isBrowser && /iPad|iPhone|iPod/.test(navigator.userAgent)
 
-export const isHarmonyOS = isBrowser && /OpenHarmony|harmony/.test(navigator.userAgent)
+export const isHarmonyOS = isBrowser && /OpenHarmony|HarmonyOS|harmony|ArkWeb/i.test(navigator.userAgent)
 
-export const isDesktop = isBrowser && !/Android|iPad|iPhone|iPod|OpenHarmony|harmony|Mobile/.test(navigator.userAgent)
+export const isDesktop = isBrowser && !/Android|iPad|iPhone|iPod|OpenHarmony|HarmonyOS|harmony|ArkWeb|Mobile/i.test(navigator.userAgent)
 
 export const isWebWorker = (() => {
 	// eslint-disable-next-line no-undef

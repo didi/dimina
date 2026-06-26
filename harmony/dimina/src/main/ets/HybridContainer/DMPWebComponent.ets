@@ -238,7 +238,14 @@ export struct DMPWebComponent {
   }
 
   private getComponentParams(stack: DMPPageRecord, componentId: string): DMPMap {
-    return stack.componentParams.get(componentId) ?? stack.componentParams[componentId] ?? new DMPMap()
+    const params = stack.componentParams.get(componentId) ?? new DMPMap()
+    // Ensure embed element id is always available in params.
+    // componentMount may not have been called yet (e.g. Canvas on HarmonyOS),
+    // so the id might be missing from componentParams.
+    if (!params.get('id') && componentId) {
+      params.set('id', componentId)
+    }
+    return params
   }
 
   private printLog(message?: ConsoleMessage) {

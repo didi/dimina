@@ -73,7 +73,22 @@ const TYPED_ARRAY_CTORS = {
 }
 
 function isCanvasElement(element) {
-	return element?.tagName?.toLowerCase() === 'canvas'
+	if (element?.tagName?.toLowerCase() === 'canvas') {
+		return true
+	}
+	// Harmony
+	if (element?.tagName?.toLowerCase() === 'embed' && element.type === 'native/canvas') {
+		return true
+	}
+	// Android
+	if (element?.tagName?.toLowerCase() === 'embed' && element.getAttribute?.('comp_type') === 'native/canvas') {
+		return true
+	}
+	// iOS
+	if (element?.hasAttribute?.('data-native-canvas')) {
+		return true
+	}
+	return false
 }
 
 class Runtime {
@@ -732,6 +747,20 @@ class Runtime {
 	}
 
 	getCanvasNodeId(canvas) {
+		// For native canvas embed elements, use the element id as nodeId
+		// so it matches the same-layer rendering componentId
+		// Harmony embed
+		if (canvas.tagName?.toLowerCase() === 'embed' && canvas.type === 'native/canvas' && canvas.id) {
+			return canvas.id
+		}
+		// Android embed
+		if (canvas.tagName?.toLowerCase() === 'embed' && canvas.getAttribute?.('comp_type') === 'native/canvas' && canvas.id) {
+			return canvas.id
+		}
+		// iOS div
+		if (canvas.hasAttribute?.('data-native-canvas') && canvas.id) {
+			return canvas.id
+		}
 		if (!canvas.__diminaCanvasNodeId) {
 			Object.defineProperty(canvas, '__diminaCanvasNodeId', {
 				value: `canvas_${uuid()}`,
@@ -743,11 +772,16 @@ class Runtime {
 
 	registerCanvasNode(canvas, type = canvas.getAttribute?.('type') || '2d') {
 		const nodeId = this.getCanvasNodeId(canvas)
+		const isNativeCanvas = (canvas.tagName?.toLowerCase() === 'embed' && canvas.type === 'native/canvas') ||
+			(canvas.tagName?.toLowerCase() === 'embed' && canvas.getAttribute?.('comp_type') === 'native/canvas') ||
+			(canvas.hasAttribute?.('data-native-canvas'))
 		const isNewNode = !this.canvasNodes.has(nodeId)
 		const rect = canvas.getBoundingClientRect?.()
 		const width = Math.round(rect?.width || 0)
 		const height = Math.round(rect?.height || 0)
-		if (isNewNode && width > 0 && height > 0) {
+		console.log('[render] registerCanvasNode nodeId=' + nodeId + ' tag=' + canvas.tagName + ' isNative=' + isNativeCanvas + ' isNew=' + isNewNode + ' rect=' + width + 'x' + height)
+
+		if (!isNativeCanvas && isNewNode && width > 0 && height > 0) {
 			if (canvas.width !== width) {
 				canvas.width = width
 			}
@@ -759,16 +793,19 @@ class Runtime {
 		if (isNewNode) {
 			this.canvasNodes.set(nodeId, {
 				canvas,
+				nativeCanvas: isNativeCanvas,
 				contexts: new Map(),
 			})
 		}
-		return {
+		const result = {
 			__diminaNodeType: CANVAS_NODE_TYPE,
 			nodeId,
 			type,
 			width: canvas.width || width || 300,
 			height: canvas.height || height || 150,
 		}
+		console.log('[render] registerCanvasNode result:', JSON.stringify(result))
+		return result
 	}
 
 	createOffscreenCanvas({ params }) {
@@ -847,37 +884,56 @@ class Runtime {
 	executeCanvasOperation(node, operation, bridgeId) {
 		switch (operation.op) {
 			case 'setCanvasProperty':
+				console.log('[render] executeOp setCanvasProperty', operation.prop, '=', operation.value)
 				node.canvas[operation.prop] = operation.value
 				break
 			case 'getContext': {
+				console.log('[render] executeOp getContext type=' + operation.contextType + ' contextId=' + operation.contextId + ' isNative=' + !!node.nativeCanvas)
 				const context = node.canvas.getContext(operation.contextType, this.resolveCanvasArg(operation.attributes))
+				if (!context) {
+					console.error('[render] executeOp getContext FAILED: returned null for type=' + operation.contextType + ' canvas tag=' + node.canvas?.tagName)
+				}
 				node.contexts.set(operation.contextId, context)
 				this.setCanvasResource(operation.contextId, context)
 				break
 			}
 			case 'contextSetProperty': {
 				const context = this.getCanvasResource(operation.contextId)
-				if (context) {
+				if (!context) {
+					console.error('[render] executeOp contextSetProperty: context NOT FOUND contextId=' + operation.contextId)
+				} else {
 					context[operation.prop] = this.resolveCanvasArg(operation.value)
 				}
 				break
 			}
 			case 'contextCall': {
 				const context = this.getCanvasResource(operation.contextId)
-				const method = context?.[operation.method]
-				if (typeof method === 'function') {
-					const result = method.apply(context, (operation.args || []).map(arg => this.resolveCanvasArg(arg)))
-					this.setCanvasResource(operation.resultId, result)
+				if (!context) {
+					console.error('[render] executeOp contextCall: context NOT FOUND contextId=' + operation.contextId + ' method=' + operation.method)
+					break
 				}
+				const method = context?.[operation.method]
+				if (typeof method !== 'function') {
+					console.error('[render] executeOp contextCall: method NOT FOUND method=' + operation.method + ' on context type=' + typeof context)
+					break
+				}
+				const result = method.apply(context, (operation.args || []).map(arg => this.resolveCanvasArg(arg)))
+				this.setCanvasResource(operation.resultId, result)
 				break
 			}
 			case 'resourceCall': {
 				const resource = this.getCanvasResource(operation.resourceId)
-				const method = resource?.[operation.method]
-				if (typeof method === 'function') {
-					const result = method.apply(resource, (operation.args || []).map(arg => this.resolveCanvasArg(arg)))
-					this.setCanvasResource(operation.resultId, result)
+				if (!resource) {
+					console.error('[render] executeOp resourceCall: resource NOT FOUND resourceId=' + operation.resourceId + ' method=' + operation.method)
+					break
 				}
+				const method = resource?.[operation.method]
+				if (typeof method !== 'function') {
+					console.error('[render] executeOp resourceCall: method NOT FOUND method=' + operation.method)
+					break
+				}
+				const result = method.apply(resource, (operation.args || []).map(arg => this.resolveCanvasArg(arg)))
+				this.setCanvasResource(operation.resultId, result)
 				break
 			}
 			case 'createImage':
@@ -907,11 +963,14 @@ class Runtime {
 	canvasNodeFlush({ bridgeId, params }) {
 		const node = this.canvasNodes.get(params.nodeId)
 		if (!node) {
-			console.warn('[system]', '[render]', `canvas node ${params.nodeId} not found`)
+			console.error('[render] canvasNodeFlush: node NOT FOUND nodeId=' + params.nodeId + ' registered nodes: [' + Array.from(this.canvasNodes.keys()).join(', ') + ']')
 			return
 		}
+		const ops = params.operations || []
+		const opSummary = ops.map(o => o.op + (o.method ? ':' + o.method : o.prop ? ':' + o.prop : ''))
+		console.log('[render] canvasNodeFlush nodeId=' + params.nodeId + ' isNative=' + !!node.nativeCanvas + ' ops(' + ops.length + '):', JSON.stringify(opSummary))
 
-		for (const operation of params.operations || []) {
+		for (const operation of ops) {
 			this.executeCanvasOperation(node, operation, bridgeId)
 		}
 	}
@@ -1110,9 +1169,14 @@ class Runtime {
 		}
 
 		if (fields.node) {
-			data.node = isCanvasElement(targetElement)
+			const isCanvas = isCanvasElement(targetElement)
+			console.log('[render] selectorQuery fields.node: element tag=' + targetElement?.tagName + ' id=' + targetElement?.id + ' type=' + targetElement?.type + ' isCanvas=' + isCanvas)
+			data.node = isCanvas
 				? this.registerCanvasNode(targetElement)
 				: null
+			if (!isCanvas) {
+				console.error('[render] selectorQuery fields.node: element is NOT a canvas element. tag=' + targetElement?.tagName + ' attributes:', targetElement?.getAttributeNames?.())
+			}
 		}
 		// TODO: 支持获取 VideoContext、CanvasContext、LivePlayerContext、EditorContext和 MapContext
 		// if (fields.context) {

@@ -65,3 +65,11 @@ export class Attributes {
   attrs?: object
   moduleId?: string
 }
+
+export class CanvasParams {
+  id?: string
+  appIndex?: number
+  parentWebViewId?: number
+  width: number | undefined
+  height: number | undefined
+}

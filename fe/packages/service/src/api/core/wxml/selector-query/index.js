@@ -1,7 +1,7 @@
 import { isFunction } from '@dimina/common'
 import { invokeAPI } from '@/api/common'
 import router from '@/core/router'
-import { hydrateSelectorQueryResult } from '../../ui/canvas/canvas-node'
+import { hydrateSelectorQueryResult } from '../../ui/canvas/native-node'
 
 /**
  * 返回一个 SelectorQuery 对象实例。在自定义组件或包含自定义组件的页面中，应使用 this.createSelectorQuery() 来代替。

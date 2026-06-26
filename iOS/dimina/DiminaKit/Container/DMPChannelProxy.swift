@@ -99,6 +99,15 @@ class DMPChannelProxy {
 
     static func serviceToRender(msg: String, webViewId: Int, app: DMPApp?) {
         print("🔴 DMPChannelProxy.serviceToRender: \(msg) \(webViewId) \(app)")
+
+        // Canvas message interception — execute natively instead of forwarding to WebView
+        if CanvasManager.shouldIntercept(msg) {
+            DispatchQueue.main.async {
+                CanvasManager.shared.handleMessage(msg, app: app)
+            }
+            return
+        }
+
         app?.render?.fromService(msg: msg, webViewId: webViewId)
     }
 
