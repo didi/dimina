@@ -55,7 +55,7 @@
 		"autoprefixer": "^10.5.2",
 		"cheerio": "^1.2.0",
 		"chokidar": "^4.0.3",
-		"commander": "^14.0.3",
+		"commander": "^15.0.0",
 		"cssnano": "^8.0.2",
 		"esbuild": "^0.28.1",
 		"htmlparser2": "^12.0.0",
