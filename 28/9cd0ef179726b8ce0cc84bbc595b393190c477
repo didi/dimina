@@ -1,0 +1,34 @@
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "289cd0ef179726b8ce0cc84bbc595b393190c477",
+  "prompts": {
+    "171a6d607901a738": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019eca38-d01a-7320-9d24-cef76fbe2ab5",
+        "model": "gpt-5.5"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 1,
+      "accepted_lines": 0,
+      "overriden_lines": 0
+    },
+    "844001ba50c5a864": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019eca63-b3bc-7361-acbd-dd43f206b984",
+        "model": "gpt-5.5"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 1,
+      "accepted_lines": 0,
+      "overriden_lines": 1
+    }
+  }
+}
