@@ -52,7 +52,7 @@ class Bridge(
                 ), DiminaRenderBridge.TAG)
             options.webview.addJavascriptInterface(
                 DiminaNativeComponentBridge(
-                    touchHandler = { msg -> parent.dispatchNativeComponentTouch(msg, this@Bridge) }
+                    touchHandler = { msg -> parent.dispatchNativeComponentTouch(msg, this) }
                 ), DiminaNativeComponentBridge.TAG)
         }
         // 加载模版页面。调试模式通过 URL 参数让 pageFrame 在 render 初始化前启用 vConsole。
@@ -258,22 +258,24 @@ class Bridge(
         try {
             val apiName = body.getString("name")
 
-            // Handle params that could be either a JSONObject or a string
-            val params = when {
-                // Case 1: params is already a JSONObject
-                body.optJSONObject("params") != null -> body.getJSONObject("params")
-
-                // Case 2: params is a string, try to parse it as JSON
-                body.has("params") -> {
-                    val paramsValue = body.opt("params")
-                    if (paramsValue is JSONArray) {
-                        JSONObject().apply { put("args", body.optJSONArray("params"))}
-                    } else {
-                        JSONObject().apply { put("args", body.optString("params"))}
+            // Handle params that could be either a JSONObject, JSONArray, or a JSON string
+            val params = when (val paramsValue = body.opt("params")) {
+                is JSONObject -> paramsValue
+                is JSONArray -> JSONObject().apply { put("args", paramsValue) }
+                is String -> {
+                    try {
+                        val trimmed = paramsValue.trim()
+                        if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+                            JSONObject(trimmed)
+                        } else if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+                            JSONObject().apply { put("args", JSONArray(trimmed)) }
+                        } else {
+                            JSONObject().apply { put("args", paramsValue) }
+                        }
+                    } catch (e: Exception) {
+                        JSONObject().apply { put("args", paramsValue) }
                     }
                 }
-
-                // Case 3: params is missing or null
                 else -> JSONObject()
             }
 
@@ -300,9 +302,9 @@ class Bridge(
 
     /**
      * 更新 Bridge 的配置信息
-     * @param pathInfo 新的路径信息
-     * @param root 新的根路径
-     * @param configInfo 新的页面配置
+     * @iOS/dimina/DiminaKit/Service/DMPBridgeParam.swift pathInfo 新的路径信息
+     * @iOS/dimina/DiminaKit/Service/DMPBridgeParam.swift root 新的根路径
+     * @iOS/dimina/DiminaKit/Service/DMPBridgeParam.swift configInfo 新的页面配置
      */
     fun updateOptions(
         pathInfo: PathInfo,
