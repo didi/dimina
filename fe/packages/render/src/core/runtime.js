@@ -1343,7 +1343,6 @@ class Runtime {
 		}
 
 		try {
-            this.ensureCanvasResolution(canvas);
             const exportWidth = width || canvas.width;
             const exportHeight = height || canvas.height;
             const outputCanvas = document.createElement("canvas");
