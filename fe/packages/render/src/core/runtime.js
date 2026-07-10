@@ -216,7 +216,7 @@ class Runtime {
 		const { id, usingComponents, tplComponents } = pageModule.moduleInfo
 		this.pageId = pageId
 		const components = this.createComponent(path, bridgeId, usingComponents)
-		const self = this
+		const that = this
 		const rootCom = 'dd-page'
 		const sId = `data-v-${id}`
 		return {
@@ -248,15 +248,15 @@ class Runtime {
 							provide('bridgeId', bridgeId)
 							provide('path', path)
 							provide(path, {
-								id: self.pageId,
+								id: that.pageId,
 							})
 							provide('info', {
-								id: self.pageId,
+								id: that.pageId,
 								sId,
 							})
 							const instance = getCurrentInstance().proxy
 							instance.__page__ = true
-							self.setModuleInstance(self.pageId, instance)
+							that.setModuleInstance(that.pageId, instance)
 
 							let ticking = false
 							const handleScroll = () => {
@@ -267,7 +267,7 @@ class Runtime {
 											target: 'service',
 											body: {
 												bridgeId,
-												moduleId: self.pageId,
+												moduleId: that.pageId,
 												scrollTop: window.scrollY,
 											},
 										})
@@ -285,7 +285,7 @@ class Runtime {
 										target: 'service',
 										body: {
 											bridgeId,
-											moduleId: self.pageId,
+											moduleId: that.pageId,
 										},
 									})
 								})
@@ -296,9 +296,9 @@ class Runtime {
 							})
 
 						const data = reactive({})
-						self.setupData.set(self.pageId, data)
-						const initData = await message.wait(self.pageId)
-						self.applyInitialData(self.pageId, data, initData)
+						that.setupData.set(that.pageId, data)
+						const initData = await message.wait(that.pageId)
+						that.applyInitialData(that.pageId, data, initData)
 						return data
 					},
 					components,
@@ -386,7 +386,7 @@ class Runtime {
 		}
 
 		const components = {}
-		const self = this
+		const that = this
 		const newDepthChain = [...depthChain, path]
 
 		for (const [componentName, componentPath] of Object.entries(usingComponents)) {
@@ -417,7 +417,7 @@ class Runtime {
 						sId: parentInfo.sId,
 					})
 					const vueInstance = getCurrentInstance()
-					const vueParentId = self.getParentModuleId(vueInstance)
+					const vueParentId = that.getParentModuleId(vueInstance)
 					const parentId = vueParentId || parentInfo.id
 					const pageInfo = inject(path)
 					const pageId = pageInfo.id
@@ -433,7 +433,7 @@ class Runtime {
 						pageId,
 					})
 					const instance = vueInstance.proxy
-					self.setModuleInstance(moduleId, instance)
+					that.setModuleInstance(moduleId, instance)
 
 				const externalClasses = []
 					for (const [k, v] of Object.entries(module.props ?? {})) {
@@ -482,7 +482,7 @@ class Runtime {
 					_pendingResolved = true
 					_resolvePending?.()
 				}
-				self._pendingSetups.set(moduleId, new Promise(r => (_resolvePending = r)))
+				that._pendingSetups.set(moduleId, new Promise(r => (_resolvePending = r)))
 
 				onMounted(() => {
 						nextTick(() => {
@@ -523,16 +523,16 @@ class Runtime {
 							moduleId,
 						},
 					})
-					self.deleteModuleInstance(moduleId)
-					self.setupData.delete(moduleId)
-					self.initializedModules.delete(moduleId)
-					self.preInitUpdates.delete(moduleId)
-					self._pendingSetups.delete(moduleId)
+					that.deleteModuleInstance(moduleId)
+					that.setupData.delete(moduleId)
+					that.initializedModules.delete(moduleId)
+					that.preInitUpdates.delete(moduleId)
+					that._pendingSetups.delete(moduleId)
 					_pendingResolve()
 				})
 
 			const data = reactive({})
-			self.setupData.set(moduleId, data)
+			that.setupData.set(moduleId, data)
 			let skipInitialPropsNotify = true
 			
 		watch(
@@ -572,9 +572,9 @@ class Runtime {
 			)
 					
 					const initData = await message.wait(moduleId)
-					self._pendingSetups.delete(moduleId)
+					that._pendingSetups.delete(moduleId)
 					_pendingResolve()
-					self.applyInitialData(moduleId, data, initData)
+					that.applyInitialData(moduleId, data, initData)
 					return data
 				},
 				render: module.moduleInfo.render,
@@ -839,6 +839,7 @@ class Runtime {
 		let image = this.getCanvasResource(imageId)
 		if (!image) {
 			image = new Image()
+			image.crossOrigin = "anonymous";
 			this.setCanvasResource(imageId, image)
 		}
 		return image
@@ -846,62 +847,107 @@ class Runtime {
 
 	executeCanvasOperation(node, operation, bridgeId) {
 		switch (operation.op) {
-			case 'setCanvasProperty':
-				node.canvas[operation.prop] = operation.value
-				break
-			case 'getContext': {
-				const context = node.canvas.getContext(operation.contextType, this.resolveCanvasArg(operation.attributes))
-				node.contexts.set(operation.contextId, context)
-				this.setCanvasResource(operation.contextId, context)
-				break
-			}
-			case 'contextSetProperty': {
-				const context = this.getCanvasResource(operation.contextId)
-				if (context) {
-					context[operation.prop] = this.resolveCanvasArg(operation.value)
-				}
-				break
-			}
-			case 'contextCall': {
-				const context = this.getCanvasResource(operation.contextId)
-				const method = context?.[operation.method]
-				if (typeof method === 'function') {
-					const result = method.apply(context, (operation.args || []).map(arg => this.resolveCanvasArg(arg)))
-					this.setCanvasResource(operation.resultId, result)
-				}
-				break
-			}
-			case 'resourceCall': {
-				const resource = this.getCanvasResource(operation.resourceId)
-				const method = resource?.[operation.method]
-				if (typeof method === 'function') {
-					const result = method.apply(resource, (operation.args || []).map(arg => this.resolveCanvasArg(arg)))
-					this.setCanvasResource(operation.resultId, result)
-				}
-				break
-			}
-			case 'createImage':
-				this.getCanvasImage(operation.imageId)
-				break
-			case 'imageSetSrc': {
-				const image = this.getCanvasImage(operation.imageId)
-				image.onload = () => {
-					this.triggerCallback(bridgeId, operation.onload, {
-						width: image.width,
-						height: image.height,
-					})
-				}
-				image.onerror = () => {
-					this.triggerCallback(bridgeId, operation.onerror, {
-						errMsg: `createImage:fail ${operation.src}`,
-					})
-				}
-				image.src = operation.src
-				break
-			}
-			default:
-				console.warn('[system]', '[render]', `Unsupported canvas node operation: ${operation.op}`)
-		}
+            case "setCanvasProperty":
+                node.canvas[operation.prop] = operation.value;
+                break;
+            case "getContext": {
+                const context = node.canvas.getContext(
+                    operation.contextType,
+                    this.resolveCanvasArg(operation.attributes),
+                );
+                node.contexts.set(operation.contextId, context);
+                this.setCanvasResource(operation.contextId, context);
+                break;
+            }
+            case "contextSetProperty": {
+                const context = this.getCanvasResource(operation.contextId);
+                if (context) {
+                    context[operation.prop] = this.resolveCanvasArg(
+                        operation.value,
+                    );
+                }
+                break;
+            }
+            case "contextCall": {
+                const context = this.getCanvasResource(operation.contextId);
+                const method = context?.[operation.method];
+                if (typeof method === "function") {
+                    const result = method.apply(
+                        context,
+                        (operation.args || []).map((arg) =>
+                            this.resolveCanvasArg(arg),
+                        ),
+                    );
+                    this.setCanvasResource(operation.resultId, result);
+                }
+                break;
+            }
+            case "resourceCall": {
+                const resource = this.getCanvasResource(operation.resourceId);
+                const method = resource?.[operation.method];
+                if (typeof method === "function") {
+                    const result = method.apply(
+                        resource,
+                        (operation.args || []).map((arg) =>
+                            this.resolveCanvasArg(arg),
+                        ),
+                    );
+                    this.setCanvasResource(operation.resultId, result);
+                }
+                break;
+            }
+            case "createImage":
+                this.getCanvasImage(operation.imageId);
+                break;
+            case "imageSetSrc": {
+                const image = this.getCanvasImage(operation.imageId);
+                image.onload = () => {
+                    this.triggerCallback(bridgeId, operation.onload, {
+                        width: image.width,
+                        height: image.height,
+                    });
+                };
+                image.onerror = () => {
+                    this.triggerCallback(bridgeId, operation.onerror, {
+                        errMsg: `createImage:fail ${operation.src}`,
+                    });
+                };
+                image.src = operation.src;
+                break;
+            }
+            case "getImageData": {
+                const context = this.getCanvasResource(operation.contextId);
+                if (context) {
+                    const imageData = context.getImageData(
+                        operation.x,
+                        operation.y,
+                        operation.width,
+                        operation.height,
+                    );
+                    this.triggerCallback(bridgeId, operation.callback, {
+                        data: Array.from(imageData.data),
+                        width: imageData.width,
+                        height: imageData.height,
+                    });
+                }
+                break;
+            }
+            case "toDataURL": {
+                const mimeType = operation.mimeType || "image/png";
+                const dataURL =
+                    operation.quality !== undefined
+                        ? node.canvas.toDataURL(mimeType, operation.quality)
+                        : node.canvas.toDataURL(mimeType);
+                this.triggerCallback(bridgeId, operation.callback, dataURL);
+                break;
+            }
+            default:
+                console.warn(
+                    "[system]",
+                    "[render]",
+                    `Unsupported canvas node operation: ${operation.op}`,
+                );
+        }
 	}
 
 	canvasNodeFlush({ bridgeId, params }) {
@@ -1297,34 +1343,75 @@ class Runtime {
 		}
 
 		try {
-			this.ensureCanvasResolution(canvas)
-			const exportWidth = width || canvas.width
-			const exportHeight = height || canvas.height
-			const outputCanvas = document.createElement('canvas')
-			outputCanvas.width = destWidth || exportWidth
-			outputCanvas.height = destHeight || exportHeight
-			const outputContext = outputCanvas.getContext('2d')
-			outputContext.drawImage(
-				canvas,
-				x,
-				y,
-				exportWidth,
-				exportHeight,
-				0,
-				0,
-				outputCanvas.width,
-				outputCanvas.height,
-			)
+            this.ensureCanvasResolution(canvas);
+            const exportWidth = width || canvas.width;
+            const exportHeight = height || canvas.height;
+            const outputCanvas = document.createElement("canvas");
+            outputCanvas.width = destWidth || exportWidth;
+            outputCanvas.height = destHeight || exportHeight;
+            const outputContext = outputCanvas.getContext("2d");
+            outputContext.drawImage(
+                canvas,
+                x,
+                y,
+                exportWidth,
+                exportHeight,
+                0,
+                0,
+                outputCanvas.width,
+                outputCanvas.height,
+            );
 
-			const mimeType = fileType === 'jpg' || fileType === 'jpeg' ? 'image/jpeg' : 'image/png'
-			const tempFilePath = outputCanvas.toDataURL(mimeType, quality)
-			const result = {
-				errMsg: 'canvasToTempFilePath:ok',
-				tempFilePath,
-			}
-			this.triggerCallback(bridgeId, params.success, [result], result)
-			this.triggerCallback(bridgeId, params.complete, [result], result)
-		}
+            const mimeType =
+                fileType === "jpg" || fileType === "jpeg"
+                    ? "image/jpeg"
+                    : "image/png";
+            const dataURL = outputCanvas.toDataURL(mimeType, quality);
+
+            // TODO: 添加一个 H5 的容器标识在 userAgent
+            // const byteString = atob(dataURL.split(",")[1]);
+            // const ab = new ArrayBuffer(byteString.length);
+            // const ia = new Uint8Array(ab);
+            // for (let i = 0; i < byteString.length; i++) {
+            //     ia[i] = byteString.charCodeAt(i);
+            // }
+            // const blob = new Blob([ab], { type: mimeType });
+            // const tempFilePath = URL.createObjectURL(blob);
+
+            // const result = {
+            //     tempFilePath,
+            //     errMsg: "canvasToTempFilePath:ok",
+            // };
+            // this.triggerCallback(
+            //     bridgeId,
+            //     params.success,
+            //     [result],
+            //     result,
+            // );
+            // this.triggerCallback(
+            //     bridgeId,
+            //     params.complete,
+            //     [result],
+            //     result,
+            // );
+
+            // Forward to Container to write base64 to a temp file and return a real file path
+            message.invoke({
+                type: "invokeAPI",
+                target: "container",
+                body: {
+                    name: "saveCanvasTempFile",
+                    bridgeId,
+                    params: {
+                        dataURL,
+                        fileType,
+                        success: params.success,
+                        fail: params.fail,
+                        complete: params.complete,
+                    },
+                },
+            });
+        }
 		catch (error) {
 			this.triggerCanvasFailure(bridgeId, params, `canvasToTempFilePath:fail ${error.message}`)
 		}

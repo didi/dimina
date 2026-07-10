@@ -59,13 +59,13 @@ class IntersectionObserver {
 	 * https://developers.weixin.qq.com/miniprogram/dev/api/wxml/IntersectionObserver.observe.html
 	 */
 	observe(targetSelector, listener) {
-		const self = this
+		const that = this
 		const id = callback.store((res) => {
-			if (!self._disconnected) {
-				self._observerId = res.observerId
+			if (!that._disconnected) {
+				that._observerId = res.observerId
 			}
 			if (res.info) {
-				listener.call(self, res.info)
+				listener.call(that, res.info)
 			}
 		}, true)
 

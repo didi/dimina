@@ -132,7 +132,7 @@ function invokeMessage(name, params, target) {
 	}
 }
 
-function invokePromiseAPI(name, params, target) {
+export function invokePromiseAPI(name, params, target) {
 	return new Promise((resolve, reject) => {
 		let successId
 		let failId
