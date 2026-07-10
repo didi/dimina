@@ -35,6 +35,19 @@ export class Page {
 		this.#initMembers()
 		return this.#invokeInitLifecycle().then(() => {
 			addComputedData(this)
+			console.log(`[service] page.init send data, moduleId: ${this.__id__}, path: ${this.is}`)
+			message.send({
+				type: this.__id__,
+				target: 'render',
+				body: {
+					bridgeId: this.bridgeId,
+					path: this.is,
+					data: this.data,
+				},
+			})
+		}).catch((err) => {
+			console.error(`[service] page.init lifecycle error, path: ${this.is}, moduleId: ${this.__id__}`, err)
+			// 即使生命周期出错，也要发送数据消息，否则渲染层会永远阻塞
 			message.send({
 				type: this.__id__,
 				target: 'render',

@@ -629,6 +629,119 @@
 	}
   }
 
+// JoinIsland 底部弹窗样式（参照 HarmonyOS JoinIslandDialog）
+.dimina-join-island-mask {
+	position: fixed;
+	left: 0;
+	top: 0;
+	right: 0;
+	bottom: 0;
+	background: rgba(0,0,0,0.4);
+	z-index: 2000;
+	opacity: 0;
+	transition: opacity 0.2s;
+	&.show {
+		opacity: 1;
+	}
+}
+
+.dimina-join-island {
+	position: fixed;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	background: #fff;
+	border-radius: 12px 12px 0 0;
+	z-index: 2001;
+	transform: translateY(100%);
+	transition: transform 0.2s;
+
+	&.show {
+		transform: translateY(0);
+	}
+
+	.dimina-join-island__title {
+		font-size: 16px;
+		color: #202020;
+		text-align: center;
+		padding: 20px 0 16px;
+	}
+
+	.dimina-join-island__divider {
+		height: 0.5px;
+		background: #F2F2F2;
+	}
+
+	.dimina-join-island__row {
+		display: flex;
+		align-items: center;
+		padding: 16px 20px;
+	}
+
+	.dimina-join-island__avatar {
+		width: 44px;
+		height: 44px;
+		border-radius: 8px;
+		background: #E8E8E8;
+		flex-shrink: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 18px;
+		font-weight: 500;
+		color: #999;
+	}
+
+	.dimina-join-island__info {
+		flex: 1;
+		margin-left: 12px;
+		min-width: 0;
+	}
+
+	.dimina-join-island__name {
+		font-size: 16px;
+		font-weight: 500;
+		color: #202020;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.dimina-join-island__members {
+		font-size: 12px;
+		color: #999999;
+		margin-top: 4px;
+	}
+
+	.dimina-join-island__join-btn {
+		font-size: 14px;
+		color: #fff;
+		background: #222;
+		border: none;
+		border-radius: 18px;
+		height: 36px;
+		padding: 0 20px;
+		cursor: pointer;
+		flex-shrink: 0;
+
+		&:hover {
+			background: #333;
+		}
+	}
+
+	.dimina-join-island__cancel {
+		font-size: 16px;
+		color: #999;
+		text-align: center;
+		padding: 16px 0;
+		cursor: pointer;
+
+		&:hover {
+			background: #F8F8F8;
+		}
+	}
+}
+
 // TabBar 样式
 .dimina-mini-app__tabbar {
 	position: absolute;

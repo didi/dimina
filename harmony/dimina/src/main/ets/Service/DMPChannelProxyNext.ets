@@ -64,6 +64,19 @@ export class DMPChannelProxyNext {
       if (type === 'invokeAPI') {
         const name: string = body.get('name');
 
+        // Canvas sync APIs — route to DMPCanvasManager for native canvas handling
+        if (name === 'canvasGetImageData') {
+          DMPLogger.i(Tags.BRIDGE, `messageHandlerNext INTERCEPTED canvasGetImageData, webViewId=${webViewId}, appIndex=${app.appIndex}, params=${JSON.stringify(body.get('params'))}`)
+          const result = DMPCanvasManager.sharedInstance().handleGetImageData(body.get('params'), webViewId, app.appIndex)
+          DMPLogger.i(Tags.BRIDGE, `messageHandlerNext canvasGetImageData result: dataLen=${result.data?.length}, preview=[${result.data?.slice(0, 8).join(',')}]`)
+          return result
+        } else if (name === 'canvasToDataURLSync') {
+          DMPLogger.i(Tags.BRIDGE, `messageHandlerNext INTERCEPTED canvasToDataURLSync, webViewId=${webViewId}, appIndex=${app.appIndex}`)
+          const result = DMPCanvasManager.sharedInstance().handleToDataURLSync(body.get('params'), webViewId, app.appIndex)
+          DMPLogger.i(Tags.BRIDGE, `messageHandlerNext canvasToDataURLSync result: urlLen=${result.dataUrl?.length}`)
+          return result
+        }
+
         if (typeof body.get('params') == 'string' || typeof body.get('params') == 'number' ||
           typeof body.get('params') == 'boolean' || Array.isArray(body.get('params'))) {
           return app.container.callBridgeMethods(name, webViewId, body.get('params'), app)

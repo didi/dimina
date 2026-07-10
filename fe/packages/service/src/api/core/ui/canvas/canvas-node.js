@@ -8,7 +8,7 @@ const CONTEXT_2D_TYPES = new Set(['2d'])
 const WEBGL_CONTEXT_TYPES = new Set(['webgl', 'experimental-webgl', 'webgl2'])
 const CANVAS_2D_RESOURCE_METHODS = new Set(['createLinearGradient', 'createPattern', 'createRadialGradient'])
 // Methods that return ImageData-like objects (need special handling, not CanvasResource proxy)
-const CANVAS_2D_IMAGEDATA_METHODS = new Set(['getImageData', 'createImageData'])
+const CANVAS_2D_IMAGEDATA_METHODS = new Set(['createImageData'])
 const WEBGL_RESOURCE_METHODS = new Set([
 	'createBuffer',
 	'createFramebuffer',
@@ -542,7 +542,43 @@ class CanvasRenderingContext2DProxy {
 			return { width: String(args[0] ?? '').length * 10 }
 		}
 
-		// getImageData/createImageData return ImageData-like objects, not CanvasResource proxies
+		// getImageData: synchronous — flush pending ops and invoke native bridge directly
+		if (method === 'getImageData') {
+			const operations = this.canvas.pendingOperations
+			this.canvas.pendingOperations = []
+			this.canvas.flushScheduled = false
+
+			console.log('[service] [Canvas] getImageData: nodeId=' + this.canvas.nodeId + ' x=' + (args[0] || 0) + ' y=' + (args[1] || 0) + ' w=' + (args[2] || 0) + ' h=' + (args[3] || 0) + ' pendingOps=' + operations.length)
+
+			const result = message.invoke({
+				type: 'invokeAPI',
+				target: 'container',
+				body: {
+					bridgeId: this.canvas.bridgeId,
+					name: 'canvasGetImageData',
+					params: {
+						nodeId: this.canvas.nodeId,
+						operations,
+						x: args[0] || 0,
+						y: args[1] || 0,
+						width: args[2] || 0,
+						height: args[3] || 0,
+					},
+				},
+			})
+
+			console.log('[service] [Canvas] getImageData result: hasData=' + !!(result && result.data) + ' dataLen=' + (result?.data?.length || 0))
+
+			const width = args[2] || 0
+			const height = args[3] || 0
+			const proxy = new ImageDataProxy(this.canvas, makeResourceId(), width, height)
+			if (result && result.data) {
+				proxy.data = new Uint8ClampedArray(result.data)
+			}
+			return proxy
+		}
+
+		// createImageData returns ImageData-like objects, not CanvasResource proxies
 		if (CANVAS_2D_IMAGEDATA_METHODS.has(method)) {
 			const resultId = makeResourceId()
 			this.canvas.enqueueOperation({
@@ -553,10 +589,7 @@ class CanvasRenderingContext2DProxy {
 				resultId,
 			})
 			let width, height
-			if (method === 'getImageData') {
-				width = args[2] || 0
-				height = args[3] || 0
-			} else if (typeof args[0] === 'number') {
+			if (typeof args[0] === 'number') {
 				width = args[0] || 0
 				height = args[1] || 0
 			} else if (args[0] && args[0].width) {
@@ -796,18 +829,30 @@ export class CanvasNode {
 		})
 	}
 
-	toDataURL(type = 'image/png', quality, cb) {
-		this.flushOperations()
-		const callbackId = callback.store((result) => {
-			const dataUrl = (result && result.dataUrl) || ''
-			if (isFunction(cb)) cb(dataUrl)
+	toDataURL(type = 'image/png', quality) {
+		const operations = this.pendingOperations
+		this.pendingOperations = []
+		this.flushScheduled = false
+
+		console.log('[service] [Canvas] toDataURL: nodeId=' + this.nodeId + ' type=' + type + ' pendingOps=' + operations.length)
+
+		const result = message.invoke({
+			type: 'invokeAPI',
+			target: 'container',
+			body: {
+				bridgeId: this.bridgeId,
+				name: 'canvasToDataURLSync',
+				params: {
+					nodeId: this.nodeId,
+					operations,
+					type,
+					quality,
+				},
+			},
 		})
-		sendCanvasMessage(this.bridgeId, 'canvasNodeToDataURL', {
-			nodeId: this.nodeId,
-			type,
-			quality,
-			callback: callbackId,
-		})
+
+		console.log('[service] [Canvas] toDataURL result: hasDataUrl=' + !!(result && result.dataUrl) + ' len=' + (result?.dataUrl?.length || 0))
+		return (result && result.dataUrl) || ''
 	}
 
 	canvasToTempFilePath(opts = {}) {

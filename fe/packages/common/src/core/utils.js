@@ -354,6 +354,8 @@ export const isIOS = isBrowser && /iPad|iPhone|iPod/.test(navigator.userAgent)
 
 export const isHarmonyOS = isBrowser && /OpenHarmony|HarmonyOS|harmony|ArkWeb/i.test(navigator.userAgent)
 
+export const isEmbedEnabled = isBrowser && /embed-enable/i.test(navigator.userAgent)
+
 export const isDesktop = isBrowser && !/Android|iPad|iPhone|iPod|OpenHarmony|HarmonyOS|harmony|ArkWeb|Mobile/i.test(navigator.userAgent)
 
 export const isWebWorker = (() => {

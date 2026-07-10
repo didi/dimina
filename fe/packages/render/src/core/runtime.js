@@ -775,11 +775,16 @@ class Runtime {
 		const isNativeCanvas = (canvas.tagName?.toLowerCase() === 'embed' && canvas.type === 'native/canvas') ||
 			(canvas.tagName?.toLowerCase() === 'embed' && canvas.getAttribute?.('comp_type') === 'native/canvas') ||
 			(canvas.hasAttribute?.('data-native-canvas'))
+		// For native canvas embed elements, the embed 'type' attribute is 'native/canvas'
+		// which is the same-layer rendering type, not the canvas context type. Override to '2d'.
+		if (isNativeCanvas && type === 'native/canvas') {
+			type = '2d'
+		}
 		const isNewNode = !this.canvasNodes.has(nodeId)
 		const rect = canvas.getBoundingClientRect?.()
 		const width = Math.round(rect?.width || 0)
 		const height = Math.round(rect?.height || 0)
-		console.log('[render] registerCanvasNode nodeId=' + nodeId + ' tag=' + canvas.tagName + ' isNative=' + isNativeCanvas + ' isNew=' + isNewNode + ' rect=' + width + 'x' + height)
+		console.log('[render] registerCanvasNode nodeId=' + nodeId + ' tag=' + canvas.tagName + ' isNative=' + isNativeCanvas + ' isNew=' + isNewNode + ' rect=' + width + 'x' + height + ' type=' + type)
 
 		if (!isNativeCanvas && isNewNode && width > 0 && height > 0) {
 			if (canvas.width !== width) {

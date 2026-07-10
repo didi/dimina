@@ -96,6 +96,17 @@ export class Component {
 					data: this.data,
 				},
 			})
+		}).catch((err) => {
+			console.error(`[service] component.init lifecycle error, path: ${this.is}, moduleId: ${this.__id__}`, err)
+			message.send({
+				type: this.__id__,
+				target: 'render',
+				body: {
+					bridgeId: this.bridgeId,
+					path: this.is,
+					data: this.data,
+				},
+			})
 		})
 	}
 

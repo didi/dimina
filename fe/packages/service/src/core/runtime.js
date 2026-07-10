@@ -120,8 +120,10 @@ class Runtime {
 			if (!module.isComponent) {
 				router.push(component, stackId)
 			}
-			component.init()
-			
+			component.init().catch((err) => {
+				console.error(`[service] component.init() error, path: ${path}, moduleId: ${moduleId}`, err)
+			})
+
 			return component
 		}
 		else if (module.type === PageModule.type) {
@@ -133,7 +135,9 @@ class Runtime {
 			})
 			this.instances[bridgeId][moduleId] = page
 			router.push(page, stackId)
-			page.init()
+			page.init().catch((err) => {
+				console.error(`[service] page.init() error, path: ${path}, moduleId: ${moduleId}`, err)
+			})
 			return page
 		}
 		else {

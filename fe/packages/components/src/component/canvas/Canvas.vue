@@ -1,7 +1,7 @@
 <script setup>
 // Canvas 组件
 // https://developers.weixin.qq.com/miniprogram/dev/component/canvas.html
-import { isHarmonyOS, isDesktop, isAndroid, isIOS } from '@dimina/common'
+import { isHarmonyOS, isDesktop, isAndroid, isIOS, isEmbedEnabled } from '@dimina/common'
 import { invokeAPI, useInfo } from '@/common/events'
 
 const props = defineProps({
@@ -25,7 +25,8 @@ const props = defineProps({
 
 const rootRef = ref()
 const info = useInfo()
-const isNativeCanvas = computed(() => isAndroid || isIOS || isHarmonyOS)
+const isNativeCanvas = computed(() => isEmbedEnabled && (isAndroid || isIOS || isHarmonyOS))
+console.log('[render] [Canvas] embedEnabled=' + isEmbedEnabled + ' isAndroid=' + isAndroid + ' isIOS=' + isIOS + ' isHarmonyOS=' + isHarmonyOS + ' isNativeCanvas=' + isNativeCanvas.value)
 let syncFrameId = 0
 let lastRectKey = ''
 let resizeObserver
@@ -94,6 +95,8 @@ function scheduleSyncRect() {
 }
 
 onMounted(() => {
+	const el = rootRef.value
+	console.log('[render] [Canvas] onMounted id=' + canvasNodeId.value + ' isNative=' + isNativeCanvas.value + ' tag=' + el?.tagName + ' el=' + !!el)
 	if (!isNativeCanvas.value) {
 		return
 	}
@@ -124,7 +127,7 @@ onBeforeUnmount(() => {
 
 <template>
 	<embed
-		v-if="isAndroid"
+		v-if="isAndroid && isEmbedEnabled"
 		:id="canvasNodeId"
 		ref="rootRef"
 		v-bind="$attrs"
@@ -135,7 +138,7 @@ onBeforeUnmount(() => {
 		comp_type="native/canvas"
 	/>
 	<div
-		v-else-if="isIOS"
+		v-else-if="isIOS && isEmbedEnabled"
 		:id="canvasNodeId"
 		ref="rootRef"
 		v-bind="$attrs"
@@ -143,7 +146,7 @@ onBeforeUnmount(() => {
 		data-native-canvas
 	/>
 	<embed
-		v-else-if="isHarmonyOS"
+		v-else-if="isHarmonyOS && isEmbedEnabled"
 		:id="canvasNodeId"
 		ref="rootRef"
 		v-bind="$attrs"

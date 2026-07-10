@@ -4,6 +4,7 @@
 #include "napi/native_api.h"
 #include <future>
 #include "utils.h"
+#include "canvas_bindings.h"
 #include "types/qjs_extension/settimeout.h"
 #include <sys/mman.h> // 包含 mmap, munmap 等函数
 #include <unistd.h>   // 包含 close 函数
@@ -494,8 +495,6 @@ napi_value dispatchJsTaskPath(napi_env env, napi_callback_info info) {
     return nullptr;
 }
 
-void registerSkiaCanvas(JSContext *ctx);
-
 void registerFunc(JSContext *ctx) {
     initBridges(ctx);
     registerInvoke(ctx);
@@ -561,6 +560,7 @@ napi_value destroyJsEngine(napi_env env, napi_callback_info info) {
     }
 
     OHWarn("thread destroyJsEngine for appIndex: %{public}d", appIndex);
+    cleanupCanvasBindings(appIndex);
     engine->destroyEngine();
     OHWarn("thread delete engine for appIndex: %{public}d", appIndex);
 
@@ -613,17 +613,3 @@ void registerPublish(JSContext *ctx) {
     OHLog("registerPublish done");
 }
 
-// Register __SkiaCanvas global object (stub for Skia Canvas detection).
-// When Skia SDK is integrated, 'available' will be set to true
-// and createCanvas/destroyCanvas will be implemented with real Skia bindings.
-void registerSkiaCanvas(JSContext *ctx) {
-    JSValue global = JS_GetGlobalObject(ctx);
-    JSValue skiaCanvas = JS_NewObject(ctx);
-
-    JS_SetPropertyStr(ctx, skiaCanvas, "available", JS_FALSE);
-
-    JS_SetPropertyStr(ctx, global, "__SkiaCanvas", skiaCanvas);
-    JS_FreeValue(ctx, global);
-
-    OHLog("registerSkiaCanvas done");
-}

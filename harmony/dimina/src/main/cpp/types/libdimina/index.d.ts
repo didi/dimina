@@ -12,3 +12,6 @@ export const dispatchJsTaskPath: (appIndex: number, script: string) => void;
 export const destroyJsEngine: (appIndex: number) => number;
 
 export const brotliDecompress: (data: ArrayBuffer) => ArrayBuffer;
+
+export const registerCanvasTsfn: (appIndex: number,
+  callback: (type: number, data: string) => string) => void;

@@ -1,0 +1,18 @@
+<view class="container">
+  <view class="canvas-wrap">
+    <canvas id="testCanvas" type="2d" class="canvas"></canvas>
+  </view>
+
+  <view class="btn-area">
+    <button size="mini" type="primary" bindtap="testFillRect">fillRect</button>
+    <button size="mini" type="primary" bindtap="testStrokeRect">strokeRect</button>
+    <button size="mini" type="primary" bindtap="testPath">path</button>
+    <button size="mini" type="primary" bindtap="testText">text</button>
+    <button size="mini" type="primary" bindtap="testGradient">gradient</button>
+    <button size="mini" type="primary" bindtap="testTransform">transform</button>
+    <button size="mini" type="primary" bindtap="testCreateImage">createImage</button>
+    <button size="mini" type="warn" bindtap="testClear">clear</button>
+  </view>
+
+  <view class="log">{{logText}}</view>
+</view>

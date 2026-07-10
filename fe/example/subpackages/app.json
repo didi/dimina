@@ -53,7 +53,8 @@
         "pages/audio/audio",
         "pages/video/video",
         "pages/map/map",
-        "pages/canvas/canvas"
+        "pages/canvas/canvas",
+        "pages/canvas-native/canvas-native"
       ]
     },
     {

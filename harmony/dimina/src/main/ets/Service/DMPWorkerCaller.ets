@@ -14,6 +14,12 @@ export class DMPWorkerCaller {
       return result.toJSON();
     } else if (typeof result === "object" && result !== null) {
       // DMPLogger.d(Tags.JS_ENGINE, `caller 2 ${JSON.stringify(result)}`);
+      // Log canvas result details for debugging
+      const r = result as Record<string, Object>
+      if (r['data'] !== undefined) {
+        const dataArr = r['data'] as number[]
+        console.log(`[DMPWorkerCaller] canvas result: type=object keys=${Object.keys(result).join(',')} data.length=${dataArr?.length} preview=[${dataArr?.slice(0, 8).join(',')}]`)
+      }
     } else {
       // DMPLogger.d(Tags.JS_ENGINE, `caller 3 ${result}`);
     }

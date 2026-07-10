@@ -17,6 +17,8 @@ import {
 import { DMPWorkerCaller } from './DMPWorkerCaller';
 import common from '@ohos.app.ability.common';
 import { DMPContextUtils } from '../Utils/DMPContextUtils';
+import diminaNative from 'libdimina.so';
+import { DMPCanvasManager, CanvasFlushParams } from '../Render/SameLayer/DMPCanvasManager';
 
 
 export class DMPWorkerWrapper {
@@ -32,6 +34,27 @@ export class DMPWorkerWrapper {
     let caller = new DMPWorkerCaller();
     this.w.registerGlobalCallObject("caller", caller);
 
+    // Register canvas TSFN for direct QuickJS → main-thread communication
+    diminaNative.registerCanvasTsfn(appIndex, (type: number, data: string): string => {
+      DMPLogger.i(Tags.JS_ENGINE, `canvasTsfn callback: type=${type} dataLen=${data.length} appIndex=${appIndex}`)
+      const mgr = DMPCanvasManager.sharedInstance()
+      if (type === 1) {
+        // Async flush
+        const params = JSON.parse(data) as CanvasFlushParams
+        DMPLogger.i(Tags.JS_ENGINE, `canvasTsfn flush: nodeId=${params.nodeId} ops=${params.operations?.length}`)
+        mgr.handleNativeFlush(params, appIndex)
+        return ''
+      } else if (type === 2) {
+        // Sync getImageData
+        const params: Object = JSON.parse(data) as Object
+        return JSON.stringify(mgr.handleGetImageData(params, 0, appIndex))
+      } else if (type === 3) {
+        // Sync toDataURL
+        const params: Object = JSON.parse(data) as Object
+        return JSON.stringify(mgr.handleToDataURLSync(params, 0, appIndex))
+      }
+      return ''
+    })
 
     // 统一的消息监听器
     this.w.onmessage = (e: MessageEvents): void => {

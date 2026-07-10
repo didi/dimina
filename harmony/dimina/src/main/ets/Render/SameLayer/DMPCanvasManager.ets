@@ -11,15 +11,28 @@ import { http } from '@kit.NetworkKit'
 
 interface CanvasMessageBody {
   name: string
-  params: CanvasFlushParams | CanvasRafParams | CanvasToDataURLParams | CanvasToTempFilePathParams
+  params: CanvasFlushParams | CanvasRafParams | CanvasToDataURLParams | CanvasToTempFilePathParams | DrawCanvasParams
   bridgeId: number
+}
+
+interface DrawCanvasAction {
+  type: string
+  args: Object[]
+}
+
+interface DrawCanvasParams {
+  canvasId: string
+  actions: DrawCanvasAction[]
+  reserve: boolean
+  success: string
+  complete: string
 }
 
 interface CanvasMessageData {
   body: CanvasMessageBody
 }
 
-interface CanvasFlushParams {
+export interface CanvasFlushParams {
   nodeId: string
   operations: CanvasOperation[]
 }
@@ -84,6 +97,30 @@ interface CanvasToTempFilePathParams {
   callback: string
 }
 
+interface CanvasGetImageDataParams {
+  nodeId: string
+  operations: CanvasOperation[]
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+interface CanvasGetImageDataResult {
+  data: number[]
+}
+
+interface CanvasToDataURLSyncParams {
+  nodeId: string
+  operations: CanvasOperation[]
+  type: string
+  quality: number
+}
+
+interface CanvasToDataURLSyncResult {
+  dataUrl: string
+}
+
 interface CallbackArgs {
   width?: number
   height?: number
@@ -113,9 +150,20 @@ export class DMPCanvasManager {
   private offscreenContexts: Map<string, OffscreenCanvasRenderingContext2D> = new Map()
   // Pending flush messages that arrived before the canvas was registered
   private pendingFlushes: Map<string, Array<[CanvasFlushParams, number, number, number]>> = new Map()
+  // Whether embed (same-layer rendering) is enabled; set from WebView UA detection
+  private embedEnabled: boolean = true
 
   static sharedInstance(): DMPCanvasManager {
     return DMPCanvasManager.instance
+  }
+
+  setEmbedEnabled(enabled: boolean): void {
+    this.embedEnabled = enabled
+    DMPLogger.i(Tags.WEB_COMPONENT, `DMPCanvasManager setEmbedEnabled: ${enabled}`)
+  }
+
+  isEmbedEnabled(): boolean {
+    return this.embedEnabled
   }
 
   register(appIndex: number, webViewId: number, componentId: string, ctx: CanvasRenderingContext2D,
@@ -209,11 +257,15 @@ export class DMPCanvasManager {
    * that may contain canvas-related text as UI strings.
    */
   shouldIntercept(dataString: string): boolean {
+    if (!this.embedEnabled) {
+      return false
+    }
     return dataString.includes('"name":"canvasNodeFlush"') ||
       dataString.includes('"name":"createOffscreenCanvas"') ||
       dataString.includes('"name":"canvasNodeRequestAnimationFrame"') ||
       dataString.includes('"name":"canvasNodeToDataURL"') ||
-      dataString.includes('"name":"canvasNodeToTempFilePath"')
+      dataString.includes('"name":"canvasNodeToTempFilePath"') ||
+      dataString.includes('"name":"drawCanvas"')
   }
 
   /**
@@ -240,11 +292,323 @@ export class DMPCanvasManager {
         this.handleToDataURL(params as CanvasToDataURLParams, appIndex, bridgeId)
       } else if (name === 'canvasNodeToTempFilePath') {
         this.handleToTempFilePath(params as CanvasToTempFilePathParams, appIndex, bridgeId)
+      } else if (name === 'drawCanvas') {
+        this.handleDrawCanvas(params as DrawCanvasParams, webViewId, appIndex, bridgeId)
       } else {
         DMPLogger.d(Tags.WEB_COMPONENT, `DMPCanvasManager handleMessage: unhandled name=${name}`)
       }
     } catch (e) {
       DMPLogger.e(Tags.WEB_COMPONENT, `DMPCanvasManager handleMessage error: ${e}`)
+    }
+  }
+
+  /**
+   * Handle a native canvas flush from QuickJS C bindings (bypasses Worker thread).
+   * Called from DMPWorkerWrapper via the canvas TSFN callback on the main thread.
+   */
+  handleNativeFlush(params: CanvasFlushParams, appIndex: number): void {
+    const registeredKeys: string[] = []
+    this.contexts.forEach((_v: CanvasRenderingContext2D, k: string) => {
+      registeredKeys.push(k)
+    })
+    DMPLogger.i(Tags.WEB_COMPONENT, `DMPCanvasManager handleNativeFlush: nodeId=${params.nodeId} ops=${params.operations?.length} appIndex=${appIndex} registeredContexts=[${registeredKeys.join(', ')}]`)
+    this.handleFlush(params, 0, appIndex, 0)
+  }
+
+  /**
+   * Handle the legacy wx.createCanvasContext().draw() API.
+   * Converts old-style action objects to direct CanvasRenderingContext2D calls.
+   */
+  private handleDrawCanvas(params: DrawCanvasParams, webViewId: number, appIndex: number,
+    bridgeId: number): void {
+    const canvasId = params.canvasId
+    const actions: DrawCanvasAction[] = params.actions || []
+    const reserve: boolean = params.reserve || false
+
+    const ctx = this.contexts.get(canvasId)
+    if (!ctx) {
+      DMPLogger.e(Tags.WEB_COMPONENT, `DMPCanvasManager handleDrawCanvas: canvas ${canvasId} not registered`)
+      if (params.success) {
+        const args: CallbackArgs = { errMsg: `drawCanvas:fail canvas ${canvasId} not found` }
+        this.triggerCallback(bridgeId, appIndex, params.success, args)
+      }
+      return
+    }
+
+    DMPLogger.i(Tags.WEB_COMPONENT, `DMPCanvasManager handleDrawCanvas: canvasId=${canvasId} actions=${actions.length} reserve=${reserve}`)
+
+    try {
+      const nativeSize = this.nativeCanvasSizes.get(canvasId)
+      if (!reserve && nativeSize) {
+        ctx.clearRect(0, 0, nativeSize[0], nativeSize[1])
+      }
+
+      let fontSize: number = 10
+      ctx.font = `${fontSize}px sans-serif`
+
+      for (const action of actions) {
+        const type: string = action.type
+        const args: Object[] = action.args || []
+        switch (type) {
+          // Direct method calls
+          case 'beginPath': ctx.beginPath(); break
+          case 'closePath': ctx.closePath(); break
+          case 'moveTo': ctx.moveTo(args[0] as number, args[1] as number); break
+          case 'lineTo': ctx.lineTo(args[0] as number, args[1] as number); break
+          case 'rect': ctx.rect(args[0] as number, args[1] as number, args[2] as number, args[3] as number); break
+          case 'arc':
+            ctx.arc(args[0] as number, args[1] as number, args[2] as number,
+              args[3] as number, args[4] as number, (args[5] as boolean) || false)
+            break
+          case 'quadraticCurveTo':
+            ctx.quadraticCurveTo(args[0] as number, args[1] as number, args[2] as number, args[3] as number)
+            break
+          case 'bezierCurveTo':
+            ctx.bezierCurveTo(args[0] as number, args[1] as number,
+              args[2] as number, args[3] as number, args[4] as number, args[5] as number)
+            break
+          case 'fill': ctx.fill(); break
+          case 'stroke': ctx.stroke(); break
+          case 'clip': ctx.clip(); break
+          case 'fillRect':
+            ctx.fillRect(args[0] as number, args[1] as number, args[2] as number, args[3] as number)
+            break
+          case 'strokeRect':
+            ctx.strokeRect(args[0] as number, args[1] as number, args[2] as number, args[3] as number)
+            break
+          case 'clearRect':
+            ctx.clearRect(args[0] as number, args[1] as number, args[2] as number, args[3] as number)
+            break
+          case 'fillText':
+            if (args.length > 3) {
+              ctx.fillText(args[0] as string, args[1] as number, args[2] as number, args[3] as number)
+            } else {
+              ctx.fillText(args[0] as string, args[1] as number, args[2] as number)
+            }
+            break
+          case 'strokeText':
+            if (args.length > 3) {
+              ctx.strokeText(args[0] as string, args[1] as number, args[2] as number, args[3] as number)
+            } else {
+              ctx.strokeText(args[0] as string, args[1] as number, args[2] as number)
+            }
+            break
+          case 'save': ctx.save(); break
+          case 'restore': ctx.restore(); break
+          case 'translate': ctx.translate(args[0] as number, args[1] as number); break
+          case 'rotate': ctx.rotate(args[0] as number); break
+          case 'scale': ctx.scale(args[0] as number, args[1] as number); break
+          // Property setters (old wx API uses set* prefix)
+          case 'setFillStyle':
+            ctx.fillStyle = args[0] as string | number | CanvasGradient | CanvasPattern
+            break
+          case 'setStrokeStyle':
+            ctx.strokeStyle = args[0] as string | number | CanvasGradient | CanvasPattern
+            break
+          case 'setGlobalAlpha': ctx.globalAlpha = args[0] as number; break
+          case 'setLineCap': ctx.lineCap = args[0] as CanvasLineCap; break
+          case 'setLineJoin': ctx.lineJoin = args[0] as CanvasLineJoin; break
+          case 'setLineWidth': ctx.lineWidth = args[0] as number; break
+          case 'setMiterLimit': ctx.miterLimit = args[0] as number; break
+          case 'setFontSize':
+            fontSize = args[0] as number
+            ctx.font = `${fontSize}px sans-serif`
+            break
+          case 'setTextAlign': ctx.textAlign = args[0] as CanvasTextAlign; break
+          case 'setTextBaseline': ctx.textBaseline = args[0] as CanvasTextBaseline; break
+          case 'setShadow':
+            ctx.shadowOffsetX = args[0] as number
+            ctx.shadowOffsetY = args[1] as number
+            ctx.shadowBlur = args[2] as number
+            ctx.shadowColor = args[3] as string
+            break
+          case 'setLineDash': ctx.setLineDash(args[0] as number[]); break
+          default:
+            DMPLogger.d(Tags.WEB_COMPONENT, `DMPCanvasManager handleDrawCanvas: unsupported action: ${type}`)
+            break
+        }
+      }
+
+      if (params.success) {
+        const args: CallbackArgs = { errMsg: 'drawCanvas:ok' }
+        this.triggerCallback(bridgeId, appIndex, params.success, args)
+      }
+    } catch (e) {
+      DMPLogger.e(Tags.WEB_COMPONENT, `DMPCanvasManager handleDrawCanvas error: ${e}`)
+    }
+  }
+
+  /**
+   * Synchronous handler for canvasGetImageData.
+   * Executes any pending operations, then reads pixel data from the canvas.
+   * Called from DMPChannelProxyNext when service invokes canvasGetImageData.
+   */
+  handleGetImageData(rawParams: Object, webViewId: number, appIndex: number): CanvasGetImageDataResult {
+    try {
+      const params = rawParams as CanvasGetImageDataParams
+      const nodeId = params.nodeId
+      const operations: CanvasOperation[] = params.operations || []
+      const x: number = params.x || 0
+      const y: number = params.y || 0
+      const width: number = params.width || 0
+      const height: number = params.height || 0
+
+      DMPLogger.i(Tags.WEB_COMPONENT,
+        `DMPCanvasManager handleGetImageData: START nodeId=${nodeId} x=${x} y=${y} w=${width} h=${height} pendingOps=${operations.length} totalCtx=${this.contexts.size}`)
+
+      let ctx = this.contexts.get(nodeId)
+
+      // When the native Canvas component hasn't registered yet (race condition:
+      // synchronous getImageData arrives before DMPCanvasComponent.onReady fires),
+      // create a temporary OffscreenCanvas, execute all operations on it, and
+      // read the pixel data from it.
+      let usedTempCanvas = false
+      if (!ctx) {
+        DMPLogger.i(Tags.WEB_COMPONENT,
+          `DMPCanvasManager handleGetImageData: ctx not registered yet, using temp OffscreenCanvas`)
+
+        // Determine canvas dimensions from setCanvasProperty operations
+        let canvasW = 300
+        let canvasH = 150
+        for (const op of operations) {
+          if (op.op === 'setCanvasProperty') {
+            if (op.prop === 'width') {
+              canvasW = op.value as number
+            } else if (op.prop === 'height') {
+              canvasH = op.value as number
+            }
+          }
+        }
+
+        const tempCanvas = new OffscreenCanvas(canvasW, canvasH)
+        const tempCtx = tempCanvas.getContext('2d') as OffscreenCanvasRenderingContext2D
+        ctx = tempCtx as Object as CanvasRenderingContext2D
+        usedTempCanvas = true
+
+        // Set up nativeCanvasSizes so setCanvasProperty in executeOperation works
+        this.nativeCanvasSizes.set(nodeId, [canvasW, canvasH])
+
+        DMPLogger.i(Tags.WEB_COMPONENT,
+          `DMPCanvasManager handleGetImageData: temp OffscreenCanvas created ${canvasW}x${canvasH}`)
+      }
+
+      DMPLogger.i(Tags.WEB_COMPONENT,
+        `DMPCanvasManager handleGetImageData: executing ${operations.length} pending ops (temp=${usedTempCanvas})`)
+
+      // Execute pending operations before reading pixel data
+      for (const operation of operations) {
+        this.executeOperation(ctx, operation, 0, appIndex, webViewId, nodeId)
+      }
+
+      // Use offscreen context if available (higher resolution buffer)
+      const offCtx = this.offscreenContexts.get(nodeId)
+      const targetCtx: CanvasRenderingContext2D = offCtx
+        ? offCtx as Object as CanvasRenderingContext2D
+        : ctx
+
+      DMPLogger.i(Tags.WEB_COMPONENT,
+        `DMPCanvasManager handleGetImageData: calling getImageData(${x},${y},${width},${height}) offscreen=${!!offCtx} temp=${usedTempCanvas}`)
+
+      const imageData = targetCtx.getImageData(x, y, width, height)
+
+      const data: number[] = []
+      for (let i = 0; i < imageData.data.length; i++) {
+        data.push(imageData.data[i])
+      }
+
+      // Clean up temporary state if we used a temp canvas
+      if (usedTempCanvas) {
+        this.nativeCanvasSizes.delete(nodeId)
+        this.contextIdMap.delete(nodeId)
+        // Clean up any contextId entries that were mapped to the temp context
+        const tempCtxRef = ctx
+        this.contextIdMap.forEach((v: CanvasRenderingContext2D, k: string) => {
+          if (v === tempCtxRef) {
+            this.contextIdMap.delete(k)
+          }
+        })
+      }
+
+      DMPLogger.i(Tags.WEB_COMPONENT,
+        `DMPCanvasManager handleGetImageData: DONE dataLen=${data.length} preview=[${data.slice(0, 8).join(',')}]`)
+      return { data: data }
+    } catch (e) {
+      DMPLogger.e(Tags.WEB_COMPONENT, `DMPCanvasManager handleGetImageData CRASH: ${JSON.stringify(e)} msg=${(e as Error)?.message} stack=${(e as Error)?.stack}`)
+      return { data: [] }
+    }
+  }
+
+  /**
+   * Synchronous handler for canvasToDataURLSync.
+   * Executes any pending operations, then converts the canvas to a data URL.
+   * Called from DMPChannelProxyNext when service invokes canvasToDataURLSync.
+   */
+  handleToDataURLSync(rawParams: Object, webViewId: number, appIndex: number): CanvasToDataURLSyncResult {
+    const params = rawParams as CanvasToDataURLSyncParams
+    const nodeId = params.nodeId
+    const operations: CanvasOperation[] = params.operations || []
+
+    let ctx = this.contexts.get(nodeId)
+    let usedTempCanvas = false
+
+    // Same race condition handling as handleGetImageData:
+    // if native canvas hasn't registered yet, use a temp OffscreenCanvas
+    if (!ctx) {
+      DMPLogger.i(Tags.WEB_COMPONENT,
+        `DMPCanvasManager handleToDataURLSync: ctx not registered yet, using temp OffscreenCanvas`)
+      let canvasW = 300
+      let canvasH = 150
+      for (const op of operations) {
+        if (op.op === 'setCanvasProperty') {
+          if (op.prop === 'width') {
+            canvasW = op.value as number
+          } else if (op.prop === 'height') {
+            canvasH = op.value as number
+          }
+        }
+      }
+      const tempCanvas = new OffscreenCanvas(canvasW, canvasH)
+      const tempCtx = tempCanvas.getContext('2d') as OffscreenCanvasRenderingContext2D
+      ctx = tempCtx as Object as CanvasRenderingContext2D
+      usedTempCanvas = true
+      this.nativeCanvasSizes.set(nodeId, [canvasW, canvasH])
+    }
+
+    // Execute pending operations before converting
+    for (const operation of operations) {
+      this.executeOperation(ctx, operation, 0, appIndex, webViewId, nodeId)
+    }
+
+    try {
+      const mimeType = params.type || 'image/png'
+      const quality = params.quality
+      const offCtx = this.offscreenContexts.get(nodeId)
+      let dataUrl: string
+      if (offCtx) {
+        dataUrl = (quality !== undefined && quality !== null)
+          ? offCtx.toDataURL(mimeType, quality) : offCtx.toDataURL(mimeType)
+      } else {
+        dataUrl = (quality !== undefined && quality !== null)
+          ? ctx.toDataURL(mimeType, quality) : ctx.toDataURL(mimeType)
+      }
+
+      // Clean up temporary state
+      if (usedTempCanvas) {
+        this.nativeCanvasSizes.delete(nodeId)
+        const tempCtxRef = ctx
+        this.contextIdMap.forEach((v: CanvasRenderingContext2D, k: string) => {
+          if (v === tempCtxRef) {
+            this.contextIdMap.delete(k)
+          }
+        })
+      }
+
+      DMPLogger.i(Tags.WEB_COMPONENT,
+        `DMPCanvasManager handleToDataURLSync: nodeId=${nodeId} type=${mimeType} len=${dataUrl.length} temp=${usedTempCanvas}`)
+      return { dataUrl }
+    } catch (e) {
+      DMPLogger.e(Tags.WEB_COMPONENT, `DMPCanvasManager handleToDataURLSync error: ${e}`)
+      return { dataUrl: '' }
     }
   }
 

@@ -33,7 +33,7 @@ Page({
       }, {
         id: 'canvas',
         name: '画布',
-        pages: ['canvas']
+        pages: ['canvas', 'canvas-native']
       }
     ]
   },

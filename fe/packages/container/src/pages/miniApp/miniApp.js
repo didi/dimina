@@ -1858,6 +1858,108 @@ export class MiniApp {
         return entry;
     }
 
+	// ── qd.joinIsland (mock) ──────────────────────────────────────────────
+	// 底部弹出确认对话框，参照 HarmonyOS JoinIslandDialog 布局：
+	//   标题 → 岛屿信息行（头像/名称/人数/加入按钮）→ 取消按钮
+	joinIsland(opts) {
+		if (this._destroyed) return
+		const { success, fail, complete } = opts || {}
+		const onSuccess = this.createCallbackFunction(success)
+		const onFail = this.createCallbackFunction(fail)
+		const onComplete = this.createCallbackFunction(complete)
+
+		// mock 岛屿数据
+		const islandName = '测试岛屿'
+		const memberCount = '1234'
+
+		const mask = document.createElement('div')
+		mask.className = 'dimina-join-island-mask'
+
+		const sheet = document.createElement('div')
+		sheet.className = 'dimina-join-island'
+
+		const cleanup = () => {
+			sheet.classList.remove('show')
+			mask.classList.remove('show')
+			setTimeout(() => { mask.remove(); sheet.remove() }, 200)
+		}
+
+		// 标题
+		const title = document.createElement('div')
+		title.className = 'dimina-join-island__title'
+		title.textContent = '加入岛即可发布讨论'
+		sheet.appendChild(title)
+
+		sheet.appendChild(this._createDivider('dimina-join-island__divider'))
+
+		// 岛屿信息行
+		const row = document.createElement('div')
+		row.className = 'dimina-join-island__row'
+
+		const avatar = document.createElement('div')
+		avatar.className = 'dimina-join-island__avatar'
+		avatar.textContent = islandName.charAt(0)
+		row.appendChild(avatar)
+
+		const info = document.createElement('div')
+		info.className = 'dimina-join-island__info'
+		const nameEl = document.createElement('div')
+		nameEl.className = 'dimina-join-island__name'
+		nameEl.textContent = islandName
+		info.appendChild(nameEl)
+		const membersEl = document.createElement('div')
+		membersEl.className = 'dimina-join-island__members'
+		membersEl.textContent = `${memberCount}人加入`
+		info.appendChild(membersEl)
+		row.appendChild(info)
+
+		const joinBtn = document.createElement('button')
+		joinBtn.type = 'button'
+		joinBtn.className = 'dimina-join-island__join-btn'
+		joinBtn.textContent = '加入'
+		joinBtn.addEventListener('click', () => {
+			cleanup()
+			onSuccess?.({ errMsg: 'joinIsland:ok' })
+			onComplete?.()
+		})
+		row.appendChild(joinBtn)
+		sheet.appendChild(row)
+
+		sheet.appendChild(this._createDivider('dimina-join-island__divider'))
+
+		// 取消按钮
+		const cancelBtn = document.createElement('div')
+		cancelBtn.className = 'dimina-join-island__cancel'
+		cancelBtn.textContent = '取消'
+		cancelBtn.addEventListener('click', () => {
+			cleanup()
+			onFail?.({ errMsg: 'joinIsland:fail cancel' })
+			onComplete?.()
+		})
+		sheet.appendChild(cancelBtn)
+
+		// 点击遮罩关闭
+		mask.addEventListener('click', () => {
+			cleanup()
+			onFail?.({ errMsg: 'joinIsland:fail cancel' })
+			onComplete?.()
+		})
+
+		this.el.appendChild(mask)
+		this.el.appendChild(sheet)
+
+		requestAnimationFrame(() => requestAnimationFrame(() => {
+			sheet.classList.add('show')
+			mask.classList.add('show')
+		}))
+	}
+
+	_createDivider(className) {
+		const div = document.createElement('div')
+		div.className = className
+		return div
+	}
+
 	showActionSheet(opts) {
 		const { itemList = [], itemColor = '#000', success, fail, complete } = opts || {}
 		if (!Array.isArray(itemList) || itemList.length === 0) {

@@ -86,8 +86,11 @@ class CanvasContext {
 	bezierCurveTo(cp1x, cp1y, cp2x, cp2y, x, y) { return this.pushAction('bezierCurveTo', cp1x, cp1y, cp2x, cp2y, x, y) }
 	fill() { return this.pushAction('fill') }
 	stroke() { return this.pushAction('stroke') }
+	fillRect(x, y, width, height) { return this.pushAction('fillRect', x, y, width, height) }
+	strokeRect(x, y, width, height) { return this.pushAction('strokeRect', x, y, width, height) }
 	clearRect(x, y, width, height) { return this.pushAction('clearRect', x, y, width, height) }
 	fillText(text, x, y, maxWidth) { return this.pushAction('fillText', text, x, y, maxWidth) }
+	strokeText(text, x, y, maxWidth) { return this.pushAction('strokeText', text, x, y, maxWidth) }
 	drawImage(src, ...rest) { return this.pushAction('drawImage', src, ...rest) }
 	save() { return this.pushAction('save') }
 	restore() { return this.pushAction('restore') }

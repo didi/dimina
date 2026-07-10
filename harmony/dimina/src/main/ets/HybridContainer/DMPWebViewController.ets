@@ -5,6 +5,7 @@ import { WebViewLifeCycle } from './DMPWebViewLifeCycle'
 import { DMPWebComponent } from './DMPWebComponent'
 import { DMPWebViewProxy } from './DMPWebViewProxy'
 import { DMPContextUtils } from '../Utils/DMPContextUtils'
+import { DMPCanvasManager } from '../Render/SameLayer/DMPCanvasManager'
 
 const DMP_DEFAULT_PAGE_FRAME: string = 'pageFrame.html'
 
@@ -53,7 +54,11 @@ export class DMPWebViewController extends web_webview.WebviewController {
 
   //公共配置
   initConfig() {
-    this.setCustomUserAgent(`${this.getUserAgent()} dimina miniProgram ${this.app.appConfig?.userAgent ?? ''}`);
+    const ua = `${this.getUserAgent()} dimina miniProgram ${this.app.appConfig?.userAgent ?? ''}`;
+    this.setCustomUserAgent(ua);
+    // Detect embed-enable flag in UA and configure canvas manager accordingly
+    const embedEnabled = /embed-enable/i.test(ua);
+    DMPCanvasManager.sharedInstance().setEmbedEnabled(embedEnabled);
   }
 
   loadPath(): string {

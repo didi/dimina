@@ -2,6 +2,7 @@
 
 #include "napi/native_api.h"
 #include "js_thread.h"
+#include "canvas_bindings.h"
 #include "brotli/decode.h"
 
 #include <cstring>
@@ -74,6 +75,7 @@ EXTERN_C_START static napi_value Init(napi_env env, napi_value exports) {
         {"dispatchJsTaskPath", nullptr, dispatchJsTaskPath, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"destroyJsEngine", nullptr, destroyJsEngine, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"brotliDecompress", nullptr, BrotliDecompress, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"registerCanvasTsfn", nullptr, RegisterCanvasTsfn, nullptr, nullptr, nullptr, napi_default, nullptr},
     };
     napi_define_properties(env, exports, sizeof(desc) / sizeof(desc[0]), desc);
 

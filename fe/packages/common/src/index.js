@@ -14,6 +14,7 @@ export {
 	getDataAttributes,
 	isAndroid,
 	isDesktop,
+	isEmbedEnabled,
 	isFunction,
 	isHarmonyOS,
 	isIOS,
