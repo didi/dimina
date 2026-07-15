@@ -338,7 +338,7 @@ function storeComponentConfig(pageJsonContent, pageFilePath) {
 		}, {})
 
 		configInfo.componentInfo[moduleId] = {
-			id: uuid(),
+			id: uuid(moduleId),
 			path: moduleId,
 			component: isComponent,
 			usingComponents: cComponents,
@@ -451,7 +451,7 @@ function getPages() {
 		const mergedComponents = { ...globalComponents, ...pageComponents }
 		
 		return {
-			id: uuid(),
+			id: uuid(path),
 			path,
 			usingComponents: mergedComponents,
 		}
@@ -470,7 +470,7 @@ function getPages() {
 				const mergedComponents = { ...globalComponents, ...pageComponents }
 				
 				return {
-					id: uuid(),
+					id: uuid(fullPath),
 					path: fullPath,
 					usingComponents: mergedComponents,
 				}

@@ -242,6 +242,7 @@ class Runtime {
 				},
 				components: {
 					[rootCom]: {
+						name: path,
 						__scopeId: sId,
 						async setup(_props, { expose }) {
 							expose()
@@ -406,6 +407,7 @@ class Runtime {
 
 			// setup -> beforeCreate -> beforeMount
 			components[`dd-${componentName}`] = {
+				name: componentPath,
 				__scopeId: sId,
 				components: subComponents,
 				props: module.props,

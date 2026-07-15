@@ -27,6 +27,7 @@ export default defineConfig({
 		rollupOptions: {
 			external: [
 				'node:os',
+				'node:crypto',
 				'node:fs',
 				'node:path',
 				'node:url',

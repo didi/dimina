@@ -1,3 +1,4 @@
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
@@ -67,7 +68,7 @@ function collectAssets(workPath, pagePath, src, targetPath, appId) {
 		// 复制将文件夹下所有同类型的资源文件并加上前缀
 		const ext = `.${src.split('.').pop()}`
 		const dirPath = absolutePath.split(path.sep).slice(0, -1).join('/')
-		const prefix = uuid()
+		const prefix = uuid(dirPath)
 
 		const targetStatic = `${targetPath}/main/static`
 		if (!fs.existsSync(targetStatic)) {
@@ -140,8 +141,13 @@ function transformRpx(styleText) {
 	})
 }
 
-function uuid() {
-	return Math.random().toString(36).slice(2, 7)
+// Deterministic per-path id: the first 64 bits of sha256(path) as a base36
+// token. Determinism is load-bearing — the view/style/render stages each hash
+// the path independently in separate worker realms, so a random id would
+// diverge and break WXSS scoping. 64 bits keeps near-identical component paths
+// (the mini-program norm) collision-free where a 32-bit hash would clash.
+function uuid(str) {
+	return crypto.createHash('sha256').update(str).digest().readBigUInt64BE(0).toString(36)
 }
 
 const tagWhiteList = [
