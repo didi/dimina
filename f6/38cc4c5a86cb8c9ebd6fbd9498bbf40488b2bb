@@ -1,0 +1,47 @@
+fe/packages/compiler/src/core/view-compiler.js
+  f1cc631ca589c114 551-553,835-837
+fe/packages/components/vitest.config.mjs
+  f1cc631ca589c114 2,6
+fe/packages/compiler/__tests__/style-compiler.spec.js
+  f1cc631ca589c114 5-6,8,242-359
+fe/packages/compiler/src/env.js
+  f1cc631ca589c114 5-6,23-27,404,414,425-502,605-606,627-628,641-669,674
+fe/packages/render/__tests__/runtime.spec.js
+  f1cc631ca589c114 3,186-259,335-503
+fe/packages/components/__tests__/external-class.spec.js
+  f1cc631ca589c114 1-2,4-5,38-74
+docs/API-Reference.md
+  f1cc631ca589c114 32-37
+fe/packages/container/__tests__/menu-button-geometry.spec.js
+  f1cc631ca589c114 1-42
+fe/packages/compiler/src/core/style-compiler.js
+  f1cc631ca589c114 233,318-319,322-324,327
+fe/packages/compiler/src/index.js
+  f1cc631ca589c114 10,95
+fe/packages/render/src/core/runtime.js
+  f1cc631ca589c114 11,40-178,592-599,608-613,641,651,654,676-680,695,821,832-836,840,929-934,1040-1041
+fe/packages/container/src/pages/miniApp/miniApp.js
+  f1cc631ca589c114 1624,1631-1635,1638,1640,1643
+fe/packages/compiler/__tests__/host-selector.test.js
+  f1cc631ca589c114 6,11,17,23,29,35,41,47-53,61
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "f638cc4c5a86cb8c9ebd6fbd9498bbf40488b2bb",
+  "prompts": {
+    "f1cc631ca589c114": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f6958-2f6c-7e80-80d0-b65c76797948",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 883,
+      "total_deletions": 287,
+      "accepted_lines": 812,
+      "overriden_lines": 0
+    }
+  }
+}
