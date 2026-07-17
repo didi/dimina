@@ -461,6 +461,11 @@ export class DMPApp {
     if (!launchConfig.appEntryPath) {
       launchConfig.appEntryPath = this.bundleManager.getJsAppModuleConfig().entryPagePath
     }
+    // 启动页路径统一去除前导斜杠：宿主 launchConfig / bundle config 的写法不受控，
+    // 而 app-config 的 modules / tabBar key 均无前导斜杠。页面内路由都经
+    // DataTransformer.parse 归一化，启动链路绕过它，故在此单点补闸，
+    // 否则页面配置查找与首页/tabBar 判定会因写法发散
+    launchConfig.appEntryPath = launchConfig.appEntryPath?.replace(/^\/+/, '') ?? ''
     if (launchConfig.popListener) {
       this.navigatorManager.registerPopListener(launchConfig.popListener)
     }

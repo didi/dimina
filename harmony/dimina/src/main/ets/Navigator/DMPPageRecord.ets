@@ -22,6 +22,10 @@ export class DMPPageRecord {
   adjustPosition: number = 0
   actionSheetController?: ActionSheetController;
   domReadyListeners: DomReadyListener[] = [];
+  // 同层嵌入 web-view 是否有可回退历史的镜像（EmbedWebView 导航事件同步；真相源是
+  // 嵌入 controller 的 accessBackward()）。作为 @State/@Observed 一层属性，赋值即触发
+  // 页面标题栏重建，使栈底页的返回箭头随嵌入历史出现/消失
+  embeddedCanGoBack: boolean = false
 
   constructor(webViewId: number, fromWebViewId: number, pagePath: string, appIndex: number,
     webViewNodeController: DMPWebViewNodeController) {

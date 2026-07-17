@@ -11,6 +11,9 @@ public class DMPPageRecord {
     var pagePath: String
     var query: [String: Any]?
     var navStyle: [String: Any]?
+    /// Set by `wx.hideHomeButton()`; once true the home button stays hidden
+    /// for this page instance regardless of the default visibility rule.
+    var homeButtonForceHidden: Bool = false
 //    var pageStyle: DMPPageStyle?
 
     init(webViewId: Int, fromWebViewId: Int, pagePath: String) {

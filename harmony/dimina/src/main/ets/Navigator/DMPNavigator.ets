@@ -129,6 +129,43 @@ export class DMPNavigator {
 
   }
 
+  /**
+   * 返回首页（导航栏 home 按钮的唯一路由入口），终态都是只剩首页：
+   * 首页是 tab 页走 switchTab（保留其它 tab 状态并露出 tabBar，自带清非 tab 栈）；
+   * 首页非 tab 且当前是栈底，redirectTo 原地替换；非栈底（homeButton: true
+   * 的内页）redirect 只会替换栈顶、栈底仍在，须 relaunch 清整栈
+   */
+  async navigateHome(stackId: number) {
+    const appConfig = this.app.bundleManager.getJsAppModuleConfig()
+    const entryPagePath = appConfig?.entryPagePath
+    if (!appConfig || !entryPagePath) {
+      return
+    }
+    const routerParam = new DMPMap({ query: new DMPMap(), pagePath: entryPagePath })
+    if (appConfig.isTabBarPage(entryPagePath)) {
+      // 冷启动直达非 tab 内页时，栈内没有任何 tabBar 页，switchTab 清栈后无处可切
+      // （会抛 no tabBar context）；此时没有已加载的 tab 状态可保留，清栈重启到
+      // tab 首页与 switchTab 终态等价
+      const tabBarPagePaths = appConfig.getTabBarPagePaths()
+      let hasTabInStack = false
+      for (let record of this._stacks.data) {
+        if (tabBarPagePaths.has(record.pagePath)) {
+          hasTabInStack = true
+          break
+        }
+      }
+      if (hasTabInStack) {
+        await this.switchTab(routerParam)
+      } else {
+        await this.relaunchTo(routerParam)
+      }
+    } else if (this.pageCount() <= 1) {
+      await this.redirectTo(stackId, routerParam)
+    } else {
+      await this.relaunchTo(routerParam)
+    }
+  }
+
   async redirectTo(stackId: number, params: DMPMap) {
     DMPLogger.d(Tags.NAVIGATOR, 'redirectTo')
     const pagePath: string = params.get('pagePath')

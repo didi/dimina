@@ -17,6 +17,7 @@ export class WebView {
 		this.iframe.name = this.id
 		this.event = mitt()
 		this.bindBackEvent()
+		this.bindHomeEvent()
 	}
 
 	async init(callback) {
@@ -60,6 +61,23 @@ export class WebView {
 		}
 	}
 
+	bindHomeEvent() {
+		const homeBtn = this.el.querySelector('.dimina-native-webview__navigation-home-btn')
+
+		homeBtn.onclick = () => {
+			this.parent.parent.navigateHome()
+		}
+	}
+
+	/**
+	 * 返回首页按钮的显隐。显示判据由 MiniApp.shouldShowHomeButton 统一给出，
+	 * wx.hideHomeButton 也经这里隐藏调用页自己的按钮
+	 */
+	setHomeButtonVisible(visible) {
+		const homeBtn = this.el.querySelector('.dimina-native-webview__navigation-home-btn')
+		homeBtn.style.display = visible ? 'block' : 'none'
+	}
+
 	frameLoaded() {
 		return new Promise((resolve) => {
 			this.iframe.onload = () => {
@@ -72,31 +90,44 @@ export class WebView {
 	 * 设置初始化样式: 导航栏、背景色、标题栏
 	 */
 	setInitialStyle() {
-		const config = this.opts.configInfo
+		this.applyPageStyle(this.opts.configInfo, {
+			isRoot: this.opts.isRoot,
+			showHomeButton: this.opts.showHomeButton === true,
+		})
+	}
+
+	/**
+	 * 应用页面级导航栏/背景样式。幂等：redirectTo 复用当前 webview 承载新页面时
+	 * 会用新页面的配置重新调用（同时按新页面身份重算返回首页按钮的显隐）
+	 */
+	applyPageStyle(config, { isRoot, showHomeButton }) {
 		const webview = this.el.querySelector('.dimina-native-webview')
 		const pageName = this.el.querySelector('.dimina-native-webview__navigation-title')
 		const navigationBar = this.el.querySelector('.dimina-native-webview__navigation')
 		const leftBtn = this.el.querySelector('.dimina-native-webview__navigation-left-btn')
 		const root = this.el.querySelector('.dimina-native-webview__root')
 
-		// 小程序首页没有返回按钮
-		if (this.opts.isRoot) {
-			leftBtn.style.display = 'none'
-		}
-		else {
-			leftBtn.style.display = 'block'
-		}
+		// 返回箭头只出现在非栈底页面；返回首页按钮独立判定（homeButton: true 的
+		// 内页两者并存，home 键让出左槽紧随箭头之后）
+		leftBtn.style.display = isRoot ? 'none' : 'block'
+		this.setHomeButtonVisible(showHomeButton === true)
+		const homeBtn = this.el.querySelector('.dimina-native-webview__navigation-home-btn')
+		homeBtn.classList.toggle(
+			'dimina-native-webview__navigation-home-btn--after-back',
+			!isRoot && showHomeButton === true,
+		)
 
-		if (config.navigationBarTextStyle === 'white') {
-			navigationBar.classList.add('dimina-native-webview__navigation--white')
-		}
-		else {
-			navigationBar.classList.add('dimina-native-webview__navigation--black')
-		}
+		navigationBar.classList.remove(
+			'dimina-native-webview__navigation--white',
+			'dimina-native-webview__navigation--black',
+		)
+		navigationBar.classList.add(
+			config.navigationBarTextStyle === 'white'
+				? 'dimina-native-webview__navigation--white'
+				: 'dimina-native-webview__navigation--black',
+		)
 
-		if (config.navigationStyle === 'custom') {
-			webview.classList.add('dimina-native-webview--custom-nav')
-		}
+		webview.classList.toggle('dimina-native-webview--custom-nav', config.navigationStyle === 'custom')
 
 		root.style.backgroundColor = config.backgroundColor
 		navigationBar.style.backgroundColor = config.navigationBarBackgroundColor

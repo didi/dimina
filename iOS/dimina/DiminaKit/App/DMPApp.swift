@@ -172,7 +172,14 @@ public class DMPApp {
     public func openPage(launchConfig: DMPLaunchConfig) async {
         DMPLogger.debug("openPage")
         var newLaunchConfig = launchConfig
-        newLaunchConfig.appEntryPath = self.bundleAppConfig?.entryPagePath ?? ""
+        // 尊重调用方指定的启动页（扫码/分享等场景从内页启动，此时导航栏按
+        // 微信规则显示返回首页按钮）；未指定时回退到应用首页
+        // 路径入口统一去前导斜杠，与 DMPBundleAppConfig.entryPagePath 及页面栈 key 同口径
+        let requestedEntry = launchConfig.appEntryPath?.trimmingCharacters(in: .whitespaces) ?? ""
+        let normalizedEntry = String(requestedEntry.drop(while: { $0 == "/" }))
+        newLaunchConfig.appEntryPath = normalizedEntry.isEmpty
+            ? (self.bundleAppConfig?.entryPagePath ?? "")
+            : normalizedEntry
         currentLaunchConfig = newLaunchConfig
         await navigator?.launch(to: newLaunchConfig.appEntryPath ?? "", query: newLaunchConfig.query)
     }

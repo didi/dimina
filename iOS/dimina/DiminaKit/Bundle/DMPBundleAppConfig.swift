@@ -72,7 +72,11 @@ public class DMPBundleAppConfig {
                 }
                 _entryPagePath = firstPage
             }
-            return _entryPagePath
+            // 统一输出无前导斜杠的 module-key 形态——首页判定（resolveLeftNavAction）、
+            // navigateHome、openPage 等所有读者都按 app-config key 消费同一权威值
+            return _entryPagePath.hasPrefix("/")
+                ? String(_entryPagePath.drop(while: { $0 == "/" }))
+                : _entryPagePath
         }
         set {
             _entryPagePath = newValue
@@ -92,8 +96,10 @@ public class DMPBundleAppConfig {
                        (appWindowConfig["navigationBarTextStyle"] as? String) ?? "black"
         mergedConfig["backgroundColor"] = (pagePrivateConfig["backgroundColor"] as? String) ?? 
                        (appWindowConfig["backgroundColor"] as? String) ?? "#FFFFFF"
-        mergedConfig["navigationStyle"] = (pagePrivateConfig["navigationStyle"] as? String) ?? 
+        mergedConfig["navigationStyle"] = (pagePrivateConfig["navigationStyle"] as? String) ??
                        (appWindowConfig["navigationStyle"] as? String) ?? "default"
+        mergedConfig["homeButton"] = (pagePrivateConfig["homeButton"] as? Bool) ??
+                       (appWindowConfig["homeButton"] as? Bool) ?? false
         mergedConfig["usingComponents"] = pagePrivateConfig["usingComponents"] ?? [:]
         
         return mergedConfig

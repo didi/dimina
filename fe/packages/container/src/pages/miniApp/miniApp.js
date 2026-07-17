@@ -88,6 +88,69 @@ export class MiniApp {
 		return this.appInfo.pagePath || this.appConfig?.app?.entryPagePath || ''
 	}
 
+	/**
+	 * 应用首页——返回首页按钮的跳转目标与其显示判据的比较对象。
+	 * 取配置声明的 entryPagePath（缺省 pages[0]），不受 deep-link 启动页影响。
+	 */
+	getHomePagePath() {
+		return this._normalizePagePath(this.appConfig?.app?.entryPagePath || this.appConfig?.app?.pages?.[0] || '')
+	}
+
+	/**
+	 * 返回首页按钮显示判据（微信真机实测语义）：默认导航栏 + 当前页非应用首页 +
+	 * 非 tabBar 页（这两条排除 homeButton: true 也不能突破），且满足其一：
+	 * 栈底页面（自动规则），或页面配置 homeButton: true（此时与返回箭头并存）。
+	 * wx.hideHomeButton 的隐藏作用在 webview 上（setHomeButtonVisible），不在这里
+	 */
+	shouldShowHomeButton({ pagePath, configInfo, isRoot }) {
+		if (configInfo?.navigationStyle === 'custom') {
+			return false
+		}
+		const homePagePath = this.getHomePagePath()
+		if (!homePagePath) {
+			return false
+		}
+		const normalized = this._normalizePagePath(pagePath)
+		if (this._isTabBarPage(normalized) || normalized === homePagePath) {
+			return false
+		}
+		return isRoot || configInfo?.homeButton === true
+	}
+
+	/**
+	 * 返回首页（导航栏 home 按钮的唯一路由入口），终态都是只剩首页：
+	 * 首页是 tab 页走 switchTab（保留其它 tab 状态并露出 tabBar，自带清非 tab 栈）；
+	 * 首页非 tab 且当前是栈底，redirectTo 原地替换；非栈底（homeButton: true 的
+	 * 内页）redirect 只会替换栈顶、栈底仍在，须 reLaunch 清整栈
+	 */
+	navigateHome() {
+		const homePagePath = this.getHomePagePath()
+		if (!homePagePath) {
+			return
+		}
+		if (this._isTabBarPage(homePagePath)) {
+			this.switchTab({ url: `/${homePagePath}` })
+		}
+		else if (this.bridgeList.length <= 1) {
+			this.redirectTo({ url: `/${homePagePath}` })
+		}
+		else {
+			this.reLaunch({ url: `/${homePagePath}` })
+		}
+	}
+
+	/**
+	 * wx.hideHomeButton：隐藏调用页自己的返回首页按钮。经 bridge 归属调用方，
+	 * 后台页的迟到调用不会隐藏当前可见页面的按钮
+	 */
+	hideHomeButton(opts = {}, callerBridge) {
+		const { onSuccess, onComplete } = this._createApiCallbacks(opts)
+		const bridge = callerBridge || this.bridgeList[this.bridgeList.length - 1]
+		bridge?.webview?.setHomeButtonVisible(false)
+		onSuccess?.({ errMsg: 'hideHomeButton:ok' })
+		onComplete?.()
+	}
+
 	async copyText(text, successText) {
 		try {
 			if (navigator.clipboard?.writeText) {
@@ -212,14 +275,16 @@ export class MiniApp {
 	 * 按名称调用 API，优先查找自定义注册 → 内置方法 → 第三方扩展路由
 	 * @param {string} name API 名称
 	 * @param {object} params API 参数
+	 * @param {Bridge} [callerBridge] 发起调用的页面 bridge，作用于"调用页自身"的
+	 *   API（如 hideHomeButton）用它定位页面
 	 */
-	invokeApi(name, params) {
+	invokeApi(name, params, callerBridge) {
 		const handler = this.apiRegistry[name]
 		if (handler) {
-			handler.call(this, params)
+			handler.call(this, params, callerBridge)
 		}
 		else if (typeof this[name] === 'function') {
-			this[name](params)
+			this[name](params, callerBridge)
 		}
 		else if (params?.module !== undefined || params?.evtId !== undefined) {
 			// 扩展调用必须携带明确的协议标记，不能仅凭 success 判断，
@@ -717,6 +782,16 @@ export class MiniApp {
 				query,
 				configInfo: mergeConfig,
 			}
+			// webview 被新页面复用：按新页面身份重刷导航栏（标题/配色/自定义导航），
+			// 返回首页按钮显隐也随之重算（wx.hideHomeButton 的标记属于旧页面，不延续）
+			curBridge.webview.applyPageStyle(mergeConfig, {
+				isRoot: curBridge.opts.isRoot,
+				showHomeButton: this.shouldShowHomeButton({
+					pagePath,
+					configInfo: mergeConfig,
+					isRoot: curBridge.opts.isRoot,
+				}),
+			})
 			curBridge.resetStatus()
 			curBridge.start()
 			this._syncHash()

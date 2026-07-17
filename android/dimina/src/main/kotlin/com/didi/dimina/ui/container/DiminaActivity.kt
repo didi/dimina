@@ -45,10 +45,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -61,6 +63,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -76,6 +79,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.toArgb
@@ -146,6 +150,8 @@ class DiminaActivity : ComponentActivity() {
     private val tabBarBadges = mutableStateOf<List<String>>(emptyList())
     private val tabBarRedDots = mutableStateOf<List<Boolean>>(emptyList())
     private val currentPagePath = mutableStateOf("")
+    private val homeButtonHiddenForPage = mutableStateOf(false)
+    private val homeButtonForcedByConfig = mutableStateOf(false)
     private val useTabBarContainer = mutableStateOf(false)
     private val loadedTabIndices = mutableStateOf<Set<Int>>(emptySet())
 
@@ -228,6 +234,8 @@ class DiminaActivity : ComponentActivity() {
         val webViewReadyCallbacks: MutableList<(WebView) -> Unit> = mutableListOf(),
         var pageReadyCallback: (() -> Unit)? = null,
         var bridgeStarted: Boolean = false,
+        // wx.hideHomeButton 按页面（tab）实例记账：后台 tab 的迟到调用只影响自己
+        val homeButtonHidden: MutableState<Boolean> = mutableStateOf(false),
     )
 
 
@@ -452,6 +460,12 @@ class DiminaActivity : ComponentActivity() {
             return
         }
 
+        // reLaunch 落到既有 Activity（CLEAR_TOP→onNewIntent）：全部页面实例作废，
+        // 页面级 hideHomeButton 标记随之重置（TabPageState 会被 switchTab/updatePath 复用，
+        // 不重置会把旧页面实例的隐藏标记带进新页面）
+        homeButtonHiddenForPage.value = false
+        tabPageStates.values.forEach { it.homeButtonHidden.value = false }
+
         if (isTabBarPageUrl(url)) {
             switchTab(url)
         } else {
@@ -615,6 +629,11 @@ class DiminaActivity : ComponentActivity() {
         // Set navigation bar visibility based on navigationStyle
         showNavigationBar.value = config.navigationStyle != "custom"
 
+        // hideHomeButton() only hides the home button for the page that called it;
+        // it resets whenever the page identity behind this Activity changes
+        homeButtonHiddenForPage.value = false
+        homeButtonForcedByConfig.value = config.homeButton
+
         // Set navigation bar title
         navigationBarTitle.value = config.navigationBarTitleText
 
@@ -679,6 +698,58 @@ class DiminaActivity : ComponentActivity() {
             return false
         }
         return getTabBarIndex(Utils.queryPath(url).pagePath) >= 0
+    }
+
+    /**
+     * 导航栏「返回首页」按钮的显示判据（微信真机实测语义）：默认导航栏 + 未被
+     * hideHomeButton 隐藏 + 当前页非应用首页 + 非 tabBar 页（这两条排除
+     * homeButton: true 也不能突破），且满足其一：页面栈栈底（自动规则），
+     * 或页面配置 homeButton: true（此时与返回箭头并存显示）
+     */
+    private fun shouldShowHomeButton(): Boolean {
+        if (!::appConfig.isInitialized) {
+            return false
+        }
+        if (!showNavigationBar.value || activePageHomeButtonHidden()) {
+            return false
+        }
+        // 归一化前导斜杠再比较：currentPagePath 可能来自宿主直启 path，
+        // entryPagePath 来自配置，两者写法不受控
+        val pagePath = currentPagePath.value.trimStart('/')
+        if (pagePath.isEmpty() || pagePath == getDefaultEntryPagePath()?.trimStart('/')) {
+            return false
+        }
+        if (getTabBarIndex(pagePath) >= 0) {
+            return false
+        }
+        return miniProgram.root || homeButtonForcedByConfig.value
+    }
+
+    /**
+     * 当前可见页面的 hideHomeButton 标记：tab 容器下读当前选中 tab 自己的标记，
+     * 非 tab 根页面读 activity 级标记（一个 Activity 只承载一个非 tab 页，
+     * redirectTo/reLaunch 换页时在 setInitialStyle 重置）
+     */
+    private fun activePageHomeButtonHidden(): Boolean {
+        if (useTabBarContainer.value) {
+            tabPageStates[selectedTabIndex.intValue]?.let { return it.homeButtonHidden.value }
+        }
+        return homeButtonHiddenForPage.value
+    }
+
+    /**
+     * 隐藏调用页的返回首页按钮（wx.hideHomeButton）。经 apiBridgeContext 归属调用方：
+     * tab 页标记在自己的 TabPageState 上——后台 tab 的迟到调用不会隐藏当前可见 tab 的按钮
+     */
+    fun hideHomeButton() {
+        val caller = apiBridgeContext
+        if (caller != null) {
+            tabPageStates.values.firstOrNull { it.bridge === caller }?.let { state ->
+                state.homeButtonHidden.value = true
+                return
+            }
+        }
+        homeButtonHiddenForPage.value = true
     }
 
     fun switchTab(url: String): Boolean {
@@ -810,8 +881,11 @@ class DiminaActivity : ComponentActivity() {
     }
 
     private fun getTabBarIndex(pagePath: String): Int {
+        // 两侧都归一化前导斜杠：pagePath 可能来自宿主直启 path 或 config，
+        // tabBar.list 的 pagePath 也是配置值，写法不受控
+        val normalized = pagePath.trimStart('/')
         return appConfig.app.tabBar?.list?.indexOfFirst { item ->
-            item.pagePath == pagePath
+            item.pagePath.trimStart('/') == normalized
         } ?: -1
     }
 
@@ -1405,13 +1479,48 @@ class DiminaActivity : ComponentActivity() {
                                 containerColor = navBarBgColor
                             ),
                             navigationIcon = {
-                                IconButton(onClick = { finish() }) {
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-                                        contentDescription = "Back",
-                                        tint = navigationBarTextColor.value,
-                                        modifier = Modifier.size(30.dp)
-                                    )
+                                // 返回箭头（非栈底页面）与返回首页按钮可并存：
+                                // 页面配置 homeButton: true 的内页两者同时显示（微信实测样式）。
+                                // 两个 IconButton 默认触摸热区都比各自图标大（自带留白），
+                                // 不再额外叠加 Row 间距，否则视觉间距会远超微信原生
+                                // `.navigator-hd a+a{margin-left:10px}` 的 10dp
+                                Row {
+                                    if (!miniProgram.root) {
+                                        IconButton(onClick = { finish() }) {
+                                            Icon(
+                                                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                                                contentDescription = "Back",
+                                                tint = navigationBarTextColor.value,
+                                                modifier = Modifier.size(30.dp)
+                                            )
+                                        }
+                                    }
+                                    if (shouldShowHomeButton()) {
+                                        IconButton(onClick = { navigateHome() }) {
+                                            // 微信真机 home 图标带灰色圆形底，比返回箭头更粗更显眼；
+                                            // 圆底色随导航栏深浅切换（浅色导航栏用深灰，深色导航栏用半透明白）
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(32.dp)
+                                                    .clip(CircleShape)
+                                                    .background(
+                                                        if (navigationBarTextColor.value == Color.White) {
+                                                            Color(0x3DFFFFFF)
+                                                        } else {
+                                                            Color(0xFFD6D6D6)
+                                                        }
+                                                    ),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Filled.Home,
+                                                    contentDescription = "Home",
+                                                    tint = navigationBarTextColor.value,
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                            }
+                                        }
+                                    }
                                 }
                             },
                             actions = {
@@ -1569,6 +1678,41 @@ class DiminaActivity : ComponentActivity() {
             return null
         }
         return appConfig.app.entryPagePath ?: appConfig.app.pages.firstOrNull()
+    }
+
+    /**
+     * 清空页面栈并重新打开到 [url]，与 wx.reLaunch 行为一致
+     */
+    fun reLaunchTo(url: String) {
+        DiminaActivity.launch(
+            this,
+            MiniProgram(
+                appId = miniProgram.appId,
+                name = miniProgram.name,
+                root = true, // Set as root since we're clearing the stack
+                path = url,
+                versionCode = miniProgram.versionCode,
+                versionName = miniProgram.versionName,
+                updateManifestUrl = miniProgram.updateManifestUrl
+            ),
+            // Clear all activities below the top and reuse the top activity if it exists
+            Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK
+        )
+    }
+
+    /**
+     * 返回首页（导航栏 home 按钮的唯一路由入口），终态都是只剩首页：
+     * 首页是 tab 页走 switchTab（保留其它 tab 状态并露出 tabBar，自带清非 tab 栈）；
+     * 首页非 tab 且当前是栈底，按 redirectTo 语义原地换页（updatePath）；
+     * 非栈底（homeButton: true 的内页）须清整栈，走 reLaunchTo
+     */
+    private fun navigateHome() {
+        val entryPagePath = getDefaultEntryPagePath() ?: return
+        when {
+            getTabBarIndex(entryPagePath) >= 0 -> switchTab(entryPagePath)
+            miniProgram.root -> updatePath(entryPagePath)
+            else -> reLaunchTo(entryPagePath)
+        }
     }
 
     @OptIn(ExperimentalMaterial3Api::class)

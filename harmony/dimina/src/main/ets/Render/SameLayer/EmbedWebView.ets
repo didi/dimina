@@ -35,12 +35,48 @@ export struct EmbedWebView {
     if (render && controller) {
       controller.subController = this.webviewController
       render.controllerMap.set(this.webViewId, controller)
+      // 槽位易主即重采样镜像：新活跃实例通常尚无历史，立刻把上一任留下的
+      // 镜像值纠正过来，不等首个 onPageEnd
+      this.syncEmbeddedHistoryState()
     }
   }
 
   aboutToDisappear(): void {
-    const render = DMPAppManager.sharedInstance().getApp(this.appIndex)?.render;
-    render?.controllerMap.delete(this.webViewId)
+    const app = DMPAppManager.sharedInstance().getApp(this.appIndex)
+    app?.render?.controllerMap.delete(this.webViewId)
+    // 只有当前占据 subController 槽位（= 标题栏点击回退的目标）的实例卸载时才清镜像，
+    // 避免非活跃实例的卸载误清活跃实例的历史状态
+    if (this.isActiveEmbedController()) {
+      const record = app?.navigatorManager.getPageRecordById(this.parentWebViewId)
+      if (record && record.embeddedCanGoBack) {
+        record.embeddedCanGoBack = false
+      }
+    }
+  }
+
+  // 把嵌入 web-view 的可回退状态镜像到宿主页 pageRecord（@Observed 一层属性，
+  // 赋值触发标题栏重建），仅在状态变化时写入避免无谓重建。宿主页的嵌入回退
+  // 目标是单槽位 subController，镜像只接受该槽位当前持有者的写入——多个嵌入
+  // 实例并存时，非活跃实例的导航/卸载事件不会污染镜像
+  private syncEmbeddedHistoryState(): void {
+    if (!this.isActiveEmbedController()) {
+      return
+    }
+    const record =
+      DMPAppManager.sharedInstance().getApp(this.appIndex)?.navigatorManager.getPageRecordById(this.parentWebViewId)
+    if (!record) {
+      return
+    }
+    const canGoBack = this.webviewController.accessBackward()
+    if (record.embeddedCanGoBack !== canGoBack) {
+      record.embeddedCanGoBack = canGoBack
+    }
+  }
+
+  private isActiveEmbedController(): boolean {
+    const parentController =
+      DMPAppManager.sharedInstance().getApp(this.appIndex)?.getWebController(this.parentWebViewId)
+    return parentController?.subController === this.webviewController
   }
 
   build() {
@@ -66,6 +102,7 @@ export struct EmbedWebView {
           this.webviewController.initConfig() // 设置ua
         })
         .onPageEnd(() => {
+          this.syncEmbeddedHistoryState()
           const script = this.data.attributes?.javascript;
           const attrs = this.data.attributes?.attrs;
           const moduleId = this.data.attributes?.moduleId;

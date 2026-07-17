@@ -70,6 +70,35 @@ export class DMPPageStyle {
     return this.navStyle.get('navigationStyle') === "custom";
   }
 
+  /**
+   * 微信规则（真机实测语义）：默认导航栏 + 非应用首页（entryPagePath，缺省取 pages[0]）+
+   * 非 tabBar 页（这两条排除 homeButton: true 也不能突破），且满足其一：页面栈栈底（自动规则），
+   * 或页面配置 homeButton: true（此时与返回箭头并存显示）。
+   * wx.hideHomeButton() 通过 navStyle 的 hideHomeButton 标记强制隐藏，优先级最高（见 DMPContainerBridgesModuleNavigationBar）。
+   */
+  shouldShowHomeButton(webViewId: number): boolean {
+    if (this.isCustomPage()) {
+      return false;
+    }
+    if (this.navStyle.get('hideHomeButton') === true) {
+      return false;
+    }
+    const app = DMPAppManager.sharedInstance().getApp(this.appIndex);
+    if (!app) {
+      return false;
+    }
+    const pagePath = app.navigatorManager.getPageRecordById(webViewId)?.pagePath;
+    const appConfig = app.bundleManager.getJsAppModuleConfig();
+    if (!pagePath || !appConfig || !appConfig.entryPagePath) {
+      return false;
+    }
+    if (appConfig.isTabBarPage(pagePath) || pagePath === appConfig.entryPagePath) {
+      return false;
+    }
+    const isStackBottom = app.navigatorManager.getPageCountForWebViewId(webViewId) <= 1;
+    return isStackBottom || this.navStyle.get('homeButton') === true;
+  }
+
   getTitleString(): string {
     DMPLogger.d("isStatusBarDarkMode getTitleString=", this.navStyle.get('navigationBarTitleText'));
     if (this.navStyle.get('navigationBarTitleText')) {

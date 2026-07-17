@@ -46,7 +46,13 @@ public class DMPNavigator: NSObject {
     }
 
     public func pageRecord(webViewId: Int) -> DMPPageRecord? {
-        return pageRecords.first(where: { $0.webViewId == webViewId })
+        if let record = pageRecords.first(where: { $0.webViewId == webViewId }) {
+            return record
+        }
+        // pageRecords 的根位置只镜像当前选中 tab（updateRootTabRecord），
+        // 后台 tab 的记录存在 tab 容器自己的 tabPageRecords 里——这里兜底查询，
+        // 否则后台 tab 的迟到调用（如 wx.hideHomeButton）会找不到自己的页面
+        return currentTabBarContainer()?.pageRecord(webViewId: webViewId)
     }
 
     private func isTabBarPage(_ pagePath: String) -> Bool {
@@ -286,6 +292,24 @@ public class DMPNavigator: NSObject {
         }
     }
 
+    /// 返回首页（导航栏 home 按钮的唯一路由入口），终态都是只剩首页：
+    /// 首页是 tab 页走 switchTab（保留其它 tab 状态并露出 tabBar，自带清非 tab 栈）；
+    /// 首页非 tab 且当前是栈底，redirectTo 原地替换；非栈底（`homeButton: true`
+    /// 的内页）redirect 只会替换栈顶、栈底仍在，须 relaunch 清整栈
+    @MainActor
+    public func navigateHome() async {
+        guard let entryPagePath = app?.getBundleAppConfig()?.entryPagePath, !entryPagePath.isEmpty else {
+            return
+        }
+        if isTabBarPage(entryPagePath) {
+            await switchTab(to: entryPagePath)
+        } else if pageRecords.count <= 1 {
+            await redirectTo(to: entryPagePath)
+        } else {
+            await relaunch(to: entryPagePath)
+        }
+    }
+
     @MainActor
     public func redirectTo(to path: String, query: [String: Any]? = nil) async {
         guard let navigationController = navigationController else {
@@ -300,6 +324,11 @@ public class DMPNavigator: NSObject {
         }
 
         let currentIndex = navigationController.viewControllers.count - 1
+
+        // 栈底判定与 navigateHome 同源：pageRecords 是小程序页面栈的唯一权威。
+        // 原生 viewControllers 的栈底可能是宿主自己的页面（如 demo 的应用列表），
+        // 按原生栈位置判栈底会把"替换仅剩的一页"误判为非栈底，导航栏因此错显返回箭头
+        let replacingStackBottom = pageRecords.count <= 1
 
         // 如果当前只有一个页面，则需要特殊处理
         if currentIndex == 0 {
@@ -348,7 +377,7 @@ public class DMPNavigator: NSObject {
             appConfig: app!.getAppConfig()!,
             app: app,
             navigator: self,
-            isRoot: false
+            isRoot: replacingStackBottom
         )
 
         let pageRecord = DMPPageRecord(

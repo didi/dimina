@@ -51,9 +51,11 @@ object Utils {
             return PathInfo("", null)
         }
 
-        // 分离路径和查询字符串
+        // 分离路径和查询字符串。pagePath 统一去除前导斜杠：宿主直启 path（扫码/
+        // 分享）与 wx.* 路由的 "/pages/x/y" 写法都归一到 app-config modules key
+        // 的形态（无前导斜杠），保证 tabBar / 首页判定与页面配置查找不因写法发散
         val parts = url.split("?", limit = 2)
-        val pagePath = parts[0].trim() // 去除首尾空白
+        val pagePath = parts[0].trim().trimStart('/')
 
         // 如果没有查询字符串，返回只有 pagePath 的结果
         if (parts.size == 1) {
@@ -106,6 +108,8 @@ object Utils {
                 ?: appWindowConfig.backgroundColor ?: "#fff",
             navigationStyle = pagePrivateConfig.navigationStyle
                 ?: appWindowConfig.navigationStyle ?: "default",
+            homeButton = pagePrivateConfig.homeButton
+                ?: appWindowConfig.homeButton ?: false,
             usingComponents = pagePrivateConfig.usingComponents ?: emptyMap()
         )
     }
