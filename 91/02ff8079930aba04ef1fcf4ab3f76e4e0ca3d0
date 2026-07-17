@@ -1,0 +1,54 @@
+harmony/dimina/src/main/cpp/types/libdimina/index.d.ts
+  bd5fb9ec281685cf 4-5,7,9,11
+android/engine_qjs/build.gradle.kts
+  bd5fb9ec281685cf 29-35,38-42
+harmony/dimina/src/main/cpp/js_thread.cpp
+  a10b40bdf24af666 341,392,441
+  bd5fb9ec281685cf 11,20-32,338-339,377-383,389-390,425-431,438-439,518-524,539-540,543-547,552-556,577,653
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "9102ff8079930aba04ef1fcf4ab3f76e4e0ca3d0",
+  "prompts": {
+    "a10b40bdf24af666": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f6f4d-2a89-7580-885b-ab049aa6ade3",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 2574,
+      "total_deletions": 88,
+      "accepted_lines": 4550,
+      "overriden_lines": 0
+    },
+    "bd5fb9ec281685cf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f6f64-bac2-7170-80ec-61918c95d2da",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 1568,
+      "overriden_lines": 3
+    },
+    "d909c981f6fc69fc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f6f7a-176e-7983-82f5-a9c374e9e325",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 213,
+      "total_deletions": 2,
+      "accepted_lines": 213,
+      "overriden_lines": 0
+    }
+  }
+}
