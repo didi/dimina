@@ -1,0 +1,53 @@
+android/dimina/src/main/kotlin/com/didi/dimina/ui/container/DiminaActivity.kt
+  d909c981f6fc69fc 383,1296-1299,1534-1535,1951
+android/dimina/src/main/kotlin/com/didi/dimina/ui/container/MiniProgramActivityRegistry.kt
+  d909c981f6fc69fc 1-32
+android/dimina/src/test/java/com/didi/dimina/ui/container/MiniProgramActivityRegistryTest.kt
+  d909c981f6fc69fc 1-34
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "626975d8a8210a86e2d83ba8c68cfabc4b38640c",
+  "prompts": {
+    "69e53d2d39b69d40": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f6b1d-fa98-7232-a100-248fdd6431ee",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 56,
+      "overriden_lines": 0
+    },
+    "a10b40bdf24af666": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f6f4d-2a89-7580-885b-ab049aa6ade3",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 2033,
+      "total_deletions": 0,
+      "accepted_lines": 2061,
+      "overriden_lines": 0
+    },
+    "d909c981f6fc69fc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f6f7a-176e-7983-82f5-a9c374e9e325",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 74,
+      "total_deletions": 17,
+      "accepted_lines": 74,
+      "overriden_lines": 0
+    }
+  }
+}
