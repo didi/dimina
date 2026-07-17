@@ -1,0 +1,67 @@
+fe/example/base/pages/project-mixed/pages/detail/index.json
+  bd5fb9ec281685cf 2-5
+fe/example/base/pages/project-mixed/pages/detail/item.wxml
+  bd5fb9ec281685cf 2-7
+fe/example/base/pages/project-mixed/pages/home/index.wxml
+  bd5fb9ec281685cf 2-27,29-105,108-115,117-124,127
+fe/example/base/pages/project-mixed/pages/home/index.wxss
+  bd5fb9ec281685cf 1-5,7-257,261-424,428-431,434-444,447-492
+fe/example/base/pages/project-mixed/pages/detail/index.wxml
+  bd5fb9ec281685cf 2-6,8,10-14,18,23,29-59,61-75,77-114,116-136
+fe/example/base/pages/index.wxml
+  bd5fb9ec281685cf 78
+fe/example/base/pages/project-mixed/pages/detail/msgItem.wxml
+  bd5fb9ec281685cf 2-8,12-22
+fe/example/base/pages/project-mixed/pages/home/index.json
+  bd5fb9ec281685cf 2,4-5
+fe/example/base/pages/project-mixed/pages/detail/index.wxss
+  bd5fb9ec281685cf 1-3,6-42,45-175,179-241,243-479
+fe/example/base/pages/project-mixed/pages/detail/index.js
+  bd5fb9ec281685cf 3,6
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "cc25fe03c5f374df411fd1d9b557e2e0ce5cefc7",
+  "prompts": {
+    "69e53d2d39b69d40": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f6b1d-fa98-7232-a100-248fdd6431ee",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 15,
+      "overriden_lines": 0
+    },
+    "a10b40bdf24af666": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f6f4d-2a89-7580-885b-ab049aa6ade3",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 23,
+      "total_deletions": 2,
+      "accepted_lines": 23,
+      "overriden_lines": 0
+    },
+    "bd5fb9ec281685cf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f6f64-bac2-7170-80ec-61918c95d2da",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 1223,
+      "total_deletions": 100,
+      "accepted_lines": 2740,
+      "overriden_lines": 0
+    }
+  }
+}
