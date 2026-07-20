@@ -184,8 +184,22 @@ class DiminaActivity : ComponentActivity() {
     // Reference to the MiniApp instance
     private lateinit var miniApp: MiniApp
 
-    // Current MiniProgram
-    private lateinit var miniProgram: MiniProgram
+    // 当前小程序对象，用 Compose state 而非普通 lateinit var 承载：它会在
+    // onNewIntent/applyUpdate 里脱离 composition 被重新赋值，普通字段读取不会
+    // 建立快照订阅——依赖 miniProgram.* 的 composable 只有在同一次重组里恰好
+    // 读了别的会触发失效的 state 时才会跟着更新，这个前提并不总成立。
+    private val miniProgramState = mutableStateOf<MiniProgram?>(null)
+
+    // @JvmName 用来避开跟下面已有的 getMiniProgram() 方法（RouteApi.kt 在用）的
+    // JVM 签名冲突——不加的话 Kotlin 会给这个属性自动生成同名字节码 getter
+    private var miniProgram: MiniProgram
+        @JvmName("miniProgramValue")
+        get() = checkNotNull(miniProgramState.value) { "miniProgram accessed before initialization" }
+        set(value) {
+            miniProgramState.value = value
+        }
+    private val isMiniProgramInitialized: Boolean
+        get() = miniProgramState.value != null
 
     // Contact picker for handling contact-related operations
     private lateinit var contactPicker: ContactPicker
@@ -441,16 +455,8 @@ class DiminaActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
 
-        if (intent.getBooleanExtra(APPLY_UPDATE_RESTART_KEY, false)) {
-            getMiniProgramFromIntent(intent)?.let { program ->
-                DiminaActivity.launch(this, program)
-            }
-            finish()
-            return
-        }
-
         val program = getMiniProgramFromIntent(intent) ?: return
-        if (::miniProgram.isInitialized && program.appId != miniProgram.appId) {
+        if (isMiniProgramInitialized && program.appId != miniProgram.appId) {
             return
         }
 
@@ -460,7 +466,7 @@ class DiminaActivity : ComponentActivity() {
             return
         }
 
-        // reLaunch 落到既有 Activity（CLEAR_TOP→onNewIntent）：全部页面实例作废，
+        // 若这个 Activity 实例被复用（intent 落到已存在的顶层实例）：全部页面实例作废，
         // 页面级 hideHomeButton 标记随之重置（TabPageState 会被 switchTab/updatePath 复用，
         // 不重置会把旧页面实例的隐藏标记带进新页面）
         homeButtonHiddenForPage.value = false
@@ -629,8 +635,8 @@ class DiminaActivity : ComponentActivity() {
         // Set navigation bar visibility based on navigationStyle
         showNavigationBar.value = config.navigationStyle != "custom"
 
-        // hideHomeButton() only hides the home button for the page that called it;
-        // it resets whenever the page identity behind this Activity changes
+        // hideHomeButton() 只隐藏调用它的那个页面的 home 按钮；这个 Activity 背后
+        // 的页面身份一变就会重置
         homeButtonHiddenForPage.value = false
         homeButtonForcedByConfig.value = config.homeButton
 
@@ -764,20 +770,24 @@ class DiminaActivity : ComponentActivity() {
         }
 
         if (!miniProgram.root) {
-            DiminaActivity.launch(
-                this,
-                MiniProgram(
-                    appId = miniProgram.appId,
-                    name = miniProgram.name,
-                    root = true,
-                    path = url,
-                    versionCode = miniProgram.versionCode,
-                    versionName = miniProgram.versionName,
-                    updateManifestUrl = miniProgram.updateManifestUrl
-                ),
-                Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-            )
-            finish()
+            // CLEAR_TOP 按 Activity 组件匹配，清不掉共享同一 DiminaActivity 类的下层
+            // 实例；改用 activityRegistry 精确找到 root 实例并同进程直接调用它的
+            // switchTab，不需要任何 Intent flag
+            val root = activityRegistry.closeAllExcept(
+                miniProgram.appId,
+                keep = { it.miniProgram.root },
+            ) { activity ->
+                activity.preserveMiniAppOnDestroy = true
+                activity.finish()
+            }
+            if (root != null) {
+                root.runOnUiThread {
+                    root.switchTab(url)
+                }
+            } else {
+                // 异常态：栈里没有 root 实例（如宿主直启非 tab 内页），退化为清栈重启
+                relaunchStack(url)
+            }
             return true
         }
 
@@ -1372,7 +1382,7 @@ class DiminaActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        if (::miniProgram.isInitialized) {
+        if (isMiniProgramInitialized) {
             activityRegistry.unregister(miniProgram.appId, this)
         }
 
@@ -1664,13 +1674,12 @@ class DiminaActivity : ComponentActivity() {
     fun applyUpdate() {
         val entryPagePath = getDefaultEntryPagePath() ?: miniProgram.path
         val updatedMiniProgram = miniProgram.copy(root = true, path = entryPagePath)
-        miniApp.clear(miniProgram.appId)
-        val intent = Intent(this, DiminaActivity::class.java).apply {
-            putExtra(MINI_PROGRAM_KEY, updatedMiniProgram)
-            putExtra(APPLY_UPDATE_RESTART_KEY, true)
-            addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        // 不 preserve：更新语义要求冷重启 JS 实例，这是和 reLaunch 的关键区别
+        activityRegistry.closeAll(miniProgram.appId) { activity ->
+            activity.finish()
         }
-        startActivity(intent)
+        miniApp.clear(miniProgram.appId)
+        DiminaActivity.launch(this, updatedMiniProgram)
     }
 
     private fun getDefaultEntryPagePath(): String? {
@@ -1684,20 +1693,21 @@ class DiminaActivity : ComponentActivity() {
      * 清空页面栈并重新打开到 [url]，与 wx.reLaunch 行为一致
      */
     fun reLaunchTo(url: String) {
-        DiminaActivity.launch(
-            this,
-            MiniProgram(
-                appId = miniProgram.appId,
-                name = miniProgram.name,
-                root = true, // Set as root since we're clearing the stack
-                path = url,
-                versionCode = miniProgram.versionCode,
-                versionName = miniProgram.versionName,
-                updateManifestUrl = miniProgram.updateManifestUrl
-            ),
-            // Clear all activities below the top and reuse the top activity if it exists
-            Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK
-        )
+        relaunchStack(url)
+    }
+
+    /**
+     * 精确关闭该小程序全部页面 Activity 实例并以新根页重启：preserve=true 因为
+     * wx.reLaunch/switchTab 找不到 root 实例时的兜底都只清页面栈，不重启 JS 实例
+     * （与 applyUpdate 的关键区别）。CLEAR_TOP 只能按 Activity 组件匹配，清不掉
+     * 共享同一 DiminaActivity 类的下层实例，所以改用 activityRegistry 精确关栈
+     */
+    private fun relaunchStack(url: String) {
+        activityRegistry.closeAll(miniProgram.appId) { activity ->
+            activity.preserveMiniAppOnDestroy = true
+            activity.finish()
+        }
+        DiminaActivity.launch(this, miniProgram.copy(root = true, path = url))
     }
 
     /**
@@ -2046,6 +2056,8 @@ class DiminaActivity : ComponentActivity() {
                     state.root = pageConfig?.root ?: "main"
                     state.configInfo = mergedPageConfig
                     state.bridgeStarted = false
+                    // 页面身份被替换，清掉上一任页面的隐藏标记，否则会跨 redirectTo 泄漏到新页面
+                    state.homeButtonHidden.value = false
                 }
 
                 currentBridge.destroy(true)
@@ -2080,7 +2092,6 @@ class DiminaActivity : ComponentActivity() {
 
     companion object {
         const val MINI_PROGRAM_KEY = "mini_program"
-        private const val APPLY_UPDATE_RESTART_KEY = "apply_update_restart"
         private val activityRegistry = MiniProgramActivityRegistry<DiminaActivity>()
 
         fun launch(

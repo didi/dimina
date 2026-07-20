@@ -1007,7 +1007,7 @@ public class DMPPageController: UIViewController {
             return (false, false)
         }
 
-        // isRoot means this page sits at the bottom of the stack (nothing to pop back to).
+        // isRoot 表示这个页面在栈底（没有可以返回的上一页）
         let showBack = !isRoot
 
         if homeButtonForceHidden {
@@ -1023,24 +1023,22 @@ public class DMPPageController: UIViewController {
         }
 
         // entryPagePath 由 DMPBundleAppConfig 统一输出规范形态（无前导斜杠），
-        // 只需归一化当前页一侧（pagePath 是页面构造参数，写法不受控）；
-        // entry 未知（空）时自动规则关闭
+        // 只需归一化当前页一侧。pagePath 不保证已归一化：站内路由 URL
+        // （navigateTo/redirectTo/switchTab/reLaunch）经 DMPUtil.queryPath 已
+        // 归一化，但 tabBar 页的 pagePath 直接取自 tabBar 配置项
+        // （DMPTabBarContainerController 的 onSelect/prepareInitialTab），
+        // 未经 queryPath，写法不受调用方控制；entry 未知（空）时自动规则关闭
         let entryPagePath = bundleAppConfig.entryPagePath
-        if entryPagePath.isEmpty || Self.normalizedPagePath(pagePath) == entryPagePath {
+        if entryPagePath.isEmpty || DMPUtil.normalizePagePath(pagePath) == entryPagePath {
             return (showBack, false)
         }
 
         return (showBack, isRoot || homeButtonForcedByConfig)
     }
 
-    private static func normalizedPagePath(_ path: String) -> String {
-        path.hasPrefix("/") ? String(path.dropFirst()) : path
-    }
-
-    /// Re-derives the nav bar (including home-button visibility) when this
-    /// controller currently displays `webViewId`; a no-op for other pages —
-    /// their `viewWillAppear` re-runs `setupNavigationBar()` and picks up any
-    /// page-record flag set while they were in the background.
+    /// 仅当这个 controller 当前显示的正是 `webViewId` 时才重新计算导航栏（含
+    /// home 按钮显隐）；其它页面这里不做任何事——它们的 `viewWillAppear` 会
+    /// 重新跑一次 `setupNavigationBar()`，自然会读到后台期间被设置的页面标记
     public func refreshNavigationBar(ifDisplaying webViewId: Int) {
         guard webview.getWebViewId() == webViewId else { return }
         setupNavigationBar()

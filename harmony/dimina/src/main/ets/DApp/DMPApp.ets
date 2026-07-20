@@ -176,6 +176,15 @@ export class DMPApp {
       pageCount -= 1;
     }
     curNavigator?.navigateBack(pageCount, false, false, true);
+    // navigateBack -> pop() 内部没有真正的 await，上面这一行已经同步跑完：当前 navigator
+    // 清完栈后，pop() 里 `_stacks.size() < 1` 的分支会把它自己从 navigatorManager 摘除。
+    // 此时账本里如果还剩 navigator，就是本次 reLaunch 从未触碰过的下层 navigator（问题
+    // 场景：customLaunchPageCallBack/openType=Insert 让宿主在已有 navigator 上插入了第二
+    // 层）——不清掉的话它们会在共享 NavPathStack 里永久残留。复用现有的批量关闭能力，不
+    // 单独实现一套清栈逻辑
+    if (!this.navigatorManager.isEmpty()) {
+      this.navigatorManager.closeAllNavigators(false)
+    }
     //为什么延时，因为鸿蒙pop和push 会相互抵消，导致页面不能正常关闭
     setTimeout(() => {
       if (config) {
