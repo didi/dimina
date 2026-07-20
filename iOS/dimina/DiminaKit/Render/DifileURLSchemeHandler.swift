@@ -9,15 +9,15 @@ import Foundation
 import WebKit
 
 @available(iOS 11.0, *)
-class DifileURLSchemeHandler: NSObject, WKURLSchemeHandler {
+public class DifileURLSchemeHandler: NSObject, WKURLSchemeHandler {
     private let appId: String
     
-    init(appId: String) {
+    public init(appId: String) {
         self.appId = appId
         super.init()
     }
     
-    func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
+    public func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
         guard let url = urlSchemeTask.request.url else {
             urlSchemeTask.didFailWithError(NSError(domain: "DiminaErrorDomain", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid URL"]))
             return
@@ -59,7 +59,7 @@ class DifileURLSchemeHandler: NSObject, WKURLSchemeHandler {
         }
     }
     
-    func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {
+    public func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {
         // Cleanup operations when the task is stopped
         DMPLogger.debug("🛑 Stopping resource loading")
     }
