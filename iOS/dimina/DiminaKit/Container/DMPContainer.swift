@@ -150,7 +150,7 @@ public class DMPContainer {
         )
 
         // 1. 精确命中已注册的标准 API
-        if let handler = DMPContainerApi.getHandler(for: methodName) {
+        if let handler = app.containerApi?.getHandler(for: methodName) {
             return handler(param, env, callback)
         }
 

@@ -49,7 +49,7 @@ public class DMPMap: NSObject, NSCopying {
         return dictionary[key] as? String
     }
     
-    func getInt(key: String) -> Int? {
+    public func getInt(key: String) -> Int? {
         if let value = dictionary[key] as? Int {
             return value
         }
@@ -90,7 +90,7 @@ public class DMPMap: NSObject, NSCopying {
         return String(data: data, encoding: .utf8) ?? "{}"
     }
 
-    func toDictionary() -> [String: Any] {
+    public func toDictionary() -> [String: Any] {
         return dictionary
     }
 

@@ -24,6 +24,7 @@ public class DMPApp {
 
     private var isLaunching = false
     private var isDestroyed = false
+    private var pendingApiRegistrations: [(DMPApiHandler, DMPApiConflictPolicy)] = []
     
     public init(appConfig: DMPAppConfig, appIndex: Int) {
         self.appConfig = appConfig
@@ -92,6 +93,28 @@ public class DMPApp {
     public func getAppIndex() -> Int {
         return appIndex
     }
+
+    /// Registers host APIs for this mini app.
+    ///
+    /// Register APIs before calling `launch`. Registrations are scoped to this
+    /// `DMPApp` and are released when the app is destroyed.
+    @discardableResult
+    public func registerApi(
+        _ handler: DMPApiHandler,
+        conflictPolicy: DMPApiConflictPolicy = .reject
+    ) -> Bool {
+        guard !isLaunching, containerApi == nil, !isDestroyed else {
+            DMPLogger.debug("registerApi skipped: APIs must be registered before launch")
+            return false
+        }
+        guard !handler.apiNames.isEmpty else {
+            DMPLogger.debug("registerApi skipped: handler has no API names")
+            return false
+        }
+
+        pendingApiRegistrations.append((handler, conflictPolicy))
+        return true
+    }
         
     public func getBundleAppConfig() -> DMPBundleAppConfig? {
         return bundleAppConfig
@@ -122,6 +145,20 @@ public class DMPApp {
         DMPUIManager.shared.prepareUI()
         container = DMPContainer(app: self)
         containerApi = DMPContainerApi.create(app: self)
+        if let containerApi {
+            for (handler, conflictPolicy) in pendingApiRegistrations {
+                let conflicts = containerApi.registerCustomAPI(
+                    handler,
+                    conflictPolicy: conflictPolicy
+                )
+                if !conflicts.isEmpty {
+                    DMPLogger.debug(
+                        "registerApi rejected conflicting methods: \(conflicts.sorted())"
+                    )
+                }
+            }
+        }
+        pendingApiRegistrations.removeAll()
     }
 
     @MainActor
@@ -143,7 +180,7 @@ public class DMPApp {
             await service?.evaluateScript("globalThis.__diminaApiNamespaces = \(json)")
         }
         // 注入已注册的 API 名字，使 service 层的 wx 对象能枚举到它们
-        let registeredApis = DMPContainerApi.getAllRegisteredMethods()
+        let registeredApis = containerApi?.getAllRegisteredMethods() ?? []
         if !registeredApis.isEmpty,
            let data = try? JSONSerialization.data(withJSONObject: registeredApis),
            let json = String(data: data, encoding: .utf8) {
@@ -215,6 +252,7 @@ public class DMPApp {
         service = nil
         container = nil
         containerApi = nil
+        pendingApiRegistrations.removeAll()
         render = nil
 
         DMPAppManager.sharedInstance().removeApp(appId: appId)
