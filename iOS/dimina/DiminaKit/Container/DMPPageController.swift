@@ -32,6 +32,7 @@ public class DMPPageController: UIViewController {
     private var customNavigationContentView: UIView?
     private var customNavigationTitleLabel: UILabel?
     private var customNavigationBackButton: UIButton?
+    private var customNavigationHomeButton: UIButton?
     private var customNavigationCapsuleView: UIView?
     private var customNavigationCapsuleMoreButton: UIButton?
     private var customNavigationCapsuleCloseButton: UIButton?
@@ -262,6 +263,16 @@ public class DMPPageController: UIViewController {
         backButton.translatesAutoresizingMaskIntoConstraints = false
         backButton.addTarget(self, action: #selector(customBackButtonTapped), for: .touchUpInside)
 
+        let homeButton = UIButton(type: .custom)
+        homeButton.translatesAutoresizingMaskIntoConstraints = false
+        homeButton.addTarget(self, action: #selector(customHomeButtonTapped), for: .touchUpInside)
+
+        let leadingControls = UIStackView(arrangedSubviews: [backButton, homeButton])
+        leadingControls.translatesAutoresizingMaskIntoConstraints = false
+        leadingControls.axis = .horizontal
+        leadingControls.alignment = .center
+        leadingControls.spacing = 0
+
         let titleLabel = UILabel()
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         titleLabel.textAlignment = .center
@@ -304,11 +315,15 @@ public class DMPPageController: UIViewController {
                 ?? Double(windowWidth - DMPMenuButtonLayout.trailingSpacing)
         )
         let capsuleTrailing = max(windowWidth - capsuleRight, 0)
+        let backButtonWidth = backButton.widthAnchor.constraint(equalToConstant: 44)
+        backButtonWidth.priority = .defaultHigh
+        let homeButtonWidth = homeButton.widthAnchor.constraint(equalToConstant: 44)
+        homeButtonWidth.priority = .defaultHigh
 
         view.addSubview(navigationBar)
         view.addSubview(capsuleView)
         navigationBar.addSubview(contentView)
-        contentView.addSubview(backButton)
+        contentView.addSubview(leadingControls)
         contentView.addSubview(titleLabel)
 
         NSLayoutConstraint.activate([
@@ -322,14 +337,18 @@ public class DMPPageController: UIViewController {
             contentView.bottomAnchor.constraint(equalTo: navigationBar.bottomAnchor),
             contentView.heightAnchor.constraint(equalToConstant: DMPMenuButtonLayout.navigationBarContentHeight),
 
-            backButton.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8),
-            backButton.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            backButton.widthAnchor.constraint(equalToConstant: 44),
+            leadingControls.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8),
+            leadingControls.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            leadingControls.heightAnchor.constraint(equalToConstant: 44),
+
+            backButtonWidth,
             backButton.heightAnchor.constraint(equalToConstant: 44),
+            homeButtonWidth,
+            homeButton.heightAnchor.constraint(equalToConstant: 44),
 
             titleLabel.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
             titleLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            titleLabel.leadingAnchor.constraint(greaterThanOrEqualTo: backButton.trailingAnchor, constant: 8),
+            titleLabel.leadingAnchor.constraint(greaterThanOrEqualTo: leadingControls.trailingAnchor, constant: 8),
             titleLabel.trailingAnchor.constraint(
                 lessThanOrEqualTo: contentView.trailingAnchor,
                 constant: -DMPMenuButtonLayout.titleTrailingInset
@@ -344,6 +363,7 @@ public class DMPPageController: UIViewController {
         customNavigationBar = navigationBar
         customNavigationContentView = contentView
         customNavigationBackButton = backButton
+        customNavigationHomeButton = homeButton
         customNavigationTitleLabel = titleLabel
         customNavigationCapsuleView = capsuleView
         isUsingHostCapsule = usesHostCapsule
@@ -573,7 +593,7 @@ public class DMPPageController: UIViewController {
     public func updateNavigationColor(backgroundColor: UIColor, textColor: UIColor, darkStyle: Bool) {
         customNavigationBar?.backgroundColor = backgroundColor
         customNavigationTitleLabel?.textColor = textColor
-        updateCustomBackButton(darkStyle: darkStyle)
+        updateCustomNavigationButtons(darkStyle: darkStyle)
         updateCustomCapsuleButton(darkStyle: darkStyle)
         if let capsuleView = customNavigationCapsuleView {
             let style = DMPPageCapsuleStyle(
@@ -585,27 +605,14 @@ public class DMPPageController: UIViewController {
         }
     }
 
-    private func updateCustomBackButton(darkStyle: Bool) {
+    private func updateCustomNavigationButtons(darkStyle: Bool) {
         guard let backButton = customNavigationBackButton else {
             return
         }
 
-        if miniProgramHomePath != nil {
-            let configuration = UIImage.SymbolConfiguration(pointSize: 20, weight: .medium)
-            if let image = UIImage(systemName: "house", withConfiguration: configuration) {
-                backButton.tintColor = darkStyle ? .white : .black
-                backButton.setImage(image, for: .normal)
-                backButton.setTitle(nil, for: .normal)
-                backButton.accessibilityLabel = "Back to mini program home"
-                return
-            }
-
-            backButton.setImage(nil, for: .normal)
-            backButton.setTitle("home", for: .normal)
-            backButton.setTitleColor(darkStyle ? .white : .black, for: .normal)
-            backButton.accessibilityLabel = "Back to mini program home"
-            return
-        }
+        let showsHome = miniProgramHomePath != nil
+        backButton.isHidden = isRoot && showsHome
+        customNavigationHomeButton?.isHidden = !showsHome
 
         backButton.accessibilityLabel = "Back"
         if let bundle = DMPResourceManager.assetsBundle {
@@ -613,22 +620,36 @@ public class DMPPageController: UIViewController {
             if let image = UIImage(named: imageName, in: bundle, compatibleWith: nil) {
                 backButton.setImage(image.withRenderingMode(.alwaysOriginal), for: .normal)
                 backButton.setTitle(nil, for: .normal)
-                return
+            } else {
+                backButton.setImage(nil, for: .normal)
+                backButton.setTitle("back", for: .normal)
+                backButton.setTitleColor(darkStyle ? .white : .black, for: .normal)
             }
+        } else {
+            backButton.setImage(nil, for: .normal)
+            backButton.setTitle("back", for: .normal)
+            backButton.setTitleColor(darkStyle ? .white : .black, for: .normal)
         }
 
-        backButton.setImage(nil, for: .normal)
-        backButton.setTitle("back", for: .normal)
-        backButton.setTitleColor(darkStyle ? .white : .black, for: .normal)
+        if let homeButton = customNavigationHomeButton {
+            homeButton.accessibilityLabel = "Back to mini program home"
+            let configuration = UIImage.SymbolConfiguration(pointSize: 20, weight: .medium)
+            if let image = UIImage(systemName: "house", withConfiguration: configuration) {
+                homeButton.tintColor = darkStyle ? .white : .black
+                homeButton.setImage(image, for: .normal)
+                homeButton.setTitle(nil, for: .normal)
+            } else {
+                homeButton.setImage(nil, for: .normal)
+                homeButton.setTitle("home", for: .normal)
+                homeButton.setTitleColor(darkStyle ? .white : .black, for: .normal)
+            }
+        }
     }
 
-    /// A root page reached through a deep link has no mini-program page beneath it.
-    /// In that state the leading control returns to the configured entry page instead
-    /// of navigating out of the mini program.
+    /// Any non-entry page can return directly to the configured mini-program home.
+    /// Root deep links show only Home; stacked pages show Back and Home together.
     private var miniProgramHomePath: String? {
-        guard isRoot,
-              let rawEntryPath = app?.getBundleAppConfig()?.entryPagePath
-        else {
+        guard let rawEntryPath = app?.getBundleAppConfig()?.entryPagePath else {
             return nil
         }
 
@@ -643,13 +664,16 @@ public class DMPPageController: UIViewController {
     }
 
     @objc private func customBackButtonTapped() {
-        if let homePath = miniProgramHomePath {
-            Task { @MainActor [weak navigator] in
-                await navigator?.relaunch(to: homePath, query: nil, animated: false)
-            }
+        navigator?.handleBackButtonTapped()
+    }
+
+    @objc private func customHomeButtonTapped() {
+        guard let homePath = miniProgramHomePath else {
             return
         }
-        navigator?.handleBackButtonTapped()
+        Task { @MainActor [weak navigator] in
+            await navigator?.relaunch(to: homePath, query: nil, animated: false)
+        }
     }
 
     private func updateCustomCapsuleButton(darkStyle: Bool) {
