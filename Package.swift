@@ -41,5 +41,6 @@ let package = Package(
                 .copy("Resources/JsSdk.bundle"),
             ]
         )
-    ]
+    ],
+    swiftLanguageModes: [.v5]
 )
