@@ -26,8 +26,11 @@ public class DMPApp {
 
     private var isLaunching = false
     private var isDestroyed = false
-    private var pendingApiRegistrations: [(DMPApiHandler, DMPApiConflictPolicy)] = []
-    
+    /// Host API registrations belong to the app instance, not to one container
+    /// launch. `appWithConfig` may return the same app when a mini app is opened
+    /// again, while every launch rebuilds `containerApi`.
+    private var apiRegistrations: [(DMPApiHandler, DMPApiConflictPolicy)] = []
+
     public init(appConfig: DMPAppConfig, appIndex: Int) {
         self.appConfig = appConfig
         self.appId = appConfig.appId
@@ -106,7 +109,7 @@ public class DMPApp {
         _ handler: DMPApiHandler,
         conflictPolicy: DMPApiConflictPolicy = .reject
     ) -> Bool {
-        guard !isLaunching, containerApi == nil, !isDestroyed else {
+        guard !isLaunching, !isDestroyed else {
             DMPLogger.debug("registerApi skipped: APIs must be registered before launch")
             return false
         }
@@ -115,7 +118,16 @@ public class DMPApp {
             return false
         }
 
-        pendingApiRegistrations.append((handler, conflictPolicy))
+        // Reopening the same mini app normally registers the same API groups
+        // again before launch. Replace that group instead of growing duplicate
+        // registrations indefinitely; disjoint API groups remain untouched.
+        if let index = apiRegistrations.firstIndex(where: {
+            $0.0.apiNames == handler.apiNames
+        }) {
+            apiRegistrations[index] = (handler, conflictPolicy)
+        } else {
+            apiRegistrations.append((handler, conflictPolicy))
+        }
         return true
     }
 
@@ -171,7 +183,7 @@ public class DMPApp {
         container = DMPContainer(app: self)
         containerApi = DMPContainerApi.create(app: self)
         if let containerApi {
-            for (handler, conflictPolicy) in pendingApiRegistrations {
+            for (handler, conflictPolicy) in apiRegistrations {
                 let conflicts = containerApi.registerCustomAPI(
                     handler,
                     conflictPolicy: conflictPolicy
@@ -183,7 +195,6 @@ public class DMPApp {
                 }
             }
         }
-        pendingApiRegistrations.removeAll()
     }
 
     @MainActor
@@ -285,7 +296,7 @@ public class DMPApp {
         service = nil
         container = nil
         containerApi = nil
-        pendingApiRegistrations.removeAll()
+        apiRegistrations.removeAll()
         render = nil
         pageCapsuleProvider = nil
 
