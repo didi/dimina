@@ -278,6 +278,15 @@ public class DMPWebview: NSObject, WKNavigationDelegate, WKScriptMessageHandler,
         delegate?.webViewDidFailLoad(webViewId: self.webViewId, error: error)
     }
 
+    public func webView(
+        _ webView: WKWebView,
+        didFailProvisionalNavigation navigation: WKNavigation!,
+        withError error: Error
+    ) {
+        DMPLogger.debug("Web page provisional navigation failed: \(error.localizedDescription)")
+        delegate?.webViewDidFailLoad(webViewId: self.webViewId, error: error)
+    }
+
     // Use custom URL scheme to handle resource loading
     public func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         let allowed = isTrustedNavigation(navigationAction.request.url)
