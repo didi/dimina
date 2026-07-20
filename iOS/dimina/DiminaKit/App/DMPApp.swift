@@ -22,6 +22,9 @@ public class DMPApp {
     public var container: DMPContainer?
     public var containerApi: DMPContainerApi?
 
+    /// Provides host-specific capsule or page overlay UI.
+    public var pageOverlayProvider: DMPPageOverlayProvider?
+
     private var isLaunching = false
     private var isDestroyed = false
     private var pendingApiRegistrations: [(DMPApiHandler, DMPApiConflictPolicy)] = []
@@ -64,6 +67,7 @@ public class DMPApp {
         initRender()
         
         await openPage(launchConfig: launchConfig)
+
     }
 
     public func initService() async {
@@ -254,6 +258,7 @@ public class DMPApp {
         containerApi = nil
         pendingApiRegistrations.removeAll()
         render = nil
+        pageOverlayProvider = nil
 
         DMPAppManager.sharedInstance().removeApp(appId: appId)
 
