@@ -300,6 +300,7 @@ public class DMPNavigator: NSObject {
         }
 
         let currentIndex = navigationController.viewControllers.count - 1
+        let isReplacingRootPage = pageRecords.count <= 1
 
         // 如果当前只有一个页面，则需要特殊处理
         if currentIndex == 0 {
@@ -348,7 +349,7 @@ public class DMPNavigator: NSObject {
             appConfig: app!.getAppConfig()!,
             app: app,
             navigator: self,
-            isRoot: false
+            isRoot: isReplacingRootPage
         )
 
         let pageRecord = DMPPageRecord(
