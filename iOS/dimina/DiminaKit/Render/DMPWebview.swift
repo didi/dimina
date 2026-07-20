@@ -206,7 +206,9 @@ public class DMPWebview: NSObject, WKNavigationDelegate, WKScriptMessageHandler,
     
     // Load page framework
     public func loadPageFrame(enableVConsole: Bool = false) {
-        let pageFramePath = enableVConsole ? "dimina:///pageFrame.html?vconsole=1" : "dimina:///pageFrame.html"
+        let pageFramePath = enableVConsole
+            ? "dimina://\(DiminaURLSchemeHandler.sdkHost)/pageFrame.html?vconsole=1"
+            : "dimina://\(DiminaURLSchemeHandler.sdkHost)/pageFrame.html"
         guard let pageFrameURL = URL(string: pageFramePath) else {
             DMPLogger.debug("❌ Invalid pageFrame URL")
             return
@@ -305,7 +307,7 @@ public class DMPWebview: NSObject, WKNavigationDelegate, WKScriptMessageHandler,
         guard let url else { return false }
         if url.absoluteString == "about:blank" { return true }
         return url.scheme?.lowercased() == "dimina"
-            && (url.host == nil || url.host?.isEmpty == true)
+            && url.host?.lowercased() == DiminaURLSchemeHandler.sdkHost
             && url.path == "/pageFrame.html"
             && url.user == nil
             && url.password == nil
