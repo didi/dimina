@@ -11,6 +11,10 @@ public struct DMPPageRoute {
     public let pagePath: String
     public let query: [String: Any]
 
+    var normalizedPagePath: String {
+        pagePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+    }
+
     public init(path: String) {
         let pathAndQuery = path.split(
             separator: "?",

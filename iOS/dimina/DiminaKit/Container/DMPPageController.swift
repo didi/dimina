@@ -590,6 +590,24 @@ public class DMPPageController: UIViewController {
             return
         }
 
+        if miniProgramHomePath != nil {
+            let configuration = UIImage.SymbolConfiguration(pointSize: 20, weight: .medium)
+            if let image = UIImage(systemName: "house", withConfiguration: configuration) {
+                backButton.tintColor = darkStyle ? .white : .black
+                backButton.setImage(image, for: .normal)
+                backButton.setTitle(nil, for: .normal)
+                backButton.accessibilityLabel = "Back to mini program home"
+                return
+            }
+
+            backButton.setImage(nil, for: .normal)
+            backButton.setTitle("home", for: .normal)
+            backButton.setTitleColor(darkStyle ? .white : .black, for: .normal)
+            backButton.accessibilityLabel = "Back to mini program home"
+            return
+        }
+
+        backButton.accessibilityLabel = "Back"
         if let bundle = DMPResourceManager.assetsBundle {
             let imageName = darkStyle ? "arrow-back-dark" : "arrow-back-light"
             if let image = UIImage(named: imageName, in: bundle, compatibleWith: nil) {
@@ -604,7 +622,33 @@ public class DMPPageController: UIViewController {
         backButton.setTitleColor(darkStyle ? .white : .black, for: .normal)
     }
 
+    /// A root page reached through a deep link has no mini-program page beneath it.
+    /// In that state the leading control returns to the configured entry page instead
+    /// of navigating out of the mini program.
+    private var miniProgramHomePath: String? {
+        guard isRoot,
+              let rawEntryPath = app?.getBundleAppConfig()?.entryPagePath
+        else {
+            return nil
+        }
+
+        let entryRoute = DMPPageRoute(path: rawEntryPath)
+        let currentRoute = DMPPageRoute(path: pagePath)
+        guard !entryRoute.normalizedPagePath.isEmpty,
+              entryRoute.normalizedPagePath != currentRoute.normalizedPagePath
+        else {
+            return nil
+        }
+        return entryRoute.pagePath
+    }
+
     @objc private func customBackButtonTapped() {
+        if let homePath = miniProgramHomePath {
+            Task { @MainActor [weak navigator] in
+                await navigator?.relaunch(to: homePath, query: nil, animated: false)
+            }
+            return
+        }
         navigator?.handleBackButtonTapped()
     }
 
