@@ -39,9 +39,9 @@ public class RouteAPI: DMPContainerApi {
 
         let app = DMPAppManager.sharedInstance().getApp(appIndex: env.appIndex)
 
-        let urlData = DMPUtil.queryPath(path: url)
-        let pagePath = urlData["pagePath"] as! String
-        let query = urlData["query"] as! [String: Any]
+        let route = DMPPageRoute(path: url)
+        let pagePath = route.pagePath
+        let query = route.query
 
         if app?.getBundleAppConfig()?.isTabBarPage(pagePath: pagePath) == true {
             let errorMap = DMPMap()
@@ -74,9 +74,9 @@ public class RouteAPI: DMPContainerApi {
 
         let app = DMPAppManager.sharedInstance().getApp(appIndex: env.appIndex)
 
-        let urlData = DMPUtil.queryPath(path: url)
-        let pagePath = urlData["pagePath"] as! String
-        let query = urlData["query"] as! [String: Any]
+        let route = DMPPageRoute(path: url)
+        let pagePath = route.pagePath
+        let query = route.query
 
         if app?.getBundleAppConfig()?.isTabBarPage(pagePath: pagePath) == true {
             let errorMap = DMPMap()
@@ -127,9 +127,9 @@ public class RouteAPI: DMPContainerApi {
 
         let app = DMPAppManager.sharedInstance().getApp(appIndex: env.appIndex)
 
-        let urlData = DMPUtil.queryPath(path: url)
-        let pagePath = urlData["pagePath"] as! String
-        let query = urlData["query"] as! [String: Any]
+        let route = DMPPageRoute(path: url)
+        let pagePath = route.pagePath
+        let query = route.query
 
         Task { @MainActor in
             await app?.getNavigator()?.relaunch(to: pagePath, query: query)
@@ -153,9 +153,9 @@ public class RouteAPI: DMPContainerApi {
 
         let app = DMPAppManager.sharedInstance().getApp(appIndex: env.appIndex)
 
-        let urlData = DMPUtil.queryPath(path: url)
-        let pagePath = urlData["pagePath"] as! String
-        let query = urlData["query"] as! [String: Any]
+        let route = DMPPageRoute(path: url)
+        let pagePath = route.pagePath
+        let query = route.query
 
         guard app?.getBundleAppConfig()?.isTabBarPage(pagePath: pagePath) == true else {
             let errorMap = DMPMap()

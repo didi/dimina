@@ -47,21 +47,8 @@ public class DMPUtil {
     }
 
     public static func queryPath(path: String) -> [String: Any] {
-        let parts = path.components(separatedBy: "?")
-        let pagePath = parts[0]
-        var paramsDict: [String: String] = [:]
-
-        if parts.count > 1, let paramStr = parts[1].components(separatedBy: "&").first {
-            for param in paramStr.components(separatedBy: "&") {
-                let keyValueArray = param.components(separatedBy: "=")
-                guard keyValueArray.count == 2 else { continue }
-                
-                let (key, value) = (keyValueArray[0], keyValueArray[1])
-                paramsDict[key] = value
-            }
-        }
-
-        return ["query": paramsDict as Any, "pagePath": pagePath]
+        let route = DMPPageRoute(path: path)
+        return ["query": route.query, "pagePath": route.pagePath]
     }
 
     public static func generateColorFromName(name: String) -> Color {

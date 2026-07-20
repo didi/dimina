@@ -212,10 +212,18 @@ public class DMPApp {
     @MainActor
     public func openPage(launchConfig: DMPLaunchConfig) async {
         DMPLogger.debug("openPage")
-        var newLaunchConfig = launchConfig
-        newLaunchConfig.appEntryPath = self.bundleAppConfig?.entryPagePath ?? ""
-        currentLaunchConfig = newLaunchConfig
-        await navigator?.launch(to: newLaunchConfig.appEntryPath ?? "", query: newLaunchConfig.query)
+        let requestedPath = launchConfig.appEntryPath ?? ""
+        let entryPath = requestedPath.isEmpty
+            ? bundleAppConfig?.entryPagePath ?? ""
+            : requestedPath
+        let route = DMPPageRoute(path: entryPath)
+
+        var resolvedConfig = launchConfig
+        resolvedConfig.appEntryPath = route.pagePath
+        resolvedConfig.query = route.merging(query: launchConfig.query)
+        currentLaunchConfig = resolvedConfig
+
+        await navigator?.launch(to: route.pagePath, query: resolvedConfig.query)
     }
 
     @MainActor
