@@ -85,6 +85,7 @@ public class DMPContainerApi: NSObject {
         _ = BluetoothAPI(app: app)
         _ = ImageAPI(app: app)
         _ = VideoAPI(app: app)
+        _ = CanvasAPI(app: app)
         _ = InteractionAPI(app: app)
         _ = MenuAPI(app: app)
         _ = NavigationBarAPI(app: app)
