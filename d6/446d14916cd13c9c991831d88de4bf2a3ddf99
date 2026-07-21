@@ -1,0 +1,41 @@
+iOS/dimina/DiminaKit/App/DMPApp.swift
+  9d85f25e87712b04 46-52,55-57,196-199,201-240
+iOS/dimina/DiminaKit/Navigator/DMPNavigator.swift
+  9d85f25e87712b04 577-611
+iOS/diminaTests/DMPNavigatorCapsuleTests.swift
+  9d85f25e87712b04 36-74
+android/dimina/src/main/kotlin/com/didi/dimina/ui/view/WebViewCacheManager.kt
+  9d85f25e87712b04 11,201,203-224,227-252,303-304,342,353-368,728-729
+android/dimina/src/main/kotlin/com/didi/dimina/ui/view/DiminaWebView.kt
+  9d85f25e87712b04 23-24,37,51-52,84
+android/dimina/src/main/kotlin/com/didi/dimina/ui/container/DiminaActivity.kt
+  9d85f25e87712b04 123,236,1361-1403,1434,1701,1707-1713,1715,1719
+iOS/dimina/DiminaKit/Container/DMPPageController.swift
+  9d85f25e87712b04 30,190,771,966,990
+iOS/dimina/DiminaKit/Render/DMPWebview.swift
+  9d85f25e87712b04 58-62,66,89-118,125
+harmony/dimina/src/main/ets/DApp/DMPApp.ets
+  9d85f25e87712b04 229-230,234
+iOS/dimina/DiminaKit/Container/DMPContainer.swift
+  9d85f25e87712b04 57-64
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "d6446d14916cd13c9c991831d88de4bf2a3ddf99",
+  "prompts": {
+    "9d85f25e87712b04": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f846c-4643-7c11-b390-156999227ac4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 465,
+      "total_deletions": 83,
+      "accepted_lines": 487,
+      "overriden_lines": 0
+    }
+  }
+}
