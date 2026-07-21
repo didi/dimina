@@ -315,6 +315,8 @@ DMPApp.init(context, { apiNamespaces: ["myapp"] })
 | 设备 - 键盘   | hideKeyboard                     | ✓       | ✓   | ✓       | ✗   |
 | 设备 - 网络   | getNetworkType                   | ✓       | ✓   | ✓       | ✓   |
 | 设备 - 电话   | makePhoneCall                    | ✓       | ✓   | ✓       | ✗   |
+| 设备 - 屏幕   | onUserCaptureScreen              | ✗       | ✗   | ✓       | ✗   |
+|               | offUserCaptureScreen             | ✗       | ✗   | ✓       | ✗   |
 | 第三方扩展    | extBridge                        | ✓       | ✓   | ✓       | ✓   |
 |               | extOnBridge                      | ✓       | ✓   | ✓       | ✓   |
 |               | extOffBridge                     | ✓       | ✓   | ✓       | ✓   |

@@ -175,6 +175,8 @@ const supportedWxApis = [
 	"hideKeyboard",
 	"getNetworkType",
 	"makePhoneCall",
+	"onUserCaptureScreen",
+	"offUserCaptureScreen",
 	"extBridge",
 	"extOnBridge",
 	"extOffBridge",
