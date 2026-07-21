@@ -41,6 +41,12 @@ function getAbsolutePath(workPath, pagePath, src) {
 
 const assetsMap = {}
 
+function resetAssetCache() {
+	for (const assetPath of Object.keys(assetsMap)) {
+		delete assetsMap[assetPath]
+	}
+}
+
 function isPathInside(rootPath, targetPath) {
 	const relativePath = path.relative(rootPath, targetPath)
 	return relativePath === '' || (!relativePath.startsWith(`..${path.sep}`) && relativePath !== '..' && !path.isAbsolute(relativePath))
@@ -249,6 +255,8 @@ export {
 	hasCompileInfo,
 	isObjectEmpty,
 	miniProgramBuiltinTags,
+	resolveAssetSourcePath,
+	resetAssetCache,
 	tagWhiteList,
 	transformRpx,
 	uuid,

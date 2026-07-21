@@ -5,16 +5,20 @@ import process from 'node:process'
 import { parseSync } from 'oxc-parser'
 import { walk } from 'oxc-walker'
 import { resolveMiniProgramPath, toMiniProgramModuleId } from './common/path-utils.js'
-import { isObjectEmpty, uuid } from './common/utils.js'
+import { isObjectEmpty, resolveAssetSourcePath, uuid } from './common/utils.js'
 import { NpmResolver } from './common/npm-resolver.js'
+import { DependencyGraph } from './common/dependency-graph.js'
 
 let pathInfo = {}
 let configInfo = {}
 let npmResolver = null
+let dependencyGraph = new DependencyGraph()
 
 // 小程序自定义文件类型：可扩展的文件扩展名和内联标签。
 // 始终保留内置 wx/dd 类型；调用方通过 build() 或 storeInfo() 的 options.fileTypes 追加自定义项。
 const DEFAULT_TEMPLATE_EXTS = ['.wxml', '.ddml']
+// 保留已有的微信、钉钉与支付宝指令前缀兼容；自定义模板类型会再显式派生前缀。
+const DEFAULT_TEMPLATE_DIRECTIVE_PREFIXES = ['wx', 'dd', 'a']
 const DEFAULT_STYLE_EXTS = ['.wxss', '.ddss', '.less', '.scss', '.sass']
 const DEFAULT_VIEW_SCRIPT_EXTS = ['.wxs']
 const DEFAULT_VIEW_SCRIPT_TAGS = ['wxs', 'dds']
@@ -99,8 +103,13 @@ function mergeUnique(builtins, custom, normalizer, reserved) {
  */
 function normalizeFileTypes(fileTypes = {}) {
 	const ft = fileTypes || {}
+	const templateExts = mergeUnique(DEFAULT_TEMPLATE_EXTS, ft.template, normalizeExt, RESERVED_EXTS)
 	return {
-		templateExts: mergeUnique(DEFAULT_TEMPLATE_EXTS, ft.template, normalizeExt, RESERVED_EXTS),
+		templateExts,
+		templateDirectivePrefixes: [...new Set([...DEFAULT_TEMPLATE_DIRECTIVE_PREFIXES, ...templateExts.map((extension) => {
+			const name = extension.slice(1)
+			return name.endsWith('ml') ? name.slice(0, -2) : name
+		}).filter(Boolean)])],
 		styleExts: mergeUnique(DEFAULT_STYLE_EXTS, ft.style, normalizeExt, RESERVED_EXTS),
 		viewScriptExts: mergeUnique(DEFAULT_VIEW_SCRIPT_EXTS, ft.viewScript, normalizeExt, RESERVED_EXTS),
 		viewScriptTags: mergeUnique(DEFAULT_VIEW_SCRIPT_TAGS, ft.viewScript, normalizeTag),
@@ -113,18 +122,20 @@ function normalizeFileTypes(fileTypes = {}) {
  * @param {{ fileTypes?: { template?: string[], style?: string[], viewScript?: string[] } }} [options] 构建选项
  */
 function storeInfo(workPath, options = {}) {
+	// 依赖图需要知道当前构建的文件类型，因此在扫描项目前先重建选项。
+	compilerOptions = normalizeFileTypes(options.fileTypes)
 	storePathInfo(workPath)
 	storeProjectConfig()
 	storeAppConfig()
 	storePageConfig()
-
-	// 根据当前 options 重建，避免上一次 build() 注入的自定义文件类型影响本次构建。
-	compilerOptions = normalizeFileTypes(options.fileTypes)
+	dependencyGraph = createInitialDependencyGraph()
+	dependencyGraph.merge(options.dependencyGraph)
 
 	return {
 		pathInfo,
 		configInfo,
 		compilerOptions,
+		dependencyGraph: dependencyGraph.toJSON(),
 	}
 }
 
@@ -133,6 +144,7 @@ function resetStoreInfo(opts) {
 	configInfo = opts.configInfo
 	// Worker 恢复上下文时使用主线程生成的自定义文件类型配置，缺省时回退到内置配置。
 	compilerOptions = opts.compilerOptions || normalizeFileTypes()
+	dependencyGraph = new DependencyGraph(opts.dependencyGraph)
 
 	// 重新初始化 npm 解析器
 	if (pathInfo.workPath) {
@@ -142,6 +154,11 @@ function resetStoreInfo(opts) {
 
 function getTemplateExts() {
 	return compilerOptions.templateExts
+}
+
+function getTemplateDirectivePrefixes() {
+	return compilerOptions.templateDirectivePrefixes
+		|| normalizeFileTypes({ template: compilerOptions.templateExts }).templateDirectivePrefixes
 }
 
 function getStyleExts() {
@@ -154,6 +171,10 @@ function getViewScriptExts() {
 
 function getViewScriptTags() {
 	return compilerOptions.viewScriptTags
+}
+
+function getDependencyGraph() {
+	return dependencyGraph
 }
 
 function storePathInfo(workPath) {
@@ -413,6 +434,7 @@ function storeComponentConfig(pageJsonContent, pageFilePath) {
 			component: isComponent,
 			styleIsolation,
 			usingComponents: cComponents,
+			componentPlaceholder: { ...(cContent.componentPlaceholder || {}) },
 		}
 
 		// 只有当配置文件存在时才递归处理
@@ -605,6 +627,7 @@ function getPages() {
 			appStyleScopeId: getAppStyleScopeId(),
 			sharedStyleScopeIds: collectSharedStyleScopeIds(mergedComponents),
 			usingComponents: mergedComponents,
+			componentPlaceholder: { ...(pageInfo[path]?.componentPlaceholder || {}) },
 			customTabBar: pageInfo[path]?.customTabBar,
 		}
 	})
@@ -627,6 +650,7 @@ function getPages() {
 					appStyleScopeId: getAppStyleScopeId(),
 					sharedStyleScopeIds: collectSharedStyleScopeIds(mergedComponents),
 					usingComponents: mergedComponents,
+					componentPlaceholder: { ...(pageInfo[fullPath]?.componentPlaceholder || {}) },
 					customTabBar: pageInfo[fullPath]?.customTabBar,
 				}
 			}),
@@ -636,6 +660,97 @@ function getPages() {
 		mainPages,
 		subPages,
 	}
+}
+
+function addExistingModuleFiles(graph, moduleId) {
+	const relativeId = moduleId.replace(/^\/+/, '')
+	const basePath = path.resolve(getWorkPath(), relativeId)
+	const baseCandidates = [basePath, path.join(basePath, 'index')]
+	const extensions = [
+		'.json',
+		'.js',
+		'.ts',
+		...getTemplateExts(),
+		...getStyleExts(),
+		...getViewScriptExts(),
+	]
+	for (const candidateBase of baseCandidates) {
+		for (const extension of extensions) {
+			const filePath = `${candidateBase}${extension}`
+			if (fs.existsSync(filePath)) {
+				graph.addFile(moduleId, filePath, getFileDependencyKind(filePath))
+			}
+		}
+	}
+}
+
+function getFileDependencyKind(filePath) {
+	const extension = path.extname(filePath).toLowerCase()
+	if (extension === '.json') return 'config'
+	if (extension === '.js' || extension === '.ts') return 'logic'
+	if (getTemplateExts().includes(extension) || getViewScriptExts().includes(extension)) return 'view'
+	if (getStyleExts().includes(extension)) return 'style'
+	return 'module'
+}
+
+function createInitialDependencyGraph() {
+	const graph = new DependencyGraph()
+	graph.addNode('app', { type: 'app' })
+	for (const fileName of [
+		'app.json',
+		'app.js',
+		'app.ts',
+		'project.config.json',
+		'project.private.config.json',
+	]) {
+		const filePath = path.resolve(getWorkPath(), fileName)
+		if (fs.existsSync(filePath)) {
+			graph.addFile('app', filePath, getFileDependencyKind(filePath))
+		}
+	}
+	addExistingModuleFiles(graph, 'app')
+	for (const item of getAppConfigInfo().tabBar?.list || []) {
+		for (const field of ['iconPath', 'selectedIconPath']) {
+			if (!item[field]) continue
+			const assetPath = resolveAssetSourcePath(getWorkPath(), '', item[field])
+			if (fs.existsSync(assetPath)) {
+				graph.addFile('app', assetPath, 'config')
+			}
+		}
+	}
+
+	for (const component of Object.values(configInfo.componentInfo || {})) {
+		graph.addNode(component.path, { type: 'component' })
+		addExistingModuleFiles(graph, component.path)
+	}
+	for (const component of Object.values(configInfo.componentInfo || {})) {
+		for (const dependencyPath of Object.values(component.usingComponents || {})) {
+			graph.addDependency(component.path, dependencyPath, 'component')
+		}
+	}
+
+	const pages = getPages()
+	const addEntry = (page, packageRoot) => {
+		graph.addNode(page.path, {
+			type: 'page',
+			entry: true,
+			packageRoot,
+		})
+		addExistingModuleFiles(graph, page.path)
+		graph.addDependency(page.path, 'app', 'app')
+		for (const dependencyPath of Object.values(page.usingComponents || {})) {
+			graph.addDependency(page.path, dependencyPath, 'component')
+		}
+	}
+	for (const page of pages.mainPages) {
+		addEntry(page, null)
+	}
+	for (const [packageRoot, subPackage] of Object.entries(pages.subPages)) {
+		for (const page of subPackage.info) {
+			addEntry(page, packageRoot)
+		}
+	}
+	return graph
 }
 
 function collectSharedStyleScopeIds(usingComponents) {
@@ -669,6 +784,7 @@ function getAppStyleScopeId() {
 
 export {
 	getAppConfigInfo,
+	getDependencyGraph,
 	getAppId,
 	getAppName,
 	getAppStyleScopeId,
@@ -680,6 +796,7 @@ export {
 	getProjectConfig,
 	getStyleExts,
 	getTargetPath,
+	getTemplateDirectivePrefixes,
 	getTemplateExts,
 	getViewScriptExts,
 	getViewScriptTags,

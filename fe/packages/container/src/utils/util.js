@@ -22,7 +22,10 @@ export function waitForTransitionEnd(element) {
 
 export function queryPath(path) {
 	const parts = path.split('?')
-	const pagePath = parts[0]
+	// pagePath 统一去除前导斜杠：app-config.json 的 modules key 与 AMD module id
+	// 都是无前导斜杠形态，宿主直启 path 与容器内 "/pages/x/y" 写法都在此单点归一，
+	// 否则页面配置查找与 service 模块加载会因写法发散而失败
+	const pagePath = parts[0].replace(/^\/+/, '')
 	const paramStr = parts[1]
 
 	const result = {
@@ -83,6 +86,7 @@ export function mergePageConfig(appConfig, pageConfig) {
 	result.navigationBarTextStyle = pagePrivateConfig.navigationBarTextStyle || appWindowConfig.navigationBarTextStyle || 'white'
 	result.backgroundColor = pagePrivateConfig.backgroundColor || appWindowConfig.backgroundColor || '#fff'
 	result.navigationStyle = pagePrivateConfig.navigationStyle || appWindowConfig.navigationStyle || 'default'
+	result.homeButton = pagePrivateConfig.homeButton ?? appWindowConfig.homeButton ?? false
 	result.usingComponents = pagePrivateConfig.usingComponents || {}
 
 	return result

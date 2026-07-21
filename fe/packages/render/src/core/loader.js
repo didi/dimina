@@ -101,15 +101,25 @@ class Loader {
 	 * @param {{path: string, scopeId: string, usingComponents: object, render: Function}} moduleInfo
 	 */
 	createModule(moduleInfo) {
-		const { path, usingComponents } = moduleInfo
+		const { path, usingComponents, componentPlaceholder = {} } = moduleInfo
 		if (this.staticModules[path]) {
 			return
 		}
 
 		this.staticModules[path] = new Module(moduleInfo)
 
-		for (const componentPath of Object.values(usingComponents)) {
-			window.modRequire(componentPath)
+		for (const [componentName, componentPath] of Object.entries(usingComponents)) {
+			try {
+				window.modRequire(componentPath)
+			}
+			catch (error) {
+				const placeholderName = componentPlaceholder[componentName]
+				const placeholderPath = placeholderName && usingComponents[placeholderName]
+				if (!placeholderPath) {
+					throw error
+				}
+				window.modRequire(placeholderPath)
+			}
 		}
 	}
 

@@ -14,6 +14,9 @@ struct ContentView: View {
     // 存储UINavigationController的引用
     static var navigationController: UINavigationController?
 
+    // 自动化测试钩子的一次性标记（见 autoOpenAppForTestIfRequested）
+    static var didAutoOpenForTest = false
+
     let appItems = DMPResourceManager.getDMPAppConfigs()
 
     var filteredItems: [DMPAppConfig] {
@@ -42,7 +45,11 @@ struct ContentView: View {
 
         // 启动小程序
         Task { @MainActor in
-            let launchConfig = DMPLaunchConfig()
+            // 自动化测试钩子：环境变量指定启动页（如验证非首页启动的返回首页按钮），
+            // 未设置时保持默认首页启动
+            let launchConfig = DMPLaunchConfig(
+                appEntryPath: ProcessInfo.processInfo.environment["DMP_TEST_ENTRY_PATH"]
+            )
             await app.launch(launchConfig: launchConfig)
         }
     }
@@ -96,7 +103,26 @@ struct ContentView: View {
             .navigationBarHidden(true)
             .onAppear {
                 setupNavigationController()
+                autoOpenAppForTestIfRequested()
             }
+        }
+    }
+
+    /// 自动化测试钩子：环境变量 DMP_TEST_AUTO_OPEN_APPID 指定 appId 时，启动后自动打开
+    /// 该小程序，配合 DMP_TEST_ENTRY_PATH 覆盖启动页。
+    /// 只触发一次：小程序 relaunch 的 popToRootViewController 会瞬时露出本列表页并
+    /// 重跑 onAppear，无防重会用测试入口页重启小程序、覆盖正在进行的 relaunch
+    private func autoOpenAppForTestIfRequested() {
+        guard !ContentView.didAutoOpenForTest,
+              let autoId = ProcessInfo.processInfo.environment["DMP_TEST_AUTO_OPEN_APPID"],
+              let item = appItems.first(where: { $0.id == autoId }) else {
+            return
+        }
+        ContentView.didAutoOpenForTest = true
+        // setupNavigationController 在 onAppear 中先向 main 队列入队；这里再入队
+        // 即按 FIFO 排在其后，执行时导航控制器已就绪，无需定时等待
+        DispatchQueue.main.async {
+            navigateToDetail(item: item)
         }
     }
 

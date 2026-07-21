@@ -42,6 +42,28 @@
 			top: 0;
 			cursor: pointer;
 		}
+
+		// 返回首页按钮：栈底页面独占左槽；homeButton: true 的内页与返回箭头
+		// 并存（--after-back 修饰类，见 WebView.applyPageStyle）。带灰色圆形底
+		// （对齐微信真机 home 图标视觉权重），并存间距 20rpx（=10pt）对齐微信
+		// 原生导航栏 `.navigator-hd a+a{margin-left:10px}`
+		.dimina-native-webview__navigation-home-btn {
+			width: logic(64px);
+			height: logic(64px);
+			position: absolute;
+			left: logic(30px);
+			top: logic(12px);
+			cursor: pointer;
+			display: none;
+			border-radius: 50%;
+			background-repeat: no-repeat;
+			background-position: center;
+			background-size: logic(40px) logic(40px);
+
+			&.dimina-native-webview__navigation-home-btn--after-back {
+				left: logic(74px);
+			}
+		}
 	}
 
 	.dimina-native-webview__navigation-title {
@@ -58,6 +80,12 @@
 			background: url('@images/mini-arrow-left-white.png') no-repeat left center;
 			background-size: logic(20px) logic(35px);
 		}
+
+		// Material Icons 的 home 造型，与返回箭头位图同属 Material 图标体系
+		.dimina-native-webview__navigation-home-btn {
+			background-color: rgba(255, 255, 255, 0.24);
+			background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z' fill='%23fff'/%3E%3C/svg%3E");
+		}
 	}
 
 	&.dimina-native-webview__navigation--black {
@@ -68,6 +96,11 @@
 		.dimina-native-webview__navigation-left-btn {
 			background: url('@images/mini-arrow-left.png') no-repeat left center;
 			background-size: logic(20px) logic(35px);
+		}
+
+		.dimina-native-webview__navigation-home-btn {
+			background-color: #d6d6d6;
+			background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z' fill='%23000'/%3E%3C/svg%3E");
 		}
 	}
 }

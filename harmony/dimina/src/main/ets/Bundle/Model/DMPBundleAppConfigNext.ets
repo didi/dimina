@@ -89,7 +89,8 @@ export class DMPBundleAppConfigNext {
     if (!this._entryPagePath || !this._entryPagePath.length) {
       this._entryPagePath = this.pages![0]
     }
-    return this._entryPagePath
+    // 权威 getter 统一输出无前导斜杠路径，与页面栈/模块表的 key 口径一致
+    return this._entryPagePath.replace(/^\/+/, '')
   }
 
   set entryPagePath(path: string) {
@@ -111,6 +112,8 @@ export class DMPBundleAppConfigNext {
       pagePrivateConfig['backgroundColor'] || appWindowConfig['backgroundColor'] || '#fff');
     mergedConfig.set('navigationStyle',
       pagePrivateConfig['navigationStyle'] || appWindowConfig['navigationStyle'] || 'default');
+    mergedConfig.set('homeButton',
+      pagePrivateConfig['homeButton'] ?? appWindowConfig['homeButton'] ?? false);
     mergedConfig.set('usingComponents', pagePrivateConfig['usingComponents'] || {});
 
     return mergedConfig;

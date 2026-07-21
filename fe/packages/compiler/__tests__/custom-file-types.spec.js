@@ -455,8 +455,8 @@ module.exports = { srcFn: srcFn }
 		expect(output).toMatch(/\w\.exports/)
 	})
 
-	// brand 前缀指令：编译器按指令后缀(:if/:for/:key…)匹配、与前缀无关，所以 .qdml 里写
-	// qd:if / qd:for 会和 wx:if / wx:for 一样编成 v-if / v-for。守住「不得硬编码 wx: 前缀」。
+	// brand 前缀指令：.qdml 会显式注册 qd 为模板指令前缀，避免硬编码 wx，
+	// 同时不再将未注册或拼错的任意前缀静默当成指令。
 	it('.qdml 里的 qd: 前缀指令（if/else/for/for-item/for-index/key）按 v-if/v-for 编译', async () => {
 		const pagePath = 'pages/dir/index'
 		prepareSkeleton(pagePath)

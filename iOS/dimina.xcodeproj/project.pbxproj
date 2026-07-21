@@ -7,18 +7,35 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		14603AA5921BC560B952F3E9 /* DMPUtilPathTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61DD3E623362F9D7264941CD /* DMPUtilPathTests.swift */; };
 		1A2B3C4D5E6F700000000001 /* Alamofire in Frameworks */ = {isa = PBXBuildFile; productRef = 1A2B3C4D5E6F700000000101 /* Alamofire */; };
 		1A2B3C4D5E6F700000000002 /* MMKV in Frameworks */ = {isa = PBXBuildFile; productRef = 1A2B3C4D5E6F700000000102 /* MMKV */; };
 		1A2B3C4D5E6F700000000003 /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = 1A2B3C4D5E6F700000000103 /* ZIPFoundation */; };
+		D3AF9DC58D4F29D8D2A8F71F /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2EAA9C0614F7638987B22EAC /* Foundation.framework */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		425BDC30CA314D645195B564 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 0A6F85D02DAE3D7D0047A006 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 0A6F85D72DAE3D7D0047A006;
+			remoteInfo = dimina;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		0A6F85D82DAE3D7D0047A006 /* dimina.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = dimina.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		2EAA9C0614F7638987B22EAC /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
+		5D995E363EB06797E5E3DB0D /* diminaTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = diminaTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		61DD3E623362F9D7264941CD /* DMPUtilPathTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DMPUtilPathTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		0A6F85DA2DAE3D7D0047A006 /* dimina */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = dimina;
 			sourceTree = "<group>";
 		};
@@ -35,6 +52,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A9DECAB17F22C566C3183280 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D3AF9DC58D4F29D8D2A8F71F /* Foundation.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -43,6 +68,8 @@
 			children = (
 				0A6F85DA2DAE3D7D0047A006 /* dimina */,
 				0A6F85D92DAE3D7D0047A006 /* Products */,
+				E07F041A9E2897B4C9F7EE93 /* Frameworks */,
+				A25481309172EDD172D6037B /* diminaTests */,
 			);
 			sourceTree = "<group>";
 		};
@@ -50,8 +77,34 @@
 			isa = PBXGroup;
 			children = (
 				0A6F85D82DAE3D7D0047A006 /* dimina.app */,
+				5D995E363EB06797E5E3DB0D /* diminaTests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		A1A880FA1CE19FE5226DD6BF /* iOS */ = {
+			isa = PBXGroup;
+			children = (
+				2EAA9C0614F7638987B22EAC /* Foundation.framework */,
+			);
+			name = iOS;
+			sourceTree = "<group>";
+		};
+		A25481309172EDD172D6037B /* diminaTests */ = {
+			isa = PBXGroup;
+			children = (
+				61DD3E623362F9D7264941CD /* DMPUtilPathTests.swift */,
+			);
+			name = diminaTests;
+			path = diminaTests;
+			sourceTree = "<group>";
+		};
+		E07F041A9E2897B4C9F7EE93 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				A1A880FA1CE19FE5226DD6BF /* iOS */,
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -82,6 +135,24 @@
 			productName = dimina;
 			productReference = 0A6F85D82DAE3D7D0047A006 /* dimina.app */;
 			productType = "com.apple.product-type.application";
+		};
+		1117821FE0BE8D195C045561 /* diminaTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B2B2982469D8FB223BE46D4D /* Build configuration list for PBXNativeTarget "diminaTests" */;
+			buildPhases = (
+				4E8515AE7920D12C4879036D /* Sources */,
+				A9DECAB17F22C566C3183280 /* Frameworks */,
+				8686C926F6396745BC2C85D0 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				21D2CF2ECD81EA695D26AD0F /* PBXTargetDependency */,
+			);
+			name = diminaTests;
+			productName = diminaTests;
+			productReference = 5D995E363EB06797E5E3DB0D /* diminaTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
 		};
 /* End PBXNativeTarget section */
 
@@ -118,12 +189,20 @@
 			projectRoot = "";
 			targets = (
 				0A6F85D72DAE3D7D0047A006 /* dimina */,
+				1117821FE0BE8D195C045561 /* diminaTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		0A6F85D62DAE3D7D0047A006 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8686C926F6396745BC2C85D0 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -163,7 +242,24 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		4E8515AE7920D12C4879036D /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				14603AA5921BC560B952F3E9 /* DMPUtilPathTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		21D2CF2ECD81EA695D26AD0F /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = dimina;
+			target = 0A6F85D72DAE3D7D0047A006 /* dimina */;
+			targetProxy = 425BDC30CA314D645195B564 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		0A6F85E42DAE3D7F0047A006 /* Debug */ = {
@@ -363,6 +459,49 @@
 			};
 			name = Release;
 		};
+		410698C041695C27E7C612D8 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				"CODE_SIGNING_ALLOWED[sdk=iphonesimulator*]" = NO;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.didi.dimina.diminaTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/dimina.app/dimina";
+			};
+			name = Debug;
+		};
+		BDBAD9C9F0C0C97BA6E50B44 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				"CODE_SIGNING_ALLOWED[sdk=iphonesimulator*]" = NO;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.didi.dimina.diminaTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/dimina.app/dimina";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -380,6 +519,15 @@
 			buildConfigurations = (
 				0A6F85E72DAE3D7F0047A006 /* Debug */,
 				0A6F85E82DAE3D7F0047A006 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B2B2982469D8FB223BE46D4D /* Build configuration list for PBXNativeTarget "diminaTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BDBAD9C9F0C0C97BA6E50B44 /* Release */,
+				410698C041695C27E7C612D8 /* Debug */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

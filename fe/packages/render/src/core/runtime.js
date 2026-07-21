@@ -642,8 +642,8 @@ class Runtime {
 			return
 		}
 
-		const { id, tplComponents = {}, usingComponents = {} } = module.moduleInfo
-		const components = this.createComponent(path, bridgeId, usingComponents)
+		const { id, tplComponents = {}, usingComponents = {}, componentPlaceholder = {} } = module.moduleInfo
+		const components = this.createComponent(path, bridgeId, usingComponents, new Map(), componentPlaceholder)
 		for (const [tplName, render] of Object.entries(tplComponents)) {
 			this.app.component(`dd-${tplName}`, this.createTplComponent({
 				id,
@@ -689,6 +689,7 @@ class Runtime {
 			appStyleScopeId,
 			sharedStyleScopeIds = [],
 			usingComponents,
+			componentPlaceholder = {},
 			tplComponents,
 			customTabBar,
 		} = pageModule.moduleInfo
@@ -705,7 +706,7 @@ class Runtime {
 			sId,
 			...sharedStyleScopeIds.map(scopeId => `data-v-${scopeId}`),
 		].filter(Boolean)
-		const components = this.createComponent(path, bridgeId, usingComponents)
+		const components = this.createComponent(path, bridgeId, usingComponents, new Map(), componentPlaceholder)
 		return {
 			id,
 			tplComponents,
@@ -968,7 +969,7 @@ class Runtime {
 		return eventPath
 	}
 
-	createComponent(path, bridgeId, usingComponents, componentCache = new Map()) {
+	createComponent(path, bridgeId, usingComponents, componentCache = new Map(), componentPlaceholder = {}) {
 		if (!usingComponents || Object.keys(usingComponents).length === 0) {
 			return
 		}
@@ -977,28 +978,49 @@ class Runtime {
 		const that = this
 
 		for (const [componentName, componentPath] of Object.entries(usingComponents)) {
-			// Cache component options by declaring path and target path. Registering
-			// the option before walking its children closes self and mutual cycles,
-			// while retaining the lexical declaring path used by setup below.
-			const cacheKey = `${path}\0${componentPath}`
-			const cachedComponent = componentCache.get(cacheKey)
+			let resolvedComponentPath = componentPath
+			let cacheKey = `${path}\0${resolvedComponentPath}`
+			let cachedComponent = componentCache.get(cacheKey)
 			if (cachedComponent) {
 				components[`dd-${componentName}`] = cachedComponent
 				continue
 			}
 
-			const module = loader.getModuleByPath(componentPath)
+			let module = loader.getModuleByPath(resolvedComponentPath)
+			if (!module?.moduleInfo) {
+				const placeholderName = componentPlaceholder[componentName]
+				const placeholderPath = placeholderName && usingComponents[placeholderName]
+				if (placeholderPath) {
+					resolvedComponentPath = placeholderPath
+					cacheKey = `${path}\0${resolvedComponentPath}`
+					cachedComponent = componentCache.get(cacheKey)
+					if (cachedComponent) {
+						components[`dd-${componentName}`] = cachedComponent
+						continue
+					}
+					module = loader.getModuleByPath(resolvedComponentPath)
+				}
+			}
+
+			// Cache component options by declaring path and resolved target/placeholder path. Registering
+			// the option before walking its children closes self and mutual cycles,
+			// while retaining the lexical declaring path used by setup below.
 			if (!module?.moduleInfo) {
 				continue
 			}
 
-			const { id, usingComponents: subUsing, customTabBar } = module.moduleInfo
+			const {
+				id,
+				usingComponents: subUsing,
+				componentPlaceholder: subPlaceholder = {},
+				customTabBar,
+			} = module.moduleInfo
 			const sId = `data-v-${id}`
 			const styleIsolation = normalizeStyleIsolation(module.moduleInfo.styleIsolation)
 
 			// setup -> beforeCreate -> beforeMount
 			const componentOptions = {
-				name: componentPath,
+				name: resolvedComponentPath,
 				__scopeId: sId,
 				components: undefined,
 				props: {
@@ -1032,8 +1054,8 @@ class Runtime {
 						id: moduleId,
 						sId,
 					})
-					provide('path', componentPath)
-					provide(componentPath, {
+					provide('path', resolvedComponentPath)
+					provide(resolvedComponentPath, {
 						id: moduleId,
 						pagePath, // 声明该组件的页面或组件路径
 						pageId,
@@ -1081,7 +1103,7 @@ class Runtime {
 						body: {
 							bridgeId,
 							moduleId,
-							path: componentPath,
+							path: resolvedComponentPath,
 							isCustomTabBar: customTabBar === true,
 							pageId,
 							parentId,
@@ -1244,7 +1266,13 @@ class Runtime {
 				},
 			}
 			componentCache.set(cacheKey, componentOptions)
-			componentOptions.components = this.createComponent(componentPath, bridgeId, subUsing, componentCache)
+			componentOptions.components = this.createComponent(
+				resolvedComponentPath,
+				bridgeId,
+				subUsing,
+				componentCache,
+				subPlaceholder,
+			)
 			components[`dd-${componentName}`] = componentOptions
 		}
 		return components

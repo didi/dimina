@@ -1,6 +1,5 @@
 package com.didi.dimina.api.route
 
-import android.content.Intent
 import com.didi.dimina.api.APIResult
 import com.didi.dimina.api.AsyncResult
 import com.didi.dimina.api.BaseApiHandler
@@ -107,20 +106,7 @@ class RouteApi : BaseApiHandler() {
                     return ApiUtils.createErrorResponse(apiName, "URL cannot be empty")
                 }
 
-                val miniProgram = activity.getMiniProgram()
-                DiminaActivity.launch(
-                    activity, MiniProgram(
-                        appId = appId,
-                        name = miniProgram.name,
-                        root = true, // Set as root since we're clearing the stack
-                        path = url,
-                        versionCode = miniProgram.versionCode,
-                        versionName = miniProgram.versionName,
-                        updateManifestUrl = miniProgram.updateManifestUrl
-                    ),
-                    // Clear all activities below the top and reuse the top activity if it exists
-                    Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK
-                )
+                activity.reLaunchTo(url)
                 AsyncResult(JSONObject().apply {
                     put("errMsg", "$RE_LAUNCH:ok")
                 })

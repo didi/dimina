@@ -89,6 +89,17 @@ export class DMPNavigatorManager {
     return record;
   }
 
+  /**
+   * 返回 webViewId 所属 navigator 当前的页面栈深度（栈深 1 = 该 navigator 的栈底页面）。
+   * TabBar 页面不进入任何 navigator 的 _stacks（见 DMPNavigator.createPageRecordForTab），
+   * 它们的箭头/首页按钮由 DMPPageTitle 按 isTabBarPage 单独排除；其余找不到所属 navigator
+   * 的 webViewId 保守返回 >1，不误判为栈底。
+   */
+  getPageCountForWebViewId(webViewId: number): number {
+    const navigator = this.findNavigatorByWebViewId(webViewId)
+    return navigator ? navigator.getPageCount() : 2
+  }
+
   count() {
     return this._navigatorDelegateStack.size()
   }

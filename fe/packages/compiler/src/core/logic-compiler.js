@@ -6,8 +6,8 @@ import { walk } from 'oxc-walker'
 import MagicString from 'magic-string'
 import { transform } from 'esbuild'
 import { getWxMemberName, takeCompatibilityWarnings, warnUnsupportedWxApi } from '../common/compatibility.js'
-import { collectAssets, hasCompileInfo } from '../common/utils.js'
-import { getAppConfigInfo, getAppId, getComponent, getContentByPath, getNpmResolver, getTargetPath, getWorkPath, resetStoreInfo, resolveAppAlias } from '../env.js'
+import { collectAssets, hasCompileInfo, resolveAssetSourcePath } from '../common/utils.js'
+import { getAppConfigInfo, getAppId, getComponent, getContentByPath, getDependencyGraph, getNpmResolver, getTargetPath, getWorkPath, resetStoreInfo, resolveAppAlias } from '../env.js'
 import { mergeSourcemap, remapSourcemap } from './sourcemap.js'
 
 // 用于缓存已处理的模块
@@ -57,6 +57,7 @@ if (!isMainThread) {
 			parentPort.postMessage({
 				success: true,
 				compatibilityWarnings: takeCompatibilityWarnings(),
+				dependencyGraph: getDependencyGraph().toJSON(),
 			})
 		}
 		catch (error) {
@@ -158,6 +159,7 @@ async function buildJSByPath(packageName, module, compileRes, mainCompileRes, ad
 		console.warn('[logic]', `找不到模块文件: ${src}`)
 		return
 	}
+	getDependencyGraph().addFile(currentPath, modulePath, 'logic')
 	const diagnosticSource = modulePath.startsWith(getWorkPath())
 		? modulePath.slice(getWorkPath().length)
 		: src
@@ -202,8 +204,15 @@ async function buildJSByPath(packageName, module, compileRes, mainCompileRes, ad
 	if (module.usingComponents) {
 		const componentsObj = {}
 		const allSubPackages = getAppConfigInfo().subPackages
+		const graphDependencies = getDependencyGraph().getDirectDependencies(module.path, 'component')
+		const componentDependencies = graphDependencies.length > 0
+			? new Set(graphDependencies)
+			: null
 
 		for (const [name, path] of Object.entries(module.usingComponents)) {
+			if (componentDependencies && !componentDependencies.has(path)) {
+				continue
+			}
 			let toMainSubPackage = true
 			if (packageName) {
 				// 如果依赖的组件不在当前的分包，则跳过该组件的编译逻辑，保证分包代码的独立性
@@ -268,6 +277,11 @@ async function buildJSByPath(packageName, module, compileRes, mainCompileRes, ad
 			}
 
 			if ((node.type === 'StringLiteral' || node.type === 'Literal') && isLocalAssetString(node.value)) {
+				getDependencyGraph().addFile(
+					currentPath,
+					resolveAssetSourcePath(getWorkPath(), modulePath, node.value),
+					'logic',
+				)
 				pathReplacements.push({
 					start: node.start,
 					end: node.end,
@@ -295,6 +309,7 @@ async function buildJSByPath(packageName, module, compileRes, mainCompileRes, ad
 						const { id, shouldProcess } = resolveDependencyId(requirePath, modulePath, false)
 
 						if (shouldProcess) {
+							getDependencyGraph().addDependency(currentPath, id, 'logic')
 							pathReplacements.push({
 								start: arg.start,
 								end: arg.end,
@@ -316,6 +331,7 @@ async function buildJSByPath(packageName, module, compileRes, mainCompileRes, ad
 					const { id, shouldProcess } = resolveDependencyId(importPath, modulePath, true)
 
 					if (shouldProcess) {
+						getDependencyGraph().addDependency(currentPath, id, 'logic')
 						pathReplacements.push({
 							start: node.source.start,
 							end: node.source.end,
@@ -340,6 +356,7 @@ async function buildJSByPath(packageName, module, compileRes, mainCompileRes, ad
 					const { id, shouldProcess } = resolveDependencyId(importPath, modulePath, false)
 
 					if (shouldProcess) {
+						getDependencyGraph().addDependency(currentPath, id, 'logic')
 						pathReplacements.push({
 							start: importPathNode.start,
 							end: importPathNode.end,
@@ -364,6 +381,7 @@ async function buildJSByPath(packageName, module, compileRes, mainCompileRes, ad
 					const { id, shouldProcess } = resolveDependencyId(exportPath, modulePath, true)
 
 					if (shouldProcess) {
+						getDependencyGraph().addDependency(currentPath, id, 'logic')
 						pathReplacements.push({
 							start: node.source.start,
 							end: node.source.end,

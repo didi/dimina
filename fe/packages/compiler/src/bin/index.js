@@ -6,6 +6,8 @@ import chokidar from 'chokidar'
 import { program } from 'commander'
 import pack from '../../package.json' with { type: 'json' }
 import build from '../index.js'
+import { createIgnoredPathMatcher, createWatchBuildPlan, createWatchRebuildScheduler, getPublishedOutputPath } from './watch.js'
+import { DependencyGraph } from '../common/dependency-graph.js'
 
 program
 	.command('build')
@@ -20,19 +22,66 @@ program
 		const useAppIdDir = options.appIdDir !== false
 		const sourcemap = !!options.sourcemap
 
-		await build(targetPath, workPath, useAppIdDir, { sourcemap })
+		let buildResult
+		try {
+			buildResult = await build(targetPath, workPath, useAppIdDir, { sourcemap })
+		}
+		catch (error) {
+			throw new Error(`${workPath} 编译出错: ${error.message}`, { cause: error })
+		}
 		const watch = options.watch
 		if (watch) {
+			let dependencyGraph = new DependencyGraph(buildResult.dependencyGraph)
+			const ignoredOutputPaths = new Set([
+				getPublishedOutputPath(targetPath, useAppIdDir, buildResult.appId),
+			])
+			const eventLabels = {
+				add: '新增',
+				change: '改动',
+				unlink: '删除',
+			}
+			const scheduler = createWatchRebuildScheduler({
+				rebuild: async (change) => {
+					const publishedPath = getPublishedOutputPath(targetPath, useAppIdDir, buildResult.appId)
+					const plan = createWatchBuildPlan({
+						...change,
+						dependencyGraph,
+						publishedPath,
+					})
+					if (plan.skip) return
+					const result = await build(targetPath, workPath, useAppIdDir, {
+						sourcemap,
+						...plan.options,
+					})
+					buildResult = result
+					dependencyGraph = new DependencyGraph(result.dependencyGraph)
+					ignoredOutputPaths.add(getPublishedOutputPath(targetPath, useAppIdDir, result.appId))
+				},
+				onRebuild: ({ event, filePath, count }) => {
+					const merged = count > 1 ? `（合并 ${count} 个文件事件）` : ''
+					console.log(`${filePath} ${eventLabels[event]}，重新编译${merged}`)
+				},
+				onError: (error) => {
+					console.error(`${workPath} 编译出错: ${error.message}`)
+				},
+			})
 			chokidar
 				.watch(workPath, {
 					persistent: true, // 持续监听
 					ignoreInitial: true, // 忽略初始的 add/addDir 事件
+					ignored: createIgnoredPathMatcher(ignoredOutputPaths),
 				})
-				.on('all', async (event, path) => {
-					if (event === 'change') {
-						console.log(`${path} 改动，重新编译`)
-						await build(targetPath, workPath, useAppIdDir, { sourcemap })
+				.on('all', (event, filePath) => {
+					const plan = createWatchBuildPlan({
+						event,
+						filePath,
+						dependencyGraph,
+						publishedPath: getPublishedOutputPath(targetPath, useAppIdDir, buildResult.appId),
+					})
+					if (plan.skip) {
+						return
 					}
+					scheduler.schedule(event, filePath)
 				})
 		}
 	})
@@ -41,4 +90,7 @@ program
 	.name('dmcc')
 	.version(pack.version)
 
-program.parse(process.argv)
+program.parseAsync(process.argv).catch((error) => {
+	console.error(error.stack || error.message)
+	process.exitCode = 1
+})

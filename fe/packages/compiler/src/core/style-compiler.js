@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { isMainThread, parentPort } from 'node:worker_threads'
 import { compileStyle } from '@vue/compiler-sfc'
 import autoprefixer from 'autoprefixer'
@@ -8,13 +9,14 @@ import less from 'less'
 import postcss from 'postcss'
 import selectorParser from 'postcss-selector-parser'
 import * as sass from 'sass'
-import { collectAssets, tagWhiteList, transformRpx } from '../common/utils.js'
-import { getAppId, getComponent, getContentByPath, getStyleExts, getTargetPath, getWorkPath, resetStoreInfo } from '../env.js'
+import { collectAssets, resolveAssetSourcePath, tagWhiteList, transformRpx } from '../common/utils.js'
+import { getAppId, getComponent, getContentByPath, getDependencyGraph, getStyleExts, getTargetPath, getWorkPath, resetStoreInfo } from '../env.js'
+import { concatSourcemap, createLineSourcemap, remapSourcemap } from './sourcemap.js'
 
 const compileRes = new Map()
 
 if (!isMainThread) {
-	parentPort.on('message', async ({ pages, storeInfo }) => {
+	parentPort.on('message', async ({ pages, storeInfo, sourcemap }) => {
 		try {
 			resetStoreInfo(storeInfo)
 
@@ -30,27 +32,34 @@ if (!isMainThread) {
 				},
 			}
 
-			await compileSS(pages.mainPages, null, progress)
+			await compileSS(pages.mainPages, null, progress, { sourcemap })
 
 			for (const [root, subPages] of Object.entries(pages.subPages)) {
-				await compileSS(subPages.info, root, progress)
+				await compileSS(subPages.info, root, progress, { sourcemap })
 			}
 
 			// Worker 任务完成后清理缓存，释放内存
 			compileRes.clear()
 
-			parentPort.postMessage({ success: true })
+			parentPort.postMessage({
+				success: true,
+				dependencyGraph: getDependencyGraph().toJSON(),
+			})
 		}
 		catch (error) {
 			// 错误时也清理缓存
 			compileRes.clear()
-			
-			parentPort.postMessage({ 
-				success: false, 
+
+			parentPort.postMessage({
+				success: false,
 				error: {
 					message: error.message,
 					stack: error.stack,
-					name: error.name
+					name: error.name,
+					file: error.file,
+					line: error.line,
+					column: error.column,
+					stage: error.stage,
 				}
 			})
 		}
@@ -60,34 +69,34 @@ if (!isMainThread) {
 /**
  *  编译样式文件
  */
-async function compileSS(pages, root, progress) {
+async function compileSS(pages, root, progress, options = {}) {
 	// page 样式
 	for (const page of pages) {
-		const code = await buildCompileCss(page, new Set()) || ''
+		const result = await buildCompileCss(page, new Set(), options)
+		let code = result.code
 		const filename = `${page.path.replace(/\//g, '_')}`
-		if (root) {
-			const subDir = `${getTargetPath()}/${root}`
-			if (!fs.existsSync(subDir)) {
-				fs.mkdirSync(subDir, { recursive: true })
-			}
-
-			fs.writeFileSync(`${subDir}/${filename}.css`, code)
+		const outputDir = root
+			? `${getTargetPath()}/${root}`
+			: `${getTargetPath()}/main`
+		if (!fs.existsSync(outputDir)) {
+			fs.mkdirSync(outputDir, { recursive: true })
 		}
-		else {
-			const mainDir = `${getTargetPath()}/main`
-			if (!fs.existsSync(mainDir)) {
-				fs.mkdirSync(mainDir, { recursive: true })
-			}
 
-			fs.writeFileSync(`${mainDir}/${filename}.css`, code)
+		if (options.sourcemap) {
+			const mapFileName = `${filename}.css.map`
+			const map = JSON.parse(result.map)
+			map.file = `${filename}.css`
+			code += `\n/*# sourceMappingURL=${mapFileName} */\n`
+			fs.writeFileSync(`${outputDir}/${mapFileName}`, JSON.stringify(map))
 		}
+		fs.writeFileSync(`${outputDir}/${filename}.css`, code)
 
 		progress.completedTasks++
 	}
 }
 
-async function buildCompileCss(module, compiledPaths = new Set()) {
-	let result = ''
+async function buildCompileCss(module, compiledPaths = new Set(), options = {}) {
+	const chunks = []
 	const pendingModules = [module]
 
 	while (pendingModules.length > 0) {
@@ -101,11 +110,17 @@ async function buildCompileCss(module, compiledPaths = new Set()) {
 			continue
 		}
 		compiledPaths.add(currentPath)
-		result += await enhanceCSS(currentModule) || ''
+		const result = await enhanceCSS(currentModule, options)
+		if (result.code) {
+			chunks.push(result)
+		}
 
 		// Preserve the original depth-first, declaration-order traversal while
 		// using an explicit stack instead of the JavaScript call stack.
-		const componentPaths = Object.values(currentModule.usingComponents || {})
+		const graphDependencies = getDependencyGraph().getDirectDependencies(currentPath, 'component')
+		const componentPaths = graphDependencies.length > 0
+			? graphDependencies
+			: Object.values(currentModule.usingComponents || {})
 		for (let index = componentPaths.length - 1; index >= 0; index--) {
 			const componentModule = getComponent(componentPaths[index])
 			if (componentModule) {
@@ -114,7 +129,56 @@ async function buildCompileCss(module, compiledPaths = new Set()) {
 		}
 	}
 
-	return result
+	if (options.sourcemap) {
+		const { code, sourcemap: map } = concatSourcemap(chunks)
+		return { code, map }
+	}
+	return { code: chunks.map(chunk => chunk.code).join(''), map: null }
+}
+
+function createExternalClassPlugin(moduleId) {
+	const scopeAttribute = `data-v-${moduleId}`
+	const externalScopeAttribute = 'data-dd-external-class-scope'
+	const processedRules = new WeakSet()
+	return {
+		postcssPlugin: 'dimina-external-class',
+		Rule(rule) {
+			if (processedRules.has(rule) || !moduleId || !rule.selector.includes(`[${scopeAttribute}]`)) {
+				return
+			}
+			processedRules.add(rule)
+
+			try {
+				rule.selector = selectorParser((selectors) => {
+					for (const selector of [...selectors.nodes]) {
+						const boostedSelector = selector.clone()
+						const scopeNodes = []
+						boostedSelector.walkAttributes((attribute) => {
+							if (attribute.attribute === scopeAttribute) {
+								scopeNodes.push(attribute)
+							}
+						})
+
+						const targetScope = scopeNodes.at(-1)
+						if (!targetScope) {
+							continue
+						}
+
+						targetScope.parent.insertAfter(targetScope, selectorParser.attribute({
+							attribute: externalScopeAttribute,
+							operator: '~=',
+							quoteMark: '"',
+							value: scopeAttribute,
+						}))
+						selectors.append(boostedSelector)
+					}
+				}).processSync(rule.selector)
+			}
+			catch (error) {
+				throw rule.error(error.message, { plugin: 'dimina-external-class' })
+			}
+		},
+	}
 }
 
 function boostExternalClassSelectors(cssCode, moduleId) {
@@ -122,55 +186,148 @@ function boostExternalClassSelectors(cssCode, moduleId) {
 		return cssCode
 	}
 
-	const scopeAttribute = `data-v-${moduleId}`
-	const externalScopeAttribute = 'data-dd-external-class-scope'
-	const ast = postcss.parse(cssCode)
-
-	ast.walkRules((rule) => {
-		if (!rule.selector.includes(`[${scopeAttribute}]`)) {
-			return
-		}
-
-		rule.selector = selectorParser((selectors) => {
-			for (const selector of [...selectors.nodes]) {
-				const boostedSelector = selector.clone()
-				const scopeNodes = []
-				boostedSelector.walkAttributes((attribute) => {
-					if (attribute.attribute === scopeAttribute) {
-						scopeNodes.push(attribute)
-					}
-				})
-
-				const targetScope = scopeNodes.at(-1)
-				if (!targetScope) {
-					continue
-				}
-
-				targetScope.parent.insertAfter(targetScope, selectorParser.attribute({
-					attribute: externalScopeAttribute,
-					operator: '~=',
-					quoteMark: '"',
-					value: scopeAttribute,
-				}))
-				selectors.append(boostedSelector)
-			}
-		}).processSync(rule.selector)
-	})
-
-	return ast.toResult().css
+	return postcss([createExternalClassPlugin(moduleId)])
+		.process(cssCode, { from: undefined }).css
 }
 
-async function enhanceCSS(module) {
+function getStyleSourcePath(absolutePath) {
+	const workPath = getWorkPath()
+	if (absolutePath === workPath || absolutePath.startsWith(`${workPath}${path.sep}`)) {
+		return `/${path.relative(workPath, absolutePath).split(path.sep).join('/')}`
+	}
+	return absolutePath.split(path.sep).join('/')
+}
+
+function createStyleCompileError(stage, absolutePath, cause) {
+	if (cause?.name === 'StyleCompileError') {
+		return cause
+	}
+
+	const line = cause?.line ?? (Number.isInteger(cause?.span?.start?.line) ? cause.span.start.line + 1 : undefined)
+	const column = cause?.column ?? (Number.isInteger(cause?.span?.start?.column) ? cause.span.start.column + 1 : undefined)
+	const file = getStyleSourcePath(absolutePath)
+	const location = line == null
+		? file
+		: `${file}:${line}${column == null ? '' : `:${column}`}`
+	const reason = cause?.reason || cause?.sassMessage || cause?.message || String(cause)
+	const error = new Error(`[style:${stage}] ${location} ${reason}`, { cause })
+	error.name = 'StyleCompileError'
+	error.file = file
+	error.line = line
+	error.column = column
+	error.stage = stage
+	return error
+}
+
+function normalizePreprocessorMap(inputMap, absolutePath, inputCSS) {
+	const map = typeof inputMap === 'string' ? JSON.parse(inputMap) : structuredClone(inputMap)
+	const sourcePaths = map.sources.map((source) => {
+		let resolvedPath = source
+		if (source.startsWith('file:')) {
+			resolvedPath = fileURLToPath(source)
+		}
+		else if (!path.isAbsolute(source)) {
+			resolvedPath = path.resolve(path.dirname(absolutePath), source)
+		}
+		return resolvedPath
+	})
+
+	map.sources = sourcePaths.map(getStyleSourcePath)
+	map.sourcesContent = map.sources.map((_, index) => {
+		if (sourcePaths[index] === absolutePath) {
+			return inputCSS
+		}
+		return map.sourcesContent?.[index] ?? null
+	})
+	return map
+}
+
+function getPostcssMapOptions(sourcemap, prev) {
+	if (!sourcemap) {
+		return false
+	}
+	return {
+		inline: false,
+		annotation: false,
+		sourcesContent: true,
+		prev,
+	}
+}
+
+function createStyleTransformPlugin(module, absolutePath, importResults, options) {
+	const processedRules = new WeakSet()
+	return {
+		postcssPlugin: 'dimina-style-transform',
+		AtRule(node) {
+			if (node.name !== 'import') {
+				return
+			}
+
+			const importPath = node.params.replace(/^['"]|['"]$/g, '')
+			const importFullPath = resolveStyleImportPath(absolutePath, importPath)
+			node.remove()
+			importResults.push(buildCompileCss({
+				absolutePath: importFullPath,
+				id: module.id,
+				ownerPath: module.ownerPath || module.path,
+			}, new Set(), options))
+		},
+		Rule(rule) {
+			if (processedRules.has(rule)) {
+				return
+			}
+			processedRules.add(rule)
+
+			if (rule.selector.includes('::v-deep')) {
+				rule.selector = rule.selector.replace(/::v-deep\s+(\S[^{]*)/g, ':deep($1)')
+			}
+
+			if (rule.selector.includes(':host')) {
+				rule.selector = processHostSelector(rule.selector, module.id)
+			}
+
+			try {
+				rule.selector = selectorParser((selectors) => {
+					selectors.walkTags((tag) => {
+						if (tagWhiteList.includes(tag.value)) {
+							tag.value = `.dd-${tag.value}`
+						}
+					})
+				}).processSync(rule.selector)
+			}
+			catch (error) {
+				throw rule.error(error.message, { plugin: 'dimina-style-transform' })
+			}
+		},
+		Comment(comment) {
+			comment.remove()
+		},
+		Declaration(declaration) {
+			declaration.value = normalizeCssUrlValue(
+				declaration.value,
+				absolutePath,
+				module.ownerPath || module.path,
+			)
+			declaration.value = transformRpx(declaration.value)
+		},
+	}
+}
+
+async function enhanceCSS(module, options = {}) {
 	const absolutePath = module.absolutePath ? module.absolutePath : getAbsolutePath(module.path)
 	if (!absolutePath) {
 		// 样式文件不存在
-		return ''
+		return { code: '', map: null }
 	}
-	const cacheKey = `${absolutePath}::${module.id || ''}`
+	const graphOwnerPath = module.ownerPath || module.path
+	if (graphOwnerPath) {
+		getDependencyGraph().addFile(graphOwnerPath, absolutePath, 'style')
+	}
+	const cacheKey = `${absolutePath}::${module.id || ''}::${options.sourcemap ? 'map' : 'plain'}`
 
 	const inputCSS = getContentByPath(absolutePath)
 	if (!inputCSS) {
-		return ''
+		return { code: '', map: null }
 	}
 
 	if (compileRes.has(cacheKey)) {
@@ -179,111 +336,134 @@ async function enhanceCSS(module) {
 
 	// 预处理器编译
 	let processedCSS = normalizeRootStyleImports(inputCSS)
+	let processedMap = options.sourcemap
+		? createLineSourcemap(processedCSS, getStyleSourcePath(absolutePath), inputCSS)
+		: null
 	const ext = path.extname(absolutePath).toLowerCase()
-	
+
 	try {
 		if (ext === '.less') {
 			const result = await less.render(processedCSS, {
 				filename: absolutePath,
 				paths: [path.dirname(absolutePath), getWorkPath()],
+				sourceMap: options.sourcemap
+					? {
+						outputSourceFiles: true,
+						disableSourcemapAnnotation: true,
+					}
+					: undefined,
 			})
 			processedCSS = result.css
-		} else if (ext === '.scss' || ext === '.sass') {
+			if (options.sourcemap) {
+				processedMap = normalizePreprocessorMap(result.map, absolutePath, inputCSS)
+			}
+		}
+		else if (ext === '.scss' || ext === '.sass') {
 			const result = sass.compileString(processedCSS, {
 				loadPaths: [path.dirname(absolutePath), getWorkPath()],
 				syntax: ext === '.sass' ? 'indented' : 'scss',
+				url: options.sourcemap ? pathToFileURL(absolutePath) : undefined,
+				sourceMap: !!options.sourcemap,
+				sourceMapIncludeSources: !!options.sourcemap,
 			})
 			processedCSS = result.css
+			if (options.sourcemap) {
+				processedMap = normalizePreprocessorMap(result.sourceMap, absolutePath, inputCSS)
+			}
 		}
-	} catch (error) {
-		console.error(`[style] 预处理器编译失败 ${absolutePath}:`, error.message)
-		// 如果预处理器编译失败，使用原始内容继续处理
-		processedCSS = inputCSS
+	}
+	catch (error) {
+		throw createStyleCompileError('preprocess', absolutePath, error)
 	}
 
 	const fixedCSS = ensureImportSemicolons(processedCSS)
-
-	let ast
-	try {
-		ast = postcss.parse(fixedCSS)
-	} catch (error) {
-		console.error(`[style] PostCSS 解析失败 ${absolutePath}:`, error.message)
-		// 如果 PostCSS 解析失败，返回空字符串
-		return ''
+	if (options.sourcemap && fixedCSS !== processedCSS) {
+		const normalizeMap = createLineSourcemap(fixedCSS, absolutePath, processedCSS)
+		processedMap = remapSourcemap(normalizeMap, processedMap)
 	}
-	const promises = []
-	ast.walk(async (node) => {
-		if (node.type === 'atrule' && node.name === 'import') {
-			// @import 样式导入
-			// 替换字符串首尾的引号
-			const str = node.params.replace(/^['"]|['"]$/g, '')
-			const importFullPath = resolveStyleImportPath(absolutePath, str)
 
-			node.remove()
-
-			promises.push(buildCompileCss({ absolutePath: importFullPath, id: module.id }, new Set()))
-		}
-		else if (node.type === 'rule') {
-			// 处理 ::v-deep
-			if (node.selector.includes('::v-deep')) {
-				node.selector = node.selector.replace(/::v-deep\s+(\S[^{]*)/g, ':deep($1)')
-			}
-
-			// 处理 :host 选择器
-			if (node.selector.includes(':host')) {
-				node.selector = processHostSelector(node.selector, module.id)
-			}
-
-			// 转换基础组件标签为类选择器
-			node.selector = selectorParser((selectors) => {
-				selectors.walkTags((tag) => {
-					if (tagWhiteList.includes(tag.value)) {
-						tag.value = `.dd-${tag.value}`
-					}
-				})
-			}).processSync(node.selector)
-		}
-		else if (node.type === 'comment') {
-			// 移除注释
-			node.remove()
-		}
-	})
-
-	ast.walkDecls((decl) => {
-		decl.value = normalizeCssUrlValue(decl.value, absolutePath)
-		decl.value = transformRpx(decl.value)
-	})
-
-	const cssCode = ast.toResult().css
+	const importResults = []
+	let transformedResult
+	try {
+		transformedResult = await postcss([
+			createStyleTransformPlugin(module, absolutePath, importResults, options),
+		]).process(fixedCSS, {
+			from: undefined,
+			map: getPostcssMapOptions(options.sourcemap, processedMap),
+		})
+	} catch (error) {
+		throw createStyleCompileError('transform', absolutePath, error)
+	}
 
 	// 样式隔离
 	const moduleId = module.id
-	const scopedCode = compileStyle({
-		source: cssCode,
-		id: moduleId,
-		scoped: !!moduleId,
-	}).code
-	const externalClassCode = boostExternalClassSelectors(scopedCode, moduleId)
+	let scopedResult
+	try {
+		scopedResult = compileStyle({
+			source: transformedResult.css,
+			filename: getStyleSourcePath(absolutePath),
+			id: moduleId,
+			scoped: !!moduleId,
+			inMap: options.sourcemap ? transformedResult.map.toJSON() : undefined,
+		})
+		if (scopedResult.errors.length > 0) {
+			throw scopedResult.errors[0]
+		}
+	}
+	catch (error) {
+		throw createStyleCompileError('scope', absolutePath, error)
+	}
+
+	let externalResult
+	try {
+		externalResult = await postcss([createExternalClassPlugin(moduleId)])
+			.process(scopedResult.code, {
+				from: undefined,
+				map: getPostcssMapOptions(options.sourcemap, scopedResult.map),
+			})
+	}
+	catch (error) {
+		throw createStyleCompileError('external-class', absolutePath, error)
+	}
 
 	// 统一后处理：autoprefixer + 压缩
-	const res = await postcss([
-		autoprefixer({ overrideBrowserslist: ['cover 99.5%'] }), 
-		cssnano()
-	]).process(externalClassCode, { from: undefined })
+	let finalResult
+	try {
+		finalResult = await postcss([
+			autoprefixer({ overrideBrowserslist: ['cover 99.5%'] }),
+			cssnano()
+		]).process(externalResult.css, {
+			from: undefined,
+			map: getPostcssMapOptions(options.sourcemap, externalResult.map?.toJSON()),
+		})
+	}
+	catch (error) {
+		throw createStyleCompileError('postprocess', absolutePath, error)
+	}
 
 	// 处理导入的样式
-	const importCss = (await Promise.all(promises))
-		.filter(Boolean)
-		.join('')
-
-	const result = importCss + res.css
+	const importedChunks = (await Promise.all(importResults)).filter(result => result.code)
+	let result
+	if (options.sourcemap) {
+		const { code, sourcemap: map } = concatSourcemap([
+			...importedChunks,
+			{ code: finalResult.css, map: finalResult.map.toString() },
+		])
+		result = { code, map }
+	}
+	else {
+		result = {
+			code: importedChunks.map(chunk => chunk.code).join('') + finalResult.css,
+			map: null,
+		}
+	}
 
 	compileRes.set(cacheKey, result)
 
 	return result
 }
 
-function normalizeCssUrlValue(value, absolutePath) {
+function normalizeCssUrlValue(value, absolutePath, graphOwnerPath) {
 	return value.replace(/url\(([^)]+)\)/g, (fullMatch, rawUrl) => {
 		const cleanedUrl = rawUrl.trim().replace(/^['"]|['"]$/g, '')
 
@@ -299,6 +479,13 @@ function normalizeCssUrlValue(value, absolutePath) {
 			return fullMatch
 		}
 
+		if (graphOwnerPath && /\.(?:png|jpe?g|gif|svg)(?:\?.*)?$/.test(cleanedUrl)) {
+			getDependencyGraph().addFile(
+				graphOwnerPath,
+				resolveAssetSourcePath(getWorkPath(), absolutePath, cleanedUrl),
+				'style',
+			)
+		}
 		const realSrc = collectAssets(getWorkPath(), absolutePath, cleanedUrl, getTargetPath(), getAppId())
 		return `url(${realSrc})`
 	})

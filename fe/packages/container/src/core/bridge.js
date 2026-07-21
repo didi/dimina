@@ -117,8 +117,9 @@ export class Bridge {
 		else if (target === 'container') {
 			if (type === 'invokeAPI') {
 				const { name, params } = body
-				// parent 是 miniApp 对象
-				this.parent.invokeApi(name, params)
+				// parent 是 miniApp 对象；带上调用方 bridge，让 hideHomeButton 这类
+				// 作用于"调用页自身"的 API 能定位到正确的页面
+				this.parent.invokeApi(name, params, this)
 			}
 		}
 	}
@@ -190,6 +191,12 @@ export class Bridge {
 			const webview = new WebView({
 				configInfo: this.opts.configInfo,
 				isRoot: this.opts.isRoot,
+				// 返回首页按钮显隐的权威判据在 miniApp（它掌握 entryPagePath / tabBar）
+				showHomeButton: this.parent.shouldShowHomeButton({
+					pagePath: this.opts.pagePath,
+					configInfo: this.opts.configInfo,
+					isRoot: this.opts.isRoot,
+				}),
 			})
 
 			webview.parent = this

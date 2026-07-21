@@ -17,8 +17,19 @@ on:
         default: false
 
 jobs:
+  native-dependency-versions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: Verify native dependency release commits
+        run: ./scripts/update-native-dependencies.sh --check
+
   changelog:
     if: github.event_name == 'push' || !inputs.skip_changelog
+    needs: native-dependency-versions
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -26,6 +37,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
 
       - uses: actions/setup-node@v6
         with:
@@ -42,6 +54,8 @@ jobs:
     needs: changelog
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
 
       - name: Show Swift and Xcode versions
         run: |

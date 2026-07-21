@@ -12,7 +12,31 @@ describe('render resource loader', () => {
 	beforeEach(() => {
 		invoke.mockReset()
 		window.modRequire = vi.fn()
+		loader.staticModules = {}
 		vi.restoreAllMocks()
+	})
+
+	it('loads a declared placeholder when the target component module is unavailable', () => {
+		window.modRequire.mockImplementation((modulePath) => {
+			if (modulePath === '/components/async-card') {
+				throw new Error(`module ${modulePath} not found`)
+			}
+		})
+
+		loader.createModule({
+			path: '/components/shell',
+			usingComponents: {
+				'async-card': '/components/async-card',
+				'loading-card': '/components/loading-card',
+			},
+			componentPlaceholder: {
+				'async-card': 'loading-card',
+			},
+		})
+
+		expect(window.modRequire).toHaveBeenCalledWith('/components/async-card')
+		expect(window.modRequire).toHaveBeenCalledWith('/components/loading-card')
+		expect(loader.getModuleByPath('/components/shell')).toBeDefined()
 	})
 
 	it('reports loaded only after every resource and the page module succeed', async () => {

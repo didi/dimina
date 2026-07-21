@@ -325,6 +325,62 @@ describe('runtime template components', () => {
 		expect(nestedA.components['dd-node-b']).toBe(nestedB)
 	})
 
+	it('uses a declared placeholder only while the target component module is unavailable', async () => {
+		const loader = (await import('../src/core/loader.js')).default
+		const targetPath = '/components/async-card'
+		const placeholderPath = '/components/loading-card'
+		const modules = {
+			[placeholderPath]: {
+				moduleInfo: {
+					id: 'loading-card',
+					usingComponents: {},
+					componentPlaceholder: {},
+					render() {},
+				},
+				propertySchemas: {},
+				props: {},
+			},
+		}
+		vi.spyOn(loader, 'getModuleByPath').mockImplementation(path => modules[path])
+		const usingComponents = {
+			'async-card': targetPath,
+			'loading-card': placeholderPath,
+		}
+		const componentPlaceholder = {
+			'async-card': 'loading-card',
+		}
+
+		const waiting = runtime.createComponent(
+			'/pages/placeholder/index',
+			'bridge-placeholder',
+			usingComponents,
+			new Map(),
+			componentPlaceholder,
+		)
+		expect(waiting['dd-async-card']).toBe(waiting['dd-loading-card'])
+		expect(waiting['dd-async-card'].name).toBe(placeholderPath)
+
+		modules[targetPath] = {
+			moduleInfo: {
+				id: 'async-card',
+				usingComponents: {},
+				componentPlaceholder: {},
+				render() {},
+			},
+			propertySchemas: {},
+			props: {},
+		}
+		const loaded = runtime.createComponent(
+			'/pages/loaded/index',
+			'bridge-loaded',
+			usingComponents,
+			new Map(),
+			componentPlaceholder,
+		)
+		expect(loaded['dd-async-card']).not.toBe(loaded['dd-loading-card'])
+		expect(loaded['dd-async-card'].name).toBe(targetPath)
+	})
+
 	it('uses the actual owner when a template reuses a component definition from another tree', async () => {
 		const loader = (await import('../src/core/loader.js')).default
 		const message = (await import('../src/core/message.js')).default

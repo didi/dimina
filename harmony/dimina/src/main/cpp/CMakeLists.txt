@@ -10,15 +10,13 @@ set(NATIVERENDER_ROOT_PATH ${CMAKE_CURRENT_SOURCE_DIR})
 # Include FetchContent for downloading dependencies
 include(FetchContent)
 
-option(DIMINA_UPDATE_QUICKJS_ON_BUILD "Update QuickJS from origin/master before each native build" ON)
-option(DIMINA_UPDATE_BROTLI_ON_BUILD "Update Brotli from origin/master before each native build" ON)
+include("${CMAKE_CURRENT_LIST_DIR}/../../../../../cmake/DependencyVersions.cmake")
 
 # Download QuickJS from GitHub
 FetchContent_Declare(
     quickjs
     GIT_REPOSITORY https://github.com/bellard/quickjs.git
-    GIT_TAG master
-    GIT_SHALLOW TRUE
+    GIT_TAG ${DIMINA_QUICKJS_GIT_TAG}
 )
 FetchContent_MakeAvailable(quickjs)
 
@@ -26,8 +24,7 @@ FetchContent_MakeAvailable(quickjs)
 FetchContent_Declare(
     brotli
     GIT_REPOSITORY https://github.com/google/brotli.git
-    GIT_TAG master
-    GIT_SHALLOW TRUE
+    GIT_TAG ${DIMINA_BROTLI_GIT_TAG}
 )
 FetchContent_GetProperties(brotli)
 if(NOT brotli_POPULATED)
@@ -45,17 +42,6 @@ add_library(brotlidec STATIC ${BROTLI_DEC_SOURCES})
 target_include_directories(brotlicommon PUBLIC ${brotli_SOURCE_DIR}/c/include)
 target_include_directories(brotlidec PUBLIC ${brotli_SOURCE_DIR}/c/include)
 target_link_libraries(brotlidec PUBLIC brotlicommon)
-
-if(DIMINA_UPDATE_BROTLI_ON_BUILD)
-    find_package(Git REQUIRED)
-    add_custom_target(update_brotli_latest
-        COMMAND ${GIT_EXECUTABLE} fetch --depth=1 origin master
-        COMMAND ${GIT_EXECUTABLE} reset --hard FETCH_HEAD
-        WORKING_DIRECTORY ${brotli_SOURCE_DIR}
-        COMMENT "Updating Brotli to latest origin/master"
-    )
-    add_dependencies(brotlicommon update_brotli_latest)
-endif()
 
 # Handle the VERSION file to prevent conflicts with C++ standard <version> header
 # on case-insensitive filesystems (macOS). QuickJS ships a plain-text VERSION file
@@ -109,20 +95,6 @@ set(QUICKJS_SOURCES
 
 # Add shared library target
 add_library(dimina SHARED ${sources} ${QUICKJS_SOURCES})
-
-if(DIMINA_UPDATE_QUICKJS_ON_BUILD)
-    find_package(Git REQUIRED)
-    add_custom_target(update_quickjs_latest
-        COMMAND ${GIT_EXECUTABLE} fetch --depth=1 origin master
-        COMMAND ${GIT_EXECUTABLE} reset --hard FETCH_HEAD
-        # Remove the VERSION file to prevent conflicts with the C++ standard <version> header
-        # on case-insensitive filesystems (macOS). The version value is already in version.h.
-        COMMAND ${CMAKE_COMMAND} -E rm -f "${quickjs_SOURCE_DIR}/VERSION"
-        WORKING_DIRECTORY ${quickjs_SOURCE_DIR}
-        COMMENT "Updating QuickJS to latest origin/master"
-    )
-    add_dependencies(dimina update_quickjs_latest)
-endif()
 
 # Link necessary libraries
 target_link_libraries(dimina PUBLIC libace_napi.z.so libhilog_ndk.z.so libuv.so)

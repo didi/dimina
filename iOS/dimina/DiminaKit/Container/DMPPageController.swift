@@ -32,6 +32,13 @@ public class DMPPageController: UIViewController {
     private var customNavigationContentView: UIView?
     private var customNavigationTitleLabel: UILabel?
     private var customNavigationBackButton: UIButton?
+    private var customNavigationHomeButton: UIButton?
+    // 微信真机 home 图标带灰色圆形底，比返回箭头更粗更显眼；颜色随导航栏深浅切换，见 updateCustomHomeButton
+    private var customNavigationHomeButtonBackground: UIView?
+    // home 键的两套水平位置：独占左槽（栈底自动规则）/ 紧随返回箭头之后
+    // （homeButton: true 的内页，微信实测两者并存），按 showBack 切换激活
+    private var homeButtonLeadingToEdge: NSLayoutConstraint?
+    private var homeButtonLeadingAfterBack: NSLayoutConstraint?
     private var customNavigationCapsuleView: UIView?
     private var customNavigationCapsuleMoreButton: UIButton?
     private var customNavigationCapsuleCloseButton: UIButton?
@@ -260,6 +267,16 @@ public class DMPPageController: UIViewController {
         backButton.translatesAutoresizingMaskIntoConstraints = false
         backButton.addTarget(self, action: #selector(customBackButtonTapped), for: .touchUpInside)
 
+        let homeButton = UIButton(type: .custom)
+        homeButton.translatesAutoresizingMaskIntoConstraints = false
+        homeButton.accessibilityLabel = "Home"
+        homeButton.addTarget(self, action: #selector(homeButtonTapped), for: .touchUpInside)
+
+        let homeButtonBackground = UIView()
+        homeButtonBackground.translatesAutoresizingMaskIntoConstraints = false
+        homeButtonBackground.isUserInteractionEnabled = false
+        homeButtonBackground.layer.cornerRadius = 16
+
         let titleLabel = UILabel()
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         titleLabel.textAlignment = .center
@@ -286,6 +303,8 @@ public class DMPPageController: UIViewController {
         view.addSubview(capsuleView)
         navigationBar.addSubview(contentView)
         contentView.addSubview(backButton)
+        contentView.addSubview(homeButtonBackground)
+        contentView.addSubview(homeButton)
         contentView.addSubview(titleLabel)
 
         NSLayoutConstraint.activate([
@@ -304,6 +323,15 @@ public class DMPPageController: UIViewController {
             backButton.widthAnchor.constraint(equalToConstant: 44),
             backButton.heightAnchor.constraint(equalToConstant: 44),
 
+            homeButton.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            homeButton.widthAnchor.constraint(equalToConstant: 44),
+            homeButton.heightAnchor.constraint(equalToConstant: 44),
+
+            homeButtonBackground.centerXAnchor.constraint(equalTo: homeButton.centerXAnchor),
+            homeButtonBackground.centerYAnchor.constraint(equalTo: homeButton.centerYAnchor),
+            homeButtonBackground.widthAnchor.constraint(equalToConstant: 32),
+            homeButtonBackground.heightAnchor.constraint(equalToConstant: 32),
+
             titleLabel.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
             titleLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             titleLabel.leadingAnchor.constraint(greaterThanOrEqualTo: backButton.trailingAnchor, constant: 8),
@@ -318,9 +346,22 @@ public class DMPPageController: UIViewController {
             capsuleView.heightAnchor.constraint(equalToConstant: capsuleHeight),
         ])
 
+        let homeLeadingToEdge = homeButton.leadingAnchor.constraint(
+            equalTo: contentView.leadingAnchor, constant: 8)
+        // 44pt 触摸热区本身比图标大（图标 24pt 居中，热区两侧各留 10pt），
+        // 热区自带的留白已经提供了视觉间距，这里不再叠加额外 margin，
+        // 否则视觉间距会远超微信原生 `.navigator-hd a+a{margin-left:10px}` 的 10pt
+        let homeLeadingAfterBack = homeButton.leadingAnchor.constraint(
+            equalTo: backButton.trailingAnchor)
+        homeLeadingToEdge.isActive = true
+        homeButtonLeadingToEdge = homeLeadingToEdge
+        homeButtonLeadingAfterBack = homeLeadingAfterBack
+
         customNavigationBar = navigationBar
         customNavigationContentView = contentView
         customNavigationBackButton = backButton
+        customNavigationHomeButton = homeButton
+        customNavigationHomeButtonBackground = homeButtonBackground
         customNavigationTitleLabel = titleLabel
         customNavigationCapsuleView = capsuleView
     }
@@ -550,6 +591,7 @@ public class DMPPageController: UIViewController {
         customNavigationBar?.backgroundColor = backgroundColor
         customNavigationTitleLabel?.textColor = textColor
         updateCustomBackButton(darkStyle: darkStyle)
+        updateCustomHomeButton(darkStyle: darkStyle)
         updateCustomCapsuleButton(darkStyle: darkStyle)
     }
 
@@ -572,8 +614,41 @@ public class DMPPageController: UIViewController {
         backButton.setTitleColor(darkStyle ? .white : .black, for: .normal)
     }
 
+    private func updateCustomHomeButton(darkStyle: Bool) {
+        guard let homeButton = customNavigationHomeButton else {
+            return
+        }
+
+        // 微信真机 home 图标的灰色圆形底，颜色随导航栏深浅切换
+        customNavigationHomeButtonBackground?.backgroundColor = darkStyle
+            ? UIColor.white.withAlphaComponent(0.24)
+            : UIColor(red: 0.839, green: 0.839, blue: 0.839, alpha: 1)
+
+        // 与返回箭头同机制：按 darkStyle 选择 Material home 造型的 SVG 资产
+        if let bundle = DMPResourceManager.assetsBundle {
+            let imageName = darkStyle ? "home-dark" : "home-light"
+            if let image = UIImage(named: imageName, in: bundle, compatibleWith: nil) {
+                homeButton.setImage(image.withRenderingMode(.alwaysOriginal), for: .normal)
+                return
+            }
+        }
+
+        // 资产缺失时退回 SF Symbol 模板渲染
+        if let homeImage = UIImage(systemName: "house") {
+            homeButton.setImage(homeImage.withRenderingMode(.alwaysTemplate), for: .normal)
+        }
+        homeButton.tintColor = darkStyle ? .white : .black
+    }
+
     @objc private func customBackButtonTapped() {
         navigator?.handleBackButtonTapped()
+    }
+
+    // 路由判定收敛在 DMPNavigator.navigateHome（switchTab / redirectTo 的选择），按钮只发起
+    @objc private func homeButtonTapped() {
+        Task { @MainActor [weak self] in
+            await self?.navigator?.navigateHome()
+        }
     }
 
     private func updateCustomCapsuleButton(darkStyle: Bool) {
@@ -831,7 +906,8 @@ public class DMPPageController: UIViewController {
         navigationItem.hidesBackButton = true
         navigationItem.backButtonTitle = ""
 
-        let navStyle = navigator?.pageRecord(webViewId: webview.getWebViewId())?.navStyle
+        let pageRecord = navigator?.pageRecord(webViewId: webview.getWebViewId())
+        let navStyle = pageRecord?.navStyle
             ?? app?.getBundleAppConfig()?.getPageConfig(pagePath: pagePath)
         let darkStyle = (navStyle?["navigationBarTextStyle"] as? String) == "white"
         var title = appConfig.appName
@@ -891,6 +967,23 @@ public class DMPPageController: UIViewController {
         updateNavigationTitle(title)
         updateNavigationColor(backgroundColor: backgroundColor, textColor: textColor, darkStyle: darkStyle)
 
+        let leftNav = resolveLeftNavAffordances(
+            isCustomNavigationStyle: isCustomNavigationStyle,
+            homeButtonForceHidden: pageRecord?.homeButtonForceHidden ?? false,
+            homeButtonForcedByConfig: (navStyle?["homeButton"] as? Bool) == true
+        )
+        customNavigationBackButton?.isHidden = !leftNav.showBack
+        customNavigationHomeButton?.isHidden = !leftNav.showHome
+        customNavigationHomeButtonBackground?.isHidden = !leftNav.showHome
+        // home 键位置随返回箭头存在与否切换：并存时紧随箭头，否则独占左槽
+        if leftNav.showBack {
+            homeButtonLeadingToEdge?.isActive = false
+            homeButtonLeadingAfterBack?.isActive = true
+        } else {
+            homeButtonLeadingAfterBack?.isActive = false
+            homeButtonLeadingToEdge?.isActive = true
+        }
+
         customNavigationBar?.isHidden = isCustomNavigationStyle
         webViewTopToNavigationConstraint?.isActive = !isCustomNavigationStyle
         webViewTopToViewConstraint?.isActive = isCustomNavigationStyle
@@ -898,6 +991,57 @@ public class DMPPageController: UIViewController {
         if !isCustomNavigationStyle, let customNavigationBar = customNavigationBar {
             view.bringSubviewToFront(customNavigationBar)
         }
+    }
+
+    /// 导航栏左侧的两个 affordance（微信真机实测语义）：
+    /// 返回箭头 = 非栈底页面；home 键 = 非首页 + 非 tabBar 页（这两条排除
+    /// `homeButton: true` 也不能突破）且（栈底自动显示 ‖ 页面配置
+    /// `homeButton: true`——此时与返回箭头并存）。`wx.hideHomeButton()` 只压制
+    /// home 键。
+    private func resolveLeftNavAffordances(
+        isCustomNavigationStyle: Bool,
+        homeButtonForceHidden: Bool,
+        homeButtonForcedByConfig: Bool
+    ) -> (showBack: Bool, showHome: Bool) {
+        guard !isCustomNavigationStyle else {
+            return (false, false)
+        }
+
+        // isRoot 表示这个页面在栈底（没有可以返回的上一页）
+        let showBack = !isRoot
+
+        if homeButtonForceHidden {
+            return (showBack, false)
+        }
+
+        guard let bundleAppConfig = app?.getBundleAppConfig() else {
+            return (showBack, false)
+        }
+
+        if bundleAppConfig.isTabBarPage(pagePath: pagePath) {
+            return (showBack, false)
+        }
+
+        // entryPagePath 由 DMPBundleAppConfig 统一输出规范形态（无前导斜杠），
+        // 只需归一化当前页一侧。pagePath 不保证已归一化：站内路由 URL
+        // （navigateTo/redirectTo/switchTab/reLaunch）经 DMPUtil.queryPath 已
+        // 归一化，但 tabBar 页的 pagePath 直接取自 tabBar 配置项
+        // （DMPTabBarContainerController 的 onSelect/prepareInitialTab），
+        // 未经 queryPath，写法不受调用方控制；entry 未知（空）时自动规则关闭
+        let entryPagePath = bundleAppConfig.entryPagePath
+        if entryPagePath.isEmpty || DMPUtil.normalizePagePath(pagePath) == entryPagePath {
+            return (showBack, false)
+        }
+
+        return (showBack, isRoot || homeButtonForcedByConfig)
+    }
+
+    /// 仅当这个 controller 当前显示的正是 `webViewId` 时才重新计算导航栏（含
+    /// home 按钮显隐）；其它页面这里不做任何事——它们的 `viewWillAppear` 会
+    /// 重新跑一次 `setupNavigationBar()`，自然会读到后台期间被设置的页面标记
+    public func refreshNavigationBar(ifDisplaying webViewId: Int) {
+        guard webview.getWebViewId() == webViewId else { return }
+        setupNavigationBar()
     }
 
     // Back button tap event

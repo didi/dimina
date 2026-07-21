@@ -7,9 +7,10 @@ import { getStyleExts, getTemplateExts, getViewScriptExts } from '../env.js'
  * 用于处理小程序 npm 包的构建和管理
  */
 class NpmBuilder {
-	constructor(workPath, targetPath) {
+	constructor(workPath, targetPath, dependencyGraph = null) {
 		this.workPath = workPath
 		this.targetPath = targetPath
+		this.dependencyGraph = dependencyGraph
 		this.builtPackages = new Set()
 		this.packageDependencies = new Map()
 	}
@@ -134,6 +135,7 @@ class NpmBuilder {
 			} else {
 				// 只复制小程序相关文件
 				if (this.isMiniprogramFile(item.name)) {
+					this.dependencyGraph?.addFile('app', sourceItemPath, 'config')
 					fs.copyFileSync(sourceItemPath, targetItemPath)
 				}
 			}
@@ -249,4 +251,4 @@ class NpmBuilder {
 	}
 }
 
-export { NpmBuilder } 
+export { NpmBuilder }

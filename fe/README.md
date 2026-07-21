@@ -71,7 +71,13 @@ pnpm generate:sdk
 
 编译 `example/` 目录下的所有小程序，并将产物输出到 `packages/container/public`。
 
-默认情况下，命令会读取 `packages/container/public/compile-cache.json`，跳过未发生变化的小程序以提升编译速度。如需忽略本地缓存并重新编译全部示例小程序，可以执行：
+默认情况下，命令会读取 `packages/container/public/compile-cache.json`：
+
+- 完全未变化的小程序会整个跳过。
+- 只有普通源文件变化时，会根据持久化依赖图计算受影响页面，并只运行需要的 view、logic 或 style 阶段。
+- 编译器、JSON 配置或文件结构发生变化时，会自动回退为整个小程序全量编译。
+
+如需忽略本地缓存并重新编译全部示例小程序，可以执行：
 
 ```sh
 pnpm compile --force
