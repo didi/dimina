@@ -1,0 +1,31 @@
+fe/packages/compiler/src/env.js
+  0a6e942afbe01379 681,687-695,708,717
+fe/packages/compiler/src/core/logic-compiler.js
+  0a6e942afbe01379 162,283
+fe/packages/compiler/src/common/dependency-graph.js
+  0a6e942afbe01379 18,43,51-55,105-112,117,119-129,157-163
+fe/packages/compiler/src/core/style-compiler.js
+  0a6e942afbe01379 324,486
+fe/packages/compiler/src/core/view-compiler.js
+  0a6e942afbe01379 654,1021,1078,1163,1272,2076
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "6e20314d773d5f3ecb6e3c3e5aa6d1222d823eae",
+  "prompts": {
+    "0a6e942afbe01379": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f7f55-a585-73e0-a1d8-7d95c11dbee3",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 56,
+      "total_deletions": 12,
+      "accepted_lines": 56,
+      "overriden_lines": 0
+    }
+  }
+}
