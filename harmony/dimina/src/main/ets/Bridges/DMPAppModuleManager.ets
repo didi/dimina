@@ -120,10 +120,9 @@ export class DMPAppModuleManager extends DMPModuleManager {
     this.bluetoothModule.dispose();
     this.localNetworkModule.dispose();
     // 移除系统截图监听（onUserCaptureScreen）
-    this.screenModule.release();
+    this.screenModule.dispose();
     this.extBridgeModule?.cancelAllSubscriptions();
   }
 }
-
 
 

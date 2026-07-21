@@ -16,8 +16,8 @@ const OFF_USER_CAPTURE_SCREEN = 'offUserCaptureScreen';
  * 底层依赖鸿蒙窗口的 'screenshot' 系统事件（SystemCapability.WindowManager.WindowManager.Core）。
  */
 export class DMPContainerBridgesModuleScreen extends DMPContainerBridgesModule {
-  /** JS 侧注册的持续回调（keep 回调），后注册覆盖先注册 */
-  private jsCallback: DMPBridgeCallback | null = null;
+  /** JS 侧注册的持续回调（keep 回调），key 为 FE callback id */
+  private jsCallbacks: Map<string, DMPBridgeCallback> = new Map();
   /** 已注册到主窗口的截图监听器，null 表示未注册 */
   private screenshotListener: (() => void) | null = null;
 
@@ -26,7 +26,13 @@ export class DMPContainerBridgesModuleScreen extends DMPContainerBridgesModule {
   }
 
   onUserCaptureScreen(data: DMPMap, callback: DMPBridgeCallback) {
-    this.jsCallback = callback;
+    const callbackId = data.getString('callbackId') ?? data.getString('success');
+    if (!callbackId) {
+      this.invokeFailureCallback(callback, null, `${ON_USER_CAPTURE_SCREEN}:fail`);
+      return;
+    }
+    this.jsCallbacks.clear();
+    this.jsCallbacks.set(callbackId, callback);
     if (this.screenshotListener) {
       // 已注册系统监听，仅更新回调
       return;
@@ -40,15 +46,22 @@ export class DMPContainerBridgesModuleScreen extends DMPContainerBridgesModule {
       this.screenshotListener = listener;
       DMPLogger.d(Tags.BRIDGE, `${ON_USER_CAPTURE_SCREEN}: screenshot listener registered`);
     } catch (err) {
-      this.jsCallback = null;
+      this.jsCallbacks.delete(callbackId);
       DMPLogger.e(Tags.BRIDGE, `${ON_USER_CAPTURE_SCREEN}: register screenshot listener failed: ${err}`);
       this.invokeFailureCallback(callback, null, `${ON_USER_CAPTURE_SCREEN}:fail`);
     }
   }
 
-  offUserCaptureScreen(data: DMPMap, callback: DMPBridgeCallback) {
-    this.release();
-    this.invokeSuccessCallback(callback, null);
+  offUserCaptureScreen(data: DMPMap, _callback: DMPBridgeCallback) {
+    const callbackId = data.getString('callbackId');
+    if (callbackId) {
+      this.jsCallbacks.delete(callbackId);
+    } else {
+      this.jsCallbacks.clear();
+    }
+    if (this.jsCallbacks.size === 0) {
+      this.releaseSystemListener();
+    }
   }
 
   /**
@@ -57,16 +70,21 @@ export class DMPContainerBridgesModuleScreen extends DMPContainerBridgesModule {
    */
   private notifyCaptured() {
     DMPLogger.d(Tags.BRIDGE, `${ON_USER_CAPTURE_SCREEN}: screenshot captured`);
-    if (!this.jsCallback) {
-      return;
-    }
     const result = new DMPMap();
-    this.jsCallback(result, DMPBridgeCallbackType.Success);
+    this.emit(this.jsCallbacks, result);
   }
 
   /** 移除系统截图监听并清空回调；引擎销毁时也会调用，防止泄漏 */
-  release() {
-    this.jsCallback = null;
+  dispose(): void {
+    this.jsCallbacks.clear();
+    this.releaseSystemListener();
+  }
+
+  private emit(store: Map<string, DMPBridgeCallback>, result: DMPMap): void {
+    store.forEach((callback: DMPBridgeCallback) => callback(result, DMPBridgeCallbackType.Success));
+  }
+
+  private releaseSystemListener() {
     if (!this.screenshotListener) {
       return;
     }
