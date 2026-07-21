@@ -94,6 +94,16 @@ class SkiaContext2D {
 	createLinearGradient(x0, y0, x1, y1) { return this._callResult('createLinearGradient', [x0, y0, x1, y1]) }
 	createRadialGradient(...a) { return this._callResult('createRadialGradient', a) }
 
+	createPattern(image, repetition) {
+		const resultId = 'res_' + (++ctxIdCounter)
+		skia._bufferOp(this._nodeId, {
+			op: 'contextCall', contextId: this._ctxId, method: 'createPattern',
+			args: [this._resolveImage(image), repetition || 'repeat'], resultId,
+		})
+		scheduleFlush(this._nodeId)
+		return new NativePattern(resultId)
+	}
+
 	// ─── Synchronous methods ───
 
 	getImageData(sx, sy, sw, sh) {
@@ -104,8 +114,29 @@ class SkiaContext2D {
 	}
 
 	measureText(text) {
+		const str = String(text ?? '')
+		const result = skia._syncOp(this._nodeId, {
+			name: 'canvasMeasureText', text: str, font: this._font || '10px sans-serif',
+		})
+		if (result && typeof result.width === 'number') {
+			return result
+		}
 		// Approximate measurement (same as fallback)
-		return { width: String(text ?? '').length * 10 }
+		return { width: str.length * 10 }
+	}
+
+	isPointInPath(x, y) {
+		const result = skia._syncOp(this._nodeId, {
+			name: 'canvasIsPointInPath', contextId: this._ctxId, x, y,
+		})
+		return !!(result && result.value === true)
+	}
+
+	isPointInStroke(x, y) {
+		const result = skia._syncOp(this._nodeId, {
+			name: 'canvasIsPointInStroke', contextId: this._ctxId, x, y,
+		})
+		return !!(result && result.value === true)
 	}
 
 	// ─── Internal ───
@@ -169,6 +200,14 @@ class NativeGradient {
 			method: 'addColorStop', args: [offset, color],
 		})
 		scheduleFlush(this._nodeId)
+	}
+}
+
+// ─── NativePattern: proxy for pattern resources ───
+
+class NativePattern {
+	constructor(resourceId) {
+		this.__canvasResourceId = resourceId
 	}
 }
 

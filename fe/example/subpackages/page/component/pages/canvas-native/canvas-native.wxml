@@ -11,6 +11,9 @@
     <button size="mini" type="primary" bindtap="testGradient">gradient</button>
     <button size="mini" type="primary" bindtap="testTransform">transform</button>
     <button size="mini" type="primary" bindtap="testCreateImage">createImage</button>
+    <button size="mini" type="primary" bindtap="testMeasureText">measureText</button>
+    <button size="mini" type="primary" bindtap="testPattern">pattern</button>
+    <button size="mini" type="primary" bindtap="testIsPointInPath">isPointInPath</button>
     <button size="mini" type="warn" bindtap="testClear">clear</button>
   </view>
 

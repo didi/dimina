@@ -121,6 +121,42 @@ interface CanvasToDataURLSyncResult {
   dataUrl: string
 }
 
+interface CanvasMeasureTextParams {
+  nodeId: string
+  operations: CanvasOperation[]
+  text: string
+  font: string
+}
+
+interface CanvasMeasureTextResult {
+  width: number
+  actualBoundingBoxAscent: number
+  actualBoundingBoxDescent: number
+}
+
+interface CanvasPointQueryParams {
+  nodeId: string
+  operations: CanvasOperation[]
+  contextId: string
+  x: number
+  y: number
+}
+
+interface CanvasBoolResult {
+  value: boolean
+}
+
+interface RecordedPathCommand {
+  method: string
+  args: Object[]
+}
+
+// Path-building context methods recorded for isPointInPath/isPointInStroke replay
+const PATH_BUILDING_METHODS: string[] = [
+  'moveTo', 'lineTo', 'closePath', 'arc', 'arcTo',
+  'bezierCurveTo', 'quadraticCurveTo', 'ellipse', 'rect',
+]
+
 interface CallbackArgs {
   width?: number
   height?: number
@@ -150,6 +186,14 @@ export class DMPCanvasManager {
   private offscreenContexts: Map<string, OffscreenCanvasRenderingContext2D> = new Map()
   // Pending flush messages that arrived before the canvas was registered
   private pendingFlushes: Map<string, Array<[CanvasFlushParams, number, number, number]>> = new Map()
+  // Recorded path-building commands per nodeId (for isPointInPath/isPointInStroke,
+  // since ArkUI CanvasRenderer does not expose these methods)
+  private pathCommands: Map<string, RecordedPathCommand[]> = new Map()
+  // Last lineWidth per nodeId in JS px space (for isPointInStroke replay)
+  private lineWidths: Map<string, number> = new Map()
+  // Cached 1x1 canvas/context used only for measureText
+  private measureCanvas: OffscreenCanvas | null = null
+  private measureContext: OffscreenCanvasRenderingContext2D | null = null
   // Whether embed (same-layer rendering) is enabled; set from WebView UA detection
   private embedEnabled: boolean = true
 
@@ -195,6 +239,8 @@ export class DMPCanvasManager {
     this.offscreenCanvases.delete(componentId)
     this.offscreenContexts.delete(componentId)
     this.pendingFlushes.delete(componentId)
+    this.pathCommands.delete(componentId)
+    this.lineWidths.delete(componentId)
     DMPLogger.i(Tags.WEB_COMPONENT, `DMPCanvasManager unregister: ${componentId}`)
   }
 
@@ -612,6 +658,174 @@ export class DMPCanvasManager {
     }
   }
 
+  /**
+   * Synchronous handler for canvasMeasureText.
+   * Measures text on a cached 1x1 OffscreenCanvas (no transform applied), so the
+   * returned width is in the same px unit as the font string passed from JS.
+   */
+  handleMeasureText(rawParams: Object, appIndex: number): CanvasMeasureTextResult {
+    try {
+      const params = rawParams as CanvasMeasureTextParams
+      // Pending operations piggybacked on the sync call must not be lost:
+      // route them through the normal flush pipeline (executes or queues).
+      const operations: CanvasOperation[] = params.operations || []
+      if (operations.length > 0) {
+        const flushParams: CanvasFlushParams = { nodeId: params.nodeId, operations }
+        this.handleFlush(flushParams, 0, appIndex, 0)
+      }
+
+      if (!this.measureContext) {
+        this.measureCanvas = new OffscreenCanvas(1, 1)
+        this.measureContext = this.measureCanvas.getContext('2d') as OffscreenCanvasRenderingContext2D
+      }
+      const ctx = this.measureContext
+      if (params.font) {
+        ctx.font = params.font
+      }
+      const metrics = ctx.measureText(params.text || '')
+      DMPLogger.i(Tags.WEB_COMPONENT,
+        `DMPCanvasManager handleMeasureText: text="${params.text}" font="${params.font}" width=${metrics.width}`)
+      return {
+        width: metrics.width,
+        actualBoundingBoxAscent: metrics.actualBoundingBoxAscent,
+        actualBoundingBoxDescent: metrics.actualBoundingBoxDescent,
+      }
+    } catch (e) {
+      DMPLogger.e(Tags.WEB_COMPONENT, `DMPCanvasManager handleMeasureText error: ${e}`)
+      return { width: 0, actualBoundingBoxAscent: 0, actualBoundingBoxDescent: 0 }
+    }
+  }
+
+  /**
+   * Synchronous handler for canvasIsPointInPath / canvasIsPointInStroke.
+   * ArkUI CanvasRenderer does not expose isPointInPath/isPointInStroke, so we
+   * replay the recorded path-building commands on a hit-test OffscreenCanvas
+   * (JS px coordinate space, no transform) and sample the pixel at (x, y).
+   * Limitation: transforms applied between path commands are not replayed.
+   */
+  handleIsPointInPath(rawParams: Object, appIndex: number, stroke: boolean): CanvasBoolResult {
+    try {
+      const params = rawParams as CanvasPointQueryParams
+      const nodeId = params.nodeId
+      const operations: CanvasOperation[] = params.operations || []
+      const x = params.x || 0
+      const y = params.y || 0
+
+      // Execute pending operations first so the recorded path is up to date.
+      // Same race-condition handling as handleGetImageData: if the native canvas
+      // hasn't registered yet, execute on a temp OffscreenCanvas.
+      let ctx = this.contexts.get(nodeId)
+      let usedTempCanvas = false
+      if (!ctx && operations.length > 0) {
+        let canvasW = 300
+        let canvasH = 150
+        for (const op of operations) {
+          if (op.op === 'setCanvasProperty') {
+            if (op.prop === 'width') {
+              canvasW = op.value as number
+            } else if (op.prop === 'height') {
+              canvasH = op.value as number
+            }
+          }
+        }
+        const tempCanvas = new OffscreenCanvas(canvasW, canvasH)
+        const tempCtx = tempCanvas.getContext('2d') as OffscreenCanvasRenderingContext2D
+        ctx = tempCtx as Object as CanvasRenderingContext2D
+        usedTempCanvas = true
+        this.nativeCanvasSizes.set(nodeId, [canvasW, canvasH])
+      }
+      if (ctx) {
+        for (const operation of operations) {
+          this.executeOperation(ctx, operation, 0, appIndex, 0, nodeId)
+        }
+      }
+      if (usedTempCanvas) {
+        this.nativeCanvasSizes.delete(nodeId)
+        const tempCtxRef = ctx
+        this.contextIdMap.forEach((v: CanvasRenderingContext2D, k: string) => {
+          if (v === tempCtxRef) {
+            this.contextIdMap.delete(k)
+          }
+        })
+      }
+
+      if (x < 0 || y < 0) {
+        return { value: false }
+      }
+      const commands = this.pathCommands.get(nodeId) || []
+      if (commands.length === 0) {
+        return { value: false }
+      }
+      const jsSize = this.jsCanvasSizes.get(nodeId)
+      const hitW = Math.max(Math.ceil(x) + 2, jsSize ? jsSize[0] : 300)
+      const hitH = Math.max(Math.ceil(y) + 2, jsSize ? jsSize[1] : 150)
+      const hitCanvas = new OffscreenCanvas(hitW, hitH)
+      const hitCtx = hitCanvas.getContext('2d') as OffscreenCanvasRenderingContext2D
+      this.replayPathCommands(hitCtx, commands)
+      if (stroke) {
+        hitCtx.lineWidth = this.lineWidths.get(nodeId) || 1
+        hitCtx.strokeStyle = '#ffffff'
+        hitCtx.stroke()
+      } else {
+        hitCtx.fillStyle = '#ffffff'
+        hitCtx.fill()
+      }
+      const pixel = hitCtx.getImageData(Math.floor(x), Math.floor(y), 1, 1)
+      const value = pixel.data[3] > 0
+      DMPLogger.i(Tags.WEB_COMPONENT,
+        `DMPCanvasManager handleIsPointInPath: nodeId=${nodeId} stroke=${stroke} point=(${x},${y}) cmds=${commands.length} value=${value}`)
+      return { value }
+    } catch (e) {
+      DMPLogger.e(Tags.WEB_COMPONENT, `DMPCanvasManager handleIsPointInPath error: ${e}`)
+      return { value: false }
+    }
+  }
+
+  private replayPathCommands(ctx: OffscreenCanvasRenderingContext2D,
+    commands: RecordedPathCommand[]): void {
+    ctx.beginPath()
+    for (const cmd of commands) {
+      const args = cmd.args
+      switch (cmd.method) {
+        case 'moveTo':
+          ctx.moveTo(args[0] as number, args[1] as number)
+          break
+        case 'lineTo':
+          ctx.lineTo(args[0] as number, args[1] as number)
+          break
+        case 'closePath':
+          ctx.closePath()
+          break
+        case 'arc':
+          ctx.arc(args[0] as number, args[1] as number, args[2] as number,
+            args[3] as number, args[4] as number, (args[5] as boolean) || false)
+          break
+        case 'arcTo':
+          ctx.arcTo(args[0] as number, args[1] as number,
+            args[2] as number, args[3] as number, args[4] as number)
+          break
+        case 'bezierCurveTo':
+          ctx.bezierCurveTo(args[0] as number, args[1] as number,
+            args[2] as number, args[3] as number, args[4] as number, args[5] as number)
+          break
+        case 'quadraticCurveTo':
+          ctx.quadraticCurveTo(args[0] as number, args[1] as number,
+            args[2] as number, args[3] as number)
+          break
+        case 'ellipse':
+          ctx.ellipse(args[0] as number, args[1] as number,
+            args[2] as number, args[3] as number, args[4] as number,
+            args[5] as number, args[6] as number, (args[7] as boolean) || false)
+          break
+        case 'rect':
+          ctx.rect(args[0] as number, args[1] as number, args[2] as number, args[3] as number)
+          break
+        default:
+          break
+      }
+    }
+  }
+
   private handleFlush(params: CanvasFlushParams, webViewId: number, appIndex: number,
     bridgeId: number): void {
     const nodeId = params.nodeId
@@ -794,6 +1008,10 @@ export class DMPCanvasManager {
         const targetCtx = this.getActiveContext(nodeId, contextId, ctx)
         const prop = operation.prop
         const value: Object = this.resolveArg(operation.value)
+        if (prop === 'lineWidth') {
+          // Track lineWidth in JS px space for isPointInStroke replay
+          this.lineWidths.set(nodeId, value as number)
+        }
         this.setContextProperty(targetCtx, prop, value)
         break
       }
@@ -994,6 +1212,17 @@ export class DMPCanvasManager {
 
   private callContextMethod(ctx: CanvasRenderingContext2D, method: string,
     args: Object[], nodeId: string): Object | undefined {
+    // Mirror path-building commands per nodeId for isPointInPath/isPointInStroke
+    if (method === 'beginPath') {
+      this.pathCommands.set(nodeId, [])
+    } else if (PATH_BUILDING_METHODS.indexOf(method) >= 0) {
+      let cmds = this.pathCommands.get(nodeId)
+      if (!cmds) {
+        cmds = []
+        this.pathCommands.set(nodeId, cmds)
+      }
+      cmds.push({ method, args })
+    }
     switch (method) {
     // Path methods
       case 'beginPath':
@@ -1123,6 +1352,17 @@ export class DMPCanvasManager {
         return ctx.createRadialGradient(args[0] as number, args[1] as number,
           args[2] as number, args[3] as number,
           args[4] as number, args[5] as number) as Object
+      case 'createPattern': {
+        const patternImg = args[0]
+        if (!(patternImg instanceof ImageBitmap)) {
+          // Image not decoded yet (resolveArg could not map __canvasResourceId)
+          DMPLogger.w(Tags.WEB_COMPONENT,
+            `DMPCanvasManager createPattern: image not loaded yet, skip (nodeId=${nodeId})`)
+          return undefined
+        }
+        const pattern = ctx.createPattern(patternImg, (args[1] as string) || 'repeat')
+        return pattern ? pattern as Object : undefined
+      }
 
     // Image data methods
       case 'getImageData':
@@ -1153,7 +1393,15 @@ export class DMPCanvasManager {
 
     // drawImage
       case 'drawImage': {
-        const img = args[0] as ImageBitmap
+        const imgArg = args[0]
+        if (!(imgArg instanceof ImageBitmap)) {
+          // Image not decoded yet (resolveArg could not map __canvasResourceId):
+          // skip instead of throwing to match Web behavior of drawing nothing
+          DMPLogger.w(Tags.WEB_COMPONENT,
+            `DMPCanvasManager drawImage: image not loaded yet, skip (nodeId=${nodeId})`)
+          break
+        }
+        const img = imgArg as ImageBitmap
         if (args.length === 9) {
           ctx.drawImage(img,
             args[1] as number, args[2] as number, args[3] as number, args[4] as number,

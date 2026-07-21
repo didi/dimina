@@ -48,11 +48,13 @@ target_link_libraries(brotlidec PUBLIC brotlicommon)
 
 if(DIMINA_UPDATE_BROTLI_ON_BUILD)
     find_package(Git REQUIRED)
+    # Best effort: network failure must not fail the build (see cmake/update_repo.cmake)
     add_custom_target(update_brotli_latest
-        COMMAND ${GIT_EXECUTABLE} fetch --depth=1 origin master
-        COMMAND ${GIT_EXECUTABLE} reset --hard FETCH_HEAD
-        WORKING_DIRECTORY ${brotli_SOURCE_DIR}
-        COMMENT "Updating Brotli to latest origin/master"
+        COMMAND ${CMAKE_COMMAND}
+            -DGIT_EXECUTABLE=${GIT_EXECUTABLE}
+            -DREPO_DIR=${brotli_SOURCE_DIR}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/update_repo.cmake
+        COMMENT "Updating Brotli to latest origin/master (best effort)"
     )
     add_dependencies(brotlicommon update_brotli_latest)
 endif()
@@ -112,14 +114,16 @@ add_library(dimina SHARED ${sources} ${QUICKJS_SOURCES})
 
 if(DIMINA_UPDATE_QUICKJS_ON_BUILD)
     find_package(Git REQUIRED)
+    # Best effort: network failure must not fail the build (see cmake/update_repo.cmake).
+    # REMOVE_FILE deletes the VERSION file to prevent conflicts with the C++ standard
+    # <version> header on case-insensitive filesystems (macOS); value is already in version.h.
     add_custom_target(update_quickjs_latest
-        COMMAND ${GIT_EXECUTABLE} fetch --depth=1 origin master
-        COMMAND ${GIT_EXECUTABLE} reset --hard FETCH_HEAD
-        # Remove the VERSION file to prevent conflicts with the C++ standard <version> header
-        # on case-insensitive filesystems (macOS). The version value is already in version.h.
-        COMMAND ${CMAKE_COMMAND} -E rm -f "${quickjs_SOURCE_DIR}/VERSION"
-        WORKING_DIRECTORY ${quickjs_SOURCE_DIR}
-        COMMENT "Updating QuickJS to latest origin/master"
+        COMMAND ${CMAKE_COMMAND}
+            -DGIT_EXECUTABLE=${GIT_EXECUTABLE}
+            -DREPO_DIR=${quickjs_SOURCE_DIR}
+            -DREMOVE_FILE=${quickjs_SOURCE_DIR}/VERSION
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/update_repo.cmake
+        COMMENT "Updating QuickJS to latest origin/master (best effort)"
     )
     add_dependencies(dimina update_quickjs_latest)
 endif()

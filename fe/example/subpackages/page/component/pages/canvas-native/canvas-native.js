@@ -178,6 +178,78 @@ Page({
     img.src = 'https://www.baidu.com/img/flexible/logo/pc/result.png'
   },
 
+  testMeasureText: function () {
+    var ctx = this.ctx
+    if (!ctx) return
+    this.log('testMeasureText...')
+
+    ctx.font = '20px sans-serif'
+    var metrics = ctx.measureText('Hello Canvas')
+    this.log('measureText("Hello Canvas") width=' + metrics.width +
+      ' ascent=' + metrics.actualBoundingBoxAscent +
+      ' descent=' + metrics.actualBoundingBoxDescent)
+
+    // Draw the text and an underline of the measured width for visual check
+    ctx.fillStyle = '#333333'
+    ctx.fillText('Hello Canvas', 20, 320)
+    ctx.strokeStyle = '#FF0000'
+    ctx.lineWidth = 2
+    ctx.beginPath()
+    ctx.moveTo(20, 326)
+    ctx.lineTo(20 + metrics.width, 326)
+    ctx.stroke()
+
+    this.log('testMeasureText: done (underline should match text width)')
+  },
+
+  testPattern: function () {
+    var self = this
+    var canvas = this.canvas
+    var ctx = this.ctx
+    if (!canvas || !ctx) {
+      self.log('ERROR: canvas/ctx not ready')
+      return
+    }
+    self.log('testPattern: loading network image...')
+
+    var img = canvas.createImage()
+    img.onload = function () {
+      self.log('pattern image loaded: ' + img.width + 'x' + img.height)
+      var pattern = ctx.createPattern(img, 'repeat')
+      if (!pattern) {
+        self.log('ERROR: createPattern returned null')
+        return
+      }
+      ctx.fillStyle = pattern
+      ctx.fillRect(110, 300, 180, 100)
+      self.log('testPattern: done (rect should be tiled with image)')
+    }
+    img.onerror = function (e) {
+      self.log('pattern image ERROR: ' + JSON.stringify(e))
+    }
+    img.src = 'https://www.baidu.com/img/flexible/logo/pc/result.png'
+  },
+
+  testIsPointInPath: function () {
+    var ctx = this.ctx
+    if (!ctx) return
+    this.log('testIsPointInPath: circle at (50, 250) r=30...')
+
+    ctx.beginPath()
+    ctx.arc(50, 250, 30, 0, Math.PI * 2)
+    ctx.strokeStyle = '#0066FF'
+    ctx.lineWidth = 4
+    ctx.stroke()
+
+    var inside = ctx.isPointInPath(50, 250)
+    var outside = ctx.isPointInPath(150, 250)
+    this.log('isPointInPath(50,250)=' + inside + ' (expect true), isPointInPath(150,250)=' + outside + ' (expect false)')
+
+    var onStroke = ctx.isPointInStroke(80, 250)
+    var offStroke = ctx.isPointInStroke(50, 250)
+    this.log('isPointInStroke(80,250)=' + onStroke + ' (expect true), isPointInStroke(50,250)=' + offStroke + ' (expect false)')
+  },
+
   testClear: function () {
     var ctx = this.ctx
     if (!ctx) return

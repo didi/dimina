@@ -20,6 +20,9 @@ import { DMPContextUtils } from '../Utils/DMPContextUtils';
 import diminaNative from 'libdimina.so';
 import { DMPCanvasManager, CanvasFlushParams } from '../Render/SameLayer/DMPCanvasManager';
 
+interface CanvasSyncOpParams {
+  name: string
+}
 
 export class DMPWorkerWrapper {
   w: worker.ThreadWorker;
@@ -44,16 +47,24 @@ export class DMPWorkerWrapper {
         DMPLogger.i(Tags.JS_ENGINE, `canvasTsfn flush: nodeId=${params.nodeId} ops=${params.operations?.length}`)
         mgr.handleNativeFlush(params, appIndex)
         return ''
-      } else if (type === 2) {
-        // Sync getImageData
-        const params: Object = JSON.parse(data) as Object
-        return JSON.stringify(mgr.handleGetImageData(params, 0, appIndex))
-      } else if (type === 3) {
-        // Sync toDataURL
-        const params: Object = JSON.parse(data) as Object
-        return JSON.stringify(mgr.handleToDataURLSync(params, 0, appIndex))
       }
-      return ''
+      // Sync ops: dispatch by the op name carried in params
+      // (the numeric type is only meaningful for flush=1)
+      const params: Object = JSON.parse(data) as Object
+      const name = (params as CanvasSyncOpParams).name
+      if (name === 'canvasGetImageData') {
+        return JSON.stringify(mgr.handleGetImageData(params, 0, appIndex))
+      } else if (name === 'canvasToDataURLSync') {
+        return JSON.stringify(mgr.handleToDataURLSync(params, 0, appIndex))
+      } else if (name === 'canvasMeasureText') {
+        return JSON.stringify(mgr.handleMeasureText(params, appIndex))
+      } else if (name === 'canvasIsPointInPath') {
+        return JSON.stringify(mgr.handleIsPointInPath(params, appIndex, false))
+      } else if (name === 'canvasIsPointInStroke') {
+        return JSON.stringify(mgr.handleIsPointInPath(params, appIndex, true))
+      }
+      DMPLogger.e(Tags.JS_ENGINE, `canvasTsfn: unknown sync op name=${name} type=${type}`)
+      return '{}'
     })
 
     // 统一的消息监听器
