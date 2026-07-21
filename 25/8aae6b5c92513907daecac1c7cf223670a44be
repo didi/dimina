@@ -1,0 +1,29 @@
+iOS/dimina/DiminaKit/Navigator/DMPNavigator.swift
+  606b6c1f5d6a054c 30-34,43-44,53-201,423,588
+iOS/dimina.xcodeproj/project.pbxproj
+  606b6c1f5d6a054c 11,33,98,252
+iOS/dimina/DiminaKit/Container/DMPPageController.swift
+  606b6c1f5d6a054c 140-143,321,467,539,543,551,777
+iOS/diminaTests/DMPNavigatorCapsuleTests.swift
+  606b6c1f5d6a054c 1-40
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "258aae6b5c92513907daecac1c7cf223670a44be",
+  "prompts": {
+    "606b6c1f5d6a054c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f8397-bb3e-7c51-9809-417f3e4a2391",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 416,
+      "total_deletions": 214,
+      "accepted_lines": 416,
+      "overriden_lines": 0
+    }
+  }
+}
