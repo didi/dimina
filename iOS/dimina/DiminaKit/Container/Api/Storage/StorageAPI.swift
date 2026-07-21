@@ -29,24 +29,41 @@ public class StorageAPI: DMPContainerApi {
     // wx.setStorageSync(key, data) → params: [key, data]
     @BridgeMethod(SET_STORAGE_SYNC)
     var setStorageSync: DMPBridgeMethodHandler = { param, env, callback in
-        guard let array = param.getValue() as? [Any], array.count >= 2,
-              let key = array[0] as? String else { return DMPSyncResult(false) }
-        return DMPSyncResult(DMPStorage.storage(for: env.appId).set(key: key, value: array[1], encrypted: false))
+        guard let arguments = StorageAPI.parseSetStorageSyncArguments(param) else {
+            return DMPSyncResult(false)
+        }
+        return DMPSyncResult(
+            DMPStorage.storage(for: env.appId).set(
+                key: arguments.key,
+                value: arguments.data,
+                encrypted: arguments.encrypt
+            )
+        )
     }
 
     // wx.getStorageSync(key) → params: key string
     @BridgeMethod(GET_STORAGE_SYNC)
     var getStorageSync: DMPBridgeMethodHandler = { param, env, callback in
-        guard let key = param.getValue() as? String else { return DMPNoneResult() }
-        let value = DMPStorage.storage(for: env.appId).get(key: key, encrypted: false)
+        guard let arguments = StorageAPI.parseKeyArguments(param) else {
+            return DMPNoneResult()
+        }
+        let value = DMPStorage.storage(for: env.appId).get(
+            key: arguments.key,
+            encrypted: arguments.encrypt
+        )
         return DMPSyncResult(value ?? "")
     }
 
     // wx.removeStorageSync(key) → params: key string
     @BridgeMethod(REMOVE_STORAGE_SYNC)
     var removeStorageSync: DMPBridgeMethodHandler = { param, env, callback in
-        guard let key = param.getValue() as? String else { return DMPSyncResult(false) }
-        DMPStorage.storage(for: env.appId).remove(key: key, encrypted: false)
+        guard let arguments = StorageAPI.parseKeyArguments(param) else {
+            return DMPSyncResult(false)
+        }
+        DMPStorage.storage(for: env.appId).remove(
+            key: arguments.key,
+            encrypted: arguments.encrypt
+        )
         return DMPSyncResult(true)
     }
 
@@ -201,5 +218,58 @@ public class StorageAPI: DMPContainerApi {
         }
 
         return DMPAsyncResult()
+    }
+
+    private static func parseSetStorageSyncArguments(
+        _ param: DMPBridgeParam
+    ) -> (key: String, data: Any, encrypt: Bool)? {
+        if let values = param.getValue() as? [Any],
+           values.count >= 2,
+           let key = values[0] as? String {
+            return (
+                key,
+                values[1],
+                boolValue(values.count > 2 ? values[2] : nil)
+            )
+        }
+
+        let values = param.getMap()
+        guard let key = values.get("key") as? String,
+              let data = values.get("data") else {
+            return nil
+        }
+        return (key, data, boolValue(values.get("encrypt")))
+    }
+
+    private static func parseKeyArguments(
+        _ param: DMPBridgeParam
+    ) -> (key: String, encrypt: Bool)? {
+        if let key = param.getValue() as? String {
+            return (key, false)
+        }
+
+        if let values = param.getValue() as? [Any],
+           let key = values.first as? String {
+            return (
+                key,
+                boolValue(values.count > 1 ? values[1] : nil)
+            )
+        }
+
+        let values = param.getMap()
+        guard let key = values.get("key") as? String else {
+            return nil
+        }
+        return (key, boolValue(values.get("encrypt")))
+    }
+
+    private static func boolValue(_ value: Any?) -> Bool {
+        if let value = value as? Bool {
+            return value
+        }
+        if let value = value as? NSNumber {
+            return value.boolValue
+        }
+        return false
     }
 }

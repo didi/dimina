@@ -23,7 +23,10 @@ public class BaseAPI: DMPContainerApi {
             return DMPSyncResult(false)
         }
 
-        let registeredMethods = DMPContainerApi.getAllRegisteredMethods()
+        let registeredMethods = DMPAppManager.sharedInstance()
+            .getApp(appIndex: env.appIndex)?
+            .containerApi?
+            .getAllRegisteredMethods() ?? []
 
         let isAvailable = registeredMethods.contains(schema)
 

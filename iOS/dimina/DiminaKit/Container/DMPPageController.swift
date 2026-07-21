@@ -32,10 +32,13 @@ public class DMPPageController: UIViewController {
     private var customNavigationContentView: UIView?
     private var customNavigationTitleLabel: UILabel?
     private var customNavigationBackButton: UIButton?
+    private var customNavigationHomeButton: UIButton?
     private var customNavigationCapsuleView: UIView?
     private var customNavigationCapsuleMoreButton: UIButton?
     private var customNavigationCapsuleCloseButton: UIButton?
     private var customNavigationCapsuleSeparatorView: UIView?
+    private weak var pageCapsuleProvider: DMPPageCapsuleProvider?
+    private var isUsingHostCapsule = false
     private var miniProgramMenuContainerView: UIView?
     private var isClosingMiniProgram = false
     private var webViewTopToNavigationConstraint: NSLayoutConstraint?
@@ -260,13 +263,44 @@ public class DMPPageController: UIViewController {
         backButton.translatesAutoresizingMaskIntoConstraints = false
         backButton.addTarget(self, action: #selector(customBackButtonTapped), for: .touchUpInside)
 
+        let homeButton = UIButton(type: .custom)
+        homeButton.translatesAutoresizingMaskIntoConstraints = false
+        homeButton.addTarget(self, action: #selector(customHomeButtonTapped), for: .touchUpInside)
+
+        let leadingControls = UIStackView(arrangedSubviews: [backButton, homeButton])
+        leadingControls.translatesAutoresizingMaskIntoConstraints = false
+        leadingControls.axis = .horizontal
+        leadingControls.alignment = .center
+        leadingControls.spacing = 0
+
         let titleLabel = UILabel()
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         titleLabel.textAlignment = .center
         titleLabel.font = .systemFont(ofSize: 17, weight: .semibold)
         titleLabel.lineBreakMode = .byTruncatingTail
 
-        let capsuleView = makeCapsuleButton()
+        let capsuleView: UIView
+        let usesHostCapsule: Bool
+        let capsuleProvider = app?.pageCapsuleProvider
+        let capsuleContext = DMPPageCapsuleContext(
+            appId: appConfig.appId,
+            appName: appConfig.appName,
+            pagePath: pagePath,
+            query: query ?? [:],
+            isRoot: isRoot,
+            close: { [weak self] in
+                self?.capsuleCloseButtonTapped()
+            }
+        )
+        if let providedView = capsuleProvider?.makeCapsuleView(for: capsuleContext) {
+            providedView.translatesAutoresizingMaskIntoConstraints = false
+            capsuleView = providedView
+            usesHostCapsule = true
+            pageCapsuleProvider = capsuleProvider
+        } else {
+            capsuleView = makeCapsuleButton()
+            usesHostCapsule = false
+        }
         let menuButtonRect = MenuAPI.getMenuButtonBoundingClientRect()
         let capsuleWidth = CGFloat(
             menuButtonRect.getDouble(key: "width") ?? Double(DMPMenuButtonLayout.capsuleSize.width)
@@ -281,11 +315,15 @@ public class DMPPageController: UIViewController {
                 ?? Double(windowWidth - DMPMenuButtonLayout.trailingSpacing)
         )
         let capsuleTrailing = max(windowWidth - capsuleRight, 0)
+        let backButtonWidth = backButton.widthAnchor.constraint(equalToConstant: 44)
+        backButtonWidth.priority = .defaultHigh
+        let homeButtonWidth = homeButton.widthAnchor.constraint(equalToConstant: 44)
+        homeButtonWidth.priority = .defaultHigh
 
         view.addSubview(navigationBar)
         view.addSubview(capsuleView)
         navigationBar.addSubview(contentView)
-        contentView.addSubview(backButton)
+        contentView.addSubview(leadingControls)
         contentView.addSubview(titleLabel)
 
         NSLayoutConstraint.activate([
@@ -299,14 +337,18 @@ public class DMPPageController: UIViewController {
             contentView.bottomAnchor.constraint(equalTo: navigationBar.bottomAnchor),
             contentView.heightAnchor.constraint(equalToConstant: DMPMenuButtonLayout.navigationBarContentHeight),
 
-            backButton.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8),
-            backButton.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            backButton.widthAnchor.constraint(equalToConstant: 44),
+            leadingControls.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8),
+            leadingControls.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            leadingControls.heightAnchor.constraint(equalToConstant: 44),
+
+            backButtonWidth,
             backButton.heightAnchor.constraint(equalToConstant: 44),
+            homeButtonWidth,
+            homeButton.heightAnchor.constraint(equalToConstant: 44),
 
             titleLabel.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
             titleLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            titleLabel.leadingAnchor.constraint(greaterThanOrEqualTo: backButton.trailingAnchor, constant: 8),
+            titleLabel.leadingAnchor.constraint(greaterThanOrEqualTo: leadingControls.trailingAnchor, constant: 8),
             titleLabel.trailingAnchor.constraint(
                 lessThanOrEqualTo: contentView.trailingAnchor,
                 constant: -DMPMenuButtonLayout.titleTrailingInset
@@ -321,8 +363,10 @@ public class DMPPageController: UIViewController {
         customNavigationBar = navigationBar
         customNavigationContentView = contentView
         customNavigationBackButton = backButton
+        customNavigationHomeButton = homeButton
         customNavigationTitleLabel = titleLabel
         customNavigationCapsuleView = capsuleView
+        isUsingHostCapsule = usesHostCapsule
     }
 
     private func makeCapsuleButton() -> UIView {
@@ -549,34 +593,94 @@ public class DMPPageController: UIViewController {
     public func updateNavigationColor(backgroundColor: UIColor, textColor: UIColor, darkStyle: Bool) {
         customNavigationBar?.backgroundColor = backgroundColor
         customNavigationTitleLabel?.textColor = textColor
-        updateCustomBackButton(darkStyle: darkStyle)
+        updateCustomNavigationButtons(darkStyle: darkStyle)
         updateCustomCapsuleButton(darkStyle: darkStyle)
+        if let capsuleView = customNavigationCapsuleView {
+            let style = DMPPageCapsuleStyle(
+                foregroundColor: textColor,
+                backgroundColor: backgroundColor,
+                usesLightForeground: darkStyle
+            )
+            pageCapsuleProvider?.updateCapsuleView(capsuleView, style: style)
+        }
     }
 
-    private func updateCustomBackButton(darkStyle: Bool) {
+    private func updateCustomNavigationButtons(darkStyle: Bool) {
         guard let backButton = customNavigationBackButton else {
             return
         }
 
+        let showsHome = miniProgramHomePath != nil
+        backButton.isHidden = isRoot
+        customNavigationHomeButton?.isHidden = !showsHome
+
+        backButton.accessibilityLabel = "Back"
         if let bundle = DMPResourceManager.assetsBundle {
             let imageName = darkStyle ? "arrow-back-dark" : "arrow-back-light"
             if let image = UIImage(named: imageName, in: bundle, compatibleWith: nil) {
                 backButton.setImage(image.withRenderingMode(.alwaysOriginal), for: .normal)
                 backButton.setTitle(nil, for: .normal)
-                return
+            } else {
+                backButton.setImage(nil, for: .normal)
+                backButton.setTitle("back", for: .normal)
+                backButton.setTitleColor(darkStyle ? .white : .black, for: .normal)
             }
+        } else {
+            backButton.setImage(nil, for: .normal)
+            backButton.setTitle("back", for: .normal)
+            backButton.setTitleColor(darkStyle ? .white : .black, for: .normal)
         }
 
-        backButton.setImage(nil, for: .normal)
-        backButton.setTitle("back", for: .normal)
-        backButton.setTitleColor(darkStyle ? .white : .black, for: .normal)
+        if let homeButton = customNavigationHomeButton {
+            homeButton.accessibilityLabel = "Back to mini program home"
+            let configuration = UIImage.SymbolConfiguration(pointSize: 20, weight: .medium)
+            if let image = UIImage(systemName: "house", withConfiguration: configuration) {
+                homeButton.tintColor = darkStyle ? .white : .black
+                homeButton.setImage(image, for: .normal)
+                homeButton.setTitle(nil, for: .normal)
+            } else {
+                homeButton.setImage(nil, for: .normal)
+                homeButton.setTitle("home", for: .normal)
+                homeButton.setTitleColor(darkStyle ? .white : .black, for: .normal)
+            }
+        }
+    }
+
+    /// Any non-entry page can return directly to the configured mini-program home.
+    /// The entry root has no leading controls, root deep links show only Home,
+    /// and stacked non-entry pages show Back and Home together.
+    private var miniProgramHomePath: String? {
+        guard let rawEntryPath = app?.getBundleAppConfig()?.entryPagePath else {
+            return nil
+        }
+
+        let entryRoute = DMPPageRoute(path: rawEntryPath)
+        let currentRoute = DMPPageRoute(path: pagePath)
+        guard !entryRoute.normalizedPagePath.isEmpty,
+              entryRoute.normalizedPagePath != currentRoute.normalizedPagePath
+        else {
+            return nil
+        }
+        return entryRoute.pagePath
     }
 
     @objc private func customBackButtonTapped() {
         navigator?.handleBackButtonTapped()
     }
 
+    @objc private func customHomeButtonTapped() {
+        guard let homePath = miniProgramHomePath else {
+            return
+        }
+        Task { @MainActor [weak navigator] in
+            await navigator?.relaunch(to: homePath, query: nil, animated: false)
+        }
+    }
+
     private func updateCustomCapsuleButton(darkStyle: Bool) {
+        guard !isUsingHostCapsule else {
+            return
+        }
         customNavigationCapsuleView?.backgroundColor = .white
         let borderColor = UIColor(red: 229 / 255, green: 229 / 255, blue: 229 / 255, alpha: 1)
         customNavigationCapsuleView?.layer.borderColor = borderColor.cgColor

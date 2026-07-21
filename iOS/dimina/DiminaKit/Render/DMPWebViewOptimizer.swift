@@ -14,6 +14,8 @@ public class DMPWebViewOptimizer {
     
     // MARK: - Singleton
     public static let shared = DMPWebViewOptimizer()
+
+    private var customSchemeFactories: [String: (String) -> WKURLSchemeHandler] = [:]
     
     private init() {}
     
@@ -191,6 +193,26 @@ public class DMPWebViewOptimizer {
     }
     
     // MARK: - URL scheme handlers
+
+    /// Registers a scheme handler factory that is applied to every subsequently
+    /// created WebView configuration. The factory receives the mini-program appId.
+    ///
+    /// Calling this method again for the same scheme replaces the previous factory.
+    @MainActor @discardableResult
+    public func registerCustomSchemeHandler(
+        scheme: String,
+        factory: @escaping (String) -> WKURLSchemeHandler
+    ) -> Bool {
+        let normalizedScheme = scheme.lowercased()
+        guard isValidCustomScheme(normalizedScheme),
+              normalizedScheme != "dimina",
+              normalizedScheme != "difile" else {
+            return false
+        }
+
+        customSchemeFactories[normalizedScheme] = factory
+        return true
+    }
     
     private func setupURLSchemeHandlers(to config: WKWebViewConfiguration, appId: String) {
         // Register custom URL scheme handlers
@@ -199,8 +221,26 @@ public class DMPWebViewOptimizer {
          
          let diminaSchemeHandler = DiminaURLSchemeHandler(appId: appId)
          config.setURLSchemeHandler(diminaSchemeHandler, forURLScheme: "dimina")
+
+        for scheme in customSchemeFactories.keys.sorted() {
+            guard let factory = customSchemeFactories[scheme] else {
+                continue
+            }
+            config.setURLSchemeHandler(factory(appId), forURLScheme: scheme)
+        }
         
         DMPLogger.debug("🔗 WebViewOptimizer: Set up URL scheme handlers")
+    }
+
+    private func isValidCustomScheme(_ scheme: String) -> Bool {
+        guard let first = scheme.unicodeScalars.first,
+              CharacterSet.letters.contains(first) else {
+            return false
+        }
+
+        var allowed = CharacterSet.alphanumerics
+        allowed.insert(charactersIn: "+-.")
+        return scheme.unicodeScalars.allSatisfy { allowed.contains($0) }
     }
     
     // MARK: - WebView instance optimization

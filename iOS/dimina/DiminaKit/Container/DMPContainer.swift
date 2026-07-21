@@ -150,7 +150,7 @@ public class DMPContainer {
         )
 
         // 1. 精确命中已注册的标准 API
-        if let handler = DMPContainerApi.getHandler(for: methodName) {
+        if let handler = app.containerApi?.getHandler(for: methodName) {
             return handler(param, env, callback)
         }
 
@@ -184,8 +184,17 @@ public class DMPContainer {
             return DMPNoneResult()
         }
 
-        DMPLogger.debug("Bridge invoke error: 未找到方法: \(methodName)")
-        return DMPSyncResult(["error": "未找到方法: \(methodName)"])
+        let errMsg = "\(methodName):fail API not found"
+        DMPLogger.debug("Bridge invoke error: \(errMsg)")
+        if param.isAsync {
+            DMPContainerApi.invokeFailure(
+                callback: callback,
+                param: nil,
+                errMsg: errMsg
+            )
+            return DMPAsyncResult()
+        }
+        return DMPSyncResult(["errMsg": errMsg])
     }
 
     /// 处理 extOnBridge：启动持续订阅，保存取消函数

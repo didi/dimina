@@ -22,9 +22,15 @@ public class DMPApp {
     public var container: DMPContainer?
     public var containerApi: DMPContainerApi?
 
+    private(set) var pageCapsuleProvider: DMPPageCapsuleProvider?
+
     private var isLaunching = false
     private var isDestroyed = false
-    
+    /// Host API registrations belong to the app instance, not to one container
+    /// launch. `appWithConfig` may return the same app when a mini app is opened
+    /// again, while every launch rebuilds `containerApi`.
+    private var apiRegistrations: [(DMPApiHandler, DMPApiConflictPolicy)] = []
+
     public init(appConfig: DMPAppConfig, appIndex: Int) {
         self.appConfig = appConfig
         self.appId = appConfig.appId
@@ -63,6 +69,7 @@ public class DMPApp {
         initRender()
         
         await openPage(launchConfig: launchConfig)
+
     }
 
     public func initService() async {
@@ -91,6 +98,59 @@ public class DMPApp {
 
     public func getAppIndex() -> Int {
         return appIndex
+    }
+
+    /// Registers host APIs for this mini app.
+    ///
+    /// Register APIs before calling `launch`. Registrations are scoped to this
+    /// `DMPApp` and are released when the app is destroyed.
+    @discardableResult
+    public func registerApi(
+        _ handler: DMPApiHandler,
+        conflictPolicy: DMPApiConflictPolicy = .reject
+    ) -> Bool {
+        guard !isLaunching, !isDestroyed else {
+            DMPLogger.debug("registerApi skipped: APIs must be registered before launch")
+            return false
+        }
+        guard !handler.apiNames.isEmpty else {
+            DMPLogger.debug("registerApi skipped: handler has no API names")
+            return false
+        }
+
+        // Reopening the same mini app normally registers the same API groups
+        // again before launch. Replace that group instead of growing duplicate
+        // registrations indefinitely; disjoint API groups remain untouched.
+        if let index = apiRegistrations.firstIndex(where: {
+            $0.0.apiNames == handler.apiNames
+        }) {
+            apiRegistrations[index] = (handler, conflictPolicy)
+        } else {
+            apiRegistrations.append((handler, conflictPolicy))
+        }
+        return true
+    }
+
+    /// Registers a host-provided replacement for the built-in page capsule.
+    ///
+    /// Register the provider before calling `launch`. The provider is scoped to
+    /// this `DMPApp` and is released when the app is destroyed.
+    @MainActor
+    @discardableResult
+    public func registerPageCapsuleProvider(_ provider: DMPPageCapsuleProvider) -> Bool {
+        guard !isLaunching, container == nil, !isDestroyed else {
+            DMPLogger.debug(
+                "registerPageCapsuleProvider skipped: provider must be registered before launch"
+            )
+            return false
+        }
+        guard pageCapsuleProvider == nil else {
+            DMPLogger.debug("registerPageCapsuleProvider skipped: provider is already registered")
+            return false
+        }
+
+        pageCapsuleProvider = provider
+        return true
     }
         
     public func getBundleAppConfig() -> DMPBundleAppConfig? {
@@ -122,6 +182,19 @@ public class DMPApp {
         DMPUIManager.shared.prepareUI()
         container = DMPContainer(app: self)
         containerApi = DMPContainerApi.create(app: self)
+        if let containerApi {
+            for (handler, conflictPolicy) in apiRegistrations {
+                let conflicts = containerApi.registerCustomAPI(
+                    handler,
+                    conflictPolicy: conflictPolicy
+                )
+                if !conflicts.isEmpty {
+                    DMPLogger.debug(
+                        "registerApi rejected conflicting methods: \(conflicts.sorted())"
+                    )
+                }
+            }
+        }
     }
 
     @MainActor
@@ -143,7 +216,7 @@ public class DMPApp {
             await service?.evaluateScript("globalThis.__diminaApiNamespaces = \(json)")
         }
         // 注入已注册的 API 名字，使 service 层的 wx 对象能枚举到它们
-        let registeredApis = DMPContainerApi.getAllRegisteredMethods()
+        let registeredApis = containerApi?.getAllRegisteredMethods() ?? []
         if !registeredApis.isEmpty,
            let data = try? JSONSerialization.data(withJSONObject: registeredApis),
            let json = String(data: data, encoding: .utf8) {
@@ -171,10 +244,18 @@ public class DMPApp {
     @MainActor
     public func openPage(launchConfig: DMPLaunchConfig) async {
         DMPLogger.debug("openPage")
-        var newLaunchConfig = launchConfig
-        newLaunchConfig.appEntryPath = self.bundleAppConfig?.entryPagePath ?? ""
-        currentLaunchConfig = newLaunchConfig
-        await navigator?.launch(to: newLaunchConfig.appEntryPath ?? "", query: newLaunchConfig.query)
+        let requestedPath = launchConfig.appEntryPath ?? ""
+        let entryPath = requestedPath.isEmpty
+            ? bundleAppConfig?.entryPagePath ?? ""
+            : requestedPath
+        let route = DMPPageRoute(path: entryPath)
+
+        var resolvedConfig = launchConfig
+        resolvedConfig.appEntryPath = route.pagePath
+        resolvedConfig.query = route.merging(query: launchConfig.query)
+        currentLaunchConfig = resolvedConfig
+
+        await navigator?.launch(to: route.pagePath, query: resolvedConfig.query)
     }
 
     @MainActor
@@ -215,7 +296,9 @@ public class DMPApp {
         service = nil
         container = nil
         containerApi = nil
+        apiRegistrations.removeAll()
         render = nil
+        pageCapsuleProvider = nil
 
         DMPAppManager.sharedInstance().removeApp(appId: appId)
 

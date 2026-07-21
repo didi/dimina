@@ -15,9 +15,9 @@ import Foundation
 }
 
 public class DMPBridgeEnv {
-    let appIndex: Int
-    let appId: String
-    let webViewId: Int
+    public let appIndex: Int
+    public let appId: String
+    public let webViewId: Int
 
     init(appIndex: Int, appId: String, webViewId: Int) {
         self.appIndex = appIndex
@@ -55,7 +55,10 @@ struct BridgeMethod {
 
 public class DMPContainerApi: NSObject {
     private weak var app: DMPApp?
-    static var bridgeHandlerMap: [String: DMPBridgeMethodHandler] = [:]
+    private var customAPIHandlers: [String: DMPApiHandler] = [:]
+
+    private static let registryLock = NSLock()
+    private static var bridgeHandlerMap: [String: DMPBridgeMethodHandler] = [:]
     
     public init(app: DMPApp? = nil) {
         self.app = app
@@ -82,6 +85,7 @@ public class DMPContainerApi: NSObject {
         _ = BluetoothAPI(app: app)
         _ = ImageAPI(app: app)
         _ = VideoAPI(app: app)
+        _ = CanvasAPI(app: app)
         _ = InteractionAPI(app: app)
         _ = MenuAPI(app: app)
         _ = NavigationBarAPI(app: app)
@@ -89,7 +93,6 @@ public class DMPContainerApi: NSObject {
         _ = TabBarAPI(app: app)
         _ = NativeComponentAPI(app: app)
         
-        // 返回一个基础 API 实例
         return DMPContainerApi(app: app)
     }
     
@@ -99,21 +102,65 @@ public class DMPContainerApi: NSObject {
     
     // 统一注册方法
     public static func registerMethod(name: String, handler: DMPBridgeMethodHandler? = nil) {
-        if let handler = handler {
-            bridgeHandlerMap[name] = handler
-        }
+        guard let handler else { return }
+        registryLock.lock()
+        bridgeHandlerMap[name] = handler
+        registryLock.unlock()
     }
     
-    public static func getHandler(for methodName: String) -> DMPBridgeMethodHandler? {
+    private static func getBuiltInHandler(for methodName: String) -> DMPBridgeMethodHandler? {
+        registryLock.lock()
+        defer { registryLock.unlock() }
         return bridgeHandlerMap[methodName]
     }
     
-    public static func getAllRegisteredMethods() -> [String] {
-        return Array(bridgeHandlerMap.keys)
+    private static func getAllBuiltInMethods() -> Set<String> {
+        registryLock.lock()
+        defer { registryLock.unlock() }
+        return Set(bridgeHandlerMap.keys)
+    }
+
+    @discardableResult
+    func registerCustomAPI(
+        _ handler: DMPApiHandler,
+        conflictPolicy: DMPApiConflictPolicy
+    ) -> Set<String> {
+        let builtInMethods = Self.getAllBuiltInMethods()
+        var conflicts = Set<String>()
+
+        for name in handler.apiNames {
+            let hasConflict = builtInMethods.contains(name) || customAPIHandlers[name] != nil
+            if hasConflict, conflictPolicy == .reject {
+                conflicts.insert(name)
+                continue
+            }
+            customAPIHandlers[name] = handler
+        }
+
+        return conflicts
+    }
+
+    func getHandler(for methodName: String) -> DMPBridgeMethodHandler? {
+        if let customHandler = customAPIHandlers[methodName] {
+            return { param, env, callback in
+                customHandler.handle(
+                    name: methodName,
+                    param: param,
+                    env: env,
+                    callback: callback
+                )
+            }
+        }
+        return Self.getBuiltInHandler(for: methodName)
+    }
+
+    func getAllRegisteredMethods() -> [String] {
+        let methods = Self.getAllBuiltInMethods().union(customAPIHandlers.keys)
+        return methods.sorted()
     }
     
     public func invokeBridgeMethod(name: String, data: DMPBridgeParam, env: DMPBridgeEnv, callback: DMPBridgeCallback? = nil) -> DMPAPIResult {
-        if let handler = Self.getHandler(for: name) {
+        if let handler = getHandler(for: name) {
             return handler(data, env, callback)
         }
         DMPLogger.debug("未找到方法: \(name)")

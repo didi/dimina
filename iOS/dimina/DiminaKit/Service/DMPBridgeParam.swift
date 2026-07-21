@@ -77,14 +77,14 @@ public class DMPBridgeParam {
         return DMPBridgeParam(value: rawValue)
     }
 
-    func getMap() -> DMPMap {
+    public func getMap() -> DMPMap {
         if type != .object {
             return DMPMap()
         }
         return DMPMap(value as! [String: Any])
     }
 
-    func getValue() -> Any {
+    public func getValue() -> Any {
         return value
     }
 

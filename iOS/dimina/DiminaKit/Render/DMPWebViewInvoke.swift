@@ -101,8 +101,18 @@ public class DMPWebViewInvoke {
         (function() {
             window.DiminaRenderBridge = window.DiminaRenderBridge || {};
             window.DiminaRenderBridge.invoke = function(msg) {
-                if (typeof msg !== 'string') {
-                    console.error('DiminaRenderBridge.invoke: 消息必须是字符串类型', msg);
+                var payload = msg;
+                if (typeof payload !== 'string') {
+                    try {
+                        payload = JSON.stringify(payload);
+                    } catch (error) {
+                        console.error('DiminaRenderBridge.invoke: 消息序列化失败', error);
+                        return Promise.resolve(null);
+                    }
+                }
+
+                if (typeof payload !== 'string') {
+                    console.error('DiminaRenderBridge.invoke: 消息必须可序列化', msg);
                     return Promise.resolve(null);
                 }
 
@@ -122,7 +132,7 @@ public class DMPWebViewInvoke {
                     };
 
                     // 直接发送字符串消息到Native
-                    window.webkit.messageHandlers.invokeHandler.postMessage(msg);
+                    window.webkit.messageHandlers.invokeHandler.postMessage(payload);
                 });
             };
         })();
