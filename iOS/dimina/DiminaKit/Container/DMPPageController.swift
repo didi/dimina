@@ -611,7 +611,7 @@ public class DMPPageController: UIViewController {
         }
 
         let showsHome = miniProgramHomePath != nil
-        backButton.isHidden = isRoot && showsHome
+        backButton.isHidden = isRoot
         customNavigationHomeButton?.isHidden = !showsHome
 
         backButton.accessibilityLabel = "Back"
@@ -647,7 +647,8 @@ public class DMPPageController: UIViewController {
     }
 
     /// Any non-entry page can return directly to the configured mini-program home.
-    /// Root deep links show only Home; stacked pages show Back and Home together.
+    /// The entry root has no leading controls, root deep links show only Home,
+    /// and stacked non-entry pages show Back and Home together.
     private var miniProgramHomePath: String? {
         guard let rawEntryPath = app?.getBundleAppConfig()?.entryPagePath else {
             return nil
