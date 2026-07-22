@@ -1,0 +1,39 @@
+android/gradle/wrapper/gradle-wrapper.properties
+  27a9c5bf7a586b34 4
+  8943849b041e5718 1
+android/gradle.properties
+  8943849b041e5718 30
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "5610affa3bc99b7b9d3f1da010f1a5ec24d9a105",
+  "prompts": {
+    "27a9c5bf7a586b34": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f87eb-76fd-78f1-8d2a-69eaf7a418e6",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 1,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    },
+    "8943849b041e5718": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f87c8-cf37-7800-805a-9ec88ea6f54e",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 3,
+      "total_deletions": 3,
+      "accepted_lines": 2,
+      "overriden_lines": 0
+    }
+  }
+}
