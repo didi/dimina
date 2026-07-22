@@ -1,0 +1,41 @@
+fe/packages/service/src/api/core/base/update/index.js
+  8943849b041e5718 53-54,57-62
+android/dimina/src/main/kotlin/com/didi/dimina/common/AtomicZipInstaller.kt
+  8943849b041e5718 1-159
+android/dimina/src/main/kotlin/com/didi/dimina/core/MiniApp.kt
+  8943849b041e5718 42-44,60,109-122,163-166,404,427
+android/dimina/src/main/kotlin/com/didi/dimina/ui/container/DiminaActivity.kt
+  8943849b041e5718 510-512,517-526,614,1690-1706
+android/dimina/src/test/java/com/didi/dimina/common/AtomicZipInstallerTest.kt
+  8943849b041e5718 1-95
+android/dimina/src/main/kotlin/com/didi/dimina/core/UpdateCheckRegistry.kt
+  8943849b041e5718 1-18
+fe/packages/service/__tests__/update-manager.spec.js
+  8943849b041e5718 93-110
+android/dimina/src/test/java/com/didi/dimina/core/UpdateCheckRegistryTest.kt
+  8943849b041e5718 1-33
+android/dimina/src/main/kotlin/com/didi/dimina/core/RemoteUpdateManager.kt
+  8943849b041e5718 5,16,18-19,28-33,43-82,99,107-112,118,159-164,166-175,177,183-187,189-197,199-205,207-218,220,234-240,242-246,248,270-276
+android/dimina/src/main/kotlin/com/didi/dimina/common/Utils.kt
+  8943849b041e5718 138-144,146-148,152-158,160
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "a5a81fd627f2653cf53cfdaccc46e12de1c34b31",
+  "prompts": {
+    "8943849b041e5718": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f87c8-cf37-7800-805a-9ec88ea6f54e",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 534,
+      "total_deletions": 160,
+      "accepted_lines": 534,
+      "overriden_lines": 0
+    }
+  }
+}
