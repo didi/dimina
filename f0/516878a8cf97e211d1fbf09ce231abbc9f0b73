@@ -1,0 +1,27 @@
+fe/packages/container/src/core/bridge.js
+  067b298a0d2fb101 148,163,194
+fe/packages/container/__tests__/webview-resource-base.spec.js
+  067b298a0d2fb101 1-35
+fe/packages/container/src/pages/webview/webview.js
+  067b298a0d2fb101 26,40-50
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "f0516878a8cf97e211d1fbf09ce231abbc9f0b73",
+  "prompts": {
+    "067b298a0d2fb101": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f92c7-6c24-7211-ba65-cad05fe11cf3",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 331,
+      "total_deletions": 9,
+      "accepted_lines": 356,
+      "overriden_lines": 0
+    }
+  }
+}
