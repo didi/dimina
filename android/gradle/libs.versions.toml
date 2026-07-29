@@ -18,7 +18,7 @@ mmkv = "2.2.4"
 okhttp = "5.2.1"
 orgJson = "20250107"
 uiTooling = "1.8.2"
-webkit = "1.15.0"
+webkit = "1.16.0"
 zxingAndroidEmbedded = "4.3.0"
 
 [libraries]
