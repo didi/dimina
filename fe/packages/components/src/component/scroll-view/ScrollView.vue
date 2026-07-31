@@ -367,7 +367,7 @@ watch(
 			scrollView.value.scrollTo({
 				top: newScrollTop === undefined ? scrollView.value.scrollTop : Number(newScrollTop) || 0,
 				left: newScrollLeft === undefined ? scrollView.value.scrollLeft : Number(newScrollLeft) || 0,
-				behavior: props.scrollWithAnimation ? 'smooth' : 'auto',
+				behavior: props.scrollWithAnimation ? 'smooth' : 'instant',
 			})
 		}
 	},
@@ -384,7 +384,7 @@ function scrollToChild(id) {
 	scrollView.value.scrollTo({
 		top: props.scrollY ? scrollView.value.scrollTop + targetRect.top - rootRect.top : scrollView.value.scrollTop,
 		left: props.scrollX ? scrollView.value.scrollLeft + targetRect.left - rootRect.left : scrollView.value.scrollLeft,
-		behavior: props.scrollWithAnimation ? 'smooth' : 'auto',
+		behavior: props.scrollWithAnimation ? 'smooth' : 'instant',
 	})
 }
 
@@ -445,7 +445,6 @@ onMounted(() => {
 	}
 
 	&.hide-scrollbar {
-		scroll-behavior: smooth;
 		position: relative;
 	}
 
