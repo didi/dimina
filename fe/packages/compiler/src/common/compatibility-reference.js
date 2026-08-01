@@ -151,6 +151,7 @@ const supportedWxApis = [
 	"TCPSocket.offError",
 	"TCPSocket.onMessage",
 	"TCPSocket.offMessage",
+	"connectSocket / SocketTask",
 	"setStorageSync",
 	"getStorageSync",
 	"removeStorageSync",
