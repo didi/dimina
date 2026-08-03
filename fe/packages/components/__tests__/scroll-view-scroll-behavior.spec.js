@@ -186,4 +186,42 @@ describe('ScrollView programmatic scroll behavior', () => {
 		expect(methodNames).not.toContain('onPulling')
 		expect(methodNames).not.toContain('onRefresh')
 	})
+
+	it('aborts an already-started refresher gesture once the container leaves the top', () => {
+		window.__message = { send: vi.fn() }
+
+		const { element } = mountScrollView(() => ({
+			scrollY: true,
+			refresherEnabled: true,
+			bindrefresherpulling: 'onPulling',
+			bindrefresherrefresh: 'onRefresh',
+			bindrefresherabort: 'onAbort',
+		}))
+
+		const touchStart = new Event('touchstart')
+		Object.defineProperty(touchStart, 'touches', { value: [{ clientY: 100 }] })
+		element.dispatchEvent(touchStart)
+
+		// still at the top: this move is a legitimate pull, so onPulling fires
+		const firstMove = new Event('touchmove')
+		Object.defineProperty(firstMove, 'touches', { value: [{ clientY: 150 }] })
+		element.dispatchEvent(firstMove)
+
+		// the container has since scrolled away from the top mid-gesture
+		element.scrollTop = 50
+
+		const secondMove = new Event('touchmove')
+		Object.defineProperty(secondMove, 'touches', { value: [{ clientY: 200 }] })
+		element.dispatchEvent(secondMove)
+
+		const touchEnd = new Event('touchend')
+		Object.defineProperty(touchEnd, 'touches', { value: [] })
+		Object.defineProperty(touchEnd, 'changedTouches', { value: [] })
+		element.dispatchEvent(touchEnd)
+
+		const methodNames = window.__message.send.mock.calls.map(([message]) => message.body.methodName)
+		expect(methodNames).toContain('onPulling')
+		expect(methodNames.filter(name => name === 'onAbort')).toHaveLength(1)
+		expect(methodNames).not.toContain('onRefresh')
+	})
 })

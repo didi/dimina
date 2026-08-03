@@ -319,15 +319,22 @@ function getScrollDetail(extra = {}) {
 // top when refresherStartY was captured at scrollTop<=0, so touchmove/touchend
 // must re-check the container is still at the top before treating this as a
 // refresher gesture rather than trusting the touchstart-time snapshot.
-function cancelRefresherGestureAwayFromTop() {
-	if (refresherStartY !== undefined && (scrollView.value?.scrollTop ?? 0) > 0) {
-		refresherStartY = undefined
-		refresherDistance = 0
+function cancelRefresherGestureAwayFromTop(event) {
+	if (refresherStartY === undefined || (scrollView.value?.scrollTop ?? 0) <= 0) return
+
+	const dy = refresherDistance
+	refresherStartY = undefined
+	refresherDistance = 0
+
+	// A refresherpulling already went out for this gesture; tell the consumer
+	// it ended instead of leaving it without a matching refresh/abort event.
+	if (dy > 0) {
+		triggerEvent('refresherabort', { event, info, detail: { dy } })
 	}
 }
 
 function handleEnhancedTouchMove(event) {
-	cancelRefresherGestureAwayFromTop()
+	cancelRefresherGestureAwayFromTop(event)
 	if (refresherStartY !== undefined) {
 		refresherDistance = Math.max((event.touches?.[0]?.clientY || refresherStartY) - refresherStartY, 0)
 		if (refresherDistance > 0) {
@@ -344,7 +351,7 @@ function handleEnhancedTouchMove(event) {
 }
 
 function handleTouchEnd(event) {
-	cancelRefresherGestureAwayFromTop()
+	cancelRefresherGestureAwayFromTop(event)
 	if (refresherStartY !== undefined) {
 		if (refresherDistance >= props.refresherThreshold) {
 			refreshing = true
