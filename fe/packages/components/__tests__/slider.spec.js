@@ -138,6 +138,30 @@ describe('slider wechat alignment', () => {
 		expect(host.querySelector('.dd-slider-value p').textContent.trim()).toBe('0.3')
 	})
 
+	it('clamps a non-divisible step result to max at the right edge', async () => {
+		const { host } = mountComponent(Slider, {
+			bindchange: 'changeHandler',
+			min: 0,
+			max: 10,
+			step: 6,
+			value: 0,
+			showValue: true,
+		})
+		mockTrackGeometry(host)
+		await nextTick()
+
+		host.querySelector('.dd-slider-tap-area').dispatchEvent(
+			new MouseEvent('click', { bubbles: true, clientX: 100 })
+		)
+		await nextTick()
+
+		const [event] = sentEvents()
+		expect(event.event.detail.value).toBe(10)
+		expect(host.querySelector('.dd-slider-value p').textContent.trim()).toBe('10')
+		expect(host.querySelector('.dd-slider').getAttribute('aria-valuenow')).toBe('10')
+		expect(host.querySelector('.dd-slider-thumb').style.left).toBe('100%')
+	})
+
 	it('keeps scientific-notation step precision when moving the slider', async () => {
 		const { host } = mountComponent(Slider, {
 			bindchange: 'changeHandler',

@@ -165,7 +165,9 @@ function roundToStep(value) {
 	const raw = min + Math.round((clamp - min) / step) * step
 	// 小数步长按最大小数位截断，消除二进制浮点尾差（对齐微信基础库 _revalicateRange）
 	const decimals = Math.max(decimalPlaces(min), decimalPlaces(max), decimalPlaces(step))
-	return decimals > 0 ? Number(raw.toFixed(decimals)) : raw
+	const rounded = decimals > 0 ? Number(raw.toFixed(decimals)) : raw
+	// 当 (max - min) 不能被 step 整除时，舍入值可能越过边界（如 0/10/6 -> 12）
+	return Math.min(Math.max(rounded, min), max)
 }
 
 const sliderHandle = ref(null)
