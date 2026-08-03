@@ -46,10 +46,20 @@ struct ContentView: View {
         // 启动小程序
         Task { @MainActor in
             // 自动化测试钩子：环境变量指定启动页（如验证非首页启动的返回首页按钮），
-            // 未设置时保持默认首页启动
-            let launchConfig = DMPLaunchConfig(
+            // 未设置时保持默认首页启动。DMP_TEST_ENTRY_QUERY 按 a=1&b=2 的写法
+            // 给启动页带参数——启动页路径本身不接受问号，参数要走 query 字段。
+            var launchConfig = DMPLaunchConfig(
                 appEntryPath: ProcessInfo.processInfo.environment["DMP_TEST_ENTRY_PATH"]
             )
+            if let rawQuery = ProcessInfo.processInfo.environment["DMP_TEST_ENTRY_QUERY"], !rawQuery.isEmpty {
+                var query: [String: Any] = [:]
+                for pair in rawQuery.split(separator: "&") {
+                    let kv = pair.split(separator: "=", maxSplits: 1)
+                    guard let key = kv.first else { continue }
+                    query[String(key)] = kv.count > 1 ? String(kv[1]) : ""
+                }
+                launchConfig.query = query
+            }
             await app.launch(launchConfig: launchConfig)
         }
     }

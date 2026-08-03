@@ -203,9 +203,15 @@ export function invokeAPI(name, data, target = 'container') {
 		if (isFunction(fail)) {
 			params.fail = callback.store(fail, keep, evtId)
 		}
+		else {
+			params.fail = fail
+		}
 
 		if (isFunction(complete)) {
 			params.complete = callback.store(complete, keep, evtId)
+		}
+		else {
+			params.complete = complete
 		}
 	}
 	else {

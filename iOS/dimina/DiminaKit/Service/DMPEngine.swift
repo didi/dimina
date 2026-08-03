@@ -103,6 +103,19 @@ public class DMPEngine: NSObject {
         }
     }
     
+    /// 按调用顺序把脚本排进 JS 线程执行，不等结果。内部走的是 `performOnJSThread`
+    /// 的串行队列，所以先调用的一定先在 JS 里执行。
+    ///
+    /// 容器往 service 推消息必须用这个，不要用 `Task { await evaluateScript(...) }`：
+    /// 每条消息各起一个不受管的 Task 会被丢到并发线程池上，两条紧挨着发出的消息
+    /// 谁先跑到 JS 线程完全看线程调度，顺序会颠倒。
+    public func enqueueScript(_ script: String) {
+        performOnJSThread { [weak self] in
+            let result = self?.jsContext?.evaluateScript(script)
+            DMPLogger.debug("🔴 engine enqueueScript: \(script) result: \(String(describing: result))")
+        }
+    }
+
     @discardableResult
     public func loadFile(path: String) async -> JSValue? {
         return await withCheckedContinuation { continuation in

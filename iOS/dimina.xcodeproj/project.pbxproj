@@ -13,8 +13,11 @@
 		1A2B3C4D5E6F700000000002 /* MMKV in Frameworks */ = {isa = PBXBuildFile; productRef = 1A2B3C4D5E6F700000000102 /* MMKV */; };
 		1A2B3C4D5E6F700000000003 /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = 1A2B3C4D5E6F700000000103 /* ZIPFoundation */; };
 		D3AF9DC58D4F29D8D2A8F71F /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2EAA9C0614F7638987B22EAC /* Foundation.framework */; };
+		1AE8A186852DBE677D065599 /* DMPWebSocketTestDoubles.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A624932ADE9898E587249FA /* DMPWebSocketTestDoubles.swift */; };
+		4AAB204EFEBA61F955A67553 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 69C73737CB86CC434E8DE5B7 /* Foundation.framework */; };
+		7500C22DE15B570EC7A4FD2B /* DMPWebSocketValidationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAB6B466B43575C7978B1BAD /* DMPWebSocketValidationTests.swift */; };
+		9E9F7EDCE127D18B2331A8DC /* DMPWebSocketManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23EDE52DA8E2C3DFF607829B /* DMPWebSocketManagerTests.swift */; };
 /* End PBXBuildFile section */
-
 /* Begin PBXContainerItemProxy section */
 		425BDC30CA314D645195B564 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -23,16 +26,26 @@
 			remoteGlobalIDString = 0A6F85D72DAE3D7D0047A006;
 			remoteInfo = dimina;
 		};
+		DB8F7A3C5399B5683486B7A7 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 0A6F85D02DAE3D7D0047A006 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 0A6F85D72DAE3D7D0047A006;
+			remoteInfo = dimina;
+		};
 /* End PBXContainerItemProxy section */
-
 /* Begin PBXFileReference section */
 		0A6F85D82DAE3D7D0047A006 /* dimina.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = dimina.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		2EAA9C0614F7638987B22EAC /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
 		5D995E363EB06797E5E3DB0D /* diminaTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = diminaTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		61DD3E623362F9D7264941CD /* DMPUtilPathTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DMPUtilPathTests.swift; sourceTree = "<group>"; };
 		9A1D30A12F12000100000002 /* DMPNavigatorCapsuleTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DMPNavigatorCapsuleTests.swift; sourceTree = "<group>"; };
+		23EDE52DA8E2C3DFF607829B /* DMPWebSocketManagerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DMPWebSocketManagerTests.swift; sourceTree = "<group>"; };
+		3A624932ADE9898E587249FA /* DMPWebSocketTestDoubles.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DMPWebSocketTestDoubles.swift; sourceTree = "<group>"; };
+		69C73737CB86CC434E8DE5B7 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
+		AE429915A2BA3583BF99A758 /* DiminaKitTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DiminaKitTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		FAB6B466B43575C7978B1BAD /* DMPWebSocketValidationTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DMPWebSocketValidationTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
-
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		0A6F85DA2DAE3D7D0047A006 /* dimina */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
@@ -42,7 +55,6 @@
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
-
 /* Begin PBXFrameworksBuildPhase section */
 		0A6F85D52DAE3D7D0047A006 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
@@ -62,8 +74,15 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		75359533A9166B5EE35DA73F /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4AAB204EFEBA61F955A67553 /* Foundation.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
-
 /* Begin PBXGroup section */
 		0A6F85CF2DAE3D7D0047A006 = {
 			isa = PBXGroup;
@@ -72,6 +91,8 @@
 				0A6F85D92DAE3D7D0047A006 /* Products */,
 				E07F041A9E2897B4C9F7EE93 /* Frameworks */,
 				A25481309172EDD172D6037B /* diminaTests */,
+				F7BE9FF6DC45813219FFB35C /* DiminaKitTests */,
+				3F49A794699EE10985C26AE0 /* Frameworks */,
 			);
 			sourceTree = "<group>";
 		};
@@ -80,6 +101,7 @@
 			children = (
 				0A6F85D82DAE3D7D0047A006 /* dimina.app */,
 				5D995E363EB06797E5E3DB0D /* diminaTests.xctest */,
+				AE429915A2BA3583BF99A758 /* DiminaKitTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -110,8 +132,34 @@
 			name = Frameworks;
 			sourceTree = "<group>";
 		};
+		3F49A794699EE10985C26AE0 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				86799F0699C075D5E0034F29 /* iOS */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		86799F0699C075D5E0034F29 /* iOS */ = {
+			isa = PBXGroup;
+			children = (
+				69C73737CB86CC434E8DE5B7 /* Foundation.framework */,
+			);
+			name = iOS;
+			sourceTree = "<group>";
+		};
+		F7BE9FF6DC45813219FFB35C /* DiminaKitTests */ = {
+			isa = PBXGroup;
+			children = (
+				FAB6B466B43575C7978B1BAD /* DMPWebSocketValidationTests.swift */,
+				3A624932ADE9898E587249FA /* DMPWebSocketTestDoubles.swift */,
+				23EDE52DA8E2C3DFF607829B /* DMPWebSocketManagerTests.swift */,
+			);
+			name = DiminaKitTests;
+			path = DiminaKitTests;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
-
 /* Begin PBXNativeTarget section */
 		0A6F85D72DAE3D7D0047A006 /* dimina */ = {
 			isa = PBXNativeTarget;
@@ -157,8 +205,25 @@
 			productReference = 5D995E363EB06797E5E3DB0D /* diminaTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		51BC5D4CFDB64E8A8D7972A7 /* DiminaKitTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 202F716BC818E780D6A72F4F /* Build configuration list for PBXNativeTarget "DiminaKitTests" */;
+			buildPhases = (
+				D69F005E5E0177F4C33C067E /* Sources */,
+				75359533A9166B5EE35DA73F /* Frameworks */,
+				24CE005D00D6EF8823AB1479 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				76BC58BA799F45EB8C879E96 /* PBXTargetDependency */,
+			);
+			name = DiminaKitTests;
+			productName = DiminaKitTests;
+			productReference = AE429915A2BA3583BF99A758 /* DiminaKitTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
-
 /* Begin PBXProject section */
 		0A6F85D02DAE3D7D0047A006 /* Project object */ = {
 			isa = PBXProject;
@@ -193,10 +258,10 @@
 			targets = (
 				0A6F85D72DAE3D7D0047A006 /* dimina */,
 				1117821FE0BE8D195C045561 /* diminaTests */,
+				51BC5D4CFDB64E8A8D7972A7 /* DiminaKitTests */,
 			);
 		};
 /* End PBXProject section */
-
 /* Begin PBXResourcesBuildPhase section */
 		0A6F85D62DAE3D7D0047A006 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
@@ -212,8 +277,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		24CE005D00D6EF8823AB1479 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
-
 /* Begin PBXShellScriptBuildPhase section */
 		95105B9A2DDC3FF3004B4A04 /* Copy Shared Resources */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -236,7 +307,6 @@
 			showEnvVarsInLog = 0;
 		};
 /* End PBXShellScriptBuildPhase section */
-
 /* Begin PBXSourcesBuildPhase section */
 		0A6F85D42DAE3D7D0047A006 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -254,8 +324,17 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		D69F005E5E0177F4C33C067E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7500C22DE15B570EC7A4FD2B /* DMPWebSocketValidationTests.swift in Sources */,
+				1AE8A186852DBE677D065599 /* DMPWebSocketTestDoubles.swift in Sources */,
+				9E9F7EDCE127D18B2331A8DC /* DMPWebSocketManagerTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
-
 /* Begin PBXTargetDependency section */
 		21D2CF2ECD81EA695D26AD0F /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
@@ -263,8 +342,13 @@
 			target = 0A6F85D72DAE3D7D0047A006 /* dimina */;
 			targetProxy = 425BDC30CA314D645195B564 /* PBXContainerItemProxy */;
 		};
+		76BC58BA799F45EB8C879E96 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = dimina;
+			target = 0A6F85D72DAE3D7D0047A006 /* dimina */;
+			targetProxy = DB8F7A3C5399B5683486B7A7 /* PBXContainerItemProxy */;
+		};
 /* End PBXTargetDependency section */
-
 /* Begin XCBuildConfiguration section */
 		0A6F85E42DAE3D7F0047A006 /* Debug */ = {
 			isa = XCBuildConfiguration;
@@ -506,8 +590,56 @@
 			};
 			name = Release;
 		};
+		A1B810AC2DE773DC11A10B06 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				"CODE_SIGNING_ALLOWED[sdk=iphonesimulator*]" = NO;
+				CODE_SIGN_STYLE = Automatic;
+				ENABLE_TESTABILITY = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.didi.dimina.DiminaKitTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/dimina.app/dimina";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		A856429F6429D7B7D2860775 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				"CODE_SIGNING_ALLOWED[sdk=iphonesimulator*]" = NO;
+				CODE_SIGN_STYLE = Automatic;
+				ENABLE_TESTABILITY = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.didi.dimina.DiminaKitTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/dimina.app/dimina";
+			};
+			name = Debug;
+		};
 /* End XCBuildConfiguration section */
-
 /* Begin XCConfigurationList section */
 		0A6F85D32DAE3D7D0047A006 /* Build configuration list for PBXProject "dimina" */ = {
 			isa = XCConfigurationList;
@@ -536,8 +668,16 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		202F716BC818E780D6A72F4F /* Build configuration list for PBXNativeTarget "DiminaKitTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A1B810AC2DE773DC11A10B06 /* Release */,
+				A856429F6429D7B7D2860775 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
-
 /* Begin XCRemoteSwiftPackageReference section */
 		1A2B3C4D5E6F700000000201 /* XCRemoteSwiftPackageReference "Alamofire" */ = {
 			isa = XCRemoteSwiftPackageReference;
@@ -564,7 +704,6 @@
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
-
 /* Begin XCSwiftPackageProductDependency section */
 		1A2B3C4D5E6F700000000101 /* Alamofire */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -582,6 +721,21 @@
 			productName = ZIPFoundation;
 		};
 /* End XCSwiftPackageProductDependency section */
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 	};
 	rootObject = 0A6F85D02DAE3D7D0047A006 /* Project object */;
 }

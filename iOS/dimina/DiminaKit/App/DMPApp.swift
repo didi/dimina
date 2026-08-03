@@ -296,6 +296,11 @@ public class DMPApp {
         // Storage is a global singleton. Tear it down before another app initializes it.
         DMPStorage.teardownModule(appId: appId)
 
+        // DMPWebSocketManager is a cross-app singleton too; ARC won't clear
+        // this app's sockets/listeners/timers for us, so tear them down
+        // explicitly (synchronous + silent, see DMPWebSocketManager.disposeOwner).
+        DMPWebSocketManager.shared.disposeOwner(appId: appId)
+
         DispatchQueue.global(qos: .utility).async {
             serviceToDestroy?.destroy()
         }

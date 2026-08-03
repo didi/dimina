@@ -1,0 +1,50 @@
+.container {
+  padding: 16rpx;
+}
+.row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 12rpx;
+}
+.url-input {
+  flex: 1;
+  border: 1px solid #ccc;
+  border-radius: 8rpx;
+  padding: 8rpx 12rpx;
+  margin-right: 12rpx;
+  font-size: 24rpx;
+}
+.summary {
+  font-size: 28rpx;
+  font-weight: bold;
+  padding: 12rpx;
+  margin-bottom: 12rpx;
+  border-radius: 8rpx;
+}
+.summary.pass {
+  background: #e6ffed;
+  color: #1a7f37;
+}
+.summary.fail {
+  background: #ffeef0;
+  color: #cf222e;
+}
+.summary.idle {
+  background: #f0f0f0;
+  color: #666;
+}
+.log {
+  height: 900rpx;
+}
+.log-line {
+  font-size: 22rpx;
+  padding: 6rpx 0;
+  border-bottom: 1px solid #eee;
+  word-break: break-all;
+}
+.log-line.ok {
+  color: #1a7f37;
+}
+.log-line.fail {
+  color: #cf222e;
+}

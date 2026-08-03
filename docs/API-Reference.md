@@ -291,6 +291,7 @@ DMPApp.init(context, { apiNamespaces: ["myapp"] })
 |               | TCPSocket.offError                | ✓       | ✓   | ✓       | ✗   |
 |               | TCPSocket.onMessage               | ✓       | ✓   | ✓       | ✗   |
 |               | TCPSocket.offMessage              | ✓       | ✓   | ✓       | ✗   |
+| 网络 - WebSocket | connectSocket / SocketTask      | ✓       | ✓   | ✓       | ✗   |
 | 数据缓存      | setStorageSync                   | ✓       | ✓   | ✓       | ✗   |
 |               | getStorageSync                   | ✓       | ✓   | ✓       | ✗   |
 |               | removeStorageSync                | ✓       | ✓   | ✓       | ✗   |

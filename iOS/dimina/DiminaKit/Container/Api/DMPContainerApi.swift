@@ -70,6 +70,7 @@ public class DMPContainerApi: NSObject {
         _ = UpdateAPI(app: app)
         _ = NetworkAPI(app: app)
         _ = LocalNetworkAPI(app: app)
+        _ = WebSocketAPI(app: app)
         _ = StorageAPI(app: app)
         _ = FileAPI(app: app)
         _ = ClipboardAPI(app: app)
@@ -125,11 +126,17 @@ public class DMPContainerApi: NSObject {
         guard let callback = callback else { return }
         
         let finalParam = param ?? DMPMap()
-        
+
         if type == .fail, let errMsg = errMsg {
             finalParam.set("data", ["errMsg": errMsg])
+            // JS fail callbacks read `res.errMsg` directly (same as invokeSuccess, matching
+            // wx.* convention). Skip if the caller already set a top-level errMsg on `param`
+            // (some APIs use a fuller "api:fail ..." message).
+            if finalParam.get("errMsg") == nil {
+                finalParam.set("errMsg", errMsg)
+            }
         }
-        
+
         callback(finalParam, type)
         
         // 所有回调最终都会触发complete

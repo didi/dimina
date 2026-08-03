@@ -105,3 +105,98 @@ describe('invokeAPI promise-like behavior', () => {
 		})
 	})
 })
+
+describe('invokeAPI success/fail/complete callback handling', () => {
+	it('registers a function passed as success and can invoke it back through the callback registry', async () => {
+		const { bridge, callback, invokeAPI } = await loadCommonApi()
+		const success = vi.fn()
+
+		invokeAPI('connectSocket', { url: 'wss://example.com', success })
+
+		const params = bridge.invoke.mock.calls[0][0].body.params
+		expect(params.success).toEqual(expect.any(String))
+
+		const result = { errMsg: 'connectSocket:ok' }
+		callback.invoke(params.success, result)
+		expect(success).toHaveBeenCalledWith(result)
+	})
+
+	it('registers a function passed as fail and can invoke it back through the callback registry', async () => {
+		const { bridge, callback, invokeAPI } = await loadCommonApi()
+		const fail = vi.fn()
+
+		invokeAPI('connectSocket', { url: 'wss://example.com', fail })
+
+		const params = bridge.invoke.mock.calls[0][0].body.params
+		expect(params.fail).toEqual(expect.any(String))
+
+		const error = { errMsg: 'connectSocket:fail' }
+		callback.invoke(params.fail, error)
+		expect(fail).toHaveBeenCalledWith(error)
+	})
+
+	it('registers a function passed as complete and can invoke it back through the callback registry', async () => {
+		const { bridge, callback, invokeAPI } = await loadCommonApi()
+		const complete = vi.fn()
+
+		invokeAPI('connectSocket', { url: 'wss://example.com', complete })
+
+		const params = bridge.invoke.mock.calls[0][0].body.params
+		expect(params.complete).toEqual(expect.any(String))
+
+		const result = { errMsg: 'connectSocket:ok' }
+		callback.invoke(params.complete, result)
+		expect(complete).toHaveBeenCalledWith(result)
+	})
+
+	it('passes a non-function success value through unchanged instead of dropping it', async () => {
+		const { bridge, invokeAPI } = await loadCommonApi()
+
+		invokeAPI('connectSocket', { url: 'wss://example.com', success: 'already-registered-id' })
+
+		const params = bridge.invoke.mock.calls[0][0].body.params
+		expect(params.success).toBe('already-registered-id')
+	})
+
+	it('passes a non-function fail value through unchanged instead of dropping it', async () => {
+		const { bridge, invokeAPI } = await loadCommonApi()
+
+		invokeAPI('connectSocket', { url: 'wss://example.com', fail: 'already-registered-id' })
+
+		const params = bridge.invoke.mock.calls[0][0].body.params
+		expect(params.fail).toBe('already-registered-id')
+	})
+
+	it('passes a non-function complete value through unchanged instead of dropping it', async () => {
+		const { bridge, invokeAPI } = await loadCommonApi()
+
+		invokeAPI('connectSocket', { url: 'wss://example.com', complete: 'already-registered-id' })
+
+		const params = bridge.invoke.mock.calls[0][0].body.params
+		expect(params.complete).toBe('already-registered-id')
+	})
+
+	it('handles a mix of function and id-string callbacks independently without interference', async () => {
+		const { bridge, callback, invokeAPI } = await loadCommonApi()
+		const success = vi.fn()
+		const complete = vi.fn()
+
+		invokeAPI('connectSocket', {
+			url: 'wss://example.com',
+			success,
+			fail: 'preregistered-fail-id',
+			complete,
+		})
+
+		const params = bridge.invoke.mock.calls[0][0].body.params
+		expect(params.success).toEqual(expect.any(String))
+		expect(params.fail).toBe('preregistered-fail-id')
+		expect(params.complete).toEqual(expect.any(String))
+
+		callback.invoke(params.success, { errMsg: 'connectSocket:ok' })
+		expect(success).toHaveBeenCalledWith({ errMsg: 'connectSocket:ok' })
+
+		callback.invoke(params.complete, { errMsg: 'connectSocket:ok' })
+		expect(complete).toHaveBeenCalledWith({ errMsg: 'connectSocket:ok' })
+	})
+})

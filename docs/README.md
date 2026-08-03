@@ -12,6 +12,7 @@ Dimina（星河小程序）由 DMCC 编译器、逻辑层与渲染层运行时�
 | 判断某项能力是否可用 | [能力参考](./API-Reference.md) | 对应平台的 SDK 接入文档 |
 | 排查页面或组件初始化时序 | [生命周期](./Architecture-Lifecycle.md) | `service` / `render` 运行时源码与测试 |
 | 接入内置包或远程更新 | [小程序包更新](./MiniProgram-Update.md) | 对应平台的 Bundle Loader 实现 |
+| 了解某项具体能力的机制与三端实现 | [WebSocket 能力与三端架构](./websocket-architecture.md) | 对应平台的 Manager/校验源码 |
 | 参与前端框架开发 | [前端工程说明](../fe/README.md) | [贡献指南](../CONTRIBUTING.md) |
 
 ## 核心阅读路径
@@ -21,6 +22,7 @@ Dimina（星河小程序）由 DMCC 编译器、逻辑层与渲染层运行时�
 3. [生命周期](./Architecture-Lifecycle.md)：App、页面和组件的关键调用时机与约束。
 4. [能力参考](./API-Reference.md)：模板标签、内置组件、API 和扩展 Bridge 的支持状态。
 5. [小程序包更新](./MiniProgram-Update.md)：内置包、远程 manifest、校验、安装与 `wx.getUpdateManager()`。
+6. [WebSocket 能力与三端架构](./websocket-architecture.md)：微信官方机制、已实现能力现状、三端统一的架构骨架与命名。
 
 ## 平台接入
 

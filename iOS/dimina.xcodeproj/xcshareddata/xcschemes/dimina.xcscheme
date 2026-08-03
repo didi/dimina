@@ -34,6 +34,20 @@
                ReferencedContainer = "container:dimina.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "NO"
+            buildForProfiling = "NO"
+            buildForArchiving = "NO"
+            buildForAnalyzing = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "51BC5D4CFDB64E8A8D7972A7"
+               BuildableName = "DiminaKitTests.xctest"
+               BlueprintName = "DiminaKitTests"
+               ReferencedContainer = "container:dimina.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
       </BuildActionEntries>
    </BuildAction>
    <TestAction
@@ -58,6 +72,16 @@
                BlueprintIdentifier = "1117821FE0BE8D195C045561"
                BuildableName = "diminaTests.xctest"
                BlueprintName = "diminaTests"
+               ReferencedContainer = "container:dimina.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
+         <TestableReference
+            skipped = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "51BC5D4CFDB64E8A8D7972A7"
+               BuildableName = "DiminaKitTests.xctest"
+               BlueprintName = "DiminaKitTests"
                ReferencedContainer = "container:dimina.xcodeproj">
             </BuildableReference>
          </TestableReference>

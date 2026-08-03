@@ -13,6 +13,7 @@ import { DMPContainerBridgesModuleContact } from './DMPContainerBridgesModule+Co
 import { DMPContainerBridgesModuleShare } from './Share/DMPContainerBridgesModule+Share';
 import { DMPContainerBridgesModuleCamera } from './DMPContainerBridgesModule+Camera';
 import { DMPContainerBridgesModuleNetwork } from './Network/DMPContainerBridgesModule+Network';
+import { DMPContainerBridgesModuleWebSocket } from './Network/DMPContainerBridgesModule+WebSocket';
 import { DMPContainerBridgesModuleStorage } from './DMPContainerBridgesModule+Storage';
 import { DMPContainerBridgesModuleMenu } from './DMPContainerBridgesModule+Menu';
 import { DMPContainerBridgesModuleToast } from './DMPContainerBridgesModule+Toast';
@@ -91,6 +92,7 @@ export class DMPAppModuleManager extends DMPModuleManager {
     this.registerModule(new DMPContainerBridgesModuleNetwork(app))
     this.localNetworkModule = new DMPContainerBridgesModuleLocalNetwork(app)
     this.registerModule(this.localNetworkModule)
+    this.registerModule(new DMPContainerBridgesModuleWebSocket(app))
     this.registerModule(new DMPContainerBridgesModuleStorage(app))
     this.registerModule(new DMPContainerBridgesModuleFile(app))
 

@@ -1437,6 +1437,7 @@ class DiminaActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        com.didi.dimina.api.network.WebSocketManager.shared.setBackgrounded(miniProgram.appId, false)
         getActiveBridge()?.let {
             it.appShow()
             it.pageShow()
@@ -1444,6 +1445,7 @@ class DiminaActivity : ComponentActivity() {
     }
 
     override fun onPause() {
+        com.didi.dimina.api.network.WebSocketManager.shared.setBackgrounded(miniProgram.appId, true)
         getActiveBridge()?.let {
             it.appHide()
             it.pageHide()
