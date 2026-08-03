@@ -13,13 +13,7 @@
 		"coverage": "vitest run --coverage"
 	},
 	"dependencies": {
-		"@dimina/common": "workspace:^",
-		"@dimina/components": "workspace:^",
-		"@dimina/render": "workspace:^",
-		"@dimina/service": "workspace:^",
-		"chalk": "^5.6.2",
-		"mitt": "^3.0.1",
-		"vconsole": "^3.15.1"
+		"@dimina/fe-container-sdk": "workspace:^"
 	},
 	"devDependencies": {
 		"http-server": "^14.1.1",

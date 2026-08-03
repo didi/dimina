@@ -14,7 +14,7 @@ export class Device {
 		this.root.innerHTML = tpl
 
 		this.appContainer = this.root.querySelector('.iphone__apps')
-		this.updateDeviceBarColor('black')
+		this.updateStatusBarColor('black')
 		this.updateStatusBarTime()
 		this.outerGlow()
 		this.bindPowerButton()
@@ -129,7 +129,8 @@ export class Device {
 	}
 
 	// black white
-	updateDeviceBarColor(color) {
+	// 实现 container-sdk 的 shell.updateStatusBarColor 接口（见 createContainer 契约）
+	updateStatusBarColor(color) {
 		const statusBar = this.root.querySelector('.iphone__status-bar')
 
 		if (color === 'black') {
@@ -142,9 +143,14 @@ export class Device {
 		}
 	}
 
+	// 实现 container-sdk 的 shell.getStatusBarRect 接口（见 createContainer 契约）
+	getStatusBarRect() {
+		return this.root.querySelector('.iphone__status-bar').getBoundingClientRect()
+	}
+
+	// 只记录当前承载的 Application 实例，供锁屏/亮屏时联动挂起/恢复视图使用；
+	// DOM 挂载由 createContainer({ mount: device.appContainer }) 负责，这里不重复处理。
 	open(app) {
 		this.application = app
-		app.parent = this
-		this.appContainer.appendChild(app.el)
 	}
 }
