@@ -148,12 +148,11 @@ const backColor = computed(() => {
 function decimalPlaces(value) {
 	const num = Number(value)
 	if (Number.isInteger(num)) return 0
-	const str = num.toString()
-	const dotIndex = str.indexOf('.')
-	if (dotIndex >= 0) return str.length - dotIndex - 1
-	// 极小值会走科学计数法，如 1e-7
-	const expIndex = str.indexOf('e-')
-	return expIndex >= 0 ? Number(str.slice(expIndex + 2)) : 0
+	const [mantissa, exponentText] = num.toString().toLowerCase().split('e')
+	const fractionDigits = mantissa.split('.')[1]?.length ?? 0
+	const exponent = exponentText === undefined ? 0 : Number(exponentText)
+	// 1.2e-7 的有效小数位是 1 - (-7) = 8，不能把指数部分计入尾数长度
+	return Math.max(0, fractionDigits - exponent)
 }
 
 function roundToStep(value) {
@@ -195,12 +194,19 @@ const blockSize = computed(() => {
 	return Math.min(Math.max(raw, 12), 28)
 })
 
-// 显示值宽度按「max 整数位 + 最大小数位」计算（对齐微信基础库 _getValueTextWidth），
-// 避免固定 3ch 在长数值（如 0.5 步长的 0.5/12.5/99.5）下折行
+// 显示值宽度按范围内的最大整数位、负号、小数点和最大小数位计算，
+// 避免长数值或负数发生折行、溢出
 const valueTextWidth = computed(() => {
-	const intDigits = String(Math.round(Number(props.max))).length
+	const min = Number(props.min)
+	const max = Number(props.max)
+	const intDigits = Math.max(
+		String(Math.trunc(Math.abs(min))).length,
+		String(Math.trunc(Math.abs(max))).length
+	)
 	const decimals = Math.max(decimalPlaces(props.min), decimalPlaces(props.max), decimalPlaces(props.step))
-	return `${intDigits + decimals}ch`
+	const signWidth = min < 0 ? 1 : 0
+	const decimalPointWidth = decimals > 0 ? 1 : 0
+	return `${signWidth + intDigits + decimalPointWidth + decimals}ch`
 })
 
 let isDragging = false
@@ -274,9 +280,11 @@ function drag(event) {
 
 // 按事件位置计算校正后的值并同步 disValue，返回该值；轨道尺寸未就绪时返回 null
 function applyValue(event) {
-	const clientX = event.touches ? event.touches[0].clientX : event.clientX
+	// touchend 时 touches 已清空，最终触点位于 changedTouches
+	const touch = event.touches?.[0] ?? event.changedTouches?.[0]
+	const clientX = touch?.clientX ?? event.clientX
 	const rect = sliderHandle.value?.getBoundingClientRect()
-	if (!rect?.width) {
+	if (clientX === undefined || !rect?.width) {
 		return null
 	}
 	const delta = clientX - rect.left
@@ -312,15 +320,22 @@ function endDrag(event) {
 	}
 
 	isDragging = false
-	// 拖回起点：值相对起点未变化，change 不触发
-	if (disValue.value === dragStartValue) {
-		dragStartValue = null
+	// 先用释放触点更新最终值，再判断是否拖回起点
+	const disV = applyValue(event)
+	const startValue = dragStartValue
+	dragStartValue = null
+	if (disV === null || disV === startValue) {
 		return
 	}
-	dragStartValue = null
 
 	// 完成一次拖动后触发的事件
-	updateValue(event, 'change')
+	triggerEvent('change', {
+		event: bridgeEvent(event),
+		info,
+		detail: {
+			value: disV,
+		},
+	})
 }
 
 function handleClick(event) {

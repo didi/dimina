@@ -32,6 +32,15 @@ function sentEvents() {
 	return window.__message.send.mock.calls.map(([message]) => message.body)
 }
 
+function createTouchEvent(type, { touches = [], changedTouches = [] } = {}) {
+	const event = new Event(type, { bubbles: true, cancelable: true })
+	Object.defineProperties(event, {
+		touches: { value: touches },
+		changedTouches: { value: changedTouches },
+	})
+	return event
+}
+
 beforeEach(() => {
 	window.__message = {
 		invoke: vi.fn(),
@@ -129,6 +138,58 @@ describe('slider wechat alignment', () => {
 		expect(host.querySelector('.dd-slider-value p').textContent.trim()).toBe('0.3')
 	})
 
+	it('keeps scientific-notation step precision when moving the slider', async () => {
+		const { host } = mountComponent(Slider, {
+			bindchange: 'changeHandler',
+			min: 0,
+			max: 1.2e-6,
+			step: 1.2e-7,
+			value: 0,
+			showValue: true,
+		})
+		mockTrackGeometry(host)
+		await nextTick()
+
+		host.querySelector('.dd-slider-tap-area').dispatchEvent(
+			new MouseEvent('click', { bubbles: true, clientX: 10 })
+		)
+		await nextTick()
+
+		const [event] = sentEvents()
+		expect(event.event.detail.value).toBe(1.2e-7)
+		expect(host.querySelector('.dd-slider-value p').textContent.trim()).toBe('1.2e-7')
+	})
+
+	it('reserves value text width for the decimal point', async () => {
+		const { host } = mountComponent(Slider, {
+			min: 0,
+			max: 1,
+			step: 0.1,
+			value: 0.3,
+			showValue: true,
+		})
+		await nextTick()
+
+		const value = host.querySelector('.dd-slider-value p')
+		expect(value.textContent.trim()).toBe('0.3')
+		expect(value.style.width).toBe('3ch')
+	})
+
+	it('reserves value text width for a negative min wider than max', async () => {
+		const { host } = mountComponent(Slider, {
+			min: -100,
+			max: 1,
+			step: 1,
+			value: -100,
+			showValue: true,
+		})
+		await nextTick()
+
+		const value = host.querySelector('.dd-slider-value p')
+		expect(value.textContent.trim()).toBe('-100')
+		expect(value.style.width).toBe('4ch')
+	})
+
 	it('falls back from backgroundColor to color when backgroundColor is not explicit', async () => {
 		const { host } = mountComponent(Slider, {
 			color: '#ff0000',
@@ -209,6 +270,56 @@ describe('slider wechat alignment', () => {
 		expect(events[0].event.detail.value).toBe(75)
 		expect(events[1].event.detail.value).toBe(75)
 		expect(events[1].event.currentTarget.id).toBe('drag-slider')
+	})
+
+	it('uses changedTouches to calculate the final value before firing change', async () => {
+		const { host } = mountComponent(Slider, {
+			bindchanging: 'changingHandler',
+			bindchange: 'changeHandler',
+			min: 0,
+			max: 100,
+			step: 1,
+		})
+		mockTrackGeometry(host)
+		await nextTick()
+
+		host.querySelector('.dd-slider-handle').dispatchEvent(
+			createTouchEvent('touchstart', { touches: [{ clientX: 0 }] })
+		)
+		window.dispatchEvent(createTouchEvent('touchmove', { touches: [{ clientX: 30 }] }))
+		window.dispatchEvent(createTouchEvent('touchend', {
+			touches: [],
+			changedTouches: [{ clientX: 75 }],
+		}))
+
+		const events = sentEvents()
+		expect(events.map(event => event.methodName)).toEqual(['changingHandler', 'changeHandler'])
+		expect(events.map(event => event.event.detail.value)).toEqual([30, 75])
+	})
+
+	it('does not fire change when the final touch returns to the drag start value', async () => {
+		const { host } = mountComponent(Slider, {
+			bindchanging: 'changingHandler',
+			bindchange: 'changeHandler',
+			min: 0,
+			max: 100,
+			step: 1,
+		})
+		mockTrackGeometry(host)
+		await nextTick()
+
+		host.querySelector('.dd-slider-handle').dispatchEvent(
+			createTouchEvent('touchstart', { touches: [{ clientX: 0 }] })
+		)
+		window.dispatchEvent(createTouchEvent('touchmove', { touches: [{ clientX: 30 }] }))
+		window.dispatchEvent(createTouchEvent('touchend', {
+			touches: [],
+			changedTouches: [{ clientX: 0 }],
+		}))
+
+		const events = sentEvents()
+		expect(events.map(event => event.methodName)).toEqual(['changingHandler'])
+		expect(events[0].event.detail.value).toBe(30)
 	})
 
 	it('does not fire change when a drag ends where it started', async () => {
