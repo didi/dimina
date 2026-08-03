@@ -83,6 +83,28 @@ export async function getMiniAppManifest(manifestUrl) {
 }
 
 /**
+ * manifestUrl 安装的小程序托管在别处：resourceBaseUrl 由 manifest 给出，不是本地编译产物。
+ * sessionStorage 记一份 appId -> manifestUrl，页面刷新后 URL 上只剩 appId 时也能重新取到
+ * 同一个 resourceBaseUrl；manifest 的 name/logo 顺带缓存进 manifestInfoCache，喂给
+ * container-sdk 的 getAppInfo(appId)（唯一的名称/图标来源，不区分安装方式）。
+ */
+export const manifestInfoCache = new Map()
+
+export async function resolveManifestResourceBaseUrl(appId, manifestUrl) {
+	const effectiveManifestUrl = manifestUrl || (appId ? sessionStorage.getItem(`dimina:manifest:${appId}`) : null)
+	if (!effectiveManifestUrl) {
+		return null
+	}
+	const manifest = await getMiniAppManifest(effectiveManifestUrl)
+	if (appId && manifest.appId !== appId) {
+		throw new Error(`manifest appId ${manifest.appId} does not match ${appId}`)
+	}
+	sessionStorage.setItem(`dimina:manifest:${manifest.appId}`, manifest.manifestUrl)
+	manifestInfoCache.set(manifest.appId, { name: manifest.name, logo: manifest.logo })
+	return manifest
+}
+
+/**
  * Generates a consistent color based on the name's hash code
  * @param {string} name - The name to generate a color from
  * @returns {string} - A hex color code

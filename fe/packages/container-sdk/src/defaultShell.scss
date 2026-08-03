@@ -1,0 +1,21 @@
+// createDefaultShell 的极简状态栏样式：无品牌、只提供几何占位与深浅色两态。
+// 高度由 JS 按配置写在行内样式上（默认 44px），这里不写死。
+.dimina-default-shell__status-bar {
+	display: flex;
+	align-items: center;
+	box-sizing: border-box;
+	width: 100%;
+	padding: 0 16px;
+	font-size: 14px;
+	font-weight: 600;
+	color: #000;
+	user-select: none;
+
+	&--black {
+		color: #000;
+	}
+
+	&--white {
+		color: #fff;
+	}
+}

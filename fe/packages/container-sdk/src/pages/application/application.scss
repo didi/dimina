@@ -1,0 +1,75 @@
+.dimina-native-window {
+	position: absolute;
+	left: 0;
+	top: 0;
+	right: 0;
+	bottom: 0;
+}
+
+.dimina-application {
+	position: absolute;
+	left: 0;
+	top: 0;
+	bottom: 0;
+	right: 0;
+	z-index: 1;
+	background-color: #000;
+	// 独立消费方（README quick-start `import '@dimina/fe-container-sdk/style.css'`）
+	// 未装载 container demo 的 app.scss 时，这个自定义属性在作用域内无值——
+	// transition 的 duration 分量非法，浏览器不会跑 transition，
+	// waitTransitionEnd() 永远吃 WAIT_TRANSITION_TIMEOUT_MS 兜底而非真实 transitionend。
+	// 这里给出默认值兜底；宿主仍可在更外层覆盖同名自定义属性调整时长。
+	--dimina-present-transition-ms: 540ms;
+}
+
+.dimina-native-view {
+	position: absolute;
+	left: 0;
+	top: 0;
+	right: 0;
+	bottom: 0;
+	background-color: transparent;
+}
+
+.dimina-native-view--before-presenting {
+	border-radius: 40px;
+	overflow: hidden;
+}
+
+.dimina-native-view--presenting {
+	transform: scale(0.9, 0.9) translateY(10px) rotate(0deg);
+	transform-origin: center center;
+	border-radius: 40px !important;
+	overflow: hidden;
+}
+
+.dimina-native-view--before-enter {
+	transform: translateX(100%);
+	box-shadow:
+		-6px 0 16px 0 rgba(0, 0, 0, .08),
+		-3px 0 6px -4px rgba(0, 0, 0, .12),
+		-9px 0 28px 8px rgba(0, 0, 0, .05);
+}
+
+.dimina-native-view--enter-anima {
+	transition:
+		transform var(--dimina-present-transition-ms) cubic-bezier(0.32, 0.72, 0, 1),
+		border-radius var(--dimina-present-transition-ms) cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.dimina-native-view--instage {
+	transform: translate(0, 0) !important;
+}
+
+.dimina-native-view--slide-out {
+	transform: translateX(-100%);
+}
+
+.dimina-native-view--linear-anima {
+	transition: transform var(--dimina-present-transition-ms) linear;
+}
+
+.dimina-native-view--before-present {
+	transform: translateY(100%);
+	box-shadow: 0 0 0 0 rgba(0, 0, 0, 0), 0px -10px 16px -4px rgba(0, 0, 0, .12), 0 0 0 0 rgba(0, 0, 0, 0);
+}

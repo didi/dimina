@@ -32,12 +32,11 @@ export default defineConfig(({ mode }) => {
 		css: {
 			preprocessorOptions: {
 				scss: {
-					additionalData: `@use "@/styles/funcs" as *;`,
+					// logic() 缩放函数的唯一实现在 container-sdk（demo 与 SDK 的样式都要用它）。
+					// 用绝对文件路径直接 @use，不经 Vite alias，避免 Sass 解析歧义。
+					additionalData: `@use "${resolve(__dirname, '../container-sdk/src/styles/funcs.scss').replace(/\\/g, '/')}" as *;`,
 				},
 			},
-		},
-		optimizeDeps: {
-			include: ['vconsole'],
 		},
 		build: {
 			modulePreload: false,

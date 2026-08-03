@@ -1,0 +1,127 @@
+.dimina-native-webview {
+	position: absolute;
+	left: 0;
+	top: 0;
+	width: 100%;
+	height: 100%;
+	display: flex;
+}
+
+.dimina-native-webview.dimina-native-webview--custom-nav .dimina-native-webview__navigation {
+	display: none;
+}
+
+.dimina-native-webview.dimina-native-webview--custom-nav .dimina-native-webview__body {
+	padding-top: 0;
+}
+
+.dimina-native-webview__navigation {
+	padding-top: logic(88px);
+	height: logic(88px);
+	box-sizing: content-box;
+	display: flex;
+	position: absolute;
+	top: 0;
+	left: 0;
+	right: 0;
+	z-index: 10;
+	background-color: #f7f7f7;
+
+	.dimina-native-webview__navigation-content {
+		width: 100%;
+		display: flex;
+		justify-content: center;
+		align-items: center;
+		position: relative;
+
+		.dimina-native-webview__navigation-left-btn {
+			width: logic(20px);
+			height: logic(88px);
+			position: absolute;
+			left: logic(34px);
+			top: 0;
+			cursor: pointer;
+		}
+
+		// 返回首页按钮：栈底页面独占左槽；homeButton: true 的内页与返回箭头
+		// 并存（--after-back 修饰类，见 WebView.applyPageStyle）。带灰色圆形底
+		// （对齐微信真机 home 图标视觉权重），并存间距 20rpx（=10pt）对齐微信
+		// 原生导航栏 `.navigator-hd a+a{margin-left:10px}`
+		.dimina-native-webview__navigation-home-btn {
+			width: logic(64px);
+			height: logic(64px);
+			position: absolute;
+			left: logic(30px);
+			top: logic(12px);
+			cursor: pointer;
+			display: none;
+			border-radius: 50%;
+			background-repeat: no-repeat;
+			background-position: center;
+			background-size: logic(40px) logic(40px);
+
+			&.dimina-native-webview__navigation-home-btn--after-back {
+				left: logic(74px);
+			}
+		}
+	}
+
+	.dimina-native-webview__navigation-title {
+		text-align: center;
+		font-size: logic(34px);
+	}
+
+	&.dimina-native-webview__navigation--white {
+		.dimina-native-webview__navigation-title {
+			color: #fff;
+		}
+
+		.dimina-native-webview__navigation-left-btn {
+			background: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACUAAABACAYAAACdp77qAAAAGXRFWHRTb2Z0d2FyZQBBZG9iZSBJbWFnZVJlYWR5ccllPAAAA25pVFh0WE1MOmNvbS5hZG9iZS54bXAAAAAAADw/eHBhY2tldCBiZWdpbj0i77u/IiBpZD0iVzVNME1wQ2VoaUh6cmVTek5UY3prYzlkIj8+IDx4OnhtcG1ldGEgeG1sbnM6eD0iYWRvYmU6bnM6bWV0YS8iIHg6eG1wdGs9IkFkb2JlIFhNUCBDb3JlIDYuMC1jMDA2IDc5LmRhYmFjYmIsIDIwMjEvMDQvMTQtMDA6Mzk6NDQgICAgICAgICI+IDxyZGY6UkRGIHhtbG5zOnJkZj0iaHR0cDovL3d3dy53My5vcmcvMTk5OS8wMi8yMi1yZGYtc3ludGF4LW5zIyI+IDxyZGY6RGVzY3JpcHRpb24gcmRmOmFib3V0PSIiIHhtbG5zOnhtcE1NPSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvbW0vIiB4bWxuczpzdFJlZj0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wL3NUeXBlL1Jlc291cmNlUmVmIyIgeG1sbnM6eG1wPSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvIiB4bXBNTTpPcmlnaW5hbERvY3VtZW50SUQ9InhtcC5kaWQ6Zjc0M2Y0ZDgtODlmYy00ZTBhLTk1ZWMtY2RhNDg2MDBjZTIzIiB4bXBNTTpEb2N1bWVudElEPSJ4bXAuZGlkOjE1MUYyOTZBRTNCQTExRUQ5MDI1REY5OTdGMjQ0MDJDIiB4bXBNTTpJbnN0YW5jZUlEPSJ4bXAuaWlkOjE1MUYyOTY5RTNCQTExRUQ5MDI1REY5OTdGMjQ0MDJDIiB4bXA6Q3JlYXRvclRvb2w9IkFkb2JlIFBob3Rvc2hvcCAyMS4xIChNYWNpbnRvc2gpIj4gPHhtcE1NOkRlcml2ZWRGcm9tIHN0UmVmOmluc3RhbmNlSUQ9InhtcC5paWQ6QkRDNDY5QzZFM0IxMTFFRDkwMjVERjk5N0YyNDQwMkMiIHN0UmVmOmRvY3VtZW50SUQ9InhtcC5kaWQ6QkRDNDY5QzdFM0IxMTFFRDkwMjVERjk5N0YyNDQwMkMiLz4gPC9yZGY6RGVzY3JpcHRpb24+IDwvcmRmOlJERj4gPC94OnhtcG1ldGE+IDw/eHBhY2tldCBlbmQ9InIiPz4Up+bwAAAB7klEQVR42sya4Y2EIBCFXXMN2IItuCV4JXgl2MJeCbZgC1wJWoKWsJbgluCBwYu5FWVgZmCS+SWSLygw78FtWZYkUGQyK5mFzJfMH5nj+kRBBchS5nN5j0Y9vwUYqVKm0CN1FF/cUAqou2jTp4xAlQWQijxlBBKWbScOqBoAlKyzkHiW1QssxPqPxwZECfUAArX796MDooBqgEDNUT/RAWFCtUCgx1l/0QFhQEGBapt+fYAEBZAPFBSogvTvAtRRAkGhMgeg0uVLUAHNrkC2UApo4AKygXIBKnzXvuiAVH6caLJB1cuW1aLSbZ9/us0zjsrhHAg0ybxjAR2J0dwgEk3x1O+glkDRAe2hoECDnggJJdQQC5DKdOd82MSoZ9mLUiimsQGZlgSjxj9xStCheoDJNQBG1nudEiG2k6vZF2yfu1o82UsU2yqBtZiDlC4ZRx3uWk8FAwum7XxrdHawoPIcQ/ehGxlYChnNg8KW7eRgXK5dywGFYrhSmWZQMMEB5WXiUxuxqGCYu3sFBOtMqgi7FkIBozofhsSbjqQ8uJ5dwahP1J3AqA8hCwcwlisAhT7QthWy31xXACBgI9dpO8SHyDjvJYzahpyu2oW4VpLrT2nyVO+hLuDkBxJu3mRaiJH6PwG2q0r99s/9CjAAdQAydwI5VxIAAAAASUVORK5CYII=) no-repeat left center;
+			background-size: logic(20px) logic(35px);
+		}
+
+		// Material Icons 的 home 造型，与返回箭头位图同属 Material 图标体系
+		.dimina-native-webview__navigation-home-btn {
+			background-color: rgba(255, 255, 255, 0.24);
+			background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z' fill='%23fff'/%3E%3C/svg%3E");
+		}
+	}
+
+	&.dimina-native-webview__navigation--black {
+		.dimina-native-webview__navigation-title {
+			color: #000;
+		}
+
+		.dimina-native-webview__navigation-left-btn {
+			background: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACUAAABACAYAAACdp77qAAAAGXRFWHRTb2Z0d2FyZQBBZG9iZSBJbWFnZVJlYWR5ccllPAAAA4RpVFh0WE1MOmNvbS5hZG9iZS54bXAAAAAAADw/eHBhY2tldCBiZWdpbj0i77u/IiBpZD0iVzVNME1wQ2VoaUh6cmVTek5UY3prYzlkIj8+IDx4OnhtcG1ldGEgeG1sbnM6eD0iYWRvYmU6bnM6bWV0YS8iIHg6eG1wdGs9IkFkb2JlIFhNUCBDb3JlIDYuMC1jMDA2IDc5LmRhYmFjYmIsIDIwMjEvMDQvMTQtMDA6Mzk6NDQgICAgICAgICI+IDxyZGY6UkRGIHhtbG5zOnJkZj0iaHR0cDovL3d3dy53My5vcmcvMTk5OS8wMi8yMi1yZGYtc3ludGF4LW5zIyI+IDxyZGY6RGVzY3JpcHRpb24gcmRmOmFib3V0PSIiIHhtbG5zOnhtcE1NPSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvbW0vIiB4bWxuczpzdFJlZj0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wL3NUeXBlL1Jlc291cmNlUmVmIyIgeG1sbnM6eG1wPSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvIiB4bXBNTTpPcmlnaW5hbERvY3VtZW50SUQ9InhtcC5kaWQ6Zjc0M2Y0ZDgtODlmYy00ZTBhLTk1ZWMtY2RhNDg2MDBjZTIzIiB4bXBNTTpEb2N1bWVudElEPSJ4bXAuZGlkOkJEQzQ2OUM3RTNCMTExRUQ5MDI1REY5OTdGMjQ0MDJDIiB4bXBNTTpJbnN0YW5jZUlEPSJ4bXAuaWlkOkJEQzQ2OUM2RTNCMTExRUQ5MDI1REY5OTdGMjQ0MDJDIiB4bXA6Q3JlYXRvclRvb2w9IkFkb2JlIFBob3Rvc2hvcCAyMS4xIChNYWNpbnRvc2gpIj4gPHhtcE1NOkRlcml2ZWRGcm9tIHN0UmVmOmluc3RhbmNlSUQ9InhtcC5paWQ6YWM1ZGRhOGQtNTliNS00NDdjLTk5MGEtMTFiZTQ0NGU4YmQ3IiBzdFJlZjpkb2N1bWVudElEPSJhZG9iZTpkb2NpZDpwaG90b3Nob3A6NWNhYmUzYWEtMzFkOC1hMzQ3LTk4OGQtYTNmMjFjNzA0ZmUyIi8+IDwvcmRmOkRlc2NyaXB0aW9uPiA8L3JkZjpSREY+IDwveDp4bXBtZXRhPiA8P3hwYWNrZXQgZW5kPSJyIj8+j5Q1HAAAAqNJREFUeNrM2qGSwjAQANAGFBIkEiQS5EmQJ+knwCfAJ8AngD3XysO19txhcWCRtcjbcBumUwrdTbNtO5PhZpocj23SbpIqr6ZjOBx24WMOZQwlgRKez+ejPqdqAk3hYwdlkDm1Bdha1QQKoHRfVPHbNYAiKJ031brtCkG6/3xT6rYqBAXE6pdWBaAFA6SPUFUA2nFAMPp81TSQWJ8C0IoJ2huQyM0TQRsmaCk2+gC0YYK2WZDTSCFoxQSt804oRyDdfxaMJmsAbV+dVE0DlUZZgJYA2hdVUiVAAeZDTkHWKAuQD6CQWllZgHTqMZUCsVCYvgZM0AxAMfeHt4RAiS2IFCkERZjgU0G+LagQZQmamVmJc1RdoJcoBP3mTIHEQbkdHUADJugCZeIK9BQpBEVMkI7QxWUKpJoGeqAsQEcEJRLptOlTQVNAdxROFMdNAZlINQrEnTgM3qyUOEdRn1H3Gypc7rE4Ch+cIQMWScPM5Vtin2kE7I7CzjuzgE1FO3oKxuljgQRMOUp72Xm4bT4V1QV7ueaZJMlXr9cbwZ8j4v+aQ/0rtDuKoRAWMmGfLmCFq8MI6zMeR6VhpCVr+IKDBewG7X7EUCmYXpT/IDaZ6vrQLhZDISxmwj5sYOwdB0tYX0daDJWC3Rj3sTEHZr03ozuxBWykR7MYKgW76tFGbDKiwErvYun7kWuYyyVrzk6Vh9mIn5fzO9vvg19+ggicPPqy4wD72QHa3kQilYqY2f2kHk+zJOcbRpjzz3AlhjQqMYvtikUqE7GAMS17RExsZ9Q2YqKRSkXMfBk1Ymvx3XYYWVcYYTGOyg5lQlLJbjuu8lEvZTWoFGzi/S+2ve3wdbxWUrRAN2lVjcLlyLxJr9kUONbyVlBmZJpXlWJzV/8TYAAyomT9WQMmQAAAAABJRU5ErkJggg==) no-repeat left center;
+			background-size: logic(20px) logic(35px);
+		}
+
+		.dimina-native-webview__navigation-home-btn {
+			background-color: #d6d6d6;
+			background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z' fill='%23000'/%3E%3C/svg%3E");
+		}
+	}
+}
+
+.dimina-native-webview__body {
+	flex: 1;
+	padding-top: logic(176px);
+	display: flex;
+}
+
+.dimina-native-webview__root {
+	flex: 1;
+	position: relative;
+	overflow: hidden;
+}
+
+.dimina-native-webview__window {
+	position: absolute;
+	left: 0;
+	top: 0;
+	width: 100%;
+	height: 100%;
+	border: 0;
+}

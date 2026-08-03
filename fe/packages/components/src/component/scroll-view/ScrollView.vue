@@ -315,7 +315,26 @@ function getScrollDetail(extra = {}) {
 	}
 }
 
+// A smooth initial/programmatic scroll can still be animating away from the
+// top when refresherStartY was captured at scrollTop<=0, so touchmove/touchend
+// must re-check the container is still at the top before treating this as a
+// refresher gesture rather than trusting the touchstart-time snapshot.
+function cancelRefresherGestureAwayFromTop(event) {
+	if (refresherStartY === undefined || (scrollView.value?.scrollTop ?? 0) <= 0) return
+
+	const dy = refresherDistance
+	refresherStartY = undefined
+	refresherDistance = 0
+
+	// A refresherpulling already went out for this gesture; tell the consumer
+	// it ended instead of leaving it without a matching refresh/abort event.
+	if (dy > 0) {
+		triggerEvent('refresherabort', { event, info, detail: { dy } })
+	}
+}
+
 function handleEnhancedTouchMove(event) {
+	cancelRefresherGestureAwayFromTop(event)
 	if (refresherStartY !== undefined) {
 		refresherDistance = Math.max((event.touches?.[0]?.clientY || refresherStartY) - refresherStartY, 0)
 		if (refresherDistance > 0) {
@@ -332,6 +351,7 @@ function handleEnhancedTouchMove(event) {
 }
 
 function handleTouchEnd(event) {
+	cancelRefresherGestureAwayFromTop(event)
 	if (refresherStartY !== undefined) {
 		if (refresherDistance >= props.refresherThreshold) {
 			refreshing = true
@@ -367,7 +387,7 @@ watch(
 			scrollView.value.scrollTo({
 				top: newScrollTop === undefined ? scrollView.value.scrollTop : Number(newScrollTop) || 0,
 				left: newScrollLeft === undefined ? scrollView.value.scrollLeft : Number(newScrollLeft) || 0,
-				behavior: props.scrollWithAnimation ? 'smooth' : 'auto',
+				behavior: props.scrollWithAnimation ? 'smooth' : 'instant',
 			})
 		}
 	},
@@ -384,7 +404,7 @@ function scrollToChild(id) {
 	scrollView.value.scrollTo({
 		top: props.scrollY ? scrollView.value.scrollTop + targetRect.top - rootRect.top : scrollView.value.scrollTop,
 		left: props.scrollX ? scrollView.value.scrollLeft + targetRect.left - rootRect.left : scrollView.value.scrollLeft,
-		behavior: props.scrollWithAnimation ? 'smooth' : 'auto',
+		behavior: props.scrollWithAnimation ? 'smooth' : 'instant',
 	})
 }
 
@@ -393,8 +413,13 @@ watch(() => props.scrollIntoView, scrollToChild, { flush: 'post' })
 onMounted(() => {
 	// 初始化滚动位置
 	if (scrollView.value) {
-		if (props.scrollTop !== undefined) scrollView.value.scrollTop = Number(props.scrollTop) || 0
-		if (props.scrollLeft !== undefined) scrollView.value.scrollLeft = Number(props.scrollLeft) || 0
+		if (props.scrollTop !== undefined || props.scrollLeft !== undefined) {
+			scrollView.value.scrollTo({
+				top: props.scrollTop === undefined ? scrollView.value.scrollTop : Number(props.scrollTop) || 0,
+				left: props.scrollLeft === undefined ? scrollView.value.scrollLeft : Number(props.scrollLeft) || 0,
+				behavior: props.scrollWithAnimation ? 'smooth' : 'instant',
+			})
+		}
 		if (props.scrollIntoView) scrollToChild(props.scrollIntoView)
 	}
 })
@@ -445,7 +470,6 @@ onMounted(() => {
 	}
 
 	&.hide-scrollbar {
-		scroll-behavior: smooth;
 		position: relative;
 	}
 

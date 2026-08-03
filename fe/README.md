@@ -7,7 +7,8 @@
 - **common**：各分包通用公共工具函数。
 - **compiler**：小程序源码编译工具。
 - **components**：内置小程序标准组件。
-- **container**：原生容器层，为小程序提供 API。
+- **container-sdk**：Web 端小程序容器运行时 SDK（`createContainer`，不含 UI），宿主可嵌入接入，用法见其 [README](./packages/container-sdk/README.md)。
+- **container**：容器 demo，消费 container-sdk，`index.html` 为演示入口（应用列表 + 手机壳）。
 - **jdimina**：webview sdk，为 webview 组件提供调用协议。
 - **render**：渲染层，负责 UI 展示与消息处理。
 - **server**：网络请求代理服务器, 提供给 web 端网络请求代理，用以解决跨域问题。

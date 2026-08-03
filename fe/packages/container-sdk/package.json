@@ -1,0 +1,46 @@
+{
+	"name": "@dimina/fe-container-sdk",
+	"author": "doslin",
+	"description": "Web 端小程序容器运行时 SDK",
+	"type": "module",
+	"types": "./dist/index.d.ts",
+	"files": [
+		"dist"
+	],
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		},
+		"./style.css": "./dist/index.css",
+		"./pageFrame": {
+			"types": "./dist/pages/pageFrame/pageFrame.d.ts",
+			"import": "./dist/pageFrame.js"
+		},
+		"./pageFrame.css": "./dist/pageFrame.css"
+	},
+	"scripts": {
+		"test": "vitest run",
+		"test:dev": "vitest",
+		"coverage": "vitest run --coverage",
+		"typecheck": "tsc --noEmit",
+		"build": "vite build",
+		"postbuild": "tsc -p tsconfig.build.json",
+		"dev": "concurrently --kill-others-on-fail \"vite build --watch\" \"tsc -p tsconfig.build.json --watch\""
+	},
+	"dependencies": {
+		"chalk": "^5.6.2",
+		"mitt": "^3.0.1",
+		"vconsole": "^3.15.1"
+	},
+	"devDependencies": {
+		"@dimina/common": "workspace:^",
+		"@dimina/components": "workspace:^",
+		"@dimina/render": "workspace:^",
+		"@dimina/service": "workspace:^",
+		"@types/node": "^22",
+		"sass": "^1.101.0",
+		"typescript": "^5",
+		"vite": "^8"
+	}
+}
