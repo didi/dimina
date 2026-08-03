@@ -321,6 +321,31 @@ describe('slider wechat alignment', () => {
 		expect(events.map(event => event.event.detail.value)).toEqual([30, 75])
 	})
 
+	it('fires change on touchcancel when the final value differs from the drag start', async () => {
+		const { host } = mountComponent(Slider, {
+			bindchanging: 'changingHandler',
+			bindchange: 'changeHandler',
+			min: 0,
+			max: 100,
+			step: 1,
+		})
+		mockTrackGeometry(host)
+		await nextTick()
+
+		host.querySelector('.dd-slider-handle').dispatchEvent(
+			createTouchEvent('touchstart', { touches: [{ clientX: 0 }] })
+		)
+		window.dispatchEvent(createTouchEvent('touchmove', { touches: [{ clientX: 30 }] }))
+		window.dispatchEvent(createTouchEvent('touchcancel', {
+			touches: [],
+			changedTouches: [{ clientX: 75 }],
+		}))
+
+		const events = sentEvents()
+		expect(events.map(event => event.methodName)).toEqual(['changingHandler', 'changeHandler'])
+		expect(events.map(event => event.event.detail.value)).toEqual([30, 75])
+	})
+
 	it('does not fire change when the final touch returns to the drag start value', async () => {
 		const { host } = mountComponent(Slider, {
 			bindchanging: 'changingHandler',
