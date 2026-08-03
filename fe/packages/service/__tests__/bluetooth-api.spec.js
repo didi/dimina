@@ -24,7 +24,7 @@ function bytes(buffer) {
 describe('bluetooth api service adapter', () => {
 	beforeEach(() => {
 		vi.mocked(invokeAPI).mockReset()
-		callback.remove()
+		callback.clear()
 	})
 
 	it('encodes characteristic ArrayBuffer values before forwarding writes', () => {

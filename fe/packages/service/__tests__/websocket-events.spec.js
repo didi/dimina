@@ -25,7 +25,7 @@ function paramsOfAll(apiName) {
 describe('websocket event callback registry', () => {
 	beforeEach(() => {
 		vi.mocked(invokeAPI).mockReset()
-		callback.remove()
+		callback.clear()
 	})
 
 	it('removes a SocketTask listener by its bridge callback id', () => {
@@ -100,8 +100,10 @@ describe('websocket event callback registry', () => {
 		callback.invoke(internalCloseId, { code: 1006, reason: 'remote' })
 		expect(task.readyState).toBe(3)
 
+		// 这个文件把 invokeAPI 整体打了桩，success / fail 不会被换成回调 id，
+		// 拿到的就是模块交出去的那个函数，直接调用等价于原生回调过来。
 		const closeParams = lastParamsOf('closeSocket')
-		callback.invoke(closeParams.fail, { errMsg: 'closeSocket:fail not connected' })
+		closeParams.fail({ errMsg: 'closeSocket:fail not connected' })
 		expect(task.readyState).toBe(3)
 	})
 
@@ -125,42 +127,11 @@ describe('websocket event callback registry', () => {
 
 		// 超并发上限、URL 不合法这类拒绝只回 connectSocket 的 fail，之后既没有
 		// error 也没有 close 事件，内部监听只能在这条路径上摘掉。
-		callback.invoke(lastParamsOf('connectSocket').fail, { errMsg: 'connectSocket:fail reach max websocket connect count 5' })
+		lastParamsOf('connectSocket').fail({ errMsg: 'connectSocket:fail reach max websocket connect count 5' })
 		expect(task.readyState).toBe(3)
 
 		callback.invoke(internalOpenId, {})
 		expect(task.readyState).toBe(3)
-	})
-
-	it('drops the unused settler when connectSocket succeeds', () => {
-		const task = connectSocket({ url: 'wss://example.com' })
-		const connectParams = lastParamsOf('connectSocket')
-		const internalOpenId = lastParamsOf('onSocketOpen').callback
-
-		// 一次调用只会走 success 或 fail 其中一条，没走的那条必须一起摘掉，
-		// 否则每成功连接一次就在回调表里永久留下一个捕获了 SocketTask 的闭包。
-		callback.invoke(connectParams.success, { errMsg: 'connectSocket:ok' })
-		callback.invoke(internalOpenId, {})
-		expect(task.readyState).toBe(1)
-
-		// fail 已经失效，投过来也不该再把状态推到 CLOSED
-		callback.invoke(connectParams.fail, { errMsg: 'connectSocket:fail' })
-		expect(task.readyState).toBe(1)
-	})
-
-	it('drops the unused settler when close succeeds', () => {
-		const task = connectSocket({ url: 'wss://example.com' })
-		callback.invoke(lastParamsOf('onSocketOpen').callback, {})
-		expect(task.readyState).toBe(1)
-
-		task.close({})
-		const closeParams = lastParamsOf('closeSocket')
-		callback.invoke(closeParams.success, { errMsg: 'closeSocket:ok' })
-		expect(task.readyState).toBe(2)
-
-		// 关闭已经受理，这条 fail 必须已经失效，不能再把状态回滚成 OPEN
-		callback.invoke(closeParams.fail, { errMsg: 'closeSocket:fail' })
-		expect(task.readyState).toBe(2)
 	})
 
 	it('supports removing global socket listeners', () => {

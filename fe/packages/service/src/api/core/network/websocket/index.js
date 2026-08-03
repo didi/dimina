@@ -90,47 +90,6 @@ function createSocketEvent(onName, offName, baseParams = {}, internalListener) {
 }
 
 /**
- * 把 success / fail 一起登记成回调 id 写进 params，任一条触发时把两条都摘掉。
- *
- * connectSocket 和 close 都需要一个「调用方没传 fail 也要执行」的 fail 包装来维护
- * readyState。但一次调用只会走 success 或 fail 其中一条，回调表只在回调真正触发时
- * 才回收条目，另一条就会永久留下——每成功连接一次、成功关闭一次各漏一个，而且闭包
- * 还捕获着整个 SocketTask。这里成对登记、交叉清理，两边都不会残留。
- *
- * @param {Object} params 会被直接写入 success / fail 两个回调 id
- * @param {Object} opts
- * @param {Function} [opts.success] 调用方传入的 success
- * @param {Function} [opts.fail] 调用方传入的 fail
- * @param {Function} opts.onFail 内部逻辑，先于调用方的 fail 执行
- */
-function storePairedSettlers(params, { success, fail, onFail }) {
-	let successId
-	let failId
-	const settle = () => {
-		callback.remove(successId)
-		callback.remove(failId)
-	}
-
-	successId = callback.store((res) => {
-		settle()
-		if (isFunction(success)) {
-			success(res)
-		}
-	})
-	failId = callback.store((error) => {
-		settle()
-		onFail(error)
-		if (isFunction(fail)) {
-			fail(error)
-		}
-	})
-
-	// invokeAPI 对非函数的 success / fail 是原样透传的，所以这里传 id 字符串。
-	params.success = successId
-	params.fail = failId
-}
-
-/**
  * https://developers.weixin.qq.com/miniprogram/dev/api/network/websocket/SocketTask.html
  * SocketTask 类，用于管理 WebSocket 连接
  */
@@ -228,26 +187,38 @@ class SocketTask {
 			this._readyState = SocketTask.CLOSING
 		}
 
+		// 只在状态还停在这次 close 置上的 CLOSING 时才回退。远端的 close/error
+		// 事件可能已经先到并把状态推到 CLOSED，这时候回退等于把终态倒回去。
+		const rollbackCloseState = () => {
+			if (this._readyState === SocketTask.CLOSING) {
+				this._readyState = stateBeforeClose
+			}
+		}
+
+		params.success = success
 		// 关闭参数没通过校验时连接其实还开着，把刚才乐观置上的 CLOSING 退回去。
-		// 这个 fail 包装总是注册，调用方没传 fail 也要能回退——但一次调用只会走
-		// success 或 fail 其中一条，另一条永远不触发也就永远不会被回调表回收，
-		// 所以两个 id 自己登记、任一条触发时一起摘掉。
-		storePairedSettlers(params, {
-			success,
-			fail,
-			onFail: () => {
-				// 只在状态还停在这次 close 置上的 CLOSING 时才回退。远端的 close/error
-				// 事件可能已经先到并把状态推到 CLOSED，这时候回退等于把终态倒回去。
-				if (this._readyState === SocketTask.CLOSING) {
-					this._readyState = stateBeforeClose
-				}
-			},
-		})
+		// 这个 fail 包装总是传，调用方没传 fail 也要能回退。没走的那条 settler 由
+		// invokeAPI 成对回收，这里不用自己管。
+		params.fail = (error) => {
+			rollbackCloseState()
+			if (isFunction(fail)) {
+				fail(error)
+			}
+		}
 		if (isFunction(complete)) {
 			params.complete = complete
 		}
 
-		return invokeAPI('closeSocket', params)
+		try {
+			return invokeAPI('closeSocket', params)
+		}
+		catch (error) {
+			// 桥根本没送出去，上面那个 fail 包装不会被调用。不在这里退回去的话任务就
+			// 永久停在 CLOSING，而且下一次 close 记下的「关闭前状态」已经是 CLOSING，
+			// 之后再失败也只能退回 CLOSING，再也回不到 OPEN。
+			rollbackCloseState()
+			throw error
+		}
 	}
 
 	/**
@@ -403,11 +374,13 @@ export function connectSocket(opts = {}) {
 	// success 只代表原生受理了这次连接请求，此时还没握手完成，状态留给 open 事件去改。
 	// 连接被拒时不会再有 close 或 error 事件（比如超过并发上限、URL 校验不过），
 	// 状态只能在 fail 里落到 CLOSED，维护状态的内部监听也只能在那里摘掉。
-	storePairedSettlers(params, {
-		success,
-		fail,
-		onFail: () => socketTask._enterClosed(),
-	})
+	params.success = success
+	params.fail = (error) => {
+		socketTask._enterClosed()
+		if (isFunction(fail)) {
+			fail(error)
+		}
+	}
 	if (isFunction(complete)) {
 		params.complete = complete
 	}
