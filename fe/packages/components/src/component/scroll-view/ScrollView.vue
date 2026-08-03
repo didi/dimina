@@ -393,8 +393,13 @@ watch(() => props.scrollIntoView, scrollToChild, { flush: 'post' })
 onMounted(() => {
 	// 初始化滚动位置
 	if (scrollView.value) {
-		if (props.scrollTop !== undefined) scrollView.value.scrollTop = Number(props.scrollTop) || 0
-		if (props.scrollLeft !== undefined) scrollView.value.scrollLeft = Number(props.scrollLeft) || 0
+		if (props.scrollTop !== undefined || props.scrollLeft !== undefined) {
+			scrollView.value.scrollTo({
+				top: props.scrollTop === undefined ? scrollView.value.scrollTop : Number(props.scrollTop) || 0,
+				left: props.scrollLeft === undefined ? scrollView.value.scrollLeft : Number(props.scrollLeft) || 0,
+				behavior: props.scrollWithAnimation ? 'smooth' : 'instant',
+			})
+		}
 		if (props.scrollIntoView) scrollToChild(props.scrollIntoView)
 	}
 })
