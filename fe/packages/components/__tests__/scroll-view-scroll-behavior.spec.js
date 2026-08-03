@@ -152,4 +152,38 @@ describe('ScrollView programmatic scroll behavior', () => {
 		expect(scrollToSpy).toHaveBeenCalledTimes(1)
 		expect(scrollToSpy).toHaveBeenCalledWith({ top: 88, left: 40, behavior: 'instant' })
 	})
+
+	it('cancels a pull-to-refresh gesture once the container has moved away from the top mid-touch', () => {
+		// A smooth initial/programmatic scroll can still be animating away from
+		// the top when touchstart samples scrollTop<=0. touchstart happens while
+		// the container still reads scrollTop 0 (the sentinel default); the
+		// animation is simulated to progress by the time touchmove fires.
+		window.__message = { send: vi.fn() }
+
+		const { element } = mountScrollView(() => ({
+			scrollY: true,
+			refresherEnabled: true,
+			bindrefresherpulling: 'onPulling',
+			bindrefresherrefresh: 'onRefresh',
+		}))
+
+		const touchStart = new Event('touchstart')
+		Object.defineProperty(touchStart, 'touches', { value: [{ clientY: 100 }] })
+		element.dispatchEvent(touchStart)
+
+		element.scrollTop = 50
+
+		const touchMove = new Event('touchmove')
+		Object.defineProperty(touchMove, 'touches', { value: [{ clientY: 300 }] })
+		element.dispatchEvent(touchMove)
+
+		const touchEnd = new Event('touchend')
+		Object.defineProperty(touchEnd, 'touches', { value: [] })
+		Object.defineProperty(touchEnd, 'changedTouches', { value: [] })
+		element.dispatchEvent(touchEnd)
+
+		const methodNames = window.__message.send.mock.calls.map(([message]) => message.body.methodName)
+		expect(methodNames).not.toContain('onPulling')
+		expect(methodNames).not.toContain('onRefresh')
+	})
 })
