@@ -82,10 +82,17 @@ public class DMPService {
         return await self.evaluateScript(script)
     }
     
+    /// 容器 -> service 的消息投递。必须严格按调用顺序送到 JS，一次 API 调用的
+    /// success 和 complete 就是紧挨着发出的两条消息，顺序颠倒会让 JS 侧先收到
+    /// complete。
+    ///
+    /// 这里原来是 `Task { await fromContainerMessage(data:) }`：每条消息各起一个
+    /// 不受管的 Task，被丢到并发线程池上由不同线程跑，谁先执行到往 JS 线程排队
+    /// 那一步完全看线程调度，两条消息因此可能反过来。改成直接排进引擎的串行队列，
+    /// 投递顺序就等于调用顺序。
     func fromContainer(data: DMPMap) {
-        Task {
-            await self.fromContainerMessage(data: data)
-        }
+        DMPLogger.debug("DMPService: fromContainer data: \(data.toJsonString())")
+        engine.enqueueScript("DiminaServiceBridge.onMessage(\(data.toJsonString()))")
     }
     
     public func destroy() {

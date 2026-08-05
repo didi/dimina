@@ -31,6 +31,11 @@ public class DMPApp {
         self.appIndex = appIndex
     }
 
+    /// 小程序包的 `versionCode`，未知时是 `0`。用于容器注入的 `Referer`。
+    func jsAppVersion() -> String {
+        return String(appConfig?.versionCode ?? 0)
+    }
+
     @MainActor
     public func launch(launchConfig: DMPLaunchConfig) async {
         guard !isLaunching else {
@@ -295,6 +300,11 @@ public class DMPApp {
 
         // Storage is a global singleton. Tear it down before another app initializes it.
         DMPStorage.teardownModule(appId: appId)
+
+        // DMPWebSocketManager is a cross-app singleton too; ARC won't clear
+        // this app's sockets/listeners/timers for us, so tear them down
+        // explicitly (synchronous + silent, see DMPWebSocketManager.disposeOwner).
+        DMPWebSocketManager.shared.disposeOwner(appId: appId)
 
         DispatchQueue.global(qos: .utility).async {
             serviceToDestroy?.destroy()

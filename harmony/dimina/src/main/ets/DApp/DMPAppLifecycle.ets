@@ -5,6 +5,7 @@ import { DMPChannelProxyNext } from '../Service/DMPChannelProxyNext';
 import { DMPLogger } from '../EventTrack/DMPLogger';
 import { Tags } from '../EventTrack/Tags';
 import { DMPMap } from '../Utils/DMPMap';
+import { DMPWebSocketManager } from '../Bridges/Network/DMPWebSocketManager';
 
 export class DMPAppLifecycle {
   constructor() {
@@ -66,6 +67,7 @@ export class DMPAppLifecycle {
   static onWindowStageEvent(stageEventType: window.WindowStageEventType) {
     switch (stageEventType) {
       case window.WindowStageEventType.SHOWN: // 切到前台
+        DMPWebSocketManager.sharedInstance().setAllBackgrounded(false)
         DMPAppLifecycle.onAppShow()
         DMPAppLifecycle.onShow()
         DMPLogger.i(Tags.APP_LIFECYCLE, 'windowStage foreground.');
@@ -77,6 +79,7 @@ export class DMPAppLifecycle {
         DMPLogger.i(Tags.APP_LIFECYCLE, 'windowStage inactive.');
         break;
       case window.WindowStageEventType.HIDDEN: // 切到后台
+        DMPWebSocketManager.sharedInstance().setAllBackgrounded(true)
         DMPAppLifecycle.onAppHide()
         DMPAppLifecycle.onHide()
         DMPLogger.i(Tags.APP_LIFECYCLE, 'windowStage background.');

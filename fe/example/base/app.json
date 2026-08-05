@@ -1,6 +1,7 @@
 {
 	"pages": [
 		"pages/index",
+		"pages/socket-test/index",
 		"pages/scroll-view/index",
 		"pages/input/index",
 		"pages/image/index",

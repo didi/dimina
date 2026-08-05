@@ -2106,6 +2106,9 @@ export class MiniApp {
 		this.jscore.destroy()
 
 		if (extUnsubscribeError) {
+			// 原样抛回扩展抛出的值。包成 Error 会把非 Error 的对象压成
+			// "[object Object]"，调用方就没法再按自己的类型判断了。
+			// eslint-disable-next-line no-throw-literal
 			throw extUnsubscribeError
 		}
 	}

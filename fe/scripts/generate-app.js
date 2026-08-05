@@ -10,11 +10,14 @@ const sharedJsappPath = path.resolve(__dirname, '../../shared/jsapp')
 
 // Helper function to create zip file
 async function createZip(sourceDir, outputPath) {
-	const { default: archiver } = await import('archiver')
+	// archiver 的当前版本导出的是 ZipArchive 类，没有可直接调用的默认导出。取 default 得到的是
+	// undefined，调用它抛 TypeError；这个错误发生在 createWriteStream 之后，于是每个包都留下一个
+	// 0 字节的 zip。generate-sdk.js 用的也是这个类。
+	const { ZipArchive } = await import('archiver')
 
 	return new Promise((resolve, reject) => {
 		const output = fs.createWriteStream(outputPath)
-		const archive = archiver('zip', {
+		const archive = new ZipArchive({
 			zlib: { level: 9 }, // Maximum compression
 		})
 

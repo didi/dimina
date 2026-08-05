@@ -1,4 +1,4 @@
-import { callback, isFunction } from '@dimina/common'
+import { callback, isFunction, isNil } from '@dimina/common'
 import hostEnv from '../../core/host-env'
 import message from '../../core/message'
 import router from '../../core/router'
@@ -160,6 +160,60 @@ export function invokePromiseAPI(name, params, target) {
 	})
 }
 
+/**
+ * 一次接口调用只会走 success 或 fail 其中一条，回调表只在回调真正触发时才回收条目，
+ * 没走的那条就永久留在表里，连带闭包捕获的对象一起留住。这里把两条成对登记，任一条
+ * 触发时把两条都摘掉。
+ *
+ * 调用方只给了其中一条时，另一条也登记一个只做清理的空回调——不然原生正好走的是没
+ * 登记的那一边，就没有任何东西能触发清理，漏的还是同一条。
+ */
+function storeSettlerPair(params, success, fail) {
+	let successId
+	let failId
+	const settle = () => {
+		callback.remove(successId)
+		callback.remove(failId)
+	}
+
+	successId = callback.store((res) => {
+		settle()
+		if (isFunction(success)) {
+			success(res)
+		}
+	})
+	failId = callback.store((res) => {
+		settle()
+		if (isFunction(fail)) {
+			fail(res)
+		}
+	})
+
+	params.success = successId
+	params.fail = failId
+}
+
+// 空字符串不是有效的回调 id，跟没传一个意思。
+function isAbsentSettler(value) {
+	return isNil(value) || value === ''
+}
+
+/**
+ * success / fail 能不能成对登记。
+ * keep 是事件订阅，会反复触发，摘掉就收不到后续事件了；evtId 是扩展订阅，三个回调
+ * 共用同一个 id，成对登记会把它们打乱；调用方直接传回调 id 字符串时也不能替换成
+ * 新登记的 id。
+ */
+function canPairSettlers({ success, fail, keep, evtId }) {
+	if (keep || evtId !== undefined) {
+		return false
+	}
+	if (!isFunction(success) && !isFunction(fail)) {
+		return false
+	}
+	return (isFunction(success) || isAbsentSettler(success)) && (isFunction(fail) || isAbsentSettler(fail))
+}
+
 export function invokeAPI(name, data, target = 'container') {
 	const resolveFromHostEnv = hostEnvResolvers[name]
 	if (target === 'container' && resolveFromHostEnv) {
@@ -170,6 +224,12 @@ export function invokeAPI(name, data, target = 'container') {
 	}
 
 	let params
+	// 这次调用新建的一次性回调 id。桥没送出去的话它们一条都不会再被触发，留在
+	// 回调表里就是永久残留，所以下发失败时要按这份清单摘掉。
+	// 两类登记刻意不进这份清单，因为摘掉的可能不是本次调用独占的条目：
+	// 常驻登记按函数身份去重，拿回来的可能是上一次成功登记的那个 id；调用方指定
+	// 了 evtId 的，那个 id 可能早就被别人占着，本次只是覆盖了它。
+	const disposableIds = []
 	if (data === undefined) {
 		if (canReturnPromise(name, data)) {
 			return invokePromiseAPI(name, {}, target)
@@ -193,19 +253,42 @@ export function invokeAPI(name, data, target = 'container') {
 			params.evtId = evtId
 		}
 
-		if (isFunction(success)) {
-			params.success = callback.store(success, keep, evtId)
+		if (canPairSettlers({ success, fail, keep, evtId })) {
+			storeSettlerPair(params, success, fail)
+			disposableIds.push(params.success, params.fail)
 		}
 		else {
-			params.success = success
-		}
+			const disposable = !keep && evtId === undefined
 
-		if (isFunction(fail)) {
-			params.fail = callback.store(fail, keep, evtId)
+			if (isFunction(success)) {
+				params.success = callback.store(success, keep, evtId)
+				if (disposable) {
+					disposableIds.push(params.success)
+				}
+			}
+			else {
+				params.success = success
+			}
+
+			if (isFunction(fail)) {
+				params.fail = callback.store(fail, keep, evtId)
+				if (disposable) {
+					disposableIds.push(params.fail)
+				}
+			}
+			else {
+				params.fail = fail
+			}
 		}
 
 		if (isFunction(complete)) {
 			params.complete = callback.store(complete, keep, evtId)
+			if (!keep && evtId === undefined) {
+				disposableIds.push(params.complete)
+			}
+		}
+		else {
+			params.complete = complete
 		}
 	}
 	else {
@@ -218,5 +301,13 @@ export function invokeAPI(name, data, target = 'container') {
 		params = rest
 	}
 
-	return invokeMessage(name, params, target)
+	try {
+		return invokeMessage(name, params, target)
+	}
+	catch (error) {
+		for (const id of disposableIds) {
+			callback.remove(id)
+		}
+		throw error
+	}
 }

@@ -8,6 +8,7 @@
 #include <sys/mman.h> // 包含 mmap, munmap 等函数
 #include <unistd.h>   // 包含 close 函数
 #include <map>
+#include <memory>
 
 // 使用 map 存储多个 JSEngine 实例
 std::map<int, JSEngine *> engineMap;
@@ -34,6 +35,24 @@ napi_threadsafe_function getTsfn(int appIndex) {
     return nullptr;
 }
 
+
+// 原生这边出错时要返回 JS_EXCEPTION，但 JS_EXCEPTION 只是个哨兵值，本身不带异常对象。
+// 底层已经挂了异常（比如 JSON 序列化失败）就原样保留，没挂的话（比如内存分配失败只返回
+// 空指针）必须自己补一个，否则 JS 侧 catch 到的是未初始化的内部值。
+JSValue throwNativeError(JSContext *ctx, const char *what) {
+    if (!JS_HasException(ctx)) {
+        JS_ThrowInternalError(ctx, "%s", what);
+    }
+    return JS_EXCEPTION;
+}
+
+// 调用方不看返回值的场合用这个：把已经挂上的异常取走丢掉。留着不取，它会一直挂在
+// runtime 上，之后某个不相干的调用失败时会被当成自己的异常报出来，错得很难查。
+void discardPendingException(JSContext *ctx) {
+    if (JS_HasException(ctx)) {
+        JS_FreeValue(ctx, JS_GetException(ctx));
+    }
+}
 
 void initBridges(JSContext *ctx);
 void registerInvoke(JSContext *ctx);
@@ -173,46 +192,65 @@ static JSValue invoke(JSContext *ctx, JSValueConst this_val, int argc, JSValueCo
         return JS_UNDEFINED;
     }
 
-    // Use the proper QuickJS API instead of internal types
-    JSValue v = JS_DupValue(ctx, argv[0]);
-    //    OHLog("invoke printJsValue");
-    //    printJsValue(ctx, v);
-
-    const char *str = JSValueToString(ctx, v);
-    auto *asyncContext = new OnMessageData();
-    asyncContext->str = str;
-    asyncContext->appIndex = currentEngine->getAppIndex(); // 设置 appIndex
-    free((void *)str);
-    asyncContext->type = 1;
-    const bool blocking = true;
-
-    napi_threadsafe_function tsfn = getTsfn(currentEngine->getAppIndex());
-    if (!tsfn) {
-        OHError("Threadsafe function not found for appIndex: %{public}d", currentEngine->getAppIndex());
-        return JS_EXCEPTION;
-    }
-
-    napi_acquire_threadsafe_function(tsfn);
-    napi_threadsafe_function_call_mode call_mode = blocking ? napi_tsfn_blocking : napi_tsfn_nonblocking;
-
-    napi_status status = napi_call_threadsafe_function(tsfn, asyncContext, call_mode);
-    if (status != napi_ok) {
-        OHError("napi_call_threadsafe_function error");
-        return JS_EXCEPTION;
-    }
-
-    std::future<JSValue> future = asyncContext->promise.get_future();
+    // 整段放进 try：内存不足时 new / std::string 赋值都会抛，而这里是 QuickJS 的 C 回调
+    // 边界，C++ 异常越过去会直接终止进程。要转成 JS 侧能接住的异常。
     try {
+        // JSValueToString 只读传入值、不接管它，所以这里不需要先加一次引用——加了也没人还，
+        // 那个对象就再也释放不掉。argv 的引用由调用方持有，整个调用期间都有效。
+        // 它返回的是 strdup 出来的缓冲区，交给作用域对象保证任何出口都会还。
+        OwnedCStr str(JSValueToString(ctx, argv[0]));
+        if (!str) {
+            // 转不出字符串就没有可投递的内容。这里不挡住的话，下面拿 NULL 去构造
+            // std::string 是未定义行为。
+            OHError("invoke JSValueToString failed");
+            return throwNativeError(ctx, "invoke: failed to serialize message");
+        }
+        // packet 在成功投递之前都归这边所有，用 unique_ptr 持有，任何提前返回或抛异常
+        // 都不会漏；投递成功后再 release，把所有权交给 onMessageCb。
+        std::unique_ptr<OnMessageData> asyncContext(new OnMessageData());
+        asyncContext->str = str.get();
+        asyncContext->appIndex = currentEngine->getAppIndex(); // 设置 appIndex
+        asyncContext->type = 1;
+        const bool blocking = true;
+
+        napi_threadsafe_function tsfn = getTsfn(currentEngine->getAppIndex());
+        if (!tsfn) {
+            OHError("Threadsafe function not found for appIndex: %{public}d", currentEngine->getAppIndex());
+            return throwNativeError(ctx, "invoke: bridge is not available");
+        }
+
+        // future 必须在投递之前取。投递之后 ArkTS 线程随时可能跑完 onMessageCb，
+        // 那里 set_value 完就 delete asyncContext，promise 析构会把共享状态的引用
+        // 计数减到 0 并释放掉；等这条线程再回来取 future，拿到的就是已释放的内存，
+        // 后面 future.get() 收尾时解引用它必然崩。
+        std::future<JSValue> future = asyncContext->promise.get_future();
+
+        if (napi_acquire_threadsafe_function(tsfn) != napi_ok) {
+            // acquire 都没成功就不要再往下调用了，句柄可能已经在关闭。
+            OHError("napi_acquire_threadsafe_function error");
+            return throwNativeError(ctx, "invoke: bridge is shutting down");
+        }
+        napi_threadsafe_function_call_mode call_mode = blocking ? napi_tsfn_blocking : napi_tsfn_nonblocking;
+
+        napi_status status = napi_call_threadsafe_function(tsfn, asyncContext.get(), call_mode);
+        if (status != napi_ok) {
+            // 只有返回 napi_ok 才代表 packet 已入队、所有权移交给 onMessageCb；
+            // 其余返回码（队列满、正在关闭）都没入队，unique_ptr 会把它收掉。
+            OHError("napi_call_threadsafe_function error");
+            return throwNativeError(ctx, "invoke: failed to post message to the container");
+        }
+        asyncContext.release();
+
         JSValue value = future.get();
         if (JS_IsException(value)) {
             OHError("invoke error");
-            return JS_EXCEPTION;
+            return throwNativeError(ctx, "invoke: container handler failed");
         }
         OHLog("invoke end");
         return value;
     } catch (const std::exception &e) {
         OHError("[dimina][service] invoke error: %{public}s", e.what());
-        return JS_EXCEPTION;
+        return throwNativeError(ctx, e.what());
     }
 }
 
@@ -230,32 +268,52 @@ JSValue sendLogToContainer(JSContext *ctx, JSValueConst this_val, int argc, JSVa
         OHLog("sendLogToContainer engine_closing or not found");
         return JS_UNDEFINED;
     }
+    // 这个函数不对 JS 暴露，只由 log.cpp 的 console 实现内部调用，而那边不看返回值。
+    // 所以它必须是「尽力而为」：转发不出去就算了，但绝不能把异常挂在 runtime 上不管，
+    // 否则下一个不相干的调用会把这条日志的失败当成自己的错误报出来。
     if (argc < 2) {
-        OHLog("sendLogToContainer expects at least one argument");
-        return JS_ThrowTypeError(ctx, "publish expects at least one argument");
+        OHLog("sendLogToContainer expects at least two arguments");
+        return JS_UNDEFINED;
     }
     int32_t level;
     if (JS_ToInt32(ctx, &level, argv[0])) {
-        return JS_EXCEPTION;
+        discardPendingException(ctx);
+        return JS_UNDEFINED;
     }
-    const char *logMessage = JSValueToString(ctx, JS_DupValue(ctx, argv[1]));
-    auto *asyncContext = new OnMessageData();
-    asyncContext->str = logMessage;
-    asyncContext->appIndex = currentEngine->getAppIndex(); // 设置 appIndex
-    free((void *)logMessage);
-    asyncContext->type = 3;
-    asyncContext->webViewId = level;
-    napi_threadsafe_function tsfn = getTsfn(currentEngine->getAppIndex());
-    if (!tsfn) {
-        OHError("Threadsafe function not found for appIndex: %{public}d", currentEngine->getAppIndex());
-        return JS_EXCEPTION;
-    }
-    napi_acquire_threadsafe_function(tsfn);
-    napi_threadsafe_function_call_mode call_mode = napi_tsfn_nonblocking;
-    napi_status status = napi_call_threadsafe_function(tsfn, asyncContext, call_mode);
-    if (status != napi_ok) {
-        OHError("napi_call_threadsafe_function error");
-        return JS_EXCEPTION;
+    // 打日志是尽力而为的，内存不足之类的 C++ 异常也不该让它冒到调用方去。
+    try {
+        // 同 invoke：JSValueToString 不接管所有权，多加的那次引用没人还。
+        OwnedCStr logMessage(JSValueToString(ctx, argv[1]));
+        if (!logMessage) {
+            OHError("sendLogToContainer JSValueToString failed");
+            discardPendingException(ctx);
+            return JS_UNDEFINED;
+        }
+        std::unique_ptr<OnMessageData> asyncContext(new OnMessageData());
+        asyncContext->str = logMessage.get();
+        asyncContext->appIndex = currentEngine->getAppIndex(); // 设置 appIndex
+        asyncContext->type = 3;
+        asyncContext->webViewId = level;
+        napi_threadsafe_function tsfn = getTsfn(currentEngine->getAppIndex());
+        if (!tsfn) {
+            OHError("Threadsafe function not found for appIndex: %{public}d", currentEngine->getAppIndex());
+            return JS_UNDEFINED;
+        }
+        if (napi_acquire_threadsafe_function(tsfn) != napi_ok) {
+            OHError("napi_acquire_threadsafe_function error");
+            return JS_UNDEFINED;
+        }
+        napi_threadsafe_function_call_mode call_mode = napi_tsfn_nonblocking;
+        napi_status status = napi_call_threadsafe_function(tsfn, asyncContext.get(), call_mode);
+        if (status != napi_ok) {
+            // 同 invoke：非 napi_ok 表示没入队，所有权还在这边，unique_ptr 会收掉。
+            OHError("napi_call_threadsafe_function error");
+            return JS_UNDEFINED;
+        }
+        asyncContext.release();
+    } catch (const std::exception &e) {
+        OHError("sendLogToContainer error: %{public}s", e.what());
+        discardPendingException(ctx);
     }
     return JS_UNDEFINED;
 }
@@ -286,34 +344,45 @@ static JSValue publish(JSContext *ctx, JSValueConst this_val, int argc, JSValueC
         return JS_EXCEPTION;
     }
 
-    // Use the proper QuickJS API instead of internal types
-    JSValue v = JS_DupValue(ctx, argv[1]);
-    //    OHLog("publish printJsValue");
-    //    printJsValue(ctx, v);
+    // 同 invoke：整段放进 try，别让 C++ 异常越过 QuickJS 的 C 回调边界。
+    try {
+        // JSValueToString 不接管所有权，多加的那次引用没人还；返回的缓冲区交给作用域对象。
+        OwnedCStr str(JSValueToString(ctx, argv[1]));
+        if (!str) {
+            OHError("publish JSValueToString failed");
+            return throwNativeError(ctx, "publish: failed to serialize message");
+        }
 
-    const char *str = JSValueToString(ctx, v);
+        std::unique_ptr<OnMessageData> asyncContext(new OnMessageData());
+        asyncContext->str = str.get();
+        asyncContext->appIndex = currentEngine->getAppIndex(); // 设置 appIndex
+        asyncContext->type = 2;
+        asyncContext->webViewId = webViewId;
+        const bool blocking = false;
 
-    auto *asyncContext = new OnMessageData();
-    asyncContext->str = str;
-    asyncContext->appIndex = currentEngine->getAppIndex(); // 设置 appIndex
-    free((void *)str);
-    asyncContext->type = 2;
-    asyncContext->webViewId = webViewId;
-    const bool blocking = false;
+        napi_threadsafe_function tsfn = getTsfn(currentEngine->getAppIndex());
+        if (!tsfn) {
+            OHError("Threadsafe function not found for appIndex: %{public}d", currentEngine->getAppIndex());
+            return throwNativeError(ctx, "publish: bridge is not available");
+        }
 
-    napi_threadsafe_function tsfn = getTsfn(currentEngine->getAppIndex());
-    if (!tsfn) {
-        OHError("Threadsafe function not found for appIndex: %{public}d", currentEngine->getAppIndex());
-        return JS_EXCEPTION;
-    }
+        if (napi_acquire_threadsafe_function(tsfn) != napi_ok) {
+            // acquire 都没成功就不要再往下调用了，句柄可能已经在关闭。
+            OHError("napi_acquire_threadsafe_function error");
+            return throwNativeError(ctx, "publish: bridge is shutting down");
+        }
+        napi_threadsafe_function_call_mode call_mode = blocking ? napi_tsfn_blocking : napi_tsfn_nonblocking;
 
-    napi_acquire_threadsafe_function(tsfn);
-    napi_threadsafe_function_call_mode call_mode = blocking ? napi_tsfn_blocking : napi_tsfn_nonblocking;
-
-    napi_status status = napi_call_threadsafe_function(tsfn, asyncContext, call_mode);
-    if (status != napi_ok) {
-        OHError("napi_call_threadsafe_function error");
-        return JS_EXCEPTION;
+        napi_status status = napi_call_threadsafe_function(tsfn, asyncContext.get(), call_mode);
+        if (status != napi_ok) {
+            // 同 invoke：非 napi_ok 表示没入队，所有权还在这边，unique_ptr 会收掉。
+            OHError("napi_call_threadsafe_function error");
+            return throwNativeError(ctx, "publish: failed to post message to the container");
+        }
+        asyncContext.release();
+    } catch (const std::exception &e) {
+        OHError("[dimina][service] publish error: %{public}s", e.what());
+        return throwNativeError(ctx, e.what());
     }
 
     return JS_UNDEFINED;

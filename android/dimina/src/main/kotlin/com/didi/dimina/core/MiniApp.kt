@@ -247,6 +247,7 @@ class MiniApp private constructor() {
         // network
         com.didi.dimina.api.network.NetworkApi().registerWith(apiRegistry)
         localNetworkApi.registerWith(apiRegistry)
+        com.didi.dimina.api.network.WebSocketApi().registerWith(apiRegistry)
 
         // storage
         StorageApi().registerWith(apiRegistry)
@@ -402,6 +403,10 @@ class MiniApp private constructor() {
      */
     fun clear(appId: String) {
         updateCheckRegistry.reset(appId)
+        // Silently tear down this owner's WebSocket connections/timers/listeners first,
+        // ahead of JsCore.destroy(), so no transport event can race into a dying JsCore.
+        com.didi.dimina.api.network.WebSocketManager.shared.disposeOwner(appId)
+
         // 清理第三方扩展的持续订阅
         apiRegistry.clearExtSubscriptions()
         bluetoothApi.clearApp(appId)
@@ -425,6 +430,9 @@ class MiniApp private constructor() {
      */
     fun clearAll() {
         updateCheckRegistry.resetAll()
+        // Silently tear down every owner's WebSocket state before destroying JsCore instances.
+        com.didi.dimina.api.network.WebSocketManager.shared.disposeAll()
+
         // Destroy all JsCore instances
         jsCoreMap.forEach { (appId, jsCore) ->
             LogUtils.d(tag, "Destroying JsCore for appId: $appId")

@@ -31,6 +31,7 @@ import { DRouter } from '../Navigator/DRouter'
 import { DMPAppLifecycle } from './DMPAppLifecycle'
 import { DMPDeviceUtil } from '../Utils/DMPDeviceUtils'
 import { DMPRemoteUpdateManager } from '../Bundle/DMPRemoteUpdateManager'
+import { DMPWebSocketManager } from '../Bridges/Network/DMPWebSocketManager'
 export type DMPBundleUpdateCallback = () => void;
 
 export interface DMPAppInitOptions {
@@ -350,6 +351,8 @@ export class DMPApp {
   destroyEngine() {
     // 销毁前取消所有 extOnBridge 订阅，防止内存泄漏
     this._appModuleManager.dispose();
+    // 先于 service 销毁：静默清理该 appId 全部 WebSocket 连接/监听/定时器，杜绝事件竞入将死引擎
+    DMPWebSocketManager.sharedInstance().disposeOwner(this.appConfig.appId);
     this._service.destroy()
     this.engineStatus.setStatus(EngineStatus.STOP)
   }
