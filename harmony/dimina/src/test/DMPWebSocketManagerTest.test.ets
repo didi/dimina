@@ -10,6 +10,7 @@ import {
   flushMicrotasks,
   makeTestSetup,
   newBinarySendParams,
+  newConnectParams,
   newEmptyParams,
   newLegacyCodeParams,
   newLegacyEventParams,
@@ -85,6 +86,29 @@ export default function dmpWebSocketManagerTest() {
       expect(firstSuccessErrMsg(retry)).assertEqual('connectSocket:ok');
     });
 
+    // ---------------- 容器注入的请求头 ----------------
+
+    it('dial_carries_container_referer_and_no_origin', 0, async () => {
+      const cap = captureCallback();
+      setup.manager.connectSocket('app-ref', 1, '37', newConnectParams('s0'), cap.fn);
+      await flushMicrotasks();
+
+      const t = setup.createdTransports[0];
+      expect(t.dialedHeader('Referer')).assertEqual('https://servicedimina.com/app-ref/37/page-frame.html');
+      // 微信文档对 header 只规定「不能设置 Referer」，没说容器会补 Origin，所以不补。
+      // HarmonyOS 上 SDK 自己还会补一个，那是平台行为，不在 Manager 下发的 header 里。
+      expect(t.dialedHeader('Origin')).assertEqual('');
+    });
+
+    it('dial_referer_falls_back_to_zero_when_app_version_unknown', 0, async () => {
+      const cap = captureCallback();
+      setup.manager.connectSocket('app-ref', 1, '', newConnectParams('s0'), cap.fn);
+      await flushMicrotasks();
+
+      expect(setup.createdTransports[0].dialedHeader('Referer'))
+        .assertEqual('https://servicedimina.com/app-ref/0/page-frame.html');
+    });
+
     // ---------------- 生命周期 ----------------
 
     it('lifecycle_open_carries_header_and_profile', 0, async () => {
@@ -154,6 +178,24 @@ export default function dmpWebSocketManagerTest() {
       t.fireClose(1002, 'late');
 
       expect(findEventByCallbackId(setup.events, 'cb-err') !== undefined).assertTrue();
+      expect(findEventByCallbackId(setup.events, 'cb-close') === undefined).assertTrue();
+    });
+
+    it('lifecycle_close_before_open_reports_generic_error_and_never_leaks_wire_reason', 0, async () => {
+      // 握手还没完成就收到 close 时，reason 完全由服务端决定，不能变成 API 层的错误串，
+      // 三端在这条路径上都只报通用文案。
+      connectAndCapture(setup.manager, 'app-preopen-close', 1, 's0');
+      await flushMicrotasks();
+      const t = setup.createdTransports[0];
+      setup.manager.onSocketEvent('error', 'app-preopen-close', newTaskEventParams('s0', 'cb-err'), captureCallback().fn);
+      setup.manager.onSocketEvent('close', 'app-preopen-close', newTaskEventParams('s0', 'cb-close'), captureCallback().fn);
+
+      t.fireClose(1002, 'policy denied');
+
+      const errEvt = findEventByCallbackId(setup.events, 'cb-err');
+      expect(errEvt !== undefined).assertTrue();
+      expect(payloadErrMsg(errEvt!.payload)).assertEqual('connectSocket:fail WebSocket connection failed');
+      expect(countEventsByCallbackId(setup.events, 'cb-err')).assertEqual(1);
       expect(findEventByCallbackId(setup.events, 'cb-close') === undefined).assertTrue();
     });
 
@@ -381,8 +423,11 @@ export default function dmpWebSocketManagerTest() {
 
     // ---------------- 遗留全局 API ----------------
 
-    it('legacy_slot_overwrite_no_stacking', 0, async () => {
-      const appId = 'app-legacy-slot';
+    // 新契约：全局遗留监听是「有序去重集合」（与任务态 DMPWebSocketListenerSet 同构），
+    // 不再是单槽位覆盖式（旧行为见已删除的 legacy_slot_overwrite_no_stacking）。
+
+    it('legacy_ordered_set_multiple_ids_receive_event_in_registration_order', 0, async () => {
+      const appId = 'app-legacy-multi-open';
       setup.manager.onSocketEvent('open', appId, newLegacyEventParams('id1'), captureCallback().fn);
       setup.manager.onSocketEvent('open', appId, newLegacyEventParams('id2'), captureCallback().fn);
       connectAndCapture(setup.manager, appId, 1, 's0');
@@ -390,8 +435,103 @@ export default function dmpWebSocketManagerTest() {
       const t = setup.createdTransports[0];
       t.fireOpen();
 
-      expect(countEventsByCallbackId(setup.events, 'id1')).assertEqual(0);
+      expect(countEventsByCallbackId(setup.events, 'id1')).assertEqual(1);
       expect(countEventsByCallbackId(setup.events, 'id2')).assertEqual(1);
+      const openEvents = setup.events.filter((e) => e.callbackId === 'id1' || e.callbackId === 'id2');
+      expect(openEvents.length).assertEqual(2);
+      expect(openEvents[0].callbackId).assertEqual('id1');
+      expect(openEvents[1].callbackId).assertEqual('id2');
+    });
+
+    it('legacy_duplicate_registration_of_same_id_receives_event_once', 0, async () => {
+      const appId = 'app-legacy-dedup';
+      const dupCb = captureCallback();
+      setup.manager.onSocketEvent('open', appId, newLegacyEventParams('dup-id'), dupCb.fn);
+      setup.manager.onSocketEvent('open', appId, newLegacyEventParams('dup-id'), dupCb.fn);
+      connectAndCapture(setup.manager, appId, 1, 's0');
+      await flushMicrotasks();
+      setup.createdTransports[0].fireOpen();
+
+      expect(countEventsByCallbackId(setup.events, 'dup-id')).assertEqual(1);
+    });
+
+    it('legacy_off_with_callback_id_removes_only_that_id', 0, async () => {
+      const appId = 'app-legacy-off-one';
+      setup.manager.onSocketEvent('open', appId, newLegacyEventParams('id-keep'), captureCallback().fn);
+      setup.manager.onSocketEvent('open', appId, newLegacyEventParams('id-remove'), captureCallback().fn);
+      setup.manager.offSocketEvent('open', appId, newLegacyEventParams('id-remove'), captureCallback().fn);
+
+      connectAndCapture(setup.manager, appId, 1, 's0');
+      await flushMicrotasks();
+      setup.createdTransports[0].fireOpen();
+
+      expect(countEventsByCallbackId(setup.events, 'id-keep')).assertEqual(1);
+      expect(countEventsByCallbackId(setup.events, 'id-remove')).assertEqual(0);
+    });
+
+    it('legacy_off_without_callback_id_clears_all_ids_for_that_event', 0, async () => {
+      const appId = 'app-legacy-off-all';
+      setup.manager.onSocketEvent('close', appId, newLegacyEventParams('c1'), captureCallback().fn);
+      setup.manager.onSocketEvent('close', appId, newLegacyEventParams('c2'), captureCallback().fn);
+      connectAndCapture(setup.manager, appId, 1, 's0');
+      await flushMicrotasks();
+      const t = setup.createdTransports[0];
+      t.fireOpen();
+
+      // sanity：清空之前，c1/c2 都已经是真正注册上的（不是被单槽位覆盖掉的）
+      t.fireClose(1000, 'first');
+      expect(countEventsByCallbackId(setup.events, 'c1')).assertEqual(1);
+      expect(countEventsByCallbackId(setup.events, 'c2')).assertEqual(1);
+
+      setup.manager.offSocketEvent('close', appId, newEmptyParams(), captureCallback().fn);
+
+      // s0 已终态（fireClose 后从 map 移除），legacy 绑定漂移到新连接 s1，
+      // 借此再触发一次 close 验证 c1/c2 都已被摘除、不会再收到事件。
+      connectAndCapture(setup.manager, appId, 1, 's1');
+      await flushMicrotasks();
+      const t2 = setup.createdTransports[1];
+      t2.fireOpen();
+      t2.fireClose(1000, 'second');
+
+      expect(countEventsByCallbackId(setup.events, 'c1')).assertEqual(1);
+      expect(countEventsByCallbackId(setup.events, 'c2')).assertEqual(1);
+    });
+
+    it('legacy_off_for_one_event_leaves_other_events_and_other_ids_intact', 0, async () => {
+      const appId = 'app-legacy-off-cross-event';
+      setup.manager.onSocketEvent('open', appId, newLegacyEventParams('other-id'), captureCallback().fn);
+      setup.manager.onSocketEvent('open', appId, newLegacyEventParams('shared-id'), captureCallback().fn);
+      setup.manager.onSocketEvent('close', appId, newLegacyEventParams('shared-id'), captureCallback().fn);
+
+      setup.manager.offSocketEvent('open', appId, newLegacyEventParams('shared-id'), captureCallback().fn);
+
+      connectAndCapture(setup.manager, appId, 1, 's0');
+      await flushMicrotasks();
+      const t = setup.createdTransports[0];
+      t.fireOpen();
+      expect(countEventsByCallbackId(setup.events, 'other-id')).assertEqual(1); // 未被摘除的 id 不受影响
+      expect(countEventsByCallbackId(setup.events, 'shared-id')).assertEqual(0); // open 上已摘除
+
+      t.fireClose(1000, '');
+      expect(countEventsByCallbackId(setup.events, 'shared-id')).assertEqual(1); // close 上的注册不受 open 上的摘除影响
+    });
+
+    it('legacy_owner_dispose_clears_all_registered_ids', 0, async () => {
+      const appId = 'app-legacy-dispose-listeners';
+      setup.manager.onSocketEvent('open', appId, newLegacyEventParams('id-before-dispose'), captureCallback().fn);
+      connectAndCapture(setup.manager, appId, 1, 's0');
+      await flushMicrotasks();
+      setup.createdTransports[0].fireOpen();
+      expect(countEventsByCallbackId(setup.events, 'id-before-dispose')).assertEqual(1);
+
+      setup.manager.disposeOwner(appId);
+
+      connectAndCapture(setup.manager, appId, 1, 's0');
+      await flushMicrotasks();
+      setup.createdTransports[1].fireOpen();
+
+      // owner 已重置：旧 id 的注册不会残留到新 owner
+      expect(countEventsByCallbackId(setup.events, 'id-before-dispose')).assertEqual(1);
     });
 
     it('legacy_binds_to_first_live_connection_and_does_not_drift', 0, async () => {
@@ -552,6 +692,57 @@ export default function dmpWebSocketManagerTest() {
       expect(closeEvt !== undefined).assertTrue();
       expect(payloadCloseCode(closeEvt!.payload)).assertEqual(1006);
       expect(payloadCloseReason(closeEvt!.payload)).assertEqual('idle timeout');
+    });
+
+    // ---------------- 迟到的 send 结果 ----------------
+
+    it('send_completion_after_dispose_owner_is_dropped_and_arms_no_timer', 0, async () => {
+      // 连接被拆掉之后传输层还会异步回一次结果。owner 已经销毁时它对应的 JS 上下文也没了，
+      // 这时候再回调等于打进一个不存在的上下文，重排空闲定时器还会把已移除的 entry 留到超时。
+      const appId = 'app-late-send-dispose';
+      setup.manager.setIdleTimeoutMs(1000);
+      connectAndCapture(setup.manager, appId, 1, 's0');
+      await flushMicrotasks();
+      const t = setup.createdTransports[0];
+      setup.manager.onSocketEvent('close', appId, newTaskEventParams('s0', 'cb-close'), captureCallback().fn);
+      t.fireOpen();
+
+      t.deferSendCompletions = true;
+      const sendCap = captureCallback();
+      setup.manager.sendSocketMessage(appId, newSendParams('s0', 'ping'), sendCap.fn);
+      expect(sendCap.calls.length).assertEqual(0);
+
+      setup.manager.disposeOwner(appId);
+      setup.events.length = 0;
+      t.flushSendCompletions();
+
+      expect(sendCap.calls.length).assertEqual(0);
+      setup.scheduler.advance(100000);
+      expect(setup.events.length).assertEqual(0);
+    });
+
+    it('send_completion_after_close_still_settles_but_arms_no_idle_timer', 0, async () => {
+      // 普通关闭跟销毁不一样：JS 上下文还在，调用方的回调必须结算，只是不能把空闲定时器复活。
+      const appId = 'app-late-send-close';
+      setup.manager.setIdleTimeoutMs(1000);
+      connectAndCapture(setup.manager, appId, 1, 's0');
+      await flushMicrotasks();
+      const t = setup.createdTransports[0];
+      setup.manager.onSocketEvent('close', appId, newTaskEventParams('s0', 'cb-close'), captureCallback().fn);
+      t.fireOpen();
+
+      t.deferSendCompletions = true;
+      const sendCap = captureCallback();
+      setup.manager.sendSocketMessage(appId, newSendParams('s0', 'ping'), sendCap.fn);
+
+      setup.manager.closeSocket(appId, newSocketIdParams('s0'), captureCallback().fn);
+      t.fireClose(1000, ''); // 传输层确认关闭，entry 从 owner 上摘掉
+      t.flushSendCompletions();
+
+      expect(firstSuccessErrMsg(sendCap.calls)).assertEqual('sendSocketMessage:ok');
+
+      setup.scheduler.advance(100000);
+      expect(countEventsByCallbackId(setup.events, 'cb-close')).assertEqual(1);
     });
   });
 }

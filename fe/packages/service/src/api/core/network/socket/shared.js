@@ -10,15 +10,22 @@ function isArrayBuffer(value) {
 	return Object.prototype.toString.call(value) === '[object ArrayBuffer]'
 }
 
-function toArrayBuffer(value) {
+export function toArrayBuffer(value) {
 	if (isArrayBuffer(value)) return value
-	if (value && isArrayBuffer(value.buffer)) {
-		return value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength)
+	// ArrayBuffer.isView 覆盖所有 TypedArray 和 DataView，包括底层是 SharedArrayBuffer
+	// 的那些——按 value.buffer 的 brand 判定会把它们漏掉，视图就被当普通对象过桥了。
+	// 统一把视图覆盖的那段字节复制到新的 ArrayBuffer：SharedArrayBuffer 本身不该跨桥，
+	// 复制之后交出去的一定是普通 ArrayBuffer。
+	if (ArrayBuffer.isView(value)) {
+		const bytes = new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
+		const copy = new Uint8Array(bytes.length)
+		copy.set(bytes)
+		return copy.buffer
 	}
 	return null
 }
 
-function arrayBufferToBase64(buffer) {
+export function arrayBufferToBase64(buffer) {
 	const bytes = new Uint8Array(buffer)
 	let result = ''
 	let index = 0
@@ -41,7 +48,7 @@ function arrayBufferToBase64(buffer) {
 	return result
 }
 
-function base64ToArrayBuffer(base64) {
+export function base64ToArrayBuffer(base64) {
 	const clean = String(base64 || '').replace(/[\r\n\s]/g, '')
 	if (!clean) return new ArrayBuffer(0)
 

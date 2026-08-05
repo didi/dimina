@@ -2,6 +2,7 @@ package com.didi.dimina.api.network
 
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -49,6 +50,9 @@ class WebSocketManagerTest {
             runDue()
         }
 
+        /** Tasks still scheduled and not cancelled - used to assert a timer was really cancelled. */
+        fun pendingCount(): Int = pending.count { !it.cancelled }
+
         /** Runs whatever is already due (e.g. delay=0 "queued dial" tasks) without moving time. */
         fun runDue() {
             while (true) {
@@ -92,8 +96,14 @@ class WebSocketManagerTest {
 
     private class FakeSocketTransport : SocketTransport {
         val connections = mutableListOf<FakeConnection>()
+        val specs = mutableListOf<TransportConnectSpec>()
+
+        /** Set to make the next dial blow up synchronously, the way OkHttp does on a bad header. */
+        var connectThrows: Exception? = null
 
         override fun connect(spec: TransportConnectSpec, callbacks: TransportCallbacks): TransportHandle {
+            connectThrows?.let { connectThrows = null; throw it }
+            specs.add(spec)
             val conn = FakeConnection(callbacks)
             connections.add(conn)
             return conn.handle
@@ -155,14 +165,82 @@ class WebSocketManagerTest {
     private fun errMsgOf(messages: List<String>, callbackId: String): String =
         argsFor(messages, callbackId).single().getString("errMsg")
 
+    // ---- container-injected header ----
+
+    @Test
+    fun dialCarriesContainerRefererAndNoOrigin() {
+        manager.connectSocket("app1", "37", connectParams("s1"), responses::add)
+        scheduler.runDue()
+
+        val spec = transport.specs.single()
+        assertEquals("https://servicedimina.com/app1/37/page-frame.html", spec.headers["Referer"])
+        // 微信文档对 header 只规定「不能设置 Referer」，没说容器会补 Origin，所以不补。
+        assertNull(spec.headers.keys.firstOrNull { it.equals("origin", ignoreCase = true) })
+    }
+
+    @Test
+    fun callerSuppliedRefererIsReplacedByTheContainerOne() {
+        val params = connectParams("s1").put("header", JSONObject().put("Referer", "https://evil.example/"))
+        manager.connectSocket("app1", "37", params, responses::add)
+        scheduler.runDue()
+
+        assertEquals(
+            "https://servicedimina.com/app1/37/page-frame.html",
+            transport.specs.single().headers["Referer"],
+        )
+    }
+
+    @Test
+    fun unknownAppVersionFallsBackToZero() {
+        manager.connectSocket("app1", "", connectParams("s1"), responses::add)
+        scheduler.runDue()
+
+        assertEquals(
+            "https://servicedimina.com/app1/0/page-frame.html",
+            transport.specs.single().headers["Referer"],
+        )
+    }
+
+    // ---- connect timeout wiring ----
+
+    @Test
+    fun dialWithoutTimeoutParamUsesDefaultConnectTimeoutMs() {
+        manager.connectSocket("app1", "0", connectParams("s1"), responses::add)
+        scheduler.runDue()
+
+        assertEquals(60000, transport.specs.single().connectTimeoutMs)
+    }
+
+    @Test
+    fun dialWithExplicitTimeoutParamUsesThatValue() {
+        val params = connectParams("s1").put("timeout", 120000)
+        manager.connectSocket("app1", "0", params, responses::add)
+        scheduler.runDue()
+
+        assertEquals(120000, transport.specs.single().connectTimeoutMs)
+    }
+
+    @Test
+    fun dialWithNumericStringTimeoutParamCoercesToNumber() {
+        // WebSocketValidation.validateTimeout coerces decimal-literal strings the way the fe-side
+        // Number() coercion does - "3000" here mirrors the wider "any Number()-coercible string"
+        // contract without relying on hex-literal parsing, which Kotlin's String.toDoubleOrNull
+        // (unlike JS Number()) does not support.
+        val params = connectParams("s1").put("timeout", "3000")
+        manager.connectSocket("app1", "0", params, responses::add)
+        scheduler.runDue()
+
+        assertEquals(3000, transport.specs.single().connectTimeoutMs)
+    }
+
     // ---- concurrency ----
 
     @Test
     fun sixthConnectOnSameOwnerFailsWithExactMessage() {
         manager.updateEmitter("app1") { events.add(it) }
-        repeat(5) { i -> manager.connectSocket("app1", connectParams("s$i"), responses::add) }
+        repeat(5) { i -> manager.connectSocket("app1", "0", connectParams("s$i"), responses::add) }
 
-        manager.connectSocket("app1", connectParams("s5", success = "s5-ok", fail = "s5-fail"), responses::add)
+        manager.connectSocket("app1", "0", connectParams("s5", success = "s5-ok", fail = "s5-fail"), responses::add)
 
         assertEquals("connectSocket:fail reach max websocket connect count 5", errMsgOf(responses, "s5-fail"))
     }
@@ -171,9 +249,9 @@ class WebSocketManagerTest {
     fun differentOwnersDoNotShareConcurrencyLimit() {
         manager.updateEmitter("appA") { }
         manager.updateEmitter("appB") { }
-        repeat(5) { i -> manager.connectSocket("appA", connectParams("a$i"), responses::add) }
+        repeat(5) { i -> manager.connectSocket("appA", "0", connectParams("a$i"), responses::add) }
 
-        manager.connectSocket("appB", connectParams("b0", success = "b0-ok", fail = "b0-fail"), responses::add)
+        manager.connectSocket("appB", "0", connectParams("b0", success = "b0-ok", fail = "b0-fail"), responses::add)
 
         assertEquals("connectSocket:ok", errMsgOf(responses, "b0-ok"))
     }
@@ -181,14 +259,14 @@ class WebSocketManagerTest {
     @Test
     fun closingAConnectionFreesASlotForANewConnect() {
         manager.updateEmitter("app1") { }
-        repeat(5) { i -> manager.connectSocket("app1", connectParams("s$i"), responses::add) }
+        repeat(5) { i -> manager.connectSocket("app1", "0", connectParams("s$i"), responses::add) }
 
         manager.closeSocket(
             "app1", true,
             JSONObject().apply { put("socketId", "s0"); put("success", "close-ok") },
             responses::add,
         )
-        manager.connectSocket("app1", connectParams("s5", success = "s5-ok", fail = "s5-fail"), responses::add)
+        manager.connectSocket("app1", "0", connectParams("s5", success = "s5-ok", fail = "s5-fail"), responses::add)
 
         assertEquals("connectSocket:ok", errMsgOf(responses, "s5-ok"))
     }
@@ -196,9 +274,48 @@ class WebSocketManagerTest {
     // ---- lifecycle ----
 
     @Test
+    fun synchronousDialFailureSurfacesErrorAtOnceAndReleasesTheSlot() {
+        manager.updateEmitter("app1") { events.add(it) }
+        manager.connectSocket("app1", "0", connectParams("s1"), responses::add)
+        onEvent("error", "app1", true, listenParams("s1", "err-cb"))
+        onEvent("close", "app1", true, listenParams("s1", "close-cb"))
+        transport.connectThrows = IllegalArgumentException("Unexpected char 0x3a at 3 in header name")
+
+        scheduler.runDue()
+
+        // `success` went out as soon as validation passed, so a dial that blows up synchronously has
+        // to be reported right away - otherwise the caller waits out the whole connect timeout.
+        assertEquals("connectSocket:ok", errMsgOf(responses, "success_s1"))
+        assertEquals(1, argsFor(events, "err-cb").size)
+        assertEquals(0, argsFor(events, "close-cb").size)
+        // The connect timer must be cancelled, not left to fire on a connection that is already gone.
+        assertEquals(0, scheduler.pendingCount())
+
+        // And the slot is back: five more connections still fit under the per-owner limit.
+        repeat(5) { i -> manager.connectSocket("app1", "0", connectParams("n$i"), responses::add) }
+        assertEquals("connectSocket:ok", errMsgOf(responses, "success_n4"))
+    }
+
+    @Test
+    fun closeBeforeOpenReportsGenericErrorAndNeverLeaksTheWireReason() {
+        manager.updateEmitter("app1") { events.add(it) }
+        manager.connectSocket("app1", "0", connectParams("s1"), responses::add)
+        onEvent("error", "app1", true, listenParams("s1", "err-cb"))
+        onEvent("close", "app1", true, listenParams("s1", "close-cb"))
+        scheduler.runDue()
+
+        // The server picks this reason. It must not become part of the API-level error string -
+        // iOS and HarmonyOS both report the generic text on this path.
+        transport.connections.single().callbacks.onClosed(1002, "policy denied")
+
+        assertEquals("connectSocket:fail WebSocket connection failed", errMsgOf(events, "err-cb"))
+        assertEquals(0, argsFor(events, "close-cb").size)
+    }
+
+    @Test
     fun openEventCarriesHeaderAndAllProfileKeys() {
         manager.updateEmitter("app1") { events.add(it) }
-        manager.connectSocket("app1", connectParams("s1"), responses::add)
+        manager.connectSocket("app1", "0", connectParams("s1"), responses::add)
         onEvent("open", "app1", true, listenParams("s1", "open-cb"))
         scheduler.runDue()
 
@@ -216,7 +333,7 @@ class WebSocketManagerTest {
     @Test
     fun textMessageEventIsPlainDataNoIsBufferFlag() {
         manager.updateEmitter("app1") { events.add(it) }
-        manager.connectSocket("app1", connectParams("s1"), responses::add)
+        manager.connectSocket("app1", "0", connectParams("s1"), responses::add)
         onEvent("message", "app1", true, listenParams("s1", "msg-cb"))
         scheduler.runDue()
         val conn = transport.connections.single()
@@ -232,7 +349,7 @@ class WebSocketManagerTest {
     @Test
     fun binaryMessageEventIsBase64WithIsBufferTrue() {
         manager.updateEmitter("app1") { events.add(it) }
-        manager.connectSocket("app1", connectParams("s1"), responses::add)
+        manager.connectSocket("app1", "0", connectParams("s1"), responses::add)
         onEvent("message", "app1", true, listenParams("s1", "msg-cb"))
         scheduler.runDue()
         val conn = transport.connections.single()
@@ -249,7 +366,7 @@ class WebSocketManagerTest {
     @Test
     fun serverInitiatedCloseReportsWireValuesAndNeverAnError() {
         manager.updateEmitter("app1") { events.add(it) }
-        manager.connectSocket("app1", connectParams("s1"), responses::add)
+        manager.connectSocket("app1", "0", connectParams("s1"), responses::add)
         onEvent("close", "app1", true, listenParams("s1", "close-cb"))
         onEvent("error", "app1", true, listenParams("s1", "error-cb"))
         scheduler.runDue()
@@ -267,7 +384,7 @@ class WebSocketManagerTest {
     @Test
     fun failedHandshakeEmitsOnlyErrorNeverClose() {
         manager.updateEmitter("app1") { events.add(it) }
-        manager.connectSocket("app1", connectParams("s1"), responses::add)
+        manager.connectSocket("app1", "0", connectParams("s1"), responses::add)
         onEvent("close", "app1", true, listenParams("s1", "close-cb"))
         onEvent("error", "app1", true, listenParams("s1", "error-cb"))
         scheduler.runDue()
@@ -284,7 +401,7 @@ class WebSocketManagerTest {
         // close only (never error), with the caller's originally-requested code/reason - not the
         // synthesized 1006 fallback used for a genuinely unsolicited failure.
         manager.updateEmitter("app1") { events.add(it) }
-        manager.connectSocket("app1", connectParams("s1"), responses::add)
+        manager.connectSocket("app1", "0", connectParams("s1"), responses::add)
         onEvent("close", "app1", true, listenParams("s1", "close-cb"))
         onEvent("error", "app1", true, listenParams("s1", "error-cb"))
         scheduler.runDue()
@@ -309,7 +426,7 @@ class WebSocketManagerTest {
     @Test
     fun backgroundGraceExpiryOnOpenConnectionClosesWithCode1006Interrupted() {
         manager.updateEmitter("app1") { events.add(it) }
-        manager.connectSocket("app1", connectParams("s1"), responses::add)
+        manager.connectSocket("app1", "0", connectParams("s1"), responses::add)
         onEvent("close", "app1", true, listenParams("s1", "close-cb"))
         onEvent("error", "app1", true, listenParams("s1", "error-cb"))
         scheduler.runDue()
@@ -327,7 +444,7 @@ class WebSocketManagerTest {
     @Test
     fun backgroundGraceExpiryOnHandshakingConnectionEmitsOnlyError() {
         manager.updateEmitter("app1") { events.add(it) }
-        manager.connectSocket("app1", connectParams("s1"), responses::add)
+        manager.connectSocket("app1", "0", connectParams("s1"), responses::add)
         onEvent("close", "app1", true, listenParams("s1", "close-cb"))
         onEvent("error", "app1", true, listenParams("s1", "error-cb"))
 
@@ -343,7 +460,7 @@ class WebSocketManagerTest {
     @Test
     fun foregroundingBeforeGraceExpiryCancelsTheTimer() {
         manager.updateEmitter("app1") { events.add(it) }
-        manager.connectSocket("app1", connectParams("s1"), responses::add)
+        manager.connectSocket("app1", "0", connectParams("s1"), responses::add)
         onEvent("close", "app1", true, listenParams("s1", "close-cb"))
         scheduler.runDue()
         transport.connections.single().callbacks.onOpen(emptyMap(), TransportProfileHints())
@@ -361,7 +478,7 @@ class WebSocketManagerTest {
         manager.updateEmitter("app1") { }
         manager.setBackgrounded("app1", true)
 
-        manager.connectSocket("app1", connectParams("s1", fail = "connect-fail"), responses::add)
+        manager.connectSocket("app1", "0", connectParams("s1", fail = "connect-fail"), responses::add)
         manager.sendSocketMessage(
             "app1", true,
             JSONObject().apply { put("socketId", "s1"); put("data", "x"); put("fail", "send-fail") },
@@ -380,18 +497,90 @@ class WebSocketManagerTest {
 
     // ---- legacy global slot + binding ----
 
+    // New contract: the legacy (no-socketId) global slot is no longer a single last-writer-wins
+    // slot - it is an ordered, de-duplicated set per event, just like task-mode's `listeners`.
+
     @Test
-    fun legacyOnOpenSlotOverwritesRatherThanStacking() {
+    fun legacyListenersAreOrderedAndAllReceiveTheEvent() {
         manager.updateEmitter("app1") { events.add(it) }
         onEvent("open", "app1", false, listenParams(null, "cb1"))
         onEvent("open", "app1", false, listenParams(null, "cb2"))
-        manager.connectSocket("app1", connectParams("s1"), responses::add)
+        manager.connectSocket("app1", "0", connectParams("s1"), responses::add)
         scheduler.runDue()
 
         transport.connections.single().callbacks.onOpen(emptyMap(), TransportProfileHints())
 
-        assertTrue(argsFor(events, "cb1").isEmpty())
+        assertEquals(1, argsFor(events, "cb1").size)
         assertEquals(1, argsFor(events, "cb2").size)
+        val cb1Index = events.indexOfFirst { JSONObject(it).getJSONObject("body").getString("id") == "cb1" }
+        val cb2Index = events.indexOfFirst { JSONObject(it).getJSONObject("body").getString("id") == "cb2" }
+        assertTrue("cb1 must be dispatched before cb2 (registration order)", cb1Index < cb2Index)
+    }
+
+    @Test
+    fun legacyListenerRegisteredTwiceReceivesTheEventOnlyOnce() {
+        manager.updateEmitter("app1") { events.add(it) }
+        onEvent("open", "app1", false, listenParams(null, "cb1"))
+        onEvent("open", "app1", false, listenParams(null, "cb1")) // duplicate registration, same id
+
+        manager.connectSocket("app1", "0", connectParams("s1"), responses::add)
+        scheduler.runDue()
+        transport.connections.single().callbacks.onOpen(emptyMap(), TransportProfileHints())
+
+        assertEquals(1, argsFor(events, "cb1").size)
+    }
+
+    @Test
+    fun legacyOffWithExplicitIdRemovesOnlyThatListenerLeavingTheOtherIntact() {
+        // Off-ing the *second*-registered id (rather than the first) is the discriminating case:
+        // a last-writer-wins slot would already have dropped the first id at registration time,
+        // masking the bug this test exists to catch.
+        manager.updateEmitter("app1") { events.add(it) }
+        onEvent("open", "app1", false, listenParams(null, "cb1"))
+        onEvent("open", "app1", false, listenParams(null, "cb2"))
+
+        offEvent("open", "app1", false, listenParams(null, "cb2"))
+
+        manager.connectSocket("app1", "0", connectParams("s1"), responses::add)
+        scheduler.runDue()
+        transport.connections.single().callbacks.onOpen(emptyMap(), TransportProfileHints())
+
+        assertEquals(1, argsFor(events, "cb1").size)
+        assertTrue(argsFor(events, "cb2").isEmpty())
+    }
+
+    @Test
+    fun legacyOffWithEmptyCallbackIdClearsEveryListenerForThatEvent() {
+        manager.updateEmitter("app1") { events.add(it) }
+        onEvent("open", "app1", false, listenParams(null, "cb1"))
+        onEvent("open", "app1", false, listenParams(null, "cb2"))
+
+        offEvent("open", "app1", false, listenParams(null, "")) // no callback id -> clear all
+
+        manager.connectSocket("app1", "0", connectParams("s1"), responses::add)
+        scheduler.runDue()
+        transport.connections.single().callbacks.onOpen(emptyMap(), TransportProfileHints())
+
+        assertTrue(argsFor(events, "cb1").isEmpty())
+        assertTrue(argsFor(events, "cb2").isEmpty())
+    }
+
+    @Test
+    fun legacyOffOnOneEventDoesNotAffectListenersRegisteredOnAnotherEvent() {
+        manager.updateEmitter("app1") { events.add(it) }
+        onEvent("open", "app1", false, listenParams(null, "open-cb"))
+        onEvent("message", "app1", false, listenParams(null, "msg-cb"))
+
+        offEvent("message", "app1", false, listenParams(null, "msg-cb"))
+
+        manager.connectSocket("app1", "0", connectParams("s1"), responses::add)
+        scheduler.runDue()
+        val conn = transport.connections.single()
+        conn.callbacks.onOpen(emptyMap(), TransportProfileHints())
+        conn.callbacks.onMessageText("hello")
+
+        assertEquals(1, argsFor(events, "open-cb").size)
+        assertTrue(argsFor(events, "msg-cb").isEmpty())
     }
 
     @Test
@@ -399,8 +588,8 @@ class WebSocketManagerTest {
         manager.updateEmitter("app1") { events.add(it) }
         onEvent("close", "app1", false, listenParams(null, "legacy-close"))
 
-        manager.connectSocket("app1", connectParams("s1"), responses::add) // binds s1
-        manager.connectSocket("app1", connectParams("s2"), responses::add) // s1 still alive -> stays bound to s1
+        manager.connectSocket("app1", "0", connectParams("s1"), responses::add) // binds s1
+        manager.connectSocket("app1", "0", connectParams("s2"), responses::add) // s1 still alive -> stays bound to s1
 
         // Kill s1 (still CREATED, not yet dialed) so the binding becomes dead. s1 is still the bound
         // target *at the moment of its own close* (rebinding only happens on the next connectSocket
@@ -409,7 +598,7 @@ class WebSocketManagerTest {
         assertEquals(1, argsFor(events, "legacy-close").size)
 
         // Next connect rebinds (old binding is dead).
-        manager.connectSocket("app1", connectParams("s3"), responses::add)
+        manager.connectSocket("app1", "0", connectParams("s3"), responses::add)
         scheduler.runDue()
 
         // s1's queued dial task must have been a no-op (cancelled before it could run) - only s2 and
@@ -426,8 +615,8 @@ class WebSocketManagerTest {
     @Test
     fun legacyCloseWithDeadBindingFailsAndStillSweepsOtherLiveConnections() {
         manager.updateEmitter("app1") { events.add(it) }
-        manager.connectSocket("app1", connectParams("s1"), responses::add)
-        manager.connectSocket("app1", connectParams("s2"), responses::add)
+        manager.connectSocket("app1", "0", connectParams("s1"), responses::add)
+        manager.connectSocket("app1", "0", connectParams("s2"), responses::add)
         scheduler.runDue()
         val conns = transport.connections
         conns[0].callbacks.onOpen(emptyMap(), TransportProfileHints())
@@ -450,9 +639,9 @@ class WebSocketManagerTest {
         // must be checked before code/reason validation), and the mandatory sweep of every other
         // live socket must still fire either way.
         manager.updateEmitter("app1") { events.add(it) }
-        manager.connectSocket("app1", connectParams("s1"), responses::add) // binds s1
-        manager.connectSocket("app1", connectParams("s2"), responses::add)
-        manager.connectSocket("app1", connectParams("s3"), responses::add)
+        manager.connectSocket("app1", "0", connectParams("s1"), responses::add) // binds s1
+        manager.connectSocket("app1", "0", connectParams("s2"), responses::add)
+        manager.connectSocket("app1", "0", connectParams("s3"), responses::add)
         scheduler.runDue()
         val conns = transport.connections
         conns[0].callbacks.onOpen(emptyMap(), TransportProfileHints())
@@ -487,8 +676,8 @@ class WebSocketManagerTest {
     @Test
     fun legacySendOnlyReachesTheBoundConnection() {
         manager.updateEmitter("app1") { }
-        manager.connectSocket("app1", connectParams("s1"), responses::add) // binds s1
-        manager.connectSocket("app1", connectParams("s2"), responses::add)
+        manager.connectSocket("app1", "0", connectParams("s1"), responses::add) // binds s1
+        manager.connectSocket("app1", "0", connectParams("s2"), responses::add)
         scheduler.runDue()
         val conns = transport.connections
         conns[0].callbacks.onOpen(emptyMap(), TransportProfileHints())
@@ -511,7 +700,7 @@ class WebSocketManagerTest {
     fun disposeOwnerIsSilentAndResetsAccountingForAFreshOwner() {
         manager.updateEmitter("app1") { events.add(it) }
         onEvent("close", "app1", false, listenParams(null, "legacy-close"))
-        repeat(5) { i -> manager.connectSocket("app1", connectParams("d$i"), responses::add) }
+        repeat(5) { i -> manager.connectSocket("app1", "0", connectParams("d$i"), responses::add) }
         scheduler.runDue()
         transport.connections.forEach { it.callbacks.onOpen(emptyMap(), TransportProfileHints()) }
 
@@ -521,9 +710,47 @@ class WebSocketManagerTest {
 
         val freshResponses = mutableListOf<String>()
         manager.updateEmitter("app1") { }
-        manager.connectSocket("app1", connectParams("fresh1", success = "fresh-ok", fail = "fresh-fail"), freshResponses::add)
+        manager.connectSocket("app1", "0", connectParams("fresh1", success = "fresh-ok", fail = "fresh-fail"), freshResponses::add)
 
         assertEquals("connectSocket:ok", errMsgOf(freshResponses, "fresh-ok"))
+    }
+
+    @Test
+    fun disposeOwnerSilentlyDropsEveryLegacyListenerNotJustOne() {
+        // Same as disposeOwnerIsSilentAndResetsAccountingForAFreshOwner, but with two ids
+        // simultaneously registered on the same event - the ordered-set contract must not leak
+        // any of them across a reset, not merely whichever one happened to occupy a single slot.
+        manager.updateEmitter("app1") { events.add(it) }
+        onEvent("close", "app1", false, listenParams(null, "legacy-close-1"))
+        onEvent("close", "app1", false, listenParams(null, "legacy-close-2"))
+        manager.connectSocket("app1", "0", connectParams("s1"), responses::add)
+        scheduler.runDue()
+        transport.connections.single().callbacks.onOpen(emptyMap(), TransportProfileHints())
+
+        manager.disposeOwner("app1")
+
+        assertTrue(
+            "disposeOwner must not emit any event",
+            events.none {
+                val id = JSONObject(it).getJSONObject("body").optString("id")
+                id == "legacy-close-1" || id == "legacy-close-2"
+            },
+        )
+
+        // A fresh owner must start with a genuinely empty legacy set: registering neither old id
+        // again, only a brand-new one, and firing close must reach exactly that new id.
+        val freshEvents = mutableListOf<String>()
+        manager.updateEmitter("app1") { freshEvents.add(it) }
+        onEvent("close", "app1", false, listenParams(null, "fresh-close"))
+        manager.connectSocket("app1", "0", connectParams("s2"), responses::add)
+        scheduler.runDue()
+        val freshConn = transport.connections.last()
+        freshConn.callbacks.onOpen(emptyMap(), TransportProfileHints())
+        freshConn.callbacks.onClosed(1000, "")
+
+        assertEquals(1, argsFor(freshEvents, "fresh-close").size)
+        assertTrue(argsFor(freshEvents, "legacy-close-1").isEmpty())
+        assertTrue(argsFor(freshEvents, "legacy-close-2").isEmpty())
     }
 
     // ---- idle timeout ----
@@ -532,7 +759,7 @@ class WebSocketManagerTest {
     fun idleTimeoutIsResetByTrafficAndFiresOnlyAfterTrueIdlePeriod() {
         manager.idleTimeoutMs = 10_000
         manager.updateEmitter("app1") { events.add(it) }
-        manager.connectSocket("app1", connectParams("s1"), responses::add)
+        manager.connectSocket("app1", "0", connectParams("s1"), responses::add)
         onEvent("close", "app1", true, listenParams("s1", "close-cb"))
         scheduler.runDue()
         val conn = transport.connections.single()
@@ -553,7 +780,7 @@ class WebSocketManagerTest {
     fun successfulOutboundSendAlsoResetsTheIdleTimer() {
         manager.idleTimeoutMs = 10_000
         manager.updateEmitter("app1") { events.add(it) }
-        manager.connectSocket("app1", connectParams("s1"), responses::add)
+        manager.connectSocket("app1", "0", connectParams("s1"), responses::add)
         onEvent("close", "app1", true, listenParams("s1", "close-cb"))
         scheduler.runDue()
         val conn = transport.connections.single()
@@ -572,16 +799,17 @@ class WebSocketManagerTest {
         assertEquals(1, argsFor(events, "close-cb").size)
     }
 
-    // ---- on*/off* legacy listener registration must complete fe's wrapping Promise ----
+    // ---- on*/off* must answer a caller that attached its own success/fail ids ----
 
     @Test
     fun onSocketEventCompletesTheCallerSuccessSoFeStorePromiseDoesNotLeak() {
-        // fe's invokeAPI wraps on*/off* calls through invokePromiseAPI (not in its
-        // promiseUnsupportedApis whitelist), attaching a temp success/fail id to params and
-        // expecting one of them to fire; otherwise the two temp callback ids leak forever and the
-        // JS Promise never resolves.
+        // The current script layer sends on*/off* with `keep: true` and only a listener id, so it
+        // never attaches temp settler ids and this exact wire shape does not come from it. Direct
+        // bridge callers (and older script builds, which routed on*/off* through invokePromiseAPI)
+        // do attach them and wait for one to fire; leaving them unanswered leaks two callback ids
+        // and hangs the caller's Promise forever, so the handler must still answer.
         manager.updateEmitter("app1") { }
-        manager.connectSocket("app1", connectParams("s1"), responses::add)
+        manager.connectSocket("app1", "0", connectParams("s1"), responses::add)
 
         val params = JSONObject().apply {
             put("socketId", "s1")
@@ -597,7 +825,7 @@ class WebSocketManagerTest {
     @Test
     fun offSocketEventCompletesTheCallerSuccessSoFeStorePromiseDoesNotLeak() {
         manager.updateEmitter("app1") { }
-        manager.connectSocket("app1", connectParams("s1"), responses::add)
+        manager.connectSocket("app1", "0", connectParams("s1"), responses::add)
 
         val params = JSONObject().apply {
             put("socketId", "s1")

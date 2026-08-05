@@ -39,7 +39,7 @@ final class DMPWebSocketManagerTests: XCTestCase {
         let recorder = CallbackRecorder()
         let params = DMPMap(["socketId": "s1", "url": "wss://example.com/socket", "header": ["X-Test": "1"]])
 
-        manager.connectSocket(params: params, appId: "app1", callback: recorder.makeCallback())
+        manager.connectSocket(params: params, appId: "app1", appVersion: "0", callback: recorder.makeCallback())
         drain(manager)
 
         XCTAssertEqual(recorder.lastSuccessErrMsg, "connectSocket:ok")
@@ -48,22 +48,92 @@ final class DMPWebSocketManagerTests: XCTestCase {
         let request = factory.createdTransports.first?.lastRequest
         XCTAssertEqual(request?.url?.absoluteString, "wss://example.com/socket")
         XCTAssertEqual(request?.value(forHTTPHeaderField: "X-Test"), "1")
-        XCTAssertEqual(request?.value(forHTTPHeaderField: "Origin"), "https://example.com")
+        // Origin 不由容器补：微信文档对 header 只规定「不能设置 Referer」，没说会注入 Origin。
+        XCTAssertNil(request?.value(forHTTPHeaderField: "Origin"))
+    }
+
+    // MARK: URLRequest timeoutInterval
+
+    // URLRequest 的 timeoutInterval 默认 60 秒；调用方传的 timeout 若超过这个值，
+    // Foundation 会在容器自己的 connectTimer 之前就把连接掐断，容器看到的会是传输层
+    // 错误而不是 `connectSocket:fail timed out`。这里断言 timeoutInterval 始终跟随
+    // 请求的 timeout 走（多留 1 秒余量），不管调用方传的默认值还是超过 60 秒的值。
+    func test_connect_requestTimeoutIntervalTracksDefaultTimeout() {
+        let (manager, factory, _) = makeManager()
+        let recorder = CallbackRecorder()
+
+        manager.connectSocket(params: url(), appId: "app1", appVersion: "0", callback: recorder.makeCallback())
+        drain(manager)
+
+        let request = factory.createdTransports.first?.lastRequest
+        XCTAssertEqual(request?.timeoutInterval ?? -1, 61, accuracy: 0.001)
+    }
+
+    func test_connect_requestTimeoutIntervalTracksCustomTimeoutBeyondSixtySeconds() {
+        let (manager, factory, _) = makeManager()
+        let recorder = CallbackRecorder()
+        let params = DMPMap(["socketId": "s1", "url": "wss://example.com/socket", "timeout": 120_000])
+
+        manager.connectSocket(params: params, appId: "app1", appVersion: "0", callback: recorder.makeCallback())
+        drain(manager)
+
+        let request = factory.createdTransports.first?.lastRequest
+        XCTAssertEqual(request?.timeoutInterval ?? -1, 121, accuracy: 0.001)
+    }
+
+    // MARK: container-injected header
+
+    func test_connect_dialCarriesContainerReferer() {
+        let (manager, factory, _) = makeManager()
+        let recorder = CallbackRecorder()
+
+        manager.connectSocket(params: url(), appId: "app1", appVersion: "37", callback: recorder.makeCallback())
+        drain(manager)
+
+        let request = factory.createdTransports.first?.lastRequest
+        XCTAssertEqual(request?.value(forHTTPHeaderField: "Referer"),
+                       "https://servicedimina.com/app1/37/page-frame.html")
+    }
+
+    func test_connect_callerSuppliedRefererIsReplacedByTheContainerOne() {
+        let (manager, factory, _) = makeManager()
+        let recorder = CallbackRecorder()
+        let params = DMPMap(["socketId": "s1", "url": "wss://example.com/socket",
+                             "header": ["Referer": "https://evil.example/"]])
+
+        manager.connectSocket(params: params, appId: "app1", appVersion: "37", callback: recorder.makeCallback())
+        drain(manager)
+
+        let request = factory.createdTransports.first?.lastRequest
+        XCTAssertEqual(request?.value(forHTTPHeaderField: "Referer"),
+                       "https://servicedimina.com/app1/37/page-frame.html")
+    }
+
+    func test_connect_unknownAppVersionFallsBackToZero() {
+        let (manager, factory, _) = makeManager()
+        let recorder = CallbackRecorder()
+
+        manager.connectSocket(params: url(), appId: "app1", appVersion: "", callback: recorder.makeCallback())
+        drain(manager)
+
+        let request = factory.createdTransports.first?.lastRequest
+        XCTAssertEqual(request?.value(forHTTPHeaderField: "Referer"),
+                       "https://servicedimina.com/app1/0/page-frame.html")
     }
 
     func test_connect_invalidSocketId_missingOrDuplicate() {
         let (manager, _, _) = makeManager()
         let missing = CallbackRecorder()
-        manager.connectSocket(params: DMPMap(["url": "wss://example.com/socket"]), appId: "app1", callback: missing.makeCallback())
+        manager.connectSocket(params: DMPMap(["url": "wss://example.com/socket"]), appId: "app1", appVersion: "0", callback: missing.makeCallback())
         drain(manager)
         XCTAssertEqual(missing.lastErrMsg, "connectSocket:fail invalid socketId")
 
         let first = CallbackRecorder()
         let second = CallbackRecorder()
         let params = DMPMap(["socketId": "dup", "url": "wss://example.com/socket"])
-        manager.connectSocket(params: params, appId: "app1", callback: first.makeCallback())
+        manager.connectSocket(params: params, appId: "app1", appVersion: "0", callback: first.makeCallback())
         drain(manager)
-        manager.connectSocket(params: params, appId: "app1", callback: second.makeCallback())
+        manager.connectSocket(params: params, appId: "app1", appVersion: "0", callback: second.makeCallback())
         drain(manager)
         XCTAssertEqual(second.lastErrMsg, "connectSocket:fail invalid socketId")
     }
@@ -73,20 +143,20 @@ final class DMPWebSocketManagerTests: XCTestCase {
         for index in 0..<5 {
             let recorder = CallbackRecorder()
             manager.connectSocket(params: DMPMap(["socketId": "s\(index)", "url": "wss://example.com/socket"]),
-                             appId: "app1", callback: recorder.makeCallback())
+                             appId: "app1", appVersion: "0", callback: recorder.makeCallback())
             drain(manager)
             XCTAssertEqual(recorder.lastSuccessErrMsg, "connectSocket:ok")
         }
 
         let overflow = CallbackRecorder()
         manager.connectSocket(params: DMPMap(["socketId": "s5", "url": "wss://example.com/socket"]),
-                         appId: "app1", callback: overflow.makeCallback())
+                         appId: "app1", appVersion: "0", callback: overflow.makeCallback())
         drain(manager)
         XCTAssertEqual(overflow.lastErrMsg, "connectSocket:fail reach max websocket connect count 5")
 
         let otherOwner = CallbackRecorder()
         manager.connectSocket(params: DMPMap(["socketId": "t0", "url": "wss://example.com/socket"]),
-                         appId: "app2", callback: otherOwner.makeCallback())
+                         appId: "app2", appVersion: "0", callback: otherOwner.makeCallback())
         drain(manager)
         XCTAssertEqual(otherOwner.lastSuccessErrMsg, "connectSocket:ok", "owners must not share the concurrency slot pool")
     }
@@ -96,7 +166,7 @@ final class DMPWebSocketManagerTests: XCTestCase {
         for index in 0..<5 {
             let recorder = CallbackRecorder()
             manager.connectSocket(params: DMPMap(["socketId": "s\(index)", "url": "wss://example.com/socket"]),
-                             appId: "app1", callback: recorder.makeCallback())
+                             appId: "app1", appVersion: "0", callback: recorder.makeCallback())
             drain(manager)
         }
         let closeRecorder = CallbackRecorder()
@@ -106,7 +176,7 @@ final class DMPWebSocketManagerTests: XCTestCase {
 
         let recorder = CallbackRecorder()
         manager.connectSocket(params: DMPMap(["socketId": "s5", "url": "wss://example.com/socket"]),
-                         appId: "app1", callback: recorder.makeCallback())
+                         appId: "app1", appVersion: "0", callback: recorder.makeCallback())
         drain(manager)
         XCTAssertEqual(recorder.lastSuccessErrMsg, "connectSocket:ok", "closing a socket must free its concurrency slot")
     }
@@ -119,7 +189,7 @@ final class DMPWebSocketManagerTests: XCTestCase {
         manager.eventSinkForTest = { appId, cb, payload in events.append(RecordedEvent(appId: appId, callbackId: cb, payload: payload)) }
 
         let connectRecorder = CallbackRecorder()
-        manager.connectSocket(params: url(), appId: "app1", callback: connectRecorder.makeCallback())
+        manager.connectSocket(params: url(), appId: "app1", appVersion: "0", callback: connectRecorder.makeCallback())
         drain(manager)
         manager.onSocketEvent(event: .open, params: DMPMap(["socketId": "s1", "callback": "cbOpen"]), appId: "app1")
         manager.onSocketEvent(event: .message, params: DMPMap(["socketId": "s1", "callback": "cbMessage"]), appId: "app1")
@@ -154,7 +224,7 @@ final class DMPWebSocketManagerTests: XCTestCase {
         var events: [RecordedEvent] = []
         manager.eventSinkForTest = { appId, cb, payload in events.append(RecordedEvent(appId: appId, callbackId: cb, payload: payload)) }
 
-        manager.connectSocket(params: url(), appId: "app1", callback: CallbackRecorder().makeCallback())
+        manager.connectSocket(params: url(), appId: "app1", appVersion: "0", callback: CallbackRecorder().makeCallback())
         drain(manager)
         manager.onSocketEvent(event: .close, params: DMPMap(["socketId": "s1", "callback": "cbClose"]), appId: "app1")
         manager.onSocketEvent(event: .error, params: DMPMap(["socketId": "s1", "callback": "cbError"]), appId: "app1")
@@ -178,7 +248,7 @@ final class DMPWebSocketManagerTests: XCTestCase {
         var events: [RecordedEvent] = []
         manager.eventSinkForTest = { appId, cb, payload in events.append(RecordedEvent(appId: appId, callbackId: cb, payload: payload)) }
 
-        manager.connectSocket(params: url(), appId: "app1", callback: CallbackRecorder().makeCallback())
+        manager.connectSocket(params: url(), appId: "app1", appVersion: "0", callback: CallbackRecorder().makeCallback())
         drain(manager)
         manager.onSocketEvent(event: .close, params: DMPMap(["socketId": "s1", "callback": "cbClose"]), appId: "app1")
         manager.onSocketEvent(event: .error, params: DMPMap(["socketId": "s1", "callback": "cbError"]), appId: "app1")
@@ -200,7 +270,7 @@ final class DMPWebSocketManagerTests: XCTestCase {
 
     func test_close_rejectsInvalidCodeAndOverlongReason() {
         let (manager, _, _) = makeManager()
-        manager.connectSocket(params: url(), appId: "app1", callback: CallbackRecorder().makeCallback())
+        manager.connectSocket(params: url(), appId: "app1", appVersion: "0", callback: CallbackRecorder().makeCallback())
         drain(manager)
 
         let badCode = CallbackRecorder()
@@ -224,7 +294,7 @@ final class DMPWebSocketManagerTests: XCTestCase {
         let closeRecorder = CallbackRecorder()
         // Fired back-to-back with no drain in between so close() lands while
         // the entry is still CREATED (dial not yet performed).
-        manager.connectSocket(params: url(), appId: "app1", callback: connectRecorder.makeCallback())
+        manager.connectSocket(params: url(), appId: "app1", appVersion: "0", callback: connectRecorder.makeCallback())
         manager.onSocketEvent(event: .close, params: DMPMap(["socketId": "s1", "callback": "cbClose"]), appId: "app1")
         manager.onSocketEvent(event: .error, params: DMPMap(["socketId": "s1", "callback": "cbError"]), appId: "app1")
         manager.closeSocket(params: DMPMap(["socketId": "s1", "code": 3001, "reason": "gone"]),
@@ -245,7 +315,7 @@ final class DMPWebSocketManagerTests: XCTestCase {
         var events: [RecordedEvent] = []
         manager.eventSinkForTest = { appId, cb, payload in events.append(RecordedEvent(appId: appId, callbackId: cb, payload: payload)) }
 
-        manager.connectSocket(params: url(), appId: "app1", callback: CallbackRecorder().makeCallback())
+        manager.connectSocket(params: url(), appId: "app1", appVersion: "0", callback: CallbackRecorder().makeCallback())
         drain(manager) // let the dial actually happen: transport created, state == .connecting
         manager.onSocketEvent(event: .close, params: DMPMap(["socketId": "s1", "callback": "cbClose"]), appId: "app1")
         manager.onSocketEvent(event: .error, params: DMPMap(["socketId": "s1", "callback": "cbError"]), appId: "app1")
@@ -270,7 +340,7 @@ final class DMPWebSocketManagerTests: XCTestCase {
         var events: [RecordedEvent] = []
         manager.eventSinkForTest = { appId, cb, payload in events.append(RecordedEvent(appId: appId, callbackId: cb, payload: payload)) }
 
-        manager.connectSocket(params: url(), appId: "app1", callback: CallbackRecorder().makeCallback())
+        manager.connectSocket(params: url(), appId: "app1", appVersion: "0", callback: CallbackRecorder().makeCallback())
         drain(manager)
         manager.onSocketEvent(event: .close, params: DMPMap(["socketId": "s1", "callback": "cbClose"]), appId: "app1")
         drain(manager)
@@ -297,6 +367,29 @@ final class DMPWebSocketManagerTests: XCTestCase {
         XCTAssertEqual(closeEvents.first?.payload.get("reason") as? String, "caller reason")
     }
 
+    func test_closeBeforeOpen_reportsGenericErrorAndNeverLeaksTheWireReason() {
+        // The reason on a pre-handshake close is entirely the server's to pick. It must not become
+        // part of the API-level error string - all three platforms report the generic text here.
+        let (manager, factory, _) = makeManager()
+        var events: [RecordedEvent] = []
+        manager.eventSinkForTest = { appId, cb, payload in events.append(RecordedEvent(appId: appId, callbackId: cb, payload: payload)) }
+
+        manager.connectSocket(params: url(), appId: "app1", appVersion: "0", callback: CallbackRecorder().makeCallback())
+        drain(manager)
+        manager.onSocketEvent(event: .error, params: DMPMap(["socketId": "s1", "callback": "cbError"]), appId: "app1")
+        manager.onSocketEvent(event: .close, params: DMPMap(["socketId": "s1", "callback": "cbClose"]), appId: "app1")
+        drain(manager)
+
+        let transport = factory.createdTransports[0]
+        transport.delegate?.transport(transport, didCloseWithCode: 1002, reason: "policy denied".data(using: .utf8))
+        drain(manager)
+
+        let errorEvents = events.filter { $0.callbackId == "cbError" }
+        XCTAssertEqual(errorEvents.count, 1)
+        XCTAssertEqual(errorEvents.first?.payload.get("errMsg") as? String, "connectSocket:fail WebSocket connection failed")
+        XCTAssertTrue(events.filter { $0.callbackId == "cbClose" }.isEmpty, "a connection that never opened must never surface close")
+    }
+
     /// closeSocket 的一次性回调必须先发 success 再发 complete。真机上出现过 JS 侧
     /// 先收到 complete 再收到 success，根因在容器往 service 投递消息那一层
     /// （DMPService.fromContainer 每条消息各起一个 Task，顺序被线程调度打乱），
@@ -304,7 +397,7 @@ final class DMPWebSocketManagerTests: XCTestCase {
     /// complete 提到 success 前面。
     func test_close_openState_firesSuccessBeforeComplete() {
         let (manager, factory, _) = makeManager()
-        manager.connectSocket(params: url(), appId: "app1", callback: CallbackRecorder().makeCallback())
+        manager.connectSocket(params: url(), appId: "app1", appVersion: "0", callback: CallbackRecorder().makeCallback())
         drain(manager)
         let transport = factory.createdTransports[0]
         transport.simulateOpen()
@@ -325,7 +418,7 @@ final class DMPWebSocketManagerTests: XCTestCase {
 
     func test_close_repeatedWhileClosing_failsNotConnected() {
         let (manager, factory, _) = makeManager()
-        manager.connectSocket(params: url(), appId: "app1", callback: CallbackRecorder().makeCallback())
+        manager.connectSocket(params: url(), appId: "app1", appVersion: "0", callback: CallbackRecorder().makeCallback())
         drain(manager)
         let transport = factory.createdTransports[0]
         transport.simulateOpen()
@@ -350,7 +443,7 @@ final class DMPWebSocketManagerTests: XCTestCase {
         var events: [RecordedEvent] = []
         manager.eventSinkForTest = { appId, cb, payload in events.append(RecordedEvent(appId: appId, callbackId: cb, payload: payload)) }
 
-        manager.connectSocket(params: url(), appId: "app1", callback: CallbackRecorder().makeCallback())
+        manager.connectSocket(params: url(), appId: "app1", appVersion: "0", callback: CallbackRecorder().makeCallback())
         drain(manager)
         manager.onSocketEvent(event: .close, params: DMPMap(["socketId": "s1", "callback": "cbClose"]), appId: "app1")
         manager.onSocketEvent(event: .error, params: DMPMap(["socketId": "s1", "callback": "cbError"]), appId: "app1")
@@ -382,7 +475,7 @@ final class DMPWebSocketManagerTests: XCTestCase {
         var events: [RecordedEvent] = []
         manager.eventSinkForTest = { appId, cb, payload in events.append(RecordedEvent(appId: appId, callbackId: cb, payload: payload)) }
 
-        manager.connectSocket(params: url(), appId: "app1", callback: CallbackRecorder().makeCallback())
+        manager.connectSocket(params: url(), appId: "app1", appVersion: "0", callback: CallbackRecorder().makeCallback())
         drain(manager) // dial happens, but never opens
         manager.onSocketEvent(event: .close, params: DMPMap(["socketId": "s1", "callback": "cbClose"]), appId: "app1")
         manager.onSocketEvent(event: .error, params: DMPMap(["socketId": "s1", "callback": "cbError"]), appId: "app1")
@@ -401,7 +494,7 @@ final class DMPWebSocketManagerTests: XCTestCase {
 
     func test_background_duringBackground_allThreeApisFailInterrupted() {
         let (manager, factory, _) = makeManager()
-        manager.connectSocket(params: url(), appId: "app1", callback: CallbackRecorder().makeCallback())
+        manager.connectSocket(params: url(), appId: "app1", appVersion: "0", callback: CallbackRecorder().makeCallback())
         drain(manager)
         factory.createdTransports[0].simulateOpen()
         drain(manager)
@@ -410,7 +503,7 @@ final class DMPWebSocketManagerTests: XCTestCase {
         drain(manager)
 
         let connectRecorder = CallbackRecorder()
-        manager.connectSocket(params: DMPMap(["socketId": "other", "url": "wss://example.com/socket"]), appId: "app1", callback: connectRecorder.makeCallback())
+        manager.connectSocket(params: DMPMap(["socketId": "other", "url": "wss://example.com/socket"]), appId: "app1", appVersion: "0", callback: connectRecorder.makeCallback())
         drain(manager)
         XCTAssertEqual(connectRecorder.lastErrMsg, "connectSocket:fail interrupted")
 
@@ -427,7 +520,7 @@ final class DMPWebSocketManagerTests: XCTestCase {
 
     func test_background_foregroundBeforeGrace_cancelsTeardown() {
         let (manager, factory, scheduling) = makeManager()
-        manager.connectSocket(params: url(), appId: "app1", callback: CallbackRecorder().makeCallback())
+        manager.connectSocket(params: url(), appId: "app1", appVersion: "0", callback: CallbackRecorder().makeCallback())
         drain(manager)
         let transport = factory.createdTransports[0]
         transport.simulateOpen()
@@ -456,21 +549,31 @@ final class DMPWebSocketManagerTests: XCTestCase {
         drain(manager)
 
         let recorder = CallbackRecorder()
-        manager.connectSocket(params: DMPMap(["socketId": "s1", "url": "wss://example.com/socket"]), appId: "app2", callback: recorder.makeCallback())
+        manager.connectSocket(params: DMPMap(["socketId": "s1", "url": "wss://example.com/socket"]), appId: "app2", appVersion: "0", callback: recorder.makeCallback())
         drain(manager)
 
         XCTAssertEqual(recorder.lastErrMsg, "connectSocket:fail interrupted",
                         "a brand-new owner created after the app already backgrounded must not slip through as foregrounded")
     }
 
-    // MARK: legacy single-slot / first-live-connection binding
+    // MARK: legacy global listener set (ordered, deduped) / first-live-connection binding
+    //
+    // Contract: the global (no-socketId) on*/off* slot per event is no
+    // longer a single overwritable string — it is an ordered, deduped set of
+    // callback ids, matching task-scoped `entry.listeners`. Registering two
+    // distinct ids must deliver to both, in registration order; re-registering
+    // the same id must not double-deliver; `off` with an explicit id removes
+    // only that id; `off` with a missing/empty id clears every id for that
+    // event. Binding itself (which single connection this global slot is
+    // wired to) is unchanged and covered separately below.
 
-    func test_legacy_slotOverwrite_noStacking() {
+    func test_legacy_multipleListeners_receiveInRegistrationOrder_open() {
+        // Non-terminal event: goes through `dispatchEvent`, entry stays alive.
         let (manager, factory, _) = makeManager()
         var events: [RecordedEvent] = []
         manager.eventSinkForTest = { appId, cb, payload in events.append(RecordedEvent(appId: appId, callbackId: cb, payload: payload)) }
 
-        manager.connectSocket(params: url(), appId: "app1", callback: CallbackRecorder().makeCallback())
+        manager.connectSocket(params: url(), appId: "app1", appVersion: "0", callback: CallbackRecorder().makeCallback())
         drain(manager)
         manager.onSocketEvent(event: .open, params: DMPMap(["callback": "first"]), appId: "app1")
         manager.onSocketEvent(event: .open, params: DMPMap(["callback": "second"]), appId: "app1")
@@ -479,15 +582,171 @@ final class DMPWebSocketManagerTests: XCTestCase {
         factory.createdTransports[0].simulateOpen()
         drain(manager)
 
-        XCTAssertTrue(events.contains { $0.callbackId == "second" })
-        XCTAssertFalse(events.contains { $0.callbackId == "first" }, "later legacy registration must silently overwrite, not stack")
+        let openEvents = events.filter { $0.callbackId == "first" || $0.callbackId == "second" }
+        XCTAssertEqual(openEvents.map { $0.callbackId }, ["first", "second"],
+                        "both legacy registrations must fire via dispatchEvent, in registration order, not silently overwrite")
+    }
+
+    func test_legacy_multipleListeners_receiveInRegistrationOrder_close() {
+        // Terminal event: goes through `teardown`. Fired back-to-back with no
+        // drain in between so closeSocket lands while the entry is still
+        // CREATED (see test_closeRace_createdState_...), driving the close
+        // through teardown rather than the transport delegate.
+        let (manager, factory, _) = makeManager()
+        var events: [RecordedEvent] = []
+        manager.eventSinkForTest = { appId, cb, payload in events.append(RecordedEvent(appId: appId, callbackId: cb, payload: payload)) }
+
+        manager.connectSocket(params: url(), appId: "app1", appVersion: "0", callback: CallbackRecorder().makeCallback())
+        manager.onSocketEvent(event: .close, params: DMPMap(["callback": "cFirst"]), appId: "app1")
+        manager.onSocketEvent(event: .close, params: DMPMap(["callback": "cSecond"]), appId: "app1")
+        manager.closeSocket(params: DMPMap(["socketId": "s1"]), appId: "app1", callback: CallbackRecorder().makeCallback())
+        drain(manager)
+
+        XCTAssertTrue(factory.createdTransports.isEmpty, "sanity: dial must never have happened for this same-tick close")
+        let closeEvents = events.filter { $0.callbackId == "cFirst" || $0.callbackId == "cSecond" }
+        XCTAssertEqual(closeEvents.map { $0.callbackId }, ["cFirst", "cSecond"],
+                        "both legacy close listeners must fire via teardown, in registration order")
+    }
+
+    func test_legacy_duplicateRegistration_dedupesWithoutDroppingOtherListener() {
+        let (manager, factory, _) = makeManager()
+        var events: [RecordedEvent] = []
+        manager.eventSinkForTest = { appId, cb, payload in events.append(RecordedEvent(appId: appId, callbackId: cb, payload: payload)) }
+
+        manager.connectSocket(params: url(), appId: "app1", appVersion: "0", callback: CallbackRecorder().makeCallback())
+        drain(manager)
+        manager.onSocketEvent(event: .open, params: DMPMap(["callback": "A"]), appId: "app1")
+        manager.onSocketEvent(event: .open, params: DMPMap(["callback": "B"]), appId: "app1")
+        manager.onSocketEvent(event: .open, params: DMPMap(["callback": "A"]), appId: "app1") // re-registers A
+        drain(manager)
+
+        factory.createdTransports[0].simulateOpen()
+        drain(manager)
+
+        XCTAssertEqual(events.filter { $0.callbackId == "A" }.count, 1, "re-registering the same id must not deliver twice")
+        XCTAssertEqual(events.filter { $0.callbackId == "B" }.count, 1, "B must not have been silently dropped by A's re-registration")
+        let ordered = events.filter { $0.callbackId == "A" || $0.callbackId == "B" }
+        XCTAssertEqual(ordered.map { $0.callbackId }, ["A", "B"], "A keeps its original registration-order position; dedup must not move it to the end")
+    }
+
+    func test_legacy_handleOff_withCallbackId_removesOnlyThatListener() {
+        // Off-ing the *second*-registered id (rather than the first) is the discriminating case:
+        // a last-writer-wins slot would already have dropped the first id at registration time, so
+        // off-ing the first id would trivially "pass" (it was never going to fire either way) even
+        // against a compare-then-remove implementation that still gets the id-targeting wrong.
+        let (manager, factory, _) = makeManager()
+        var events: [RecordedEvent] = []
+        manager.eventSinkForTest = { appId, cb, payload in events.append(RecordedEvent(appId: appId, callbackId: cb, payload: payload)) }
+
+        manager.connectSocket(params: url(), appId: "app1", appVersion: "0", callback: CallbackRecorder().makeCallback())
+        drain(manager)
+        manager.onSocketEvent(event: .open, params: DMPMap(["callback": "first"]), appId: "app1")
+        manager.onSocketEvent(event: .open, params: DMPMap(["callback": "second"]), appId: "app1")
+        drain(manager)
+
+        manager.offSocketEvent(event: .open, params: DMPMap(["callback": "second"]), appId: "app1")
+        drain(manager)
+
+        factory.createdTransports[0].simulateOpen()
+        drain(manager)
+
+        XCTAssertFalse(events.contains { $0.callbackId == "second" }, "handleOff with an explicit callback id must remove only that id")
+        XCTAssertEqual(events.filter { $0.callbackId == "first" }.count, 1, "an unrelated (earlier-registered) id must remain registered and still fire")
+    }
+
+    func test_legacy_handleOff_missingCallbackId_clearsAllListenersForThatEvent() {
+        let (manager, factory, _) = makeManager()
+        var events: [RecordedEvent] = []
+        manager.eventSinkForTest = { appId, cb, payload in events.append(RecordedEvent(appId: appId, callbackId: cb, payload: payload)) }
+
+        manager.connectSocket(params: url(), appId: "app1", appVersion: "0", callback: CallbackRecorder().makeCallback())
+        drain(manager)
+        manager.onSocketEvent(event: .open, params: DMPMap(["callback": "first"]), appId: "app1")
+        manager.onSocketEvent(event: .open, params: DMPMap(["callback": "second"]), appId: "app1")
+        drain(manager)
+
+        manager.offSocketEvent(event: .open, params: DMPMap([:]), appId: "app1") // no "callback" key at all
+        drain(manager)
+
+        factory.createdTransports[0].simulateOpen()
+        drain(manager)
+
+        XCTAssertTrue(events.filter { $0.callbackId == "first" || $0.callbackId == "second" }.isEmpty,
+                      "a missing callback id must clear every id registered on this event")
+    }
+
+    func test_legacy_handleOff_emptyCallbackId_clearsAllListenersForThatEvent() {
+        let (manager, factory, _) = makeManager()
+        var events: [RecordedEvent] = []
+        manager.eventSinkForTest = { appId, cb, payload in events.append(RecordedEvent(appId: appId, callbackId: cb, payload: payload)) }
+
+        manager.connectSocket(params: url(), appId: "app1", appVersion: "0", callback: CallbackRecorder().makeCallback())
+        drain(manager)
+        manager.onSocketEvent(event: .open, params: DMPMap(["callback": "first"]), appId: "app1")
+        manager.onSocketEvent(event: .open, params: DMPMap(["callback": "second"]), appId: "app1")
+        drain(manager)
+
+        manager.offSocketEvent(event: .open, params: DMPMap(["callback": ""]), appId: "app1") // present but empty
+        drain(manager)
+
+        factory.createdTransports[0].simulateOpen()
+        drain(manager)
+
+        XCTAssertTrue(events.filter { $0.callbackId == "first" || $0.callbackId == "second" }.isEmpty,
+                      "an empty-string callback id must also clear every id registered on this event, same as a missing one")
+    }
+
+    func test_legacy_handleOff_onOneEvent_doesNotAffectOtherEvent() {
+        let (manager, factory, _) = makeManager()
+        var events: [RecordedEvent] = []
+        manager.eventSinkForTest = { appId, cb, payload in events.append(RecordedEvent(appId: appId, callbackId: cb, payload: payload)) }
+
+        manager.connectSocket(params: url(), appId: "app1", appVersion: "0", callback: CallbackRecorder().makeCallback())
+        drain(manager)
+        manager.onSocketEvent(event: .open, params: DMPMap(["callback": "openCb"]), appId: "app1")
+        manager.onSocketEvent(event: .close, params: DMPMap(["callback": "closeCb"]), appId: "app1")
+        drain(manager)
+
+        manager.offSocketEvent(event: .open, params: DMPMap([:]), appId: "app1")
+        drain(manager)
+
+        let transport = factory.createdTransports[0]
+        transport.simulateOpen()
+        drain(manager)
+        XCTAssertFalse(events.contains { $0.callbackId == "openCb" }, "clearing the open event's listeners must actually clear them")
+
+        manager.closeSocket(params: DMPMap(["socketId": "s1"]), appId: "app1", callback: CallbackRecorder().makeCallback())
+        drain(manager)
+        XCTAssertEqual(events.filter { $0.callbackId == "closeCb" }.count, 1, "clearing open listeners must not touch close listeners")
+    }
+
+    func test_legacy_disposeOwner_clearsAllGlobalListeners() {
+        let (manager, factory, _) = makeManager()
+        var events: [RecordedEvent] = []
+        manager.eventSinkForTest = { appId, cb, payload in events.append(RecordedEvent(appId: appId, callbackId: cb, payload: payload)) }
+
+        manager.connectSocket(params: url(), appId: "app1", appVersion: "0", callback: CallbackRecorder().makeCallback())
+        drain(manager)
+        manager.onSocketEvent(event: .open, params: DMPMap(["callback": "first"]), appId: "app1")
+        manager.onSocketEvent(event: .open, params: DMPMap(["callback": "second"]), appId: "app1")
+        drain(manager)
+
+        manager.disposeOwner(appId: "app1")
+
+        manager.connectSocket(params: url(), appId: "app1", appVersion: "0", callback: CallbackRecorder().makeCallback())
+        drain(manager)
+        factory.createdTransports.last?.simulateOpen()
+        drain(manager)
+
+        XCTAssertTrue(events.filter { $0.callbackId == "first" || $0.callbackId == "second" }.isEmpty,
+                      "disposeOwner must wipe every global legacy listener, not just the most recently registered one")
     }
 
     func test_legacy_firstLiveConnectionBinding_noDriftWhenOtherSocketCloses() {
         let (manager, factory, _) = makeManager()
-        manager.connectSocket(params: DMPMap(["socketId": "a", "url": "wss://example.com/socket"]), appId: "app1", callback: CallbackRecorder().makeCallback())
+        manager.connectSocket(params: DMPMap(["socketId": "a", "url": "wss://example.com/socket"]), appId: "app1", appVersion: "0", callback: CallbackRecorder().makeCallback())
         drain(manager)
-        manager.connectSocket(params: DMPMap(["socketId": "b", "url": "wss://example.com/socket"]), appId: "app1", callback: CallbackRecorder().makeCallback())
+        manager.connectSocket(params: DMPMap(["socketId": "b", "url": "wss://example.com/socket"]), appId: "app1", appVersion: "0", callback: CallbackRecorder().makeCallback())
         drain(manager)
 
         var events: [RecordedEvent] = []
@@ -507,12 +766,12 @@ final class DMPWebSocketManagerTests: XCTestCase {
 
     func test_legacy_rebindsOnNextConnectOnlyWhenBoundIsDead() {
         let (manager, factory, _) = makeManager()
-        manager.connectSocket(params: DMPMap(["socketId": "a", "url": "wss://example.com/socket"]), appId: "app1", callback: CallbackRecorder().makeCallback())
+        manager.connectSocket(params: DMPMap(["socketId": "a", "url": "wss://example.com/socket"]), appId: "app1", appVersion: "0", callback: CallbackRecorder().makeCallback())
         drain(manager)
         manager.closeSocket(params: DMPMap(["socketId": "a"]), appId: "app1", callback: CallbackRecorder().makeCallback())
         drain(manager)
 
-        manager.connectSocket(params: DMPMap(["socketId": "b", "url": "wss://example.com/socket"]), appId: "app1", callback: CallbackRecorder().makeCallback())
+        manager.connectSocket(params: DMPMap(["socketId": "b", "url": "wss://example.com/socket"]), appId: "app1", appVersion: "0", callback: CallbackRecorder().makeCallback())
         drain(manager)
 
         var events: [RecordedEvent] = []
@@ -528,9 +787,9 @@ final class DMPWebSocketManagerTests: XCTestCase {
 
     func test_legacy_closeSocket_deadBinding_failsThenSweepsRemaining() {
         let (manager, factory, _) = makeManager()
-        manager.connectSocket(params: DMPMap(["socketId": "a", "url": "wss://example.com/socket"]), appId: "app1", callback: CallbackRecorder().makeCallback())
+        manager.connectSocket(params: DMPMap(["socketId": "a", "url": "wss://example.com/socket"]), appId: "app1", appVersion: "0", callback: CallbackRecorder().makeCallback())
         drain(manager)
-        manager.connectSocket(params: DMPMap(["socketId": "b", "url": "wss://example.com/socket"]), appId: "app1", callback: CallbackRecorder().makeCallback())
+        manager.connectSocket(params: DMPMap(["socketId": "b", "url": "wss://example.com/socket"]), appId: "app1", appVersion: "0", callback: CallbackRecorder().makeCallback())
         drain(manager)
 
         manager.closeSocket(params: DMPMap(["socketId": "a"]), appId: "app1", callback: CallbackRecorder().makeCallback())
@@ -553,9 +812,9 @@ final class DMPWebSocketManagerTests: XCTestCase {
 
     func test_legacy_closeSocket_deadBindingWithInvalidCode_stillFailsNotConnectedAndSweeps() {
         let (manager, factory, _) = makeManager()
-        manager.connectSocket(params: DMPMap(["socketId": "a", "url": "wss://example.com/socket"]), appId: "app1", callback: CallbackRecorder().makeCallback())
+        manager.connectSocket(params: DMPMap(["socketId": "a", "url": "wss://example.com/socket"]), appId: "app1", appVersion: "0", callback: CallbackRecorder().makeCallback())
         drain(manager)
-        manager.connectSocket(params: DMPMap(["socketId": "b", "url": "wss://example.com/socket"]), appId: "app1", callback: CallbackRecorder().makeCallback())
+        manager.connectSocket(params: DMPMap(["socketId": "b", "url": "wss://example.com/socket"]), appId: "app1", appVersion: "0", callback: CallbackRecorder().makeCallback())
         drain(manager)
 
         manager.closeSocket(params: DMPMap(["socketId": "a"]), appId: "app1", callback: CallbackRecorder().makeCallback())
@@ -586,9 +845,9 @@ final class DMPWebSocketManagerTests: XCTestCase {
         // (with a deliberately invalid code) targets that still-CLOSING entry. This must also
         // collapse to not-connected before code validation runs, not just "entry gone".
         let (manager, factory, _) = makeManager()
-        manager.connectSocket(params: DMPMap(["socketId": "a", "url": "wss://example.com/socket"]), appId: "app1", callback: CallbackRecorder().makeCallback())
+        manager.connectSocket(params: DMPMap(["socketId": "a", "url": "wss://example.com/socket"]), appId: "app1", appVersion: "0", callback: CallbackRecorder().makeCallback())
         drain(manager)
-        manager.connectSocket(params: DMPMap(["socketId": "b", "url": "wss://example.com/socket"]), appId: "app1", callback: CallbackRecorder().makeCallback())
+        manager.connectSocket(params: DMPMap(["socketId": "b", "url": "wss://example.com/socket"]), appId: "app1", appVersion: "0", callback: CallbackRecorder().makeCallback())
         drain(manager)
         for transport in factory.createdTransports { transport.simulateOpen() }
         drain(manager)
@@ -609,9 +868,9 @@ final class DMPWebSocketManagerTests: XCTestCase {
 
     func test_legacy_sendSocketMessage_targetsBoundSocketOnly() {
         let (manager, factory, _) = makeManager()
-        manager.connectSocket(params: DMPMap(["socketId": "a", "url": "wss://example.com/socket"]), appId: "app1", callback: CallbackRecorder().makeCallback())
+        manager.connectSocket(params: DMPMap(["socketId": "a", "url": "wss://example.com/socket"]), appId: "app1", appVersion: "0", callback: CallbackRecorder().makeCallback())
         drain(manager)
-        manager.connectSocket(params: DMPMap(["socketId": "b", "url": "wss://example.com/socket"]), appId: "app1", callback: CallbackRecorder().makeCallback())
+        manager.connectSocket(params: DMPMap(["socketId": "b", "url": "wss://example.com/socket"]), appId: "app1", appVersion: "0", callback: CallbackRecorder().makeCallback())
         drain(manager)
         for transport in factory.createdTransports { transport.simulateOpen() }
         drain(manager)
@@ -625,20 +884,22 @@ final class DMPWebSocketManagerTests: XCTestCase {
         XCTAssertTrue(factory.createdTransports[1].sentTexts.isEmpty)
     }
 
-    // MARK: on*/off* completion — fe auto-wraps these in a Promise via
-    // temporary success/fail callback ids; native must complete them or
-    // they (and the wrapping Promise) leak forever.
+    // MARK: on*/off* completion — the current script layer sends these with `keep: true` and only
+    // a listener id, so it attaches no temp settler ids and this shape does not come from it.
+    // Direct bridge callers (and older script builds, which routed on/off through
+    // invokePromiseAPI) do attach them and wait; leaving them unanswered leaks the ids and hangs
+    // the caller's Promise, so the handler must still answer.
 
     func test_onOff_registrationCompletesCallback_taskMode() {
         let (manager, _, _) = makeManager()
-        manager.connectSocket(params: url(), appId: "app1", callback: CallbackRecorder().makeCallback())
+        manager.connectSocket(params: url(), appId: "app1", appVersion: "0", callback: CallbackRecorder().makeCallback())
         drain(manager)
 
         let onRecorder = CallbackRecorder()
         manager.onSocketEvent(event: .message, params: DMPMap(["socketId": "s1", "callback": "cbMessage"]), appId: "app1", callback: onRecorder.makeCallback())
         drain(manager)
         XCTAssertEqual(onRecorder.lastSuccessErrMsg, "onSocketMessage:ok",
-                        "fe auto-wraps on/off in a Promise; native must complete it or the temp callback ids leak forever")
+                        "a caller that attached temp settler ids must get one of them back, or those ids and its Promise leak forever")
         XCTAssertEqual(onRecorder.completeCount, 1)
 
         let offRecorder = CallbackRecorder()
@@ -664,7 +925,7 @@ final class DMPWebSocketManagerTests: XCTestCase {
         var events: [RecordedEvent] = []
         manager.eventSinkForTest = { appId, cb, payload in events.append(RecordedEvent(appId: appId, callbackId: cb, payload: payload)) }
 
-        manager.connectSocket(params: url(), appId: "app1", callback: CallbackRecorder().makeCallback())
+        manager.connectSocket(params: url(), appId: "app1", appVersion: "0", callback: CallbackRecorder().makeCallback())
         drain(manager)
         manager.onSocketEvent(event: .open, params: DMPMap(["callback": "legacySlot"]), appId: "app1")
         let onRecorder = CallbackRecorder()
@@ -686,9 +947,9 @@ final class DMPWebSocketManagerTests: XCTestCase {
         // the addressed target's own outcome (matches Android/HarmonyOS, which sweep
         // unconditionally after the direct close attempt, win or lose).
         let (manager, factory, _) = makeManager()
-        manager.connectSocket(params: DMPMap(["socketId": "a", "url": "wss://example.com/socket"]), appId: "app1", callback: CallbackRecorder().makeCallback())
+        manager.connectSocket(params: DMPMap(["socketId": "a", "url": "wss://example.com/socket"]), appId: "app1", appVersion: "0", callback: CallbackRecorder().makeCallback())
         drain(manager)
-        manager.connectSocket(params: DMPMap(["socketId": "b", "url": "wss://example.com/socket"]), appId: "app1", callback: CallbackRecorder().makeCallback())
+        manager.connectSocket(params: DMPMap(["socketId": "b", "url": "wss://example.com/socket"]), appId: "app1", appVersion: "0", callback: CallbackRecorder().makeCallback())
         drain(manager)
         for transport in factory.createdTransports { transport.simulateOpen() }
         drain(manager)
@@ -715,7 +976,7 @@ final class DMPWebSocketManagerTests: XCTestCase {
         var events: [RecordedEvent] = []
         manager.eventSinkForTest = { appId, cb, payload in events.append(RecordedEvent(appId: appId, callbackId: cb, payload: payload)) }
 
-        manager.connectSocket(params: url(), appId: "app1", callback: CallbackRecorder().makeCallback())
+        manager.connectSocket(params: url(), appId: "app1", appVersion: "0", callback: CallbackRecorder().makeCallback())
         drain(manager)
         manager.onSocketEvent(event: .message, params: DMPMap(["socketId": "s1", "callback": "cbMessage"]), appId: "app1")
         drain(manager)
@@ -743,7 +1004,7 @@ final class DMPWebSocketManagerTests: XCTestCase {
         var events: [RecordedEvent] = []
         manager.eventSinkForTest = { appId, cb, payload in events.append(RecordedEvent(appId: appId, callbackId: cb, payload: payload)) }
 
-        manager.connectSocket(params: url(), appId: "app1", callback: CallbackRecorder().makeCallback())
+        manager.connectSocket(params: url(), appId: "app1", appVersion: "0", callback: CallbackRecorder().makeCallback())
         drain(manager)
         manager.onSocketEvent(event: .close, params: DMPMap(["socketId": "s1", "callback": "cbClose"]), appId: "app1")
         manager.onSocketEvent(event: .error, params: DMPMap(["socketId": "s1", "callback": "cbError"]), appId: "app1")
@@ -758,7 +1019,7 @@ final class DMPWebSocketManagerTests: XCTestCase {
         XCTAssertTrue(events.isEmpty, "disposeOwner must be completely silent")
 
         let recorder = CallbackRecorder()
-        manager.connectSocket(params: url(), appId: "app1", callback: recorder.makeCallback())
+        manager.connectSocket(params: url(), appId: "app1", appVersion: "0", callback: recorder.makeCallback())
         drain(manager)
         XCTAssertEqual(recorder.lastSuccessErrMsg, "connectSocket:ok", "the same appId must start from a clean slate")
     }
@@ -773,7 +1034,7 @@ final class DMPWebSocketManagerTests: XCTestCase {
         var events: [RecordedEvent] = []
         manager.eventSinkForTest = { appId, cb, payload in events.append(RecordedEvent(appId: appId, callbackId: cb, payload: payload)) }
 
-        manager.connectSocket(params: url(), appId: "app1", callback: CallbackRecorder().makeCallback())
+        manager.connectSocket(params: url(), appId: "app1", appVersion: "0", callback: CallbackRecorder().makeCallback())
         drain(manager)
         manager.onSocketEvent(event: .close, params: DMPMap(["socketId": "s1", "callback": "cbClose"]), appId: "app1")
         drain(manager)
@@ -807,7 +1068,7 @@ final class DMPWebSocketManagerTests: XCTestCase {
         var events: [RecordedEvent] = []
         manager.eventSinkForTest = { appId, cb, payload in events.append(RecordedEvent(appId: appId, callbackId: cb, payload: payload)) }
 
-        manager.connectSocket(params: url(), appId: "app1", callback: CallbackRecorder().makeCallback())
+        manager.connectSocket(params: url(), appId: "app1", appVersion: "0", callback: CallbackRecorder().makeCallback())
         drain(manager)
         manager.onSocketEvent(event: .close, params: DMPMap(["socketId": "s1", "callback": "cbClose"]), appId: "app1")
         drain(manager)
@@ -825,5 +1086,80 @@ final class DMPWebSocketManagerTests: XCTestCase {
         let closeEvents = events.filter { $0.callbackId == "cbClose" }
         XCTAssertEqual(closeEvents.count, 1, "a failed send must not have pushed the idle deadline out")
         XCTAssertEqual(closeEvents.first?.payload.get("reason") as? String, "idle timeout")
+    }
+
+    // MARK: late send completions
+
+    func test_send_completionLandingAfterDisposeOwner_isDroppedAndArmsNoTimer() {
+        // The transport reports a cancelled send asynchronously, so a completion can land after the
+        // app was destroyed. Calling back then would reach a JS context that is already gone, and
+        // rearming the idle timer would keep the removed entry alive until the timeout fires.
+        let (manager, factory, scheduling) = makeManager()
+        manager.setIdleTimeoutMs(10_000)
+        drain(manager)
+
+        var events: [RecordedEvent] = []
+        manager.eventSinkForTest = { appId, cb, payload in events.append(RecordedEvent(appId: appId, callbackId: cb, payload: payload)) }
+
+        manager.connectSocket(params: url(), appId: "app1", appVersion: "0", callback: CallbackRecorder().makeCallback())
+        drain(manager)
+        manager.onSocketEvent(event: .close, params: DMPMap(["socketId": "s1", "callback": "cbClose"]), appId: "app1")
+        drain(manager)
+        let transport = factory.createdTransports[0]
+        transport.simulateOpen()
+        drain(manager)
+
+        transport.deferSendCompletions = true
+        let recorder = CallbackRecorder()
+        manager.sendSocketMessage(params: DMPMap(["socketId": "s1", "data": "hello"]), appId: "app1", callback: recorder.makeCallback())
+        drain(manager)
+
+        manager.disposeOwner(appId: "app1")
+        events.removeAll()
+        transport.flushSendCompletions()
+        drain(manager)
+
+        XCTAssertNil(recorder.lastSuccessErrMsg, "a completion landing after disposeOwner has nowhere to report to")
+        XCTAssertNil(recorder.lastErrMsg)
+        XCTAssertEqual(recorder.completeCount, 0)
+
+        scheduling.advance(by: 20)
+        drain(manager)
+        XCTAssertTrue(events.isEmpty, "no timer may outlive disposeOwner")
+    }
+
+    func test_send_completionLandingAfterClose_stillSettlesButRearmsNoIdleTimer() {
+        // Unlike disposeOwner, an ordinary close leaves the JS context alive, so the caller's
+        // callback still has to settle - it just must not resurrect the idle timer.
+        let (manager, factory, scheduling) = makeManager()
+        manager.setIdleTimeoutMs(10_000)
+        drain(manager)
+
+        var events: [RecordedEvent] = []
+        manager.eventSinkForTest = { appId, cb, payload in events.append(RecordedEvent(appId: appId, callbackId: cb, payload: payload)) }
+
+        manager.connectSocket(params: url(), appId: "app1", appVersion: "0", callback: CallbackRecorder().makeCallback())
+        drain(manager)
+        manager.onSocketEvent(event: .close, params: DMPMap(["socketId": "s1", "callback": "cbClose"]), appId: "app1")
+        drain(manager)
+        let transport = factory.createdTransports[0]
+        transport.simulateOpen()
+        drain(manager)
+
+        transport.deferSendCompletions = true
+        let recorder = CallbackRecorder()
+        manager.sendSocketMessage(params: DMPMap(["socketId": "s1", "data": "hello"]), appId: "app1", callback: recorder.makeCallback())
+        drain(manager)
+
+        manager.closeSocket(params: DMPMap(["socketId": "s1"]), appId: "app1", callback: CallbackRecorder().makeCallback())
+        drain(manager)
+        transport.flushSendCompletions()
+        drain(manager)
+
+        XCTAssertEqual(recorder.lastSuccessErrMsg, "sendSocketMessage:ok", "the caller is still around and must be settled")
+
+        scheduling.advance(by: 20)
+        drain(manager)
+        XCTAssertEqual(events.filter { $0.callbackId == "cbClose" }.count, 1, "the explicit close is the only close; no idle timeout may follow it")
     }
 }

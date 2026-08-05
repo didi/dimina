@@ -88,14 +88,36 @@ final class FakeTransport: DMPSocketTransport {
         lastRequest = request
     }
 
+    /// When true, send completions are held instead of invoked, so a test can decide when they
+    /// land - the real transport reports a cancelled send asynchronously, well after teardown.
+    var deferSendCompletions = false
+    private var pendingSendCompletions: [(Error?) -> Void] = []
+
     func send(text: String, completion: @escaping (Error?) -> Void) {
         sentTexts.append(text)
+        if deferSendCompletions {
+            pendingSendCompletions.append(completion)
+            return
+        }
         completion(sendResult)
     }
 
     func send(data: Data, completion: @escaping (Error?) -> Void) {
         sentData.append(data)
+        if deferSendCompletions {
+            pendingSendCompletions.append(completion)
+            return
+        }
         completion(sendResult)
+    }
+
+    /// Fires every held send completion, in order.
+    func flushSendCompletions() {
+        let pending = pendingSendCompletions
+        pendingSendCompletions.removeAll()
+        for completion in pending {
+            completion(sendResult)
+        }
     }
 
     func close(code: Int, reason: Data?) {

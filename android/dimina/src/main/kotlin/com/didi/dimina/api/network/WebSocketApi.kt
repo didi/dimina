@@ -53,7 +53,12 @@ class WebSocketApi : BaseApiHandler() {
         val hasSocketId = params.has("socketId")
 
         when (apiName) {
-            CONNECT_SOCKET -> manager.connectSocket(appId, params, responseCallback)
+            CONNECT_SOCKET -> manager.connectSocket(
+                appId,
+                activity.getMiniProgram().versionCode.toString(),
+                params,
+                responseCallback,
+            )
             SEND_SOCKET_MESSAGE -> manager.sendSocketMessage(appId, hasSocketId, params, responseCallback)
             CLOSE_SOCKET -> manager.closeSocket(appId, hasSocketId, params, responseCallback)
             ON_SOCKET_OPEN -> manager.onSocketEvent("open", appId, hasSocketId, params, apiName, responseCallback)

@@ -67,6 +67,7 @@ internal data class TransportConnectSpec(
     val protocols: List<String>,
     val tcpNoDelay: Boolean,
     val perMessageDeflate: Boolean,
+    val connectTimeoutMs: Int,
 )
 
 /** Best-effort timing hints for profile completion; all optional. */
@@ -113,6 +114,12 @@ private class SocketEntry(val socketId: String) {
     var openedAtMs: Long = 0L
 
     /**
+     * 校验后的连接超时值（来自 connectSocket 里的 WebSocketValidation.validateTimeout），
+     * 供 startDialing 构造 TransportConnectSpec 时使用——两者不在同一个函数里，靠这个字段带过去。
+     */
+    var connectTimeoutMs: Int = WebSocketManager.DEFAULT_CONNECT_TIMEOUT_MS
+
+    /**
      * 已派发过的 open 载荷。connectSocket 一返回原生就立刻开始拨号，本机回环握手可能
      * 只要几毫秒，比调用方紧接着发来的 onSocketOpen 注册消息还快；如果这次注册输了
      * 这场竞速，只能靠在 onSocketEvent 里把这份载荷补发给它，否则这个 open 事件就永久丢了。
@@ -129,7 +136,14 @@ private class OwnerState(val appId: String) {
 
     // Legacy (no-socketId) global API state.
     var legacyBoundSocketId: String? = null
-    val legacySlots: MutableMap<String, String> = mutableMapOf()
+
+    /**
+     * Ordered, de-duplicated per-event listener ids for the global `wx.onSocketXxx` API.
+     * Same shape as [SocketEntry.listeners]: fe keeps one callback id per registered listener
+     * function and sends a separate `onSocketXxx` for each, so a single id per event would
+     * silently drop every listener but the last one.
+     */
+    val legacySlots: MutableMap<String, LinkedHashSet<String>> = mutableMapOf()
 
     var backgrounded: Boolean = false
     var graceTimer: Cancellable? = null
@@ -288,7 +302,7 @@ class WebSocketManager internal constructor(
      * Handles a `connectSocket` invocation (always task-mode: connectSocket always carries a
      * socketId). Triggers `success`/`fail`/`complete` on [responseCallback] via ApiUtils.
      */
-    fun connectSocket(appId: String, params: JSONObject, responseCallback: (String) -> Unit) {
+    fun connectSocket(appId: String, appVersion: String, params: JSONObject, responseCallback: (String) -> Unit) {
         executor.execute {
             val owner = getOrCreateOwner(appId)
 
@@ -331,10 +345,14 @@ class WebSocketManager internal constructor(
                 is WebSocketValidation.Result.Ok -> protocolsResult.value
             }
 
-            val headerResult = WebSocketValidation.validateHeader(params.optRawOrNull("header"), validUrl.origin)
-            val header = when (headerResult) {
+            val headerResult = WebSocketValidation.validateHeader(params.optRawOrNull("header"))
+            val callerHeader = when (headerResult) {
                 is WebSocketValidation.Result.Fail -> { fail(headerResult.errMsg); return@execute }
                 is WebSocketValidation.Result.Ok -> headerResult.value
+            }
+            // 容器自己的 Referer：调用方传的那份已经在校验里被丢掉了，这里补上固定值。
+            val header = LinkedHashMap(callerHeader).apply {
+                put("Referer", WebSocketValidation.refererValue(appId, appVersion))
             }
 
             val tcpNoDelay = params.optBoolean("tcpNoDelay", false)
@@ -342,6 +360,7 @@ class WebSocketManager internal constructor(
 
             val entry = SocketEntry(socketId)
             entry.fetchStartMs = clock.nowMs()
+            entry.connectTimeoutMs = timeoutMs
             owner.sockets[socketId] = entry
 
             // Bind if no live legacy binding exists yet.
@@ -412,8 +431,17 @@ class WebSocketManager internal constructor(
             }
         }
 
-        val spec = TransportConnectSpec(validUrl.url, header, protocols, tcpNoDelay, perMessageDeflate)
-        entry.transportHandle = transport.connect(spec, callbacks)
+        val spec = TransportConnectSpec(validUrl.url, header, protocols, tcpNoDelay, perMessageDeflate, entry.connectTimeoutMs)
+        entry.transportHandle = try {
+            transport.connect(spec, callbacks)
+        } catch (e: Exception) {
+            // The dial can fail synchronously - OkHttp's request builder throws on a header the
+            // validator let through, for instance. The executor only logs whatever escapes here, so
+            // without this the entry would sit in CONNECTING until the connect timer fires, minutes
+            // after `success` was already reported. Same thread as the rest of the state machine.
+            handleTransportFailure(owner, entry, e.message)
+            return
+        }
     }
 
     private fun handleTransportOpen(
@@ -472,7 +500,10 @@ class WebSocketManager internal constructor(
         if (!owner.sockets.containsKey(entry.socketId)) return
         if (!entry.opened) {
             // Defensive: an unopened connection must never surface `close`.
-            terminateHandshakeWithError(owner, entry, normalizeConnectFailureErrMsg(reason))
+            // The reason here comes off the wire and is entirely the server's to choose, so it is
+            // deliberately dropped rather than folded into the API-level error string - iOS and
+            // HarmonyOS both report the generic connection-failed text on this path.
+            terminateHandshakeWithError(owner, entry, normalizeConnectFailureErrMsg(null))
             return
         }
         val reportedCode = entry.requestedCloseCode ?: code
@@ -583,7 +614,7 @@ class WebSocketManager internal constructor(
             emitter(ApiUtils.createCallbackResponse(callbackId, payload))
         }
         if (owner.legacyBoundSocketId == entry.socketId) {
-            owner.legacySlots[event]?.let { callbackId ->
+            owner.legacySlots[event]?.forEach { callbackId ->
                 emitter(ApiUtils.createCallbackResponse(callbackId, payload))
             }
         }
@@ -773,16 +804,14 @@ class WebSocketManager internal constructor(
 
     /**
      * Handles `onSocketOpen`/`onSocketMessage`/`onSocketError`/`onSocketClose`: registers a
-     * persistent callback id (`params.callback`) for `event`, task-mode (ordered multi-listener,
-     * section 2.1) or legacy-global-mode (single slot, section 2.9) per [hasSocketId].
+     * persistent callback id (`params.callback`) for `event`, task-mode or legacy-global-mode per
+     * [hasSocketId]. Both modes keep an ordered, de-duplicated set of ids: fe stores one callback
+     * id per registered listener function and sends a separate `onSocketXxx` for each of them.
      * `event` is one of "open"|"message"|"error"|"close". [apiName] is the actual bridge API name
      * (e.g. "onSocketOpen") used for the completion `errMsg`.
      *
-     * fe's `invokeAPI` wraps every on-/off-listener call through `invokePromiseAPI` (these API
-     * names are not in its `promiseUnsupportedApis` whitelist), which always attaches a temporary
-     * `success`/`fail` callback id to `params` expecting one of them to fire. Without completing
-     * it here, that Promise never resolves and the two temp callback ids leak in the JS callback
-     * store forever - so every registration/unregistration must still invoke success/complete.
+     * success/complete are still invoked for every registration and unregistration so the bridge
+     * call has a definite outcome on the fe side, matching every other API here.
      */
     fun onSocketEvent(
         event: String,
@@ -815,7 +844,7 @@ class WebSocketManager internal constructor(
                         }
                     }
                 } else {
-                    owner.legacySlots[event] = callbackId
+                    owner.legacySlots.getOrPut(event) { LinkedHashSet() }.add(callbackId)
                 }
             }
             ApiUtils.invokeSuccess(params, JSONObject().put("errMsg", "$apiName:ok"), responseCallback)
@@ -825,10 +854,10 @@ class WebSocketManager internal constructor(
 
     /**
      * Handles `offSocketOpen`/`offSocketMessage`/`offSocketError`/`offSocketClose`.
-     * Task-mode: if `params.callback` is a usable string id, remove exactly that id; otherwise
-     * (fe quirk) clear all listeners for that (socketId, event).
-     * Legacy-global-mode: fe never exports global off*; treat defensively the same way against the slot.
-     * See [onSocketEvent] for why success/complete must always fire.
+     * Both modes: if `params.callback` is a usable string id, remove exactly that id and leave the
+     * other listeners of that event alone; otherwise clear every listener for that event.
+     * fe exports the global `wx.offSocketOpen`/`offSocketMessage`/`offSocketError`/`offSocketClose`,
+     * so the legacy path is reachable and must behave the same as the task-mode one.
      */
     fun offSocketEvent(
         event: String,
@@ -848,10 +877,9 @@ class WebSocketManager internal constructor(
                     if (callbackId.isNotEmpty()) set.remove(callbackId) else set.clear()
                 }
             } else {
-                if (callbackId.isNotEmpty()) {
-                    if (owner.legacySlots[event] == callbackId) owner.legacySlots.remove(event)
-                } else {
-                    owner.legacySlots.remove(event)
+                val slot = owner.legacySlots[event]
+                if (slot != null) {
+                    if (callbackId.isNotEmpty()) slot.remove(callbackId) else slot.clear()
                 }
             }
             ApiUtils.invokeSuccess(params, JSONObject().put("errMsg", "$apiName:ok"), responseCallback)
@@ -899,6 +927,10 @@ internal class OkHttpSocketTransport : SocketTransport {
         if (spec.tcpNoDelay) {
             clientBuilder = clientBuilder.socketFactory(tcpNoDelaySocketFactory)
         }
+        // OkHttp 默认连接超时 10 秒，调用方要求更长时会被它先掐断。这里跟着请求值走，
+        // 并留一点余量，让容器自己的连接定时器始终先到，OkHttp 的超时只当兜底——否则
+        // 两个超时同时到点，最终报的是哪一条错误就不确定了。
+        clientBuilder = clientBuilder.connectTimeout(spec.connectTimeoutMs.toLong() + 1000, TimeUnit.MILLISECONDS)
         val client = clientBuilder.build()
 
         val listener = object : WebSocketListener() {

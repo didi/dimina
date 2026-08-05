@@ -17,7 +17,7 @@ function bytes(buffer) {
 describe('local network socket service adapters', () => {
 	beforeEach(() => {
 		vi.mocked(invokeAPI).mockReset()
-		callback.clear()
+		callback.remove()
 	})
 
 	it('binds UDP synchronously and returns the native port', () => {

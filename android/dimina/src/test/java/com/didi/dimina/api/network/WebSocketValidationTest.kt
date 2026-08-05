@@ -8,6 +8,12 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
+ * One row of the cross-platform `validateCloseCode` boundary table shared with the iOS and
+ * HarmonyOS test suites - [label] identifies the input at a glance in a failure message.
+ */
+private data class CloseCodeCase(val label: String, val input: Any?, val expected: WebSocketValidation.Result<Int>)
+
+/**
  * Covers the pure [WebSocketValidation] functions. Error strings here have no `<api>:fail`
  * prefix - that's added by WebSocketManager.
  */
@@ -44,18 +50,6 @@ class WebSocketValidationTest {
             WebSocketValidation.Result.Fail("invalid url"),
             WebSocketValidation.validateUrl("ws://example.com/path#frag"),
         )
-    }
-
-    @Test
-    fun validateUrlComputesOriginOmittingDefaultPort() {
-        val result = WebSocketValidation.validateUrl("ws://example.com:80/path") as WebSocketValidation.Result.Ok
-        assertEquals("http://example.com", result.value.origin)
-    }
-
-    @Test
-    fun validateUrlComputesOriginWithNonDefaultPort() {
-        val result = WebSocketValidation.validateUrl("wss://example.com:1234/path") as WebSocketValidation.Result.Ok
-        assertEquals("https://example.com:1234", result.value.origin)
     }
 
     // ---- validateTimeout ----
@@ -136,16 +130,9 @@ class WebSocketValidationTest {
     // ---- validateHeader ----
 
     @Test
-    fun validateHeaderInjectsOriginWhenMissing() {
-        val result = WebSocketValidation.validateHeader(null, "http://example.com") as WebSocketValidation.Result.Ok
-        assertEquals("http://example.com", result.value["Origin"])
-        assertEquals(1, result.value.size)
-    }
-
-    @Test
     fun validateHeaderStoresTrimmedNameNotRawKey() {
         val header = JSONObject().apply { put("  X-Custom  ", "v") }
-        val result = WebSocketValidation.validateHeader(header, "http://example.com") as WebSocketValidation.Result.Ok
+        val result = WebSocketValidation.validateHeader(header) as WebSocketValidation.Result.Ok
         assertEquals("v", result.value["X-Custom"])
         assertTrue(!result.value.containsKey("  X-Custom  "))
     }
@@ -154,7 +141,7 @@ class WebSocketValidationTest {
     fun validateHeaderRejectsNonObject() {
         assertEquals(
             WebSocketValidation.Result.Fail("header must be an object"),
-            WebSocketValidation.validateHeader(JSONArray(), "http://example.com"),
+            WebSocketValidation.validateHeader(JSONArray()),
         )
     }
 
@@ -165,7 +152,7 @@ class WebSocketValidationTest {
             put("Sec-WebSocket-Key", "abc")
             put("X-Custom", "ok")
         }
-        val result = WebSocketValidation.validateHeader(header, "http://example.com") as WebSocketValidation.Result.Ok
+        val result = WebSocketValidation.validateHeader(header) as WebSocketValidation.Result.Ok
         assertNull(result.value["Host"])
         assertNull(result.value["Sec-WebSocket-Key"])
         assertEquals("ok", result.value["X-Custom"])
@@ -176,7 +163,7 @@ class WebSocketValidationTest {
         val header = JSONObject().apply { put("X-Custom", "a\r\nEvil: 1") }
         assertEquals(
             WebSocketValidation.Result.Fail("invalid header"),
-            WebSocketValidation.validateHeader(header, "http://example.com"),
+            WebSocketValidation.validateHeader(header),
         )
     }
 
@@ -185,23 +172,56 @@ class WebSocketValidationTest {
         val header = JSONObject().apply { put("X-Custom\r\nEvil", "1") }
         assertEquals(
             WebSocketValidation.Result.Fail("invalid header"),
-            WebSocketValidation.validateHeader(header, "http://example.com"),
+            WebSocketValidation.validateHeader(header),
         )
+    }
+
+    @Test
+    fun validateHeaderRejectsNamesThatAreNotRfcTokens() {
+        // A CRLF-only check would let all of these through, and the request builder would then
+        // throw synchronously long after `success` had already been reported to the caller.
+        for (name in listOf("Bad:Name", "Bad Name", "Bad\tName", "Bad\"Name", "Bad(Name)", "Bad/Name")) {
+            val header = JSONObject().apply { put(name, "v") }
+            assertEquals(
+                "expected $name to be rejected",
+                WebSocketValidation.Result.Fail("invalid header"),
+                WebSocketValidation.validateHeader(header),
+            )
+        }
+    }
+
+    @Test
+    fun validateHeaderAcceptsEveryRfcTokenCharacterInAName() {
+        val name = "!#\$%&'*+-.^_`|~0Az"
+        val header = JSONObject().apply { put(name, "v") }
+        val result = WebSocketValidation.validateHeader(header) as WebSocketValidation.Result.Ok
+        assertEquals("v", result.value[name])
+    }
+
+    @Test
+    fun validateHeaderRejectsControlCharactersInValue() {
+        // NUL, SOH, vertical tab, unit separator, DEL - none may travel in a field value.
+        for (value in listOf("a\u0000b", "a\u0001b", "a\u000Bb", "a\u001Fb", "a\u007Fb")) {
+            val header = JSONObject().apply { put("X-Custom", value) }
+            assertEquals(
+                WebSocketValidation.Result.Fail("invalid header"),
+                WebSocketValidation.validateHeader(header),
+            )
+        }
+    }
+
+    @Test
+    fun validateHeaderKeepsTabAndSpaceInValue() {
+        val header = JSONObject().apply { put("X-Custom", "a\tb c") }
+        val result = WebSocketValidation.validateHeader(header) as WebSocketValidation.Result.Ok
+        assertEquals("a\tb c", result.value["X-Custom"])
     }
 
     @Test
     fun validateHeaderDropsNullValue() {
         val header = JSONObject().apply { put("X-Custom", JSONObject.NULL) }
-        val result = WebSocketValidation.validateHeader(header, "http://example.com") as WebSocketValidation.Result.Ok
+        val result = WebSocketValidation.validateHeader(header) as WebSocketValidation.Result.Ok
         assertNull(result.value["X-Custom"])
-    }
-
-    @Test
-    fun validateHeaderDoesNotOverwriteCallerOriginRegardlessOfCase() {
-        val header = JSONObject().apply { put("origin", "http://caller.example") }
-        val result = WebSocketValidation.validateHeader(header, "http://example.com") as WebSocketValidation.Result.Ok
-        assertEquals("http://caller.example", result.value["origin"])
-        assertEquals(1, result.value.size)
     }
 
     // ---- validateCloseCode ----
@@ -232,6 +252,54 @@ class WebSocketValidationTest {
     @Test
     fun validateCloseCodeRejectsNonInteger() {
         assertEquals(WebSocketValidation.Result.Fail("invalid code"), WebSocketValidation.validateCloseCode(1000.5))
+    }
+
+    /**
+     * Cross-platform contract table (WebIDL `WebSocket.close(code)` semantics, string args coerced
+     * via ToNumber): shared boundary values are checked against iOS/HarmonyOS test suites for the
+     * same behavior. Kept as one table (rather than one @Test per row) so the whole contract is
+     * visible at a glance, but each [CloseCodeCase.label] pinpoints exactly which input failed.
+     *
+     * Known pre-existing gap this table exposes: the current Android implementation parses strings
+     * with `trim().toIntOrNull()`, which rejects a decimal-looking-but-integer-valued string like
+     * "3000.0" - the new contract requires JS `Number()` semantics instead, which accepts it as 3000.
+     */
+    @Test
+    fun validateCloseCodeCrossPlatformBoundaryTable() {
+        val ok1000 = WebSocketValidation.Result.Ok(1000)
+        val ok3000 = WebSocketValidation.Result.Ok(3000)
+        val ok4999 = WebSocketValidation.Result.Ok(4999)
+        val fail = WebSocketValidation.Result.Fail("invalid code")
+
+        val cases = listOf(
+            CloseCodeCase("missing (null)", null, ok1000),
+            CloseCodeCase("int 1000 (lower boundary, exact)", 1000, ok1000),
+            CloseCodeCase("int 999 (just below 1000)", 999, fail),
+            CloseCodeCase("int 1001 (just above 1000)", 1001, fail),
+            CloseCodeCase("int 2999 (just below the 3000-4999 band)", 2999, fail),
+            CloseCodeCase("int 3000 (band lower boundary)", 3000, ok3000),
+            CloseCodeCase("int 4999 (band upper boundary)", 4999, ok4999),
+            CloseCodeCase("int 5000 (just above the band)", 5000, fail),
+            CloseCodeCase("double 3000.0 (integer-valued, finite)", 3000.0, ok3000),
+            CloseCodeCase("double 3000.5 (fractional)", 3000.5, fail),
+            CloseCodeCase("double NaN", Double.NaN, fail),
+            CloseCodeCase("double +Infinity", Double.POSITIVE_INFINITY, fail),
+            CloseCodeCase("string \"3000\"", "3000", ok3000),
+            CloseCodeCase("string \" 3000 \" (padded whitespace, trimmed first)", " 3000 ", ok3000),
+            CloseCodeCase("string \"3000.0\" (ToNumber must accept trailing .0 as integer-valued)", "3000.0", ok3000),
+            CloseCodeCase("string \"3000.5\" (fractional string)", "3000.5", fail),
+            CloseCodeCase("string \"abc\" (non-numeric -> NaN)", "abc", fail),
+            CloseCodeCase("string \"\" (empty after trim)", "", fail),
+            CloseCodeCase("string \"  \" (whitespace-only, empty after trim)", "  ", fail),
+            CloseCodeCase("boolean true", true, fail),
+            CloseCodeCase("boolean false", false, fail),
+            CloseCodeCase("JSONArray (wrong type)", JSONArray().put(3000), fail),
+            CloseCodeCase("JSONObject (wrong type)", JSONObject().put("code", 3000), fail),
+        )
+
+        cases.forEach { case ->
+            assertEquals(case.label, case.expected, WebSocketValidation.validateCloseCode(case.input))
+        }
     }
 
     // ---- validateReason ----

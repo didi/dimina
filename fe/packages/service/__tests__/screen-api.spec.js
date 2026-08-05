@@ -15,7 +15,7 @@ describe('screen capture event api', () => {
 	beforeEach(() => {
 		offUserCaptureScreen()
 		vi.mocked(invokeAPI).mockReset()
-		callback.clear()
+		callback.remove()
 	})
 
 	it('keeps capture screen listeners alive', () => {

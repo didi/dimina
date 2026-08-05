@@ -60,8 +60,11 @@ export class DMPContainerBridgesModuleWebSocket extends DMPContainerBridgesModul
   }
 
   connectSocket(params: DMPMap, callback: DMPBridgeCallback): void {
+    // 版本号直接问 bundleLoader 要，不走 this.appData.jsAppVersion：主线程上的
+    // appData 是空壳（见 DMPContainerBridgesModule 构造函数），只有 worker 那份才有值。
+    const appVersion = this.app.bundleManager.bundleLoader.getJsAppVersion() ?? '';
     DMPWebSocketManager.sharedInstance()
-      .connectSocket(this.app.appConfig.appId, this.app.appIndex, params, callback);
+      .connectSocket(this.app.appConfig.appId, this.app.appIndex, appVersion, params, callback);
   }
 
   sendSocketMessage(params: DMPMap, callback: DMPBridgeCallback): void {

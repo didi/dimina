@@ -38,6 +38,10 @@ struct ContentView: View {
         let manager = DMPAppManager.sharedInstance()
         var appConfig = DMPAppConfig(appName: item.appName, appId: item.id)
         appConfig.isDebugMode = true
+        // 版本号要从列表项带过来。不带的话 versionCode 是 nil，容器注入的 Referer
+        // 里版本段就一直是 0，服务端看不出装的是哪个包。
+        appConfig.versionCode = item.versionCode
+        appConfig.versionName = item.versionName
         let app = manager.appWithConfig(appConfig: appConfig)
 
         // 设置DMPNavigator

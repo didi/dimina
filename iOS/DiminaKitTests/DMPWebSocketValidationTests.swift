@@ -86,17 +86,15 @@ final class DMPWebSocketValidationTests: XCTestCase {
     // MARK: header
 
     func test_validateHeader_errorsOnNonObject() {
-        let url = URL(string: "wss://example.com/socket")!
-        XCTAssertEqual(DMPWebSocketValidation.validateHeader("nope", url: url).errorTail, DMPWebSocketValidation.ErrorTail.headerNotObject)
+        XCTAssertEqual(DMPWebSocketValidation.validateHeader("nope").errorTail, DMPWebSocketValidation.ErrorTail.headerNotObject)
     }
 
     func test_validateHeader_dropsForbiddenHeadersSilently() {
-        let url = URL(string: "wss://example.com/socket")!
         let result = DMPWebSocketValidation.validateHeader([
             "Connection": "keep-alive",
             "Sec-WebSocket-Key": "abc",
             "X-Custom": "value",
-        ], url: url)
+        ])
         let header = result.value!
         XCTAssertNil(header["Connection"])
         XCTAssertNil(header["Sec-WebSocket-Key"])
@@ -104,48 +102,41 @@ final class DMPWebSocketValidationTests: XCTestCase {
     }
 
     func test_validateHeader_errorsOnCRLFInjection() {
-        let url = URL(string: "wss://example.com/socket")!
-        let result = DMPWebSocketValidation.validateHeader(["X-Evil": "value\r\nInjected: true"], url: url)
+        let result = DMPWebSocketValidation.validateHeader(["X-Evil": "value\r\nInjected: true"])
         XCTAssertEqual(result.errorTail, DMPWebSocketValidation.ErrorTail.invalidHeader)
     }
 
+    func test_validateHeader_errorsOnNamesThatAreNotRfcTokens() {
+        // A CRLF-only check lets all of these through; the platform's request builder is then free
+        // to reject or mangle them, and the three platforms stop agreeing on what a header is.
+        for name in ["Bad:Name", "Bad Name", "Bad\tName", "Bad\"Name", "Bad(Name)", "Bad/Name"] {
+            let result = DMPWebSocketValidation.validateHeader([name: "v"])
+            XCTAssertEqual(result.errorTail, DMPWebSocketValidation.ErrorTail.invalidHeader, "expected \(name) to be rejected")
+        }
+    }
+
+    func test_validateHeader_acceptsEveryRfcTokenCharacterInAName() {
+        let name = "!#$%&'*+-.^_`|~0Az"
+        let result = DMPWebSocketValidation.validateHeader([name: "v"])
+        XCTAssertEqual(result.value?[name], "v")
+    }
+
+    func test_validateHeader_errorsOnControlCharactersInValue() {
+        // NUL, SOH, vertical tab, unit separator, DEL - none may travel in a field value.
+        for value in ["a\u{0000}b", "a\u{0001}b", "a\u{000B}b", "a\u{001F}b", "a\u{007F}b"] {
+            let result = DMPWebSocketValidation.validateHeader(["X-Custom": value])
+            XCTAssertEqual(result.errorTail, DMPWebSocketValidation.ErrorTail.invalidHeader)
+        }
+    }
+
+    func test_validateHeader_keepsTabAndSpaceInValue() {
+        let result = DMPWebSocketValidation.validateHeader(["X-Custom": "a\tb c"])
+        XCTAssertEqual(result.value?["X-Custom"], "a\tb c")
+    }
+
     func test_validateHeader_dropsNullValue() {
-        let url = URL(string: "wss://example.com/socket")!
-        let result = DMPWebSocketValidation.validateHeader(["X-Null": NSNull()], url: url)
+        let result = DMPWebSocketValidation.validateHeader(["X-Null": NSNull()])
         XCTAssertNil(result.value!["X-Null"])
-    }
-
-    func test_validateHeader_injectsOriginForWss() {
-        let url = URL(string: "wss://example.com:8443/socket")!
-        let result = DMPWebSocketValidation.validateHeader(nil, url: url)
-        XCTAssertEqual(result.value?["Origin"], "https://example.com:8443")
-    }
-
-    func test_validateHeader_injectsOriginForWs() {
-        let url = URL(string: "ws://example.com/socket")!
-        let result = DMPWebSocketValidation.validateHeader(nil, url: url)
-        XCTAssertEqual(result.value?["Origin"], "http://example.com")
-    }
-
-    func test_validateHeader_originStripsExplicitDefaultPort() {
-        // An explicitly-written default port (:80 for ws, :443 for wss) must be stripped from the
-        // Origin header, matching Android's URI-based origin computation and the dimina-kit
-        // `new URL(...).origin` ground truth - a non-default port must be kept.
-        let wss = DMPWebSocketValidation.validateHeader(nil, url: URL(string: "wss://example.com:443/socket")!)
-        XCTAssertEqual(wss.value?["Origin"], "https://example.com")
-
-        let ws = DMPWebSocketValidation.validateHeader(nil, url: URL(string: "ws://example.com:80/socket")!)
-        XCTAssertEqual(ws.value?["Origin"], "http://example.com")
-
-        let nonDefault = DMPWebSocketValidation.validateHeader(nil, url: URL(string: "wss://example.com:80/socket")!)
-        XCTAssertEqual(nonDefault.value?["Origin"], "https://example.com:80", "port 80 is not the default for wss, must be kept")
-    }
-
-    func test_validateHeader_doesNotOverrideCallerSuppliedOrigin_caseInsensitive() {
-        let url = URL(string: "wss://example.com/socket")!
-        let result = DMPWebSocketValidation.validateHeader(["origin": "https://caller.example"], url: url)
-        XCTAssertEqual(result.value?["origin"], "https://caller.example")
-        XCTAssertNil(result.value?["Origin"])
     }
 
     // MARK: closeSocket code
@@ -169,6 +160,150 @@ final class DMPWebSocketValidationTests: XCTestCase {
 
     func test_validateCloseCode_rejectsNonInteger() {
         XCTAssertEqual(DMPWebSocketValidation.validateCloseCode(1000.5).errorTail, DMPWebSocketValidation.ErrorTail.invalidCode)
+    }
+
+    // MARK: closeSocket code — cross-platform boundary table
+    //
+    // One test per input shape, kept 1:1 with the Android/HarmonyOS
+    // counterparts for this contract: missing/NSNull -> default 1000;
+    // numbers must be finite integers; strings are trimmed then parsed with
+    // JS `Number()` semantics (empty string -> failure, not 0); booleans and
+    // other non-numeric/non-string shapes (arrays, dictionaries) fail at the
+    // type layer. Range check: exactly 1000 or within [3000, 4999].
+    //
+    // NOTE: as of this writing, `jsNumberValue` still maps an empty/blank
+    // string to 0 and a Bool to 1/0 instead of failing at the type layer —
+    // but since 0 and 1 both fall outside the valid code ranges, the range
+    // check downstream produces the same "invalid code" failure either way.
+    // The string/bool/array/dictionary cases below therefore currently PASS
+    // by coincidence, not because the type-layer check exists yet; they pin
+    // the *observable* contract so a future reimplementation of either layer
+    // cannot silently regress it.
+
+    func test_boundaryTable_missing_defaultsTo1000() {
+        let result = DMPWebSocketValidation.validateCloseCode(nil)
+        XCTAssertEqual(result.value, 1000)
+    }
+
+    func test_boundaryTable_nsNull_defaultsTo1000() {
+        let result = DMPWebSocketValidation.validateCloseCode(NSNull())
+        XCTAssertEqual(result.value, 1000)
+    }
+
+    func test_boundaryTable_int1000_isValidNormalClosure() {
+        let result = DMPWebSocketValidation.validateCloseCode(1000)
+        XCTAssertEqual(result.value, 1000)
+    }
+
+    func test_boundaryTable_int999_isBelowValidRange() {
+        let result = DMPWebSocketValidation.validateCloseCode(999)
+        XCTAssertEqual(result.errorTail, DMPWebSocketValidation.ErrorTail.invalidCode)
+    }
+
+    func test_boundaryTable_int1001_isJustAbove1000() {
+        let result = DMPWebSocketValidation.validateCloseCode(1001)
+        XCTAssertEqual(result.errorTail, DMPWebSocketValidation.ErrorTail.invalidCode)
+    }
+
+    func test_boundaryTable_int2999_isJustBelowAppRange() {
+        let result = DMPWebSocketValidation.validateCloseCode(2999)
+        XCTAssertEqual(result.errorTail, DMPWebSocketValidation.ErrorTail.invalidCode)
+    }
+
+    func test_boundaryTable_int3000_isAppRangeLowerBound() {
+        let result = DMPWebSocketValidation.validateCloseCode(3000)
+        XCTAssertEqual(result.value, 3000)
+    }
+
+    func test_boundaryTable_int4999_isAppRangeUpperBound() {
+        let result = DMPWebSocketValidation.validateCloseCode(4999)
+        XCTAssertEqual(result.value, 4999)
+    }
+
+    func test_boundaryTable_int5000_isAboveAppRange() {
+        let result = DMPWebSocketValidation.validateCloseCode(5000)
+        XCTAssertEqual(result.errorTail, DMPWebSocketValidation.ErrorTail.invalidCode)
+    }
+
+    func test_boundaryTable_double3000Point0_isAWholeNumber() {
+        let result = DMPWebSocketValidation.validateCloseCode(3000.0)
+        XCTAssertEqual(result.value, 3000)
+    }
+
+    func test_boundaryTable_double3000Point5_isNotAnInteger() {
+        let result = DMPWebSocketValidation.validateCloseCode(3000.5)
+        XCTAssertEqual(result.errorTail, DMPWebSocketValidation.ErrorTail.invalidCode)
+    }
+
+    func test_boundaryTable_doubleNaN_isNotFinite() {
+        let result = DMPWebSocketValidation.validateCloseCode(Double.nan)
+        XCTAssertEqual(result.errorTail, DMPWebSocketValidation.ErrorTail.invalidCode)
+    }
+
+    func test_boundaryTable_doubleInfinity_isNotFinite() {
+        let result = DMPWebSocketValidation.validateCloseCode(Double.infinity)
+        XCTAssertEqual(result.errorTail, DMPWebSocketValidation.ErrorTail.invalidCode)
+    }
+
+    func test_boundaryTable_stringPlainDigits3000_parsesToValidCode() {
+        let result = DMPWebSocketValidation.validateCloseCode("3000")
+        XCTAssertEqual(result.value, 3000)
+    }
+
+    func test_boundaryTable_stringPaddedWithSpaces3000_isTrimmedFirst() {
+        let result = DMPWebSocketValidation.validateCloseCode(" 3000 ")
+        XCTAssertEqual(result.value, 3000)
+    }
+
+    func test_boundaryTable_stringDecimalWhole3000Point0_parsesToValidCode() {
+        let result = DMPWebSocketValidation.validateCloseCode("3000.0")
+        XCTAssertEqual(result.value, 3000)
+    }
+
+    func test_boundaryTable_stringDecimalFraction3000Point5_isNotAnInteger() {
+        let result = DMPWebSocketValidation.validateCloseCode("3000.5")
+        XCTAssertEqual(result.errorTail, DMPWebSocketValidation.ErrorTail.invalidCode)
+    }
+
+    func test_boundaryTable_stringNonNumericAbc_failsToParse() {
+        let result = DMPWebSocketValidation.validateCloseCode("abc")
+        XCTAssertEqual(result.errorTail, DMPWebSocketValidation.ErrorTail.invalidCode)
+    }
+
+    func test_boundaryTable_stringEmpty_mustFailNotDefaultToZero() {
+        // New contract: an empty string must fail at the type layer, not
+        // coerce to 0 (which happens to fail anyway via the range check —
+        // see the NOTE above the MARK for this section).
+        let result = DMPWebSocketValidation.validateCloseCode("")
+        XCTAssertEqual(result.errorTail, DMPWebSocketValidation.ErrorTail.invalidCode)
+    }
+
+    func test_boundaryTable_stringWhitespaceOnly_mustFailNotDefaultToZero() {
+        let result = DMPWebSocketValidation.validateCloseCode("  ")
+        XCTAssertEqual(result.errorTail, DMPWebSocketValidation.ErrorTail.invalidCode)
+    }
+
+    func test_boundaryTable_boolTrue_mustFailNotCoerceToOne() {
+        // New contract: a boolean must fail at the type layer, not coerce to
+        // 1 (which happens to fail anyway via the range check — see the NOTE
+        // above the MARK for this section).
+        let result = DMPWebSocketValidation.validateCloseCode(true)
+        XCTAssertEqual(result.errorTail, DMPWebSocketValidation.ErrorTail.invalidCode)
+    }
+
+    func test_boundaryTable_boolFalse_mustFailNotCoerceToZero() {
+        let result = DMPWebSocketValidation.validateCloseCode(false)
+        XCTAssertEqual(result.errorTail, DMPWebSocketValidation.ErrorTail.invalidCode)
+    }
+
+    func test_boundaryTable_arrayWrongType_isRejected() {
+        let result = DMPWebSocketValidation.validateCloseCode([3000])
+        XCTAssertEqual(result.errorTail, DMPWebSocketValidation.ErrorTail.invalidCode)
+    }
+
+    func test_boundaryTable_dictionaryWrongType_isRejected() {
+        let result = DMPWebSocketValidation.validateCloseCode(["code": 3000])
+        XCTAssertEqual(result.errorTail, DMPWebSocketValidation.ErrorTail.invalidCode)
     }
 
     // MARK: closeSocket reason
@@ -213,8 +348,7 @@ final class DMPWebSocketValidationTests: XCTestCase {
     // MARK: header name trimming fidelity
 
     func test_validateHeader_storesTrimmedNameNotRawName() {
-        let url = URL(string: "wss://example.com/socket")!
-        let result = DMPWebSocketValidation.validateHeader(["  X-Custom  ": "value"], url: url)
+        let result = DMPWebSocketValidation.validateHeader(["  X-Custom  ": "value"])
         XCTAssertEqual(result.value?["X-Custom"], "value")
         XCTAssertNil(result.value?["  X-Custom  "], "the untrimmed key must not leak into the outgoing header")
     }

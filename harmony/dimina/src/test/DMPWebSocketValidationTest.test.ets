@@ -49,8 +49,8 @@ export default function dmpWebSocketValidationTest() {
       expect(r.errMsg).assertEqual('invalid url');
     });
 
-    it('url_strips_userinfo_from_host_for_origin', 0, () => {
-      // host 只应包含 host[:port]，不应包含 userinfo/凭据（否则 Origin 头会泄漏凭据）。
+    it('url_strips_userinfo_from_host', 0, () => {
+      // host 只应包含 host[:port]，不应包含 userinfo/凭据。
       const r = DMPWebSocketValidation.validateUrl('ws://user:pass@example.com:8080/path');
       expect(r.ok).assertTrue();
       expect(r.host).assertEqual('example.com:8080');
@@ -194,43 +194,42 @@ export default function dmpWebSocketValidationTest() {
       expect(r.errMsg).assertEqual('invalid header');
     });
 
-    it('header_origin_injected_when_missing', 0, () => {
-      const r = DMPWebSocketValidation.validateHeader({});
+    it('header_rejects_names_that_are_not_rfc_tokens', 0, () => {
+      // 只查 CRLF 的话这些都会放行，各端的请求构造器再各自决定拒绝还是改写，
+      // 三端接受的字段名集合就对不上了。
+      const names: string[] = ['Bad:Name', 'Bad Name', 'Bad\tName', 'Bad"Name', 'Bad(Name)', 'Bad/Name'];
+      for (const name of names) {
+        const header: Record<string, string> = {};
+        header[name] = 'v';
+        const r = DMPWebSocketValidation.validateHeader(header);
+        expect(r.ok).assertFalse();
+        expect(r.errMsg).assertEqual('invalid header');
+      }
+    });
+
+    it('header_accepts_every_rfc_token_character_in_a_name', 0, () => {
+      const name = '!#$%&\'*+-.^_`|~0Az';
+      const header: Record<string, string> = {};
+      header[name] = 'v';
+      const r = DMPWebSocketValidation.validateHeader(header);
       expect(r.ok).assertTrue();
-      DMPWebSocketValidation.injectOriginIfMissing(r.value, 'wss:', 'example.com');
-      expect(r.value.get('Origin')).assertEqual('https://example.com');
+      expect(r.value.get(name)).assertEqual('v');
     });
 
-    it('header_origin_not_overridden_case_insensitively', 0, () => {
-      const r = DMPWebSocketValidation.validateHeader({ 'origin': 'https://custom.example' });
+    it('header_rejects_control_characters_in_value', 0, () => {
+      // NUL、SOH、垂直制表符、单元分隔符、DEL 都不能出现在字段值里。
+      const values: string[] = ['a\u0000b', 'a\u0001b', 'a\u000Bb', 'a\u001Fb', 'a\u007Fb'];
+      for (const value of values) {
+        const r = DMPWebSocketValidation.validateHeader({ 'X-Custom': value });
+        expect(r.ok).assertFalse();
+        expect(r.errMsg).assertEqual('invalid header');
+      }
+    });
+
+    it('header_keeps_tab_and_space_in_value', 0, () => {
+      const r = DMPWebSocketValidation.validateHeader({ 'X-Custom': 'a\tb c' });
       expect(r.ok).assertTrue();
-      DMPWebSocketValidation.injectOriginIfMissing(r.value, 'wss:', 'example.com');
-      expect(r.value.get('origin')).assertEqual('https://custom.example');
-      expect(r.value.has('Origin')).assertFalse();
-    });
-
-    it('header_ws_scheme_injects_http_origin', 0, () => {
-      const r = DMPWebSocketValidation.validateHeader({});
-      DMPWebSocketValidation.injectOriginIfMissing(r.value, 'ws:', 'example.com:8080');
-      expect(r.value.get('Origin')).assertEqual('http://example.com:8080');
-    });
-
-    it('header_origin_strips_explicit_default_port', 0, () => {
-      // An explicitly-written default port (:80 for ws, :443 for wss) must be stripped from
-      // the Origin header, matching Android's URI-based origin computation and the
-      // dimina-kit `new URL(...).origin` ground truth - a non-default port must be kept.
-      const ws = DMPWebSocketValidation.validateHeader({});
-      DMPWebSocketValidation.injectOriginIfMissing(ws.value, 'ws:', 'example.com:80');
-      expect(ws.value.get('Origin')).assertEqual('http://example.com');
-
-      const wss = DMPWebSocketValidation.validateHeader({});
-      DMPWebSocketValidation.injectOriginIfMissing(wss.value, 'wss:', 'example.com:443');
-      expect(wss.value.get('Origin')).assertEqual('https://example.com');
-
-      const nonDefault = DMPWebSocketValidation.validateHeader({});
-      DMPWebSocketValidation.injectOriginIfMissing(nonDefault.value, 'wss:', 'example.com:80');
-      // port 80 is not the default for wss, must be kept
-      expect(nonDefault.value.get('Origin')).assertEqual('https://example.com:80');
+      expect(r.value.get('X-Custom')).assertEqual('a\tb c');
     });
 
     // ---------------- close code ----------------
@@ -260,6 +259,167 @@ export default function dmpWebSocketValidationTest() {
 
     it('close_code_rejects_non_integer', 0, () => {
       const r = DMPWebSocketValidation.validateCloseCode(3000.5);
+      expect(r.ok).assertFalse();
+      expect(r.errMsg).assertEqual('invalid code');
+    });
+
+    // ---------------- close code：三端对照边界用例表 ----------------
+    // 按 WebIDL `WebSocket.close(code)` 语义：缺失/null/undefined 通过取默认值 1000；
+    // number 必须有限整数；string 先 trim，空串直接不通过，否则按 `Number()` 转换后
+    // 必须是有限整数；boolean/数组/对象等其他类型一律不通过；最后统一做范围校验
+    // （必须等于 1000 或落在 [3000, 4999]）。errMsg 沿用本文件既有约定，所有不通过
+    // 情形统一是 'invalid code'（校验函数当前对类型/范围两类失败共用同一条 errMsg）。
+    // 本组用例会被拿去和 Android/iOS 的同名对照用例比对，命名与取值需保持一致。
+
+    it('close_code_boundary_undefined_passes_with_default_1000', 0, () => {
+      const r = DMPWebSocketValidation.validateCloseCode(undefined);
+      expect(r.ok).assertTrue();
+      expect(r.value).assertEqual(1000);
+    });
+
+    it('close_code_boundary_null_passes_with_default_1000', 0, () => {
+      const r = DMPWebSocketValidation.validateCloseCode(null);
+      expect(r.ok).assertTrue();
+      expect(r.value).assertEqual(1000);
+    });
+
+    it('close_code_boundary_number_1000_passes', 0, () => {
+      const r = DMPWebSocketValidation.validateCloseCode(1000);
+      expect(r.ok).assertTrue();
+      expect(r.value).assertEqual(1000);
+    });
+
+    it('close_code_boundary_number_999_fails', 0, () => {
+      const r = DMPWebSocketValidation.validateCloseCode(999);
+      expect(r.ok).assertFalse();
+      expect(r.errMsg).assertEqual('invalid code');
+    });
+
+    it('close_code_boundary_number_1001_fails', 0, () => {
+      const r = DMPWebSocketValidation.validateCloseCode(1001);
+      expect(r.ok).assertFalse();
+      expect(r.errMsg).assertEqual('invalid code');
+    });
+
+    it('close_code_boundary_number_2999_fails', 0, () => {
+      const r = DMPWebSocketValidation.validateCloseCode(2999);
+      expect(r.ok).assertFalse();
+      expect(r.errMsg).assertEqual('invalid code');
+    });
+
+    it('close_code_boundary_number_3000_passes', 0, () => {
+      const r = DMPWebSocketValidation.validateCloseCode(3000);
+      expect(r.ok).assertTrue();
+      expect(r.value).assertEqual(3000);
+    });
+
+    it('close_code_boundary_number_4999_passes', 0, () => {
+      const r = DMPWebSocketValidation.validateCloseCode(4999);
+      expect(r.ok).assertTrue();
+      expect(r.value).assertEqual(4999);
+    });
+
+    it('close_code_boundary_number_5000_fails', 0, () => {
+      const r = DMPWebSocketValidation.validateCloseCode(5000);
+      expect(r.ok).assertFalse();
+      expect(r.errMsg).assertEqual('invalid code');
+    });
+
+    it('close_code_boundary_number_3000_point_0_passes', 0, () => {
+      // 3000.0 与 3000 数值上相等、Number.isInteger 为真，必须按整数通过。
+      const r = DMPWebSocketValidation.validateCloseCode(3000.0);
+      expect(r.ok).assertTrue();
+      expect(r.value).assertEqual(3000);
+    });
+
+    it('close_code_boundary_number_3000_point_5_fails', 0, () => {
+      const r = DMPWebSocketValidation.validateCloseCode(3000.5);
+      expect(r.ok).assertFalse();
+      expect(r.errMsg).assertEqual('invalid code');
+    });
+
+    it('close_code_boundary_number_NaN_fails', 0, () => {
+      const r = DMPWebSocketValidation.validateCloseCode(Number.NaN);
+      expect(r.ok).assertFalse();
+      expect(r.errMsg).assertEqual('invalid code');
+    });
+
+    it('close_code_boundary_number_Infinity_fails', 0, () => {
+      const r = DMPWebSocketValidation.validateCloseCode(Number.POSITIVE_INFINITY);
+      expect(r.ok).assertFalse();
+      expect(r.errMsg).assertEqual('invalid code');
+    });
+
+    it('close_code_boundary_string_3000_passes_with_value_3000', 0, () => {
+      // 当前 Harmony 实现是 `typeof raw !== 'number'` 直接拒，字符串 "3000" 会被判
+      // 不通过；新契约要求按 ToNumber 语义解析后通过，取值 3000。三端最大差异点。
+      const r = DMPWebSocketValidation.validateCloseCode('3000');
+      expect(r.ok).assertTrue();
+      expect(r.value).assertEqual(3000);
+    });
+
+    it('close_code_boundary_string_padded_3000_passes_with_value_3000', 0, () => {
+      // 先 trim 再解析：首尾空白不应影响解析结果。
+      const r = DMPWebSocketValidation.validateCloseCode(' 3000 ');
+      expect(r.ok).assertTrue();
+      expect(r.value).assertEqual(3000);
+    });
+
+    it('close_code_boundary_string_3000_point_0_passes_with_value_3000', 0, () => {
+      const r = DMPWebSocketValidation.validateCloseCode('3000.0');
+      expect(r.ok).assertTrue();
+      expect(r.value).assertEqual(3000);
+    });
+
+    it('close_code_boundary_string_3000_point_5_fails', 0, () => {
+      // Number('3000.5') = 3000.5，不是整数，必须不通过。
+      const r = DMPWebSocketValidation.validateCloseCode('3000.5');
+      expect(r.ok).assertFalse();
+      expect(r.errMsg).assertEqual('invalid code');
+    });
+
+    it('close_code_boundary_string_abc_fails', 0, () => {
+      // Number('abc') = NaN。
+      const r = DMPWebSocketValidation.validateCloseCode('abc');
+      expect(r.ok).assertFalse();
+      expect(r.errMsg).assertEqual('invalid code');
+    });
+
+    it('close_code_boundary_string_empty_fails', 0, () => {
+      // 空串必须直接不通过——不能落到 Number('') === 0 的通用转换分支（0 不在
+      // 合法范围内固然也会被范围校验拦下，但空串必须在解析阶段就判定不通过）。
+      const r = DMPWebSocketValidation.validateCloseCode('');
+      expect(r.ok).assertFalse();
+      expect(r.errMsg).assertEqual('invalid code');
+    });
+
+    it('close_code_boundary_string_whitespace_only_fails', 0, () => {
+      // trim 后为空串，同上必须不通过。
+      const r = DMPWebSocketValidation.validateCloseCode('  ');
+      expect(r.ok).assertFalse();
+      expect(r.errMsg).assertEqual('invalid code');
+    });
+
+    it('close_code_boundary_boolean_true_fails', 0, () => {
+      const r = DMPWebSocketValidation.validateCloseCode(true);
+      expect(r.ok).assertFalse();
+      expect(r.errMsg).assertEqual('invalid code');
+    });
+
+    it('close_code_boundary_boolean_false_fails', 0, () => {
+      const r = DMPWebSocketValidation.validateCloseCode(false);
+      expect(r.ok).assertFalse();
+      expect(r.errMsg).assertEqual('invalid code');
+    });
+
+    it('close_code_boundary_array_fails', 0, () => {
+      const r = DMPWebSocketValidation.validateCloseCode([3000]);
+      expect(r.ok).assertFalse();
+      expect(r.errMsg).assertEqual('invalid code');
+    });
+
+    it('close_code_boundary_plain_object_fails', 0, () => {
+      const r = DMPWebSocketValidation.validateCloseCode({ code: 3000 });
       expect(r.ok).assertFalse();
       expect(r.errMsg).assertEqual('invalid code');
     });

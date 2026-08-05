@@ -18,6 +18,16 @@ import { DMPMap } from '../main/ets/Utils/DMPMap';
 
 export class FakeTransport implements DMPSocketTransport {
   connectCalls: any[] = [];
+  /** 第一次拨号时下发的某个请求头，取不到返回 ''。 */
+  dialedHeader(name: string): string {
+    const call = this.connectCalls[0];
+    if (!call) {
+      return '';
+    }
+    const header = call.options?.header as Record<string, string> | undefined;
+    return header && header[name] ? header[name] : '';
+  }
+
   sendCalls: (string | ArrayBuffer)[] = [];
   closeCalls: webSocket.WebSocketCloseOptions[] = [];
   sendShouldSucceed: boolean = true;
@@ -28,9 +38,29 @@ export class FakeTransport implements DMPSocketTransport {
     callback(null as unknown as BusinessError, true);
   }
 
+  /**
+   * 打开后 send 的结果回调会被扣住，由用例决定什么时候回——真实传输层在连接被拆掉之后
+   * 还会异步回一次取消结果，这条迟到的路径只能这样构造。
+   */
+  deferSendCompletions: boolean = false;
+  private pendingSendCallbacks: AsyncCallback<boolean>[] = [];
+
   send(data: string | ArrayBuffer, callback: AsyncCallback<boolean>): void {
     this.sendCalls.push(data);
+    if (this.deferSendCompletions) {
+      this.pendingSendCallbacks.push(callback);
+      return;
+    }
     callback(null as unknown as BusinessError, this.sendShouldSucceed);
+  }
+
+  /** 按顺序把扣住的 send 结果回调全部放出去。 */
+  flushSendCompletions(): void {
+    const pending: AsyncCallback<boolean>[] = this.pendingSendCallbacks;
+    this.pendingSendCallbacks = [];
+    for (const cb of pending) {
+      cb(null as unknown as BusinessError, this.sendShouldSucceed);
+    }
   }
 
   close(options: webSocket.WebSocketCloseOptions, callback: AsyncCallback<boolean>): void {
@@ -303,7 +333,7 @@ export function newEmptyParams(): DMPMap {
 export function connectAndCapture(manager: DMPWebSocketManager, appId: string, appIndex: number,
   socketId: string): CallbackRecord[] {
   const cap = captureCallback();
-  manager.connectSocket(appId, appIndex, newConnectParams(socketId), cap.fn);
+  manager.connectSocket(appId, appIndex, '0', newConnectParams(socketId), cap.fn);
   return cap.calls;
 }
 

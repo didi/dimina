@@ -31,6 +31,11 @@ public class DMPApp {
         self.appIndex = appIndex
     }
 
+    /// 小程序包的 `versionCode`，未知时是 `0`。用于容器注入的 `Referer`。
+    func jsAppVersion() -> String {
+        return String(appConfig?.versionCode ?? 0)
+    }
+
     @MainActor
     public func launch(launchConfig: DMPLaunchConfig) async {
         guard !isLaunching else {

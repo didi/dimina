@@ -27,7 +27,13 @@ public class WebSocketAPI: DMPContainerApi {
 
     @BridgeMethod(CONNECT_SOCKET)
     var connectSocket: DMPBridgeMethodHandler = { param, env, callback in
-        DMPWebSocketManager.shared.connectSocket(params: param.getMap(), appId: env.appId, callback: callback)
+        let appVersion = DMPAppManager.sharedInstance().getApp(appIndex: env.appIndex)?.jsAppVersion() ?? "0"
+        DMPWebSocketManager.shared.connectSocket(
+            params: param.getMap(),
+            appId: env.appId,
+            appVersion: appVersion,
+            callback: callback
+        )
         return DMPNoneResult()
     }
 

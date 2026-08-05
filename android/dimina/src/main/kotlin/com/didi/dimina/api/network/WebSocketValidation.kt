@@ -32,8 +32,8 @@ object WebSocketValidation {
         data class Fail(val errMsg: String) : Result<Nothing>()
     }
 
-    /** Normalized `connectSocket` url: original string, lowercase scheme, and computed `Origin` value. */
-    data class ValidatedUrl(val url: String, val scheme: String, val origin: String)
+    /** Normalized `connectSocket` url: original string and lowercase scheme. */
+    data class ValidatedUrl(val url: String, val scheme: String)
 
     /**
      * Validates the `url` param: must parse, scheme must be `ws`/`wss`, no fragment.
@@ -51,19 +51,12 @@ object WebSocketValidation {
 
         val scheme = uri.scheme?.lowercase()
         if (scheme != "ws" && scheme != "wss") return Result.Fail("invalid url")
-        if (!uri.fragment.isNullOrEmpty()) return Result.Fail("invalid url")
+        // rawFragment 而不是 fragment.isNullOrEmpty()：`ws://host/#` 解析出来的是空字符串
+        // 而不是 null，用后者会把带空 fragment 的地址放过去，iOS 和 HarmonyOS 都是拒绝的。
+        if (uri.rawFragment != null) return Result.Fail("invalid url")
         if (uri.host.isNullOrEmpty()) return Result.Fail("invalid url")
 
-        val mappedScheme = if (scheme == "wss") "https" else "http"
-        val defaultPort = if (mappedScheme == "https") 443 else 80
-        val port = uri.port
-        val origin = if (port == -1 || port == defaultPort) {
-            "$mappedScheme://${uri.host}"
-        } else {
-            "$mappedScheme://${uri.host}:$port"
-        }
-
-        return Result.Ok(ValidatedUrl(urlStr, scheme, origin))
+        return Result.Ok(ValidatedUrl(urlStr, scheme))
     }
 
     /**
@@ -100,12 +93,12 @@ object WebSocketValidation {
     }
 
     /**
-     * Validates `header` and injects `Origin` if absent (case-insensitive check).
-     * Missing -> just {Origin}; non-object -> fail "header must be an object";
-     * disallowed/blank names dropped silently; CRLF in name or value -> fail "invalid header";
+     * Validates `header`. Missing -> empty map; non-object -> fail "header must be an object";
+     * disallowed/blank names dropped silently; CRLF in name or value, a name that is not an RFC
+     * token, or a control character in a value -> fail "invalid header";
      * null/undefined values dropped; other values stringified.
      */
-    fun validateHeader(rawHeader: Any?, origin: String): Result<Map<String, String>> {
+    fun validateHeader(rawHeader: Any?): Result<Map<String, String>> {
         val map = LinkedHashMap<String, String>()
 
         if (rawHeader != null) {
@@ -114,16 +107,29 @@ object WebSocketValidation {
             val keys = rawHeader.keys()
             while (keys.hasNext()) {
                 val rawName = keys.next()
+                // CRLF 必须在 trim、禁用名和空值这些 continue 之前查。放在后面的话，
+                // "Host\r\n" 会因为 trim 后命中禁用名而被静默丢掉，"X-Test\r\n" 配空值
+                // 也会被丢掉，注入的换行反而不报错——HarmonyOS 就是先查的，三端得一致。
+                if (containsCrlf(rawName)) {
+                    return Result.Fail("invalid header")
+                }
+
                 val trimmedName = rawName.trim()
                 if (trimmedName.isEmpty() || trimmedName.lowercase() in DISALLOWED_HEADER_NAMES) {
                     continue
+                }
+                // 只查 CRLF 挡不住 "Bad:Name" 这类字段名：校验会放行，success 也已经发出去，
+                // 之后 OkHttp 的 Request.Builder 才同步抛错，条目就一直停在 CONNECTING，
+                // 调用方要等连接超时才知道失败。这里按 RFC 的 token 规则直接拒掉。
+                if (!HTTP_TOKEN_NAME.matches(trimmedName)) {
+                    return Result.Fail("invalid header")
                 }
 
                 val value = rawHeader.opt(rawName)
                 if (value == null || value == JSONObject.NULL) continue
 
                 val strValue = value.toString()
-                if (containsCrlf(rawName) || containsCrlf(strValue)) {
+                if (containsCrlf(strValue) || containsForbiddenControlChar(strValue)) {
                     return Result.Fail("invalid header")
                 }
 
@@ -134,40 +140,68 @@ object WebSocketValidation {
             }
         }
 
-        val hasOrigin = map.keys.any { it.equals("origin", ignoreCase = true) }
-        if (!hasOrigin) {
-            map["Origin"] = origin
-        }
         return Result.Ok(map)
     }
 
     /**
-     * Validates `closeSocket`'s `code`: missing -> 1000; non-integer or not(1000 or in [3000,4999]) -> fail "invalid code".
+     * The container-supplied `Referer`. WeChat fixes this header and forbids the caller from
+     * setting it (`https://servicewechat.com/{appid}/{version}/page-frame.html`); dimina uses its
+     * own domain, matching what the `request` path already emits (see HarmonyOS
+     * `DMPHttpParamsNext.addCommonHeaderParams`). A caller-supplied `referer` never reaches here -
+     * it is in [DISALLOWED_HEADER_NAMES] and gets dropped during header validation.
+     *
+     * `appVersion` is the mini-app's `versionCode`; `0` when unknown, which is also what WeChat
+     * documents for its dev/trial/review builds.
+     */
+    fun refererValue(appId: String, appVersion: String): String {
+        val version = appVersion.ifBlank { "0" }
+        return "https://servicedimina.com/$appId/$version/page-frame.html"
+    }
+
+    /**
+     * Decimal number literal accepted from a string `code`. Deliberately narrower than the
+     * platform's own string-to-double parsers, which additionally accept things JavaScript rejects
+     * (Java takes a trailing `d`/`f` suffix and hexadecimal float notation); keeping the shape
+     * explicit is what lets Android, iOS and HarmonyOS accept exactly the same set of strings.
+     */
+    private val DECIMAL_NUMBER = Regex("^[+-]?(\\d+(\\.\\d*)?|\\.\\d+)([eE][+-]?\\d+)?$")
+
+    /**
+     * Validates `closeSocket`'s `code`. Missing -> 1000. Host numbers and decimal-literal strings
+     * are accepted; an empty or blank string is rejected, as are booleans and every other type.
+     * The converted value must be a finite integer that is either 1000 or inside [3000, 4999],
+     * otherwise -> fail "invalid code".
+     *
+     * Note this is narrower than JavaScript's `Number()`, which also reads `0xBB8` and `0b1011`.
+     * The script layer coerces `code` with a real `Number()` before it reaches the bridge, so a
+     * mini program gets the full JavaScript semantics; this narrower rule is what a direct bridge
+     * caller sees, and it is identical on all three platforms.
      */
     fun validateCloseCode(rawCode: Any?): Result<Int> {
         if (rawCode == null) return Result.Ok(1000)
 
-        val intValue: Int = when (rawCode) {
-            is Int -> rawCode
-            is Long -> {
-                if (rawCode < Int.MIN_VALUE || rawCode > Int.MAX_VALUE) return Result.Fail("invalid code")
-                rawCode.toInt()
+        val doubleValue: Double = when (rawCode) {
+            is Boolean -> return Result.Fail("invalid code")
+            is Int -> rawCode.toDouble()
+            is Long -> rawCode.toDouble()
+            is Double -> rawCode
+            is Float -> rawCode.toDouble()
+            is String -> {
+                val trimmed = rawCode.trim()
+                if (!DECIMAL_NUMBER.matches(trimmed)) return Result.Fail("invalid code")
+                trimmed.toDoubleOrNull() ?: return Result.Fail("invalid code")
             }
-            is Double -> {
-                if (rawCode.isNaN() || rawCode.isInfinite() || rawCode != Math.floor(rawCode)) {
-                    return Result.Fail("invalid code")
-                }
-                rawCode.toInt()
-            }
-            is Float -> {
-                val d = rawCode.toDouble()
-                if (d.isNaN() || d.isInfinite() || d != Math.floor(d)) return Result.Fail("invalid code")
-                rawCode.toInt()
-            }
-            is String -> rawCode.trim().toIntOrNull() ?: return Result.Fail("invalid code")
             else -> return Result.Fail("invalid code")
         }
 
+        if (doubleValue.isNaN() || doubleValue.isInfinite() || doubleValue != Math.floor(doubleValue)) {
+            return Result.Fail("invalid code")
+        }
+        if (doubleValue < Int.MIN_VALUE.toDouble() || doubleValue > Int.MAX_VALUE.toDouble()) {
+            return Result.Fail("invalid code")
+        }
+
+        val intValue = doubleValue.toInt()
         return if (intValue == 1000 || intValue in 3000..4999) {
             Result.Ok(intValue)
         } else {
@@ -195,7 +229,27 @@ object WebSocketValidation {
         return s.contains('\r') || s.contains('\n')
     }
 
-    /** JS-`Number()`-ish coercion used by [validateTimeout]; non-coercible input yields NaN. */
+    /**
+     * RFC 7230 `token`: the only shape an HTTP field name may take. Anything else (a colon, a
+     * space, a quote) is rejected up front rather than left for the platform's request builder to
+     * throw on later.
+     */
+    private val HTTP_TOKEN_NAME = Regex("^[!#\$%&'*+\\-.^_`|~0-9A-Za-z]+\$")
+
+    /**
+     * True if [s] contains a control character that is not allowed in an HTTP field value. Values
+     * may hold visible characters, space and horizontal tab; CR and LF are caught separately by
+     * [containsCrlf] and report the same error.
+     */
+    internal fun containsForbiddenControlChar(s: String): Boolean {
+        return s.any { (it.code < 0x20 && it != '\t') || it.code == 0x7F }
+    }
+
+    /**
+     * Coercion used by [validateTimeout]: host numbers, booleans and decimal-literal strings;
+     * non-coercible input yields NaN. Narrower than JavaScript's `Number()` in the same way
+     * [validateCloseCode] is, and for the same reason - the script layer already coerced.
+     */
     private fun coerceToDouble(raw: Any): Double {
         return when (raw) {
             is Int -> raw.toDouble()

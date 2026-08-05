@@ -127,17 +127,13 @@ enum DMPWebSocketValidation {
         return .success(result)
     }
 
-    // MARK: - header (+ origin injection)
+    // MARK: - header
 
     /// Missing -> {}. Non-object -> error. Per-entry: trimmed-empty name or
     /// forbidden name -> silently dropped (not an error). Name or value
     /// containing CR/LF -> hard error (header injection guard). Null/undefined
     /// value -> dropped. Everything else stringified and kept.
-    ///
-    /// `scheme`/`host`/`port` (already-validated connect URL) are used only to
-    /// synthesize the auto-injected `Origin` header when the caller didn't
-    /// supply one (case-insensitively).
-    static func validateHeader(_ raw: Any?, url: URL) -> Result<[String: String]> {
+    static func validateHeader(_ raw: Any?) -> Result<[String: String]> {
         var header: [String: String] = [:]
 
         if let raw = raw, !(raw is NSNull) {
@@ -145,29 +141,63 @@ enum DMPWebSocketValidation {
                 return .failure(ErrorTail.headerNotObject)
             }
             for (rawName, rawValue) in dict {
+                // CRLF must be checked before any of the `continue`s below. Otherwise
+                // "Host\r\n" gets silently dropped for being a forbidden name once trimmed,
+                // and "X-Test\r\n" paired with a null value gets dropped too - the injected
+                // newline goes unreported. HarmonyOS checks it first; all three must agree.
+                if containsCRLF(rawName) {
+                    return .failure(ErrorTail.invalidHeader)
+                }
                 let trimmedName = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
                 if trimmedName.isEmpty || forbiddenHeaderNames.contains(trimmedName.lowercased()) {
                     continue
                 }
-                if containsCRLF(rawName) {
+                // A CRLF check alone lets "Bad:Name" through. Reject anything that is not an
+                // RFC token here so all three platforms accept the same set of header names.
+                if !isHTTPTokenName(trimmedName) {
                     return .failure(ErrorTail.invalidHeader)
                 }
                 if rawValue is NSNull {
                     continue
                 }
                 let stringValue = jsStringValue(rawValue)
-                if containsCRLF(stringValue) {
+                if containsCRLF(stringValue) || containsForbiddenControlChar(stringValue) {
                     return .failure(ErrorTail.invalidHeader)
                 }
                 header[trimmedName] = stringValue
             }
         }
 
-        if !header.keys.contains(where: { $0.lowercased() == "origin" }) {
-            header["Origin"] = originValue(for: url)
-        }
-
         return .success(header)
+    }
+
+    /// The container-supplied `Referer`. WeChat fixes this header and forbids the caller from
+    /// setting it (`https://servicewechat.com/{appid}/{version}/page-frame.html`); dimina uses its
+    /// own domain, matching what the `request` path already emits (see HarmonyOS
+    /// `DMPHttpParamsNext.addCommonHeaderParams`). A caller-supplied `referer` never reaches here -
+    /// it is in `forbiddenHeaderNames` and gets dropped during header validation.
+    ///
+    /// `appVersion` is the mini-app's `versionCode`; `0` when unknown, which is also what WeChat
+    /// documents for its dev/trial/review builds.
+    static func refererValue(appId: String, appVersion: String) -> String {
+        let version = appVersion.isEmpty ? "0" : appVersion
+        return "https://servicedimina.com/\(appId)/\(version)/page-frame.html"
+    }
+
+    /// RFC 7230 `token` - the only shape an HTTP field name may take.
+    private static let httpTokenScalars = Set<Unicode.Scalar>(
+        "!#$%&'*+-.^_`|~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz".unicodeScalars
+    )
+
+    private static func isHTTPTokenName(_ s: String) -> Bool {
+        return !s.isEmpty && s.unicodeScalars.allSatisfy { httpTokenScalars.contains($0) }
+    }
+
+    /// True if `s` holds a control character an HTTP field value may not carry. Values may hold
+    /// visible characters, space and horizontal tab; CR and LF are caught by `containsCRLF` and
+    /// report the same error.
+    private static func containsForbiddenControlChar(_ s: String) -> Bool {
+        return s.unicodeScalars.contains { ($0.value < 0x20 && $0 != "\t") || $0.value == 0x7F }
     }
 
     private static func containsCRLF(_ s: String) -> Bool {
@@ -178,30 +208,57 @@ enum DMPWebSocketValidation {
         return s.unicodeScalars.contains { $0 == "\r" || $0 == "\n" }
     }
 
-    /// `ws` -> `http`, `wss` -> `https`; scheme+host[:port] only, no path. An explicitly-present
-    /// port equal to the scheme's default (80 for http, 443 for https) is omitted, matching
-    /// Android's `URI`-based origin computation and the `dimina-kit` `new URL(...).origin` ground
-    /// truth.
-    private static func originValue(for url: URL) -> String {
-        let scheme = (url.scheme?.lowercased() == "wss") ? "https" : "http"
-        guard let host = url.host else { return "" }
-        let defaultPort = (scheme == "https") ? 443 : 80
-        if let port = url.port, port != defaultPort {
-            return "\(scheme)://\(host):\(port)"
-        }
-        return "\(scheme)://\(host)"
-    }
-
     // MARK: - closeSocket code
 
-    /// Missing -> 1000. Non-integer, or neither exactly 1000 nor within
-    /// [3000, 4999] -> error.
+    /// Decimal number literal accepted from a string `code`. Deliberately narrower than the
+    /// platform's own string-to-double parsers, which additionally accept forms JavaScript rejects;
+    /// keeping the shape explicit is what lets Android, iOS and HarmonyOS accept exactly the same
+    /// set of strings.
+    private static let decimalNumberPattern = "^[+-]?([0-9]+(\\.[0-9]*)?|\\.[0-9]+)([eE][+-]?[0-9]+)?$"
+
+    /// Missing / NSNull -> 1000. Host numbers and decimal-literal strings are accepted; an empty or
+    /// blank string is rejected, as are booleans and every other type. The converted value must be
+    /// a finite integer that is either 1000 or within [3000, 4999], otherwise -> error.
+    ///
+    /// Note this is narrower than JavaScript's `Number()`, which also reads `0xBB8` and `0b1011`.
+    /// The script layer coerces `code` with a real `Number()` before it reaches the bridge, so a
+    /// mini program gets the full JavaScript semantics; this narrower rule is what a direct bridge
+    /// caller sees, and it is identical on all three platforms.
+    ///
+    /// Note this deliberately does not go through `jsNumberValue`, which maps blank strings and
+    /// booleans onto 0/1 - that is the right shape for `timeout`, but here those inputs must fail
+    /// on type rather than incidentally fall outside the accepted range.
     static func validateCloseCode(_ raw: Any?) -> Result<Int> {
         guard let raw = raw, !(raw is NSNull) else {
             return .success(defaultCloseCode)
         }
-        let number = jsNumberValue(raw)
+
+        let number: Double
+        switch raw {
+        case is Bool:
+            return .failure(ErrorTail.invalidCode)
+        case let n as NSNumber:
+            // NSNumber also boxes Bool on this bridge; the case above only catches a native Swift
+            // Bool, so re-check the boxed type before treating it as a number.
+            if CFGetTypeID(n) == CFBooleanGetTypeID() {
+                return .failure(ErrorTail.invalidCode)
+            }
+            number = n.doubleValue
+        case let s as String:
+            let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard trimmed.range(of: Self.decimalNumberPattern, options: .regularExpression) != nil,
+                  let parsed = Double(trimmed) else {
+                return .failure(ErrorTail.invalidCode)
+            }
+            number = parsed
+        default:
+            return .failure(ErrorTail.invalidCode)
+        }
+
         guard number.isFinite, number == number.rounded() else {
+            return .failure(ErrorTail.invalidCode)
+        }
+        guard number >= Double(Int32.min), number <= Double(Int32.max) else {
             return .failure(ErrorTail.invalidCode)
         }
         let code = Int(number)

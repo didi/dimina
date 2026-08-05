@@ -40,6 +40,9 @@ const DISALLOWED_HEADER_NAMES: Set<string> = new Set<string>([
   'sec-websocket-protocol', 'sec-websocket-version', 'upgrade',
 ]);
 
+/** RFC 7230 的 token，HTTP 字段名只能长这样。 */
+const HTTP_TOKEN_NAME = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
+
 /** ------------------------------------------------------------------ */
 /** 纯 JS 工具（URL 解析 / UTF-8 字节计数 / base64），零 SDK 依赖，见文件头注释 */
 /** ------------------------------------------------------------------ */
@@ -61,9 +64,9 @@ function parseWsUrl(raw: string): ParsedWsUrl {
     return result;
   }
   const authority = match[2];
-  // authority = [userinfo@]host[:port]。Origin 头只应含 host[:port]，不应包含
-  // userinfo/凭据，这里先剥离；剥离后的 host[:port] 再做字符集校验，拒绝
-  // "ws://bad host"（含空格）这类不合法字符串，而不是放到真机 SDK 深处才报错。
+  // authority = [userinfo@]host[:port]，先把 userinfo/凭据剥掉；剥离后的 host[:port]
+  // 再做字符集校验，拒绝 "ws://bad host"（含空格）这类不合法字符串，而不是放到真机
+  // SDK 深处才报错。
   const atIdx = authority.lastIndexOf('@');
   const hostPort = atIdx === -1 ? authority : authority.slice(atIdx + 1);
   if (!isValidHostPort(hostPort)) {
@@ -85,20 +88,6 @@ function isValidHostPort(hostPort: string): boolean {
     return /^\[[0-9a-fA-F:]+\](:[0-9]+)?$/.test(hostPort);
   }
   return /^[A-Za-z0-9.-]+(:[0-9]+)?$/.test(hostPort);
-}
-
-/** 若 host[:port] 里的端口就是该 scheme 的默认端口（ws->80, wss->443），剥掉端口
- *  只留 host，对齐 Android `URI`-based 与 dimina-kit `new URL(...).origin` 的 Origin
- *  计算规则——只用于 Origin 头，不影响实际拨号用的原始 URL。 */
-function stripDefaultPort(hostPort: string, scheme: string): string {
-  const defaultPort = scheme === 'wss:' ? '443' : '80';
-  const isBracket = hostPort.charAt(0) === '[';
-  const pattern = isBracket ? /^(\[[0-9a-fA-F:]+\]):([0-9]+)$/ : /^([A-Za-z0-9.-]+):([0-9]+)$/;
-  const match = pattern.exec(hostPort);
-  if (match && match[2] === defaultPort) {
-    return match[1];
-  }
-  return hostPort;
 }
 
 /** 计算字符串的 UTF-8 字节长度（JS 字符串本身是 UTF-16，逐码元换算，正确处理代理对）。 */
@@ -416,11 +405,18 @@ export namespace DMPWebSocketValidation {
       if (DISALLOWED_HEADER_NAMES.has(name.toLowerCase())) {
         continue; // 静默丢弃
       }
+      // 只查 CRLF 挡不住 "Bad:Name" 这类字段名。按 RFC 的 token 规则拒掉，
+      // 三端接受的字段名集合才是同一个。
+      if (!HTTP_TOKEN_NAME.test(name)) {
+        result.errMsg = 'invalid header';
+        return result;
+      }
       if (rawValue === null || rawValue === undefined) {
         continue; // 静默丢弃
       }
       const valueStr = String(rawValue);
-      if (/[\r\n]/.test(valueStr)) {
+      // 字段值只允许可见字符、空格和水平制表符。CR/LF 由上面那条正则单独查，报同一个错。
+      if (/[\r\n]/.test(valueStr) || /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/.test(valueStr)) {
         result.errMsg = 'invalid header';
         return result;
       }
@@ -430,20 +426,32 @@ export namespace DMPWebSocketValidation {
     return result;
   }
 
-  /** Origin 大小写不敏感注入：若 header 中不存在 origin 则补上（仅 origin 部分：scheme://host[:port]） */
-  export function injectOriginIfMissing(headers: Map<string, string>, scheme: string, host: string): void {
-    let hasOrigin = false;
-    headers.forEach((_v, k) => {
-      if (k.toLowerCase() === 'origin') {
-        hasOrigin = true;
-      }
-    });
-    if (!hasOrigin) {
-      const originScheme = scheme === 'wss:' ? 'https' : 'http';
-      headers.set('Origin', `${originScheme}://${stripDefaultPort(host, scheme)}`);
-    }
+  /** 容器注入的 Referer。微信固定该头且不允许调用方设置
+   *  （https://servicewechat.com/{appid}/{version}/page-frame.html），dimina 用自己的域名，
+   *  与 request 那条链路（DMPHttpParamsNext.addCommonHeaderParams）保持一致。调用方传的
+   *  referer 到不了这里——它在禁用头名单里，校验阶段就被丢掉了。
+   *  appVersion 是小程序包的 versionCode，取不到时用 '0'，与微信对开发版/体验版/审核版的
+   *  约定一致。 */
+  export function refererValue(appId: string, appVersion: string): string {
+    const version = appVersion.length > 0 ? appVersion : '0';
+    return `https://servicedimina.com/${appId}/${version}/page-frame.html`;
   }
 
+  /**
+   * 字符串形式的 code 接受的十进制写法。和 Android、iOS 用的是同一个式子，三端才会接受
+   * 完全相同的一组字符串——各自语言内置的字符串转数字都比这个宽，会放进 JavaScript 不认的写法。
+   */
+  const DECIMAL_NUMBER = /^[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$/;
+
+  /**
+   * 校验 closeSocket 的 code。不传 -> 1000。接受原生数字和十进制写法的字符串，空串和
+   * 纯空白拒绝，布尔和其他类型一律拒绝。转换出来的值必须是有限整数，且等于 1000 或落在
+   * [3000, 4999]，否则 errMsg 为 'invalid code'。
+   *
+   * 这比 JavaScript 的 `Number()` 窄：`Number()` 还认 `0xBB8`、`0b1011`。脚本层会在下桥前
+   * 用真正的 `Number()` 转一次，所以小程序拿到的是完整的 JavaScript 语义；这条较窄的规则
+   * 是直接调桥的调用方看到的，三端完全一致。
+   */
   export function validateCloseCode(raw: Object | undefined | null): CloseCodeValidationResult {
     const result = new CloseCodeValidationResult();
     if (raw === undefined || raw === null) {
@@ -451,16 +459,32 @@ export namespace DMPWebSocketValidation {
       result.value = DEFAULT_CLOSE_CODE;
       return result;
     }
-    if (typeof raw !== 'number' || !Number.isInteger(raw)) {
+
+    let numeric: number;
+    if (typeof raw === 'number') {
+      numeric = raw as number;
+    } else if (typeof raw === 'string') {
+      const trimmed = (raw as string).trim();
+      if (!DECIMAL_NUMBER.test(trimmed)) {
+        result.errMsg = 'invalid code';
+        return result;
+      }
+      numeric = Number(trimmed);
+    } else {
       result.errMsg = 'invalid code';
       return result;
     }
-    if (raw !== 1000 && (raw < 3000 || raw > 4999)) {
+
+    if (!Number.isFinite(numeric) || !Number.isInteger(numeric)) {
+      result.errMsg = 'invalid code';
+      return result;
+    }
+    if (numeric !== 1000 && (numeric < 3000 || numeric > 4999)) {
       result.errMsg = 'invalid code';
       return result;
     }
     result.ok = true;
-    result.value = raw;
+    result.value = numeric;
     return result;
   }
 
@@ -568,44 +592,12 @@ class DMPSocketListeners {
     }
     return this.close;
   }
-}
-
-class DMPLegacySlots {
-  private open: string = '';
-  private message: string = '';
-  private error: string = '';
-  private close: string = '';
-
-  get(event: string): string {
-    if (event === 'open') {
-      return this.open;
-    }
-    if (event === 'message') {
-      return this.message;
-    }
-    if (event === 'error') {
-      return this.error;
-    }
-    return this.close;
-  }
-
-  set(event: string, id: string): void {
-    if (event === 'open') {
-      this.open = id;
-    } else if (event === 'message') {
-      this.message = id;
-    } else if (event === 'error') {
-      this.error = id;
-    } else {
-      this.close = id;
-    }
-  }
 
   clearAll(): void {
-    this.open = '';
-    this.message = '';
-    this.error = '';
-    this.close = '';
+    this.open.clear();
+    this.message.clear();
+    this.error.clear();
+    this.close.clear();
   }
 }
 
@@ -637,7 +629,12 @@ class DMPOwnerState {
   appIndex: number = -1;
   sockets: Map<string, DMPSocketEntry> = new Map<string, DMPSocketEntry>();
   legacyBoundSocketId: string = '';
-  legacySlots: DMPLegacySlots = new DMPLegacySlots();
+  /**
+   * 全局 `wx.onSocketXxx` 的监听 id，结构和任务态的 entry.listeners 完全一样：有序、去重、
+   * 一个事件可以有多个。脚本层每个监听函数各存一个 callback id、各发一次 onSocketXxx，
+   * 一个事件只留一个 id 的话，除最后注册的那个之外全会被静默丢掉。
+   */
+  legacySlots: DMPSocketListeners = new DMPSocketListeners();
   backgrounded: boolean = false;
   graceTimerHandle: number = -1;
   /**
@@ -737,7 +734,7 @@ export class DMPWebSocketManager {
 
   /** ---------------- connectSocket ---------------- */
 
-  connectSocket(appId: string, appIndex: number, params: DMPMap, callback: DMPBridgeCallback): void {
+  connectSocket(appId: string, appIndex: number, appVersion: string, params: DMPMap, callback: DMPBridgeCallback): void {
     this.attachOwner(appId, appIndex); // 自愈：resetAndStartDimina 不会重建桥模块实例
     const owner = this.getOrCreateOwner(appId);
 
@@ -780,8 +777,8 @@ export class DMPWebSocketManager {
       invokeFail(callback, `connectSocket:fail ${headerResult.errMsg}`);
       return;
     }
-
-    DMPWebSocketValidation.injectOriginIfMissing(headerResult.value, urlResult.scheme, urlResult.host);
+    // 容器自己的 Referer：调用方传的那份已经在校验里被丢掉了，这里补上固定值。
+    headerResult.value.set('Referer', DMPWebSocketValidation.refererValue(appId, appVersion));
 
     // 9. 校验全过：登记条目（CREATED）、绑定 legacy、启动 connectTimer、立即 success，
     //    拨号通过微任务排队（best-effort 的同 tick 竞态取消窗口）。
@@ -857,6 +854,11 @@ export class DMPWebSocketManager {
 
   private handleSendResult(owner: DMPOwnerState, entry: DMPSocketEntry, err: BusinessError, ok: boolean,
     callback: DMPBridgeCallback): void {
+    // 发送结果可能来得很晚：连接被拆掉之后传输层还会异步回一次取消结果。owner 已经被
+    // disposeOwner 摘掉的话，它对应的 JS 上下文也没了，这个回调没有地方可去，直接丢弃。
+    if (this.owners.get(owner.appId) !== owner) {
+      return;
+    }
     if (err) {
       invokeFail(callback, `sendSocketMessage:fail ${err.message || 'WebSocket connection failed'}`);
       return;
@@ -865,7 +867,11 @@ export class DMPWebSocketManager {
       invokeFail(callback, 'sendSocketMessage:fail WebSocket is not connected');
       return;
     }
-    this.resetIdleTimerIfNeeded(owner, entry);
+    // 空闲定时器只能给还挂在 owner 上、状态仍是 OPEN 的那个 entry 重排。给已经移除的 entry
+    // 重排等于把它连同闭包一起留到超时才释放。
+    if (owner.sockets.get(entry.socketId) === entry && entry.state === DMPSocketState.OPEN) {
+      this.resetIdleTimerIfNeeded(owner, entry);
+    }
     invokeSuccess(callback, new DMPMap({ errMsg: 'sendSocketMessage:ok' }));
   }
 
@@ -1007,12 +1013,12 @@ export class DMPWebSocketManager {
           }
         }
       } else {
-        owner.legacySlots.set(event, callbackId);
+        owner.legacySlots.get(event).add(callbackId);
       }
     }
-    // on* 注册本身总是"成功"（fe 通用 invokeAPI 会为其自动包一层 Promise，见 fe/.../api/common/index.js
-    // 的 canReturnPromise 分支；触发一次 success 以清理该 Promise 对应的临时回调项，避免泄漏）。
-    // 载荷带 errMsg（对齐 Android/iOS 的 "onSocketXxx:ok" 约定，而不是空 Promise resolve({})）。
+    // on* 注册本身总是"成功"，回一次让这次桥调用在 fe 侧有确定结果，和这里其他接口一致。
+    // 脚本层的 createSocketEvent 发这类请求时带 keep: true、也不带自己的 success/fail/complete，
+    // 那边并没有人在等这个结果。载荷带 errMsg，对齐 Android/iOS 的 "onSocketXxx:ok" 约定。
     invokeSuccess(callback, new DMPMap({ errMsg: `${this.legacyApiName('on', event)}:ok` }));
   }
 
@@ -1026,13 +1032,19 @@ export class DMPWebSocketManager {
         if (callbackId) {
           entry.listeners.get(event).removeId(callbackId);
         } else {
-          // fe off* quirk：原始函数跨桥丢失，收到的实际只有 {socketId} -> 清空该事件全部监听
+          // 脚本层总是带着要摘的那个监听的 id 过来，连不带参数的 off() 也是遍历自己那张表、
+          // 逐个 id 各发一次。不带 id 的请求只可能来自直接调桥的调用方，只能理解成清空该事件。
           entry.listeners.get(event).clear();
         }
       }
     } else {
-      // fe 未导出全局 off*，此路径目前不会被触发，仅做防御性清空
-      owner.legacySlots.set(event, '');
+      // fe 导出了全局 wx.offSocketOpen/offSocketMessage/offSocketError/offSocketClose，
+      // 这条路径是会走到的，语义必须和任务态一致：带 id 就只摘这一个，不带就清空该事件。
+      if (callbackId) {
+        owner.legacySlots.get(event).removeId(callbackId);
+      } else {
+        owner.legacySlots.get(event).clear();
+      }
     }
     invokeSuccess(callback, new DMPMap({ errMsg: `${this.legacyApiName('off', event)}:ok` }));
   }
@@ -1070,13 +1082,29 @@ export class DMPWebSocketManager {
     transport.on('headerReceive', (respHeaders: webSocket.ResponseHeaders) => {
       this.handleHeaderReceive(owner, entry, respHeaders);
     });
-    transport.on('open', () => {
+    // 这三个回调的第一个参数都是 BusinessError。带错时第二个参数可能是 undefined，
+    // 不看 err 直接往下走的话：message 会把 undefined 当成二进制帧派发一条空消息，
+    // close 会按默认的 1000 派发一次「正常关闭」，open 甚至会让连接进入 OPEN。
+    // 有错就一律走 error 路径。
+    transport.on('open', (err: BusinessError) => {
+      if (err) {
+        this.handleTransportError(owner, entry, err);
+        return;
+      }
       this.handleOpen(owner, entry);
     });
     transport.on('message', (err: BusinessError, data: string | ArrayBuffer) => {
+      if (err) {
+        this.handleTransportError(owner, entry, err);
+        return;
+      }
       this.handleMessage(owner, entry, data);
     });
     transport.on('close', (err: BusinessError, result: webSocket.CloseResult) => {
+      if (err) {
+        this.handleTransportError(owner, entry, err);
+        return;
+      }
       this.handleClose(owner, entry, result);
     });
     transport.on('error', (err: BusinessError) => {
@@ -1147,8 +1175,14 @@ export class DMPWebSocketManager {
     }
     this.teardownEntryTimers(entry);
     owner.sockets.delete(entry.socketId);
+    this.detachTransport(entry);
     if (!entry.opened) {
-      // 未 open 的连接永不收 close（正常应已由 error 路径处理，这里仅防御）
+      // 没 open 过的连接不该报 close，但也不能什么都不报——直接 return 的话调用方的
+      // readyState 会永远停在 CONNECTING，那几个内部监听也回收不掉。按握手失败报 error，
+      // 和 Android 的 terminateHandshakeWithError、iOS 的 teardown(event: .error) 对齐。
+      this.dispatchEvent(owner, entry, 'error', {
+        errMsg: this.normalizeConnectErrorMessage(null),
+      });
       return;
     }
     const code = entry.hasRequestedClose ? entry.requestedCloseCode : (result?.code ?? DEFAULT_CLOSE_CODE);
@@ -1166,6 +1200,10 @@ export class DMPWebSocketManager {
     if (!entry.opened) {
       this.teardownEntryTimers(entry);
       owner.sockets.delete(entry.socketId);
+      // 握手失败也要摘监听。只从 map 里删条目的话，SDK 的 transport 仍然握着
+      // open/message/close/error/headerReceive 五个闭包，闭包里捕获了 owner 和 entry，
+      // 反复连接失败就会一直攒着不放，迟到的回调也还会进老闭包。
+      this.detachTransport(entry);
       this.dispatchEvent(owner, entry, 'error', { errMsg: msg });
       return;
     }
@@ -1342,9 +1380,9 @@ export class DMPWebSocketManager {
       this.pushEvent(owner, ids[i], payload);
     }
     if (owner.legacyBoundSocketId === entry.socketId) {
-      const legacyId = owner.legacySlots.get(event);
-      if (legacyId) {
-        this.pushEvent(owner, legacyId, payload);
+      const legacyIds = owner.legacySlots.get(event).snapshot();
+      for (let i = 0; i < legacyIds.length; i++) {
+        this.pushEvent(owner, legacyIds[i], payload);
       }
     }
   }

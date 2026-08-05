@@ -78,9 +78,27 @@ function assertCallbackSeq(seq, expected) {
 const openedTasks = []
 
 // 所有用例都用它建连接，好让清场能逐个确认终态。
-function connect(opts) {
-  const task = wx.connectSocket(opts)
-  openedTasks.push(task)
+function connect(opts = {}) {
+  // SocketTask 没有 readyState（微信也没有），所以名额是否已经释放只能靠终态事件判断。
+  const tracked = { terminal: false }
+  const markTerminal = () => {
+    tracked.terminal = true
+  }
+  const { fail, ...rest } = opts
+  const task = wx.connectSocket({
+    ...rest,
+    // 连接被直接拒绝（超并发上限、URL 不合法）时不会再有 error/close 事件，名额也
+    // 从没占上，直接记成终态，否则 resetOwnerState 会一直等到超时。
+    fail: (res) => {
+      markTerminal()
+      if (typeof fail === 'function') {
+        fail(res)
+      }
+    },
+  })
+  task.onClose(markTerminal)
+  task.onError(markTerminal)
+  openedTasks.push(tracked)
   return task
 }
 
@@ -97,18 +115,18 @@ async function resetOwnerState() {
     await quiet(() => off())
   }
   // closeSocket 的 success 只代表关闭被受理，条目要等传输层确认关闭才从并发名额里
-  // 释放。所以逐个盯 readyState 到 CLOSED，而不是拍一个固定延时。
+  // 释放。所以逐个盯每条连接的终态事件，而不是拍一个固定延时。
   const deadline = Date.now() + 5000
-  while (Date.now() < deadline && !openedTasks.every(task => task.readyState === 3)) {
+  while (Date.now() < deadline && !openedTasks.every(entry => entry.terminal)) {
     // eslint-disable-next-line no-await-in-loop
     await delay(100)
   }
   // 超时还没全进终态就必须报出来。静默清空追踪数组继续往下跑的话，名额还占着，
   // 后面每条都会误报，报告就没法看了。
-  if (!openedTasks.every(task => task.readyState === 3)) {
-    const states = openedTasks.map(task => task.readyState)
+  if (!openedTasks.every(entry => entry.terminal)) {
+    const pending = openedTasks.filter(entry => !entry.terminal).length
     openedTasks.length = 0
-    throw new Error(`socket cleanup timed out, readyState=${JSON.stringify(states)}`)
+    throw new Error(`socket cleanup timed out, ${pending} socket(s) never reached a terminal event`)
   }
   openedTasks.length = 0
   // 原生把条目移出 owner 与 JS 收到 close 事件是两条消息，留一点余量。
@@ -153,7 +171,6 @@ Page({
       ['basic connect + open header', () => this.caseBasicOpen(url)],
       ['send/receive text echo', () => this.caseTextEcho(url)],
       ['two tasks stay isolated', () => this.caseTwoTaskIsolation(url)],
-      ['readyState follows the connection lifecycle', () => this.caseReadyStateLifecycle(url)],
       ['max 5 concurrent connections per owner', () => this.caseMaxConcurrency(url)],
       ['slot is released after terminal close', () => this.caseSlotReuse(url)],
       ['close code 1000 accepted', () => this.caseCloseAccepted(url, 1000)],
@@ -162,6 +179,8 @@ Page({
       ['close code 5000 rejected, connection survives', () => this.caseCloseRejected(url, 5000)],
       ['close during CONNECTING -> exactly one close, no error', () => this.caseCloseDuringConnecting(url)],
       ['connect to unreachable host -> error only, no close', () => this.caseUnreachableHost()],
+      ['requested connect timeout outlives the platform default', () => this.caseLongConnectTimeout()],
+      ['close code NaN rejected, connection survives', () => this.caseCloseRejected(url, Number.NaN)],
       ['connection refused -> error still reaches a listener attached right after connect', () => this.caseRefusedConnection()],
       ['invalid send data rejected, connection survives', () => this.caseInvalidSend(url)],
       ['send after close is rejected', () => this.caseSendAfterClose(url)],
@@ -173,6 +192,10 @@ Page({
       ['legacy wx.onSocketMessage binds to first connection', () => this.caseLegacyBinding(url)],
       ['legacy full lifecycle: open/message/close events', () => this.caseLegacyLifecycle(url)],
       ['legacy offSocketMessage stops delivery', () => this.caseLegacyOffMessage(url)],
+      ['legacy: two listeners on one event both fire, off removes only one', () => this.caseLegacyMultipleListeners(url)],
+      ['close code accepts the string form "3000"', () => this.caseCloseCodeAsString(url, '3000')],
+      ['close code accepts the hex string form "0xBB8"', () => this.caseCloseCodeAsString(url, '0xBB8')],
+      ['illegal header name is rejected before dialing', () => this.caseInvalidHeaderName(url)],
       ['legacy wx.closeSocket sweeps every connection', () => this.caseLegacyCloseSweep(url)],
       ['legacy wx.onSocketError fires on failure', () => this.caseLegacyError()],
     ]
@@ -428,6 +451,25 @@ Page({
     return `error only, errMsg: ${errRes.errMsg}`
   },
 
+  // 连接超时不只由容器自己的定时器驱动，还要交给平台传输层：Android 的 OkHttp 默认
+  // 连接超时 10 秒，iOS 的 URLRequest 默认 60 秒，不跟着请求值走的话，调用方要求的
+  // 更长超时会被平台先掐断。打一个黑洞地址（RFC 5737 的测试网段，不会回 RST，只能等
+  // 超时），要求 15 秒，断言 error 确实是 12 秒之后才来的。
+  async caseLongConnectTimeout() {
+    const timeout = 15000
+    const startedAt = Date.now()
+    const task = connect({ url: 'ws://192.0.2.1:9', timeout })
+    const errRes = await waitError(task, timeout + 6000)
+    const elapsed = Date.now() - startedAt
+    if (!errRes.errMsg) {
+      throw new Error('error event missing errMsg')
+    }
+    if (elapsed < 12000) {
+      throw new Error(`failed after ${elapsed}ms, the requested ${timeout}ms timeout was cut short by the platform default`)
+    }
+    return `failed after ${elapsed}ms, errMsg: ${errRes.errMsg}`
+  },
+
   // 连一个本机没人监听的端口，TCP 会立刻被拒。原生随后就派发 error 并删掉连接条目，
   // 而调用方的 onError 是紧跟在 connectSocket 之后的另一条桥消息——这一条盯的就是
   // 「注册消息比事件晚到时，error 会不会被永久丢掉」。同 open 事件那个竞态同源。
@@ -532,29 +574,6 @@ Page({
     taskA.close({})
     await closeA
     return 'two tasks routed independently'
-  },
-
-  // readyState 是 SocketTask 的公开属性，要跟着真实生命周期走。
-  async caseReadyStateLifecycle(url) {
-    const task = connect({ url: `${url}?tag=ready-state` })
-    if (task.readyState !== 0) {
-      throw new Error(`expected CONNECTING(0) right after connectSocket, got ${task.readyState}`)
-    }
-    await waitOpen(task)
-    if (task.readyState !== 1) {
-      throw new Error(`expected OPEN(1) after the open event, got ${task.readyState}`)
-    }
-    const closePromise = waitClose(task)
-    task.close({})
-    if (task.readyState !== 2) {
-      throw new Error(`expected CLOSING(2) right after close(), got ${task.readyState}`)
-    }
-    await closePromise
-    await delay(200)
-    if (task.readyState !== 3) {
-      throw new Error(`expected CLOSED(3) after the close event, got ${task.readyState}`)
-    }
-    return 'CONNECTING -> OPEN -> CLOSING -> CLOSED'
   },
 
   // 占满 5 个名额后关掉一个，名额必须立刻能被新连接用上。
@@ -866,6 +885,104 @@ Page({
       throw new Error(`legacy listener still fired after offSocketMessage, got: ${JSON.stringify(removedGot)}`)
     }
     return 'offSocketMessage stopped delivery'
+  },
+
+  // 脚本层每个全局监听各存一个 callback id、各发一次 onSocketMessage。原生如果一个事件只留
+  // 一个 id，先注册的那个会被后注册的顶掉；带 id 的 offSocketMessage 如果实现成无条件清空，
+  // 摘掉一个会把另一个也带走。这条用例把这两种情况都卡住。
+  async caseLegacyMultipleListeners(url) {
+    const task = connect({ url: `${url}?tag=legacy-multi` })
+    await waitOpen(task)
+    const firstGot = []
+    const secondGot = []
+    const first = (res) => { firstGot.push(res.data) }
+    const second = (res) => { secondGot.push(res.data) }
+    wx.onSocketMessage(first)
+    wx.onSocketMessage(second)
+
+    const both = `legacy-multi-both-${Date.now()}`
+    wx.sendSocketMessage({ data: both })
+    await delay(1500)
+    if (firstGot.indexOf(both) === -1) {
+      throw new Error(`the first listener never fired, got: ${JSON.stringify(firstGot)}`)
+    }
+    if (secondGot.indexOf(both) === -1) {
+      throw new Error(`the second listener never fired, got: ${JSON.stringify(secondGot)}`)
+    }
+
+    // 摘掉后注册的那个。摘先注册的话，单槽位实现里它早就被顶掉了，测不出 off 的问题。
+    wx.offSocketMessage(second)
+    const onlyFirst = `legacy-multi-first-${Date.now()}`
+    wx.sendSocketMessage({ data: onlyFirst })
+    await delay(1500)
+
+    wx.offSocketMessage(first)
+    const closePromise = waitClose(task)
+    task.close({})
+    await closePromise
+
+    if (firstGot.indexOf(onlyFirst) === -1) {
+      throw new Error(`the surviving listener stopped receiving, got: ${JSON.stringify(firstGot)}`)
+    }
+    if (secondGot.indexOf(onlyFirst) !== -1) {
+      throw new Error(`the removed listener still fired, got: ${JSON.stringify(secondGot)}`)
+    }
+    return 'both listeners fired; off removed exactly one'
+  },
+
+  // code 走桥时是 JSON 里的一个值，调用方写成字符串是常见笔误。脚本层按 JavaScript
+  // Number() 转换后再下发，和浏览器 WebSocket.close() 的行为一致。
+  async caseCloseCodeAsString(url, code) {
+    const task = connect({ url: `${url}?tag=code-${code}` })
+    await waitOpen(task)
+    const closePromise = waitClose(task)
+    const settled = []
+    task.close({
+      code,
+      success: () => { settled.push('success') },
+      fail: (res) => { settled.push(`fail:${res && res.errMsg}`) },
+    })
+    const closeEvent = await closePromise
+    if (settled.indexOf('success') === -1) {
+      throw new Error(`close with code "${code}" was not accepted, settled: ${JSON.stringify(settled)}`)
+    }
+    if (closeEvent.code !== 3000) {
+      throw new Error(`close event carried code ${closeEvent.code}, expected 3000`)
+    }
+    return `string code "${code}" accepted and closed with 3000`
+  },
+
+  // 字段名带冒号这种 header 过不了 HTTP 的 token 规则。校验放行的话，连接会先报 success，
+  // 底层构造请求时才失败，调用方要等满连接超时才知道——所以必须在拨号之前就拒绝。
+  async caseInvalidHeaderName(url) {
+    const settled = []
+    const startedAt = Date.now()
+    const task = connect({
+      url: `${url}?tag=bad-header`,
+      header: { 'Bad:Name': 'x' },
+      timeout: 30000,
+      success: () => { settled.push('success') },
+      fail: (res) => { settled.push(`fail:${(res && res.errMsg) || ''}`) },
+    })
+    let errored = false
+    task.onError(() => { errored = true })
+    await delay(2000)
+
+    const failure = settled.filter(item => item.indexOf('fail:') === 0)[0]
+    if (!failure) {
+      throw new Error(`an illegal header name must be rejected, settled: ${JSON.stringify(settled)}`)
+    }
+    if (failure.indexOf('invalid header') === -1) {
+      throw new Error(`expected an "invalid header" failure, got: ${failure}`)
+    }
+    if (errored) {
+      throw new Error('a rejected connect must not also fire an error event')
+    }
+    // 只要不是等到 timeout 才报错就算达标；这里的余量远小于 30s 的连接超时。
+    if (Date.now() - startedAt > 10000) {
+      throw new Error('the rejection arrived far too late; it likely waited for the connect timeout')
+    }
+    return failure
   },
 
   // wx.closeSocket 只带 socketId 之外的参数时，绑定的第一条连接用请求的 code/reason 关，

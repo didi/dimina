@@ -2,168 +2,196 @@
 
 [文档中心](./README.md) · [架构总览](./Architecture-Diagram.md) · [能力参考](./API-Reference.md)
 
-Dimina 在 Android、iOS 和 HarmonyOS 容器中提供 `wx.connectSocket` 与 `SocketTask` 能力。Web 容器暂不提供该能力。
+Dimina 在 Android、iOS 和 Harmony 容器中提供 `wx.connectSocket`、`SocketTask` 及全局 WebSocket API，Web 容器暂未接入。该能力由逻辑层发起，经桥接层进入容器的连接管理器，再由平台传输层完成握手、收发和关闭；渲染层不参与连接管理。
 
-## 1. API 形态
+## 1. 能力入口
 
-微信小程序提供任务态和全局遗留态两套 WebSocket API。桥接参数中的 `socketId` 用于区分两种调用形态。
+`wx.connectSocket()` 在逻辑层生成唯一的 `socketId`，创建 `SocketTask` 并发起桥接调用。任务对象的返回不等待连接打开；原生侧校验通过后会登记连接、安排拨号，并触发 `success` 和 `complete`。业务代码应通过 `onOpen`、`onError` 和 `onClose` 判断连接结果。
 
-| 形态 | 连接模型 | 调用方式 |
+WebSocket 提供任务态和全局态两种调用形态：
+
+| 形态 | 连接定位 | 对外接口 |
 | --- | --- | --- |
-| `SocketTask` | 每个任务对应一条连接；单个小程序最多 5 条并发连接 | `wx.connectSocket()` 返回任务对象，后续操作和事件都通过任务对象完成 |
-| 全局遗留 API | 每个小程序保留一个全局连接槽，未传 `socketId` 时绑定首条活跃连接 | 通过全局 `wx.sendSocketMessage`、`wx.closeSocket` 和事件 API 操作 |
+| `SocketTask` | 每个任务携带自己的 `socketId`，后续操作只作用于该连接 | `send`、`close`、`onOpen`、`offOpen`、`onMessage`、`offMessage`、`onError`、`offError`、`onClose`、`offClose` |
+| 全局 API | 调用参数不含 `socketId`，使用当前小程序的全局绑定槽 | `wx.sendSocketMessage`、`wx.closeSocket` 及对应的全局事件注册与取消接口 |
 
-三端桥接层包含以下 11 个 API：
+`SocketTask` 保存 `socketId`，但不提供连接状态属性。单个 `appId` 最多同时保留 5 个连接条目，`CREATED`、`CONNECTING`、`OPEN` 和 `CLOSING` 状态都会占用这一限额。
+
+创建新连接时，如果当前全局绑定没有指向存活条目，Manager 会把新连接设为全局目标。绑定连接终止后不会自动迁移到其他已有连接，下一次 `connectSocket` 才会建立新的绑定。全局 `closeSocket` 处理绑定连接后，还会使用 `code: 1000` 和空 `reason` 关闭其余存活连接；需要独立控制多条连接的业务应使用 `SocketTask`。
+
+逻辑层与三端桥接层使用以下 11 个 API 名称：
 
 | 类别 | API |
 | --- | --- |
 | 建立连接 | `connectSocket` |
 | 发送与关闭 | `sendSocketMessage`、`closeSocket` |
-| 连接事件 | `onSocketOpen`、`offSocketOpen` |
-| 消息事件 | `onSocketMessage`、`offSocketMessage` |
-| 错误事件 | `onSocketError`、`offSocketError` |
-| 关闭事件 | `onSocketClose`、`offSocketClose` |
+| 注册事件 | `onSocketOpen`、`onSocketMessage`、`onSocketError`、`onSocketClose` |
+| 取消事件 | `offSocketOpen`、`offSocketMessage`、`offSocketError`、`offSocketClose` |
 
-接口语义参考微信 `wx.connectSocket` 和 `SocketTask`。
+## 2. 参数与数据边界
 
-## 2. 运行边界
-
-| 项目 | 行为 |
+| 参数或数据 | 当前行为 |
 | --- | --- |
-| 并发上限 | 单个小程序最多保留 5 条连接 |
-| 后台运行 | 进入后台后保留约 5 秒宽限；WebSocket 不在后台保活范围内 |
-| 关闭码 | `code` 只接受 `1000` 或 `[3000, 4999]` |
-| 空闲超时 | 由宿主配置，默认关闭 |
-| App 销毁 | `disposeOwner` 清理该 `appId` 的连接和监听 |
-| 二进制帧 | 原生层使用 base64 数据和 `isBuffer` 标记 |
+| `url` | 必须是包含主机的 `ws://` 或 `wss://` 绝对地址，不能包含 fragment |
+| `timeout` | 默认 60000 毫秒；小于等于 0 时使用默认值；正数向下取整，不能超过 `0x7fffffff` |
+| `protocols` | 必须是字符串数组，数组项不能为空字符串 |
+| `header` | 必须是对象；空名称和受限名称会被丢弃，同名不同大小写的字段会折叠成一条，非法字段名、换行或控制字符会导致调用失败 |
+| `data` | 文本帧使用字符串；二进制帧接受 `ArrayBuffer`、`TypedArray` 和 `DataView` |
+| `code` | 默认 1000，只接受 1000 或 `[3000, 4999]` 范围内的整数 |
+| `reason` | 默认空字符串，UTF-8 编码后不能超过 123 字节 |
 
-参数校验由各端的 `*WebSocketValidation` 完成。精确的校验顺序和错误字符串以源码为准。
+逻辑层会先用 JavaScript `Number()` 归一化 `timeout` 和 `code`。因此 `'3000'`、`' 3000 '` 和 `'0xBB8'` 都会作为数字 3000 进入桥接层；无法转换为有限数值的参数由原生校验拒绝。
 
-## 3. 三端架构
+`timeout` 除了驱动容器自己的连接定时器，也会设置到平台传输层：Android 用它设 OkHttp 的 `connectTimeout`，iOS 用它设 `URLRequest.timeoutInterval`，两者都在请求值上多留 1 秒余量，让容器的定时器先到、平台超时只当兜底。Harmony 的 `webSocket.WebSocketRequestOptions` 没有超时字段，那一端只有容器定时器。
 
-桥接层、Manager、连接模型和传输层组成三端共用的实现骨架。
+请求头的值在逻辑层通过 `String()` 统一转换，`null` 和 `undefined` 会被移除。三端校验器按大小写不敏感的方式丢弃以下名称：
+
+`connection`、`content-length`、`host`、`referer`、`sec-websocket-accept`、`sec-websocket-extensions`、`sec-websocket-key`、`sec-websocket-protocol`、`sec-websocket-version`、`upgrade`。
+
+HTTP 字段名不区分大小写，`X-Token` 和 `x-token` 是同一个字段。逻辑层在下发前把它们折叠成一条，保留第一次出现的写法和位置，值取最后一个，避免三端对重复字段名的不同处理导致握手内容随平台变化。
+
+容器不注入 `Origin`，`Origin` 也不在过滤集合中，调用方提供的自定义值会继续交给平台传输层。调用方提供的 `Referer` 会被丢弃，随后由容器注入：
+
+```text
+https://servicedimina.com/{appId}/{versionCode}/page-frame.html
+```
+
+版本号无法取得时使用 `0`。子协议不通过自定义请求头传入，而是由 Manager 根据 `protocols` 设置到平台请求中。
+
+桥接消息使用 JSON，不能直接携带二进制对象。逻辑层会把 `ArrayBuffer` 及 `ArrayBuffer.isView()` 识别的视图复制为普通 `ArrayBuffer`，再编码成 `{ data: base64, isBuffer: true }`。底层为 `SharedArrayBuffer` 的视图也会先复制；`SharedArrayBuffer` 本身不作为二进制帧传输。入站二进制帧按相反顺序还原为 `ArrayBuffer`，`isBuffer` 不会暴露给业务回调。调用参数中自行设置的 `isBuffer` 会被逻辑层生成的编码结果覆盖或移除。
+
+## 3. 三端实现骨架
 
 ```mermaid
 graph TB
-    subgraph "桥接层 Bridge Layer"
-        BRIDGE["WebSocketApi / WebSocketAPI /<br/>DMPContainerBridgesModule+WebSocket<br/>解析 appId，转发调用"]
+    subgraph SERVICE["逻辑层"]
+        API["WebSocket API<br/>SocketTask · 全局 API"]
     end
 
-    subgraph "Manager 进程级单例"
-        MGR["*WebSocketManager<br/>owners: Map&lt;appId, OwnerState&gt;<br/>状态机、事件、后台策略、超时"]
+    subgraph BRIDGE_LAYER["桥接层"]
+        BRIDGE["WebSocketApi / WebSocketAPI /<br/>DMPContainerBridgesModule+WebSocket<br/>解析 appId 与桥接参数"]
     end
 
-    subgraph "数据模型 Data Model"
+    subgraph CONTAINER["容器"]
+        MANAGER["WebSocketManager<br/>进程级单例"]
         OWNER["OwnerState<br/>每个 appId 一份"]
         ENTRY["SocketEntry<br/>每个 socketId 一份"]
-    end
-
-    subgraph "运行时依赖 Runtime Dependencies"
         VALIDATION["WebSocketValidation<br/>参数校验"]
-        TRANSPORT["Transport<br/>原生 WebSocket SDK"]
-        SCHED["Scheduler / Clock<br/>定时器与时钟"]
+        SCHEDULER["Scheduler / Clock<br/>连接、后台与空闲定时器"]
+        TRANSPORT["SocketTransport<br/>平台 WebSocket 实现"]
     end
 
-    BRIDGE --> MGR
-    MGR --> OWNER
+    API -->|"invoke"| BRIDGE
+    BRIDGE --> MANAGER
+    MANAGER --> OWNER
     OWNER --> ENTRY
-    MGR --> VALIDATION
+    MANAGER --> VALIDATION
+    MANAGER --> SCHEDULER
     ENTRY --> TRANSPORT
-    MGR --> SCHED
-
-    style BRIDGE fill:#e3f2fd
-    style MGR fill:#fff3e0
-    style OWNER fill:#e8f5e8
-    style ENTRY fill:#e8f5e8
-    style VALIDATION fill:#fce4ec
-    style TRANSPORT fill:#fce4ec
-    style SCHED fill:#fce4ec
+    TRANSPORT -->|"open / message / error / close"| MANAGER
+    MANAGER -->|"triggerCallback"| BRIDGE
+    BRIDGE --> API
 ```
 
-| 组件 | 职责 |
-| --- | --- |
-| Bridge | 解析 `appId` 和参数，向 Manager 转发调用 |
-| Manager | 管理 owner、校验结果、状态转换、事件顺序、后台宽限和超时 |
-| `OwnerState` | 保存单个 `appId` 的连接、监听和全局遗留态 |
-| `SocketEntry` | 保存单条连接的状态、传输对象和关闭信息 |
-| Validation | 执行与平台 SDK 无关的参数校验 |
-| Transport | 封装平台原生 WebSocket SDK |
-| Scheduler / Clock | 驱动连接超时、后台宽限和空闲超时 |
+桥接层负责取得 `appId`、识别任务态或全局态，并把参数交给 Manager。Manager 是进程级单例，但连接、监听器、全局绑定和后台状态都按 `appId` 隔离在 `OwnerState` 中。每个 `SocketEntry` 保存连接状态、平台传输对象、定时器、事件监听器、关闭参数和已派发的 `open` 载荷。
 
-状态变化、传输回调和定时器回调串行执行：Android 使用 `SerialExecutor`，iOS 使用 `DispatchQueue`，HarmonyOS 使用主事件循环。
+Validation 只负责参数归一化和错误检查。Transport 封装平台 WebSocket API，Scheduler 与 Clock 驱动连接超时、后台宽限和宿主配置的空闲超时。应用销毁时，`disposeOwner` 会静默移除对应 owner，关闭传输、取消定时器并释放监听器，不再向已经销毁的逻辑层发送事件。
+
+连接状态、传输回调和定时器回调在串行执行环境中更新：Android 使用 `SerialExecutor`，iOS 使用专用 `DispatchQueue`，Harmony 通过 JavaScript 事件循环处理回调。业务代码不能依赖平台传输线程的具体调度顺序。
 
 ## 4. 连接状态机
 
-`SocketEntry` 或 `DMPSocketEntry` 的 `state` 记录连接状态和终态事件。
+`connectSocket:success` 表示参数校验通过、连接条目已经登记且拨号已经安排，不表示握手完成。真正的连接结果由状态机事件给出。
 
 ```mermaid
 stateDiagram-v2
-    [*] --> CREATED: connectSocket 校验通过，登记条目
-    CREATED --> CONNECTING: 排队的拨号任务执行（同一 tick 内的 close 可提前取消）
-    CREATED --> [*]: 客户端 close：本地结算，仅发 close
-    CONNECTING --> OPEN: 传输层 onOpen
-    CONNECTING --> [*]: 客户端 close：撕毁传输，仅发 close
-    CONNECTING --> [*]: 连接超时/握手失败：仅发 error，不发 close
-    OPEN --> CLOSING: 客户端 closeSocket：发起关闭握手
-    OPEN --> [*]: 后台宽限/空闲超时到期：撕毁传输，仅发 close
-    OPEN --> [*]: 传输层失败：先发 error，再发 close
-    CLOSING --> [*]: 传输层确认关闭：发 close，使用请求的 code/reason
-    CLOSING --> CLOSING: 重复 close：fail「not connected」，不产生新事件
+    [*] --> CREATED: 校验通过并登记条目
+    CREATED --> CONNECTING: 排队的拨号任务执行
+    CREATED --> TERMINAL: 客户端 close / 仅发 close
+    CONNECTING --> OPEN: 传输层 onOpen / 发 open
+    CONNECTING --> TERMINAL: 客户端 close / 仅发 close
+    CONNECTING --> TERMINAL: 超时或握手失败 / 仅发 error
+    OPEN --> CLOSING: 客户端 close / 发起关闭握手
+    OPEN --> TERMINAL: 服务端关闭 / 发 close
+    OPEN --> TERMINAL: 传输失败 / 先发 error，再发 close
+    OPEN --> TERMINAL: 后台宽限或空闲超时 / 仅发 close
+    CLOSING --> TERMINAL: 传输层结束 / 发 close
+    CLOSING --> CLOSING: 重复 close / fail
+    TERMINAL --> [*]
 ```
 
-`wx.connectSocket()` 一返回原生就开始拨号，而调用方挂 `onOpen` / `onError` / `onClose` 是随后另外几条桥消息。本机回环地址上握手只要几毫秒，连接被拒更快（实测 8 毫秒，比调用方的注册消息早 1 毫秒），事件派发时监听器列表还是空的，这个事件就永久丢了。三端因此约定按事件补发一次，都在 `onSocketEvent` 里处理，且只对任务态生效：
+`CREATED` 和 `CONNECTING` 状态下的客户端关闭会在本地结束连接，并使用请求中的 `code` 和 `reason` 派发 `close`。握手超时或握手失败只派发 `error`，不会再补发 `close`。
 
-| 事件 | 补发条件 | 载荷存放位置 |
-| --- | --- | --- |
-| `open` | 注册时连接已经是 OPEN | 连接条目上的 `openPayload` |
-| `error`、`close` | 该 socketId 的这个事件已经派发过 | owner 上的 `terminalReplay`，键 `socketId|event` |
+连接打开后，服务端正常关闭只产生 `close`。未经请求的传输失败先产生 `error`，随后以 1006 结束连接并产生 `close`。客户端关闭已经进入 `CLOSING` 时，如果传输层随后失败，仍只使用客户端请求的 `code` 和 `reason` 派发 `close`。重复调用 `close` 会返回 `WebSocket is not connected`，不会生成第二个关闭事件。
 
-`error` 和 `close` 是终态，连接条目在派发时就已经从 owner 的 `sockets` 里删掉了，之后到达的注册再也找不到它，所以记录只能挂在 owner 上。`terminalReplay` 按插入顺序保留最近 32 条，超出淘汰最旧的；owner 销毁时整个对象被移出 owners 表，记录随之释放。这样调用方拿不拿得到事件与两条消息谁先到无关。
+进入终态后，条目会从 owner 的连接表中移除并释放并发名额。处于 `CLOSING` 的条目仍然存活，直到平台传输层返回关闭或失败结果。`closeSocket:success` 只表示关闭请求已被接受，业务代码仍应通过 `onClose` 等待连接终止。
 
-`SocketTask.readyState` 跟着真实事件走——收到 open 才是 `OPEN`，收到 close 或 error 才是 `CLOSED`，不挂在 `connectSocket` 的 success 上（success 只表示原生受理了请求，握手尚未完成）。JS 层为此在下发 connectSocket 之后给 open/error/close 各挂一个内部监听。
+## 5. 事件派发与运行边界
 
-## 5. 统一命名
+### 5.1 事件载荷
 
-| 概念 | Android | iOS | HarmonyOS |
+| 事件 | 载荷 |
+| --- | --- |
+| `open` | `header` 响应头与 `profile` 连接阶段时间信息 |
+| `message` | 文本帧为字符串，二进制帧为 `ArrayBuffer` |
+| `error` | 包含规范化后的 `errMsg` |
+| `close` | 包含 `code` 和 `reason` |
+
+`profile` 包含 `fetchStart`、`domainLookUpStart`、`domainLookUpEnd`、`connectStart`、`connectEnd`、`rtt`、`handshakeCost` 和 `cost`。Android 会使用传输层能够提供的 DNS 与连接时间；iOS 和 Harmony 对未暴露的阶段使用已有时间点回填，因此这些字段属于尽力提供的连接信息。
+
+同一事件可以注册多个监听器。逻辑层按监听函数保存 callback id，原生侧按 callback id 去重，并按注册顺序派发。事件先发送给当前连接的任务态监听器；如果该连接是全局绑定目标，再发送给全局监听器。传入监听函数的 `off*` 只移除该函数，不传参数时移除该事件的全部已登记监听。
+
+任务态监听支持快速连接结果补发：
+
+- 注册 `onOpen` 时连接已经处于 `OPEN`，立即补发该条目保存的 `openPayload`。
+- 注册 `onError` 或 `onClose` 时对应事件已经发生，从 owner 的 `terminalReplay` 中补发。
+- `terminalReplay` 按 `socketId|event` 保存最近 32 条记录，超出后淘汰最早记录。
+- `message` 不补发；全局事件监听也不使用补发机制。
+
+### 5.2 后台、空闲与销毁
+
+| 场景 | 行为 |
+| --- | --- |
+| 进入后台 | 启动 5 秒宽限计时器；期间返回前台会取消计时器 |
+| 后台调用 API | `connectSocket`、`sendSocketMessage` 和 `closeSocket` 返回 `interrupted` |
+| 宽限到期，连接尚未打开 | 终止握手，仅派发 `error` |
+| 宽限到期，连接已经打开 | 终止连接，派发 `{ code: 1006, reason: "interrupted" }` |
+| 空闲超时 | 默认关闭；宿主启用后，成功发送或收到消息会重新计时 |
+| 空闲到期 | 终止 `OPEN` 连接，派发 `{ code: 1006, reason: "idle timeout" }` |
+| 小程序销毁 | `disposeOwner(appId)` 静默清理连接、定时器、监听器与补发记录 |
+
+后台宽限和空闲超时都是容器策略，不需要业务代码维护定时器。1006 只作为异常终止结果上报，不作为业务主动关闭时可传入的关闭码。
+
+## 6. 平台实现
+
+| 概念 | Android | iOS | Harmony |
 | --- | --- | --- | --- |
-| 连接状态枚举 | `SocketState` | `DMPSocketState` | `DMPSocketState` |
-| 单条连接状态 | `SocketEntry` | `DMPSocketEntry` | `DMPSocketEntry` |
-| 每个 `appId` 的状态 | `OwnerState` | `DMPOwnerState` | `DMPOwnerState` |
-| Manager 单例 | `WebSocketManager` | `DMPWebSocketManager` | `DMPWebSocketManager` |
-| 校验命名空间 | `WebSocketValidation` | `DMPWebSocketValidation` | `DMPWebSocketValidation` |
-| 传输层抽象 | `SocketTransport` | `DMPSocketTransport` | `DMPSocketTransport` |
+| 桥接层 | `WebSocketApi` | `WebSocketAPI` | `DMPContainerBridgesModule+WebSocket` |
+| Manager | `WebSocketManager` | `DMPWebSocketManager` | `DMPWebSocketManager` |
+| 状态与数据模型 | `SocketState`、`SocketEntry`、`OwnerState` | `DMPSocketState`、`DMPSocketEntry`、`DMPOwnerState` | `DMPSocketState`、`DMPSocketEntry`、`DMPOwnerState` |
+| 参数校验 | `WebSocketValidation` | `DMPWebSocketValidation` | `DMPWebSocketValidation` |
+| 传输抽象 | `SocketTransport` | `DMPSocketTransport` | `DMPSocketTransport` |
+| 平台传输 | `OkHttpSocketTransport` | `DMPURLSessionWebSocketTransport` | `@kit.NetworkKit` 的 `webSocket` |
+| 串行环境 | `SerialExecutor` | `DispatchQueue` | JavaScript 事件循环 |
 
-Manager 入口统一使用 `connectSocket`、`sendSocketMessage`、`closeSocket`、`onSocketEvent` 和 `offSocketEvent`。
+三端 Manager 都提供 `connectSocket`、`sendSocketMessage`、`closeSocket`、`onSocketEvent` 和 `offSocketEvent`。Android 在 `WebSocketApi.kt` 中根据 `socketId` 是否存在完成任务态与全局态分流；iOS 和 Harmony 在 Manager 内判断。分流依据是键是否存在，而不是值是否为真，因此空字符串或空值仍会进入任务态并按无效连接处理。
 
-## 6. 平台实现差异
+前后台状态的来源各不相同：Android 由 `DiminaActivity` 按 `appId` 通知，iOS 的 Manager 自己监听 `UIApplication` 的进程级通知，Harmony 由 `DMPAppLifecycle` 调用 `setAllBackgrounded`。iOS 和 Harmony 新建的 owner 会继承当前进程的后台标记。
 
-| 差异点 | Android | iOS | HarmonyOS |
-| --- | --- | --- | --- |
-| 任务态与遗留态分流 | `WebSocketApi.kt` 根据 `socketId` 分流 | Manager 根据 `socketId` 分流 | Manager 根据 `socketId` 分流 |
-| 后台状态 | Activity 生命周期按 `appId` 通知 | `globallyBackgrounded` 记录进程状态，新 owner 继承 | `globallyBackgrounded` 记录进程状态，新 owner 继承 |
-| 终态清理 | 按场景 helper，如 `terminateClientSide` | 统一进入 `teardown` | 按场景 helper，如 `performClientClose` |
+`Referer` 中的版本号分别来自 Android 的 `MiniProgram.versionCode`、iOS 当前应用的 `jsAppVersion()` 和 Harmony 的 `bundleLoader.getJsAppVersion()`。
 
-一次 API 调用的 `success` 和 `complete` 是紧挨着发出的两条容器 → service 消息，必须按发出顺序送达 JS。iOS 的 `DMPService.fromContainer` 原来给每条消息各起一个不受管的 `Task {}`，会被丢到并发线程池上由不同线程执行，谁先排进 JS 线程完全看调度，`closeSocket` 上实测稳定出现 `complete` 早于 `success`。现在改为 `DMPEngine.enqueueScript()` 直接排进引擎的 JS 线程串行队列，投递顺序等于调用顺序。这条走的是所有 API 共用的回传路径，影响面不限于 WebSocket。
+客户端主动关闭时，三端都会把请求的 `code` 和 `reason` 交给传输层，并在最终 `close` 事件中保留这组值。后台或空闲策略上报 1006 时，Android 和 iOS 使用取消或中止传输；Harmony 向平台传输层使用合法的默认码 1000，同时向逻辑层上报 1006。
 
-## 7. 代码入口
+`@ohos.net.webSocket` 还有两处行为发生在 Manager 之外，只影响服务端看到的握手和关闭帧，逻辑层收到的事件不受影响：该 SDK 会为每次握手补一个不带端口的 `Origin`，业务代码在 Harmony 上自行传入 `Origin` 时服务端会收到两个；客户端关闭时发到线路上的关闭码始终是 1000，`reason` 照发，依赖关闭码区分业务场景的服务端需要注意。
 
-| 平台 | Manager 与校验 | 桥接层 |
-| --- | --- | --- |
-| Android | `android/dimina/src/main/kotlin/com/didi/dimina/api/network/`<br/>`WebSocketManager.kt`、`WebSocketValidation.kt` | 同目录下的 `WebSocketApi.kt` |
-| iOS | `iOS/dimina/DiminaKit/Container/Api/Network/`<br/>`DMPWebSocketManager.swift`、`DMPWebSocketValidation.swift` | 同目录下的 `WebSocketAPI.swift` |
-| HarmonyOS | `harmony/dimina/src/main/ets/Bridges/Network/DMPWebSocketManager.ts`<br/>校验 namespace 位于同一文件 | `harmony/dimina/src/main/ets/Bridges/Network/DMPContainerBridgesModule+WebSocket.ets` |
+## 7. 源码入口
 
-## 8. 端到端冒烟测试页
+| 层或平台 | 文件 |
+| --- | --- |
+| 逻辑层 | `fe/packages/service/src/api/core/network/websocket/index.js` |
+| 二进制转换 | `fe/packages/service/src/api/core/network/socket/shared.js` |
+| Android | `android/dimina/src/main/kotlin/com/didi/dimina/api/network/WebSocketManager.kt`、`WebSocketValidation.kt`、`WebSocketApi.kt` |
+| iOS | `iOS/dimina/DiminaKit/Container/Api/Network/DMPWebSocketManager.swift`、`DMPWebSocketValidation.swift`、`WebSocketAPI.swift` |
+| Harmony | `harmony/dimina/src/main/ets/Bridges/Network/DMPWebSocketManager.ts`、`DMPContainerBridgesModule+WebSocket.ets` |
 
-`fe/example/base/pages/socket-test/index.js` 是一个在真机/模拟器上跑的冒烟测试页，25 条用例连一个普通的 RFC6455 echo server，覆盖握手与 open 事件、文本收发、并发上限与名额释放、关闭码边界、连接过程中关闭、连不上的地址、连接被拒、send/close 的参数校验、success/fail/complete 回调序列、`offMessage` 的精确移除，以及全局遗留 API 的绑定、生命周期和 `wx.closeSocket` 清扫。
-
-页面接受两个查询参数：`wsUrl` 覆盖服务地址，`autorun=1` 打开即自动开跑（模拟器上不方便模拟点击时用）。Android 模拟器用 `10.0.2.2` 访问宿主机，iOS 模拟器用 `127.0.0.1`。
-
-iOS 上可以完全无人值守地跑：宿主 app 认三个环境变量——`DMP_TEST_AUTO_OPEN_APPID` 指定启动后自动打开的小程序，`DMP_TEST_ENTRY_PATH` 指定启动页，`DMP_TEST_ENTRY_QUERY` 按 `a=1&b=2` 的写法给启动页带参数（启动页路径本身不接受问号）。
-
-```bash
-SIMCTL_CHILD_DMP_TEST_AUTO_OPEN_APPID=wxbaf4b47de04f1d8a \
-SIMCTL_CHILD_DMP_TEST_ENTRY_PATH='pages/socket-test/index' \
-SIMCTL_CHILD_DMP_TEST_ENTRY_QUERY='autorun=1' \
-xcrun simctl launch <device> com.didi.dimina
-```
+下一步可继续阅读[能力参考](./API-Reference.md)，确认 WebSocket 与其他网络能力在各平台的支持状态。

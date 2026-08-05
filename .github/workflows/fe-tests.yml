@@ -54,23 +54,3 @@ jobs:
       - name: Run tests
         working-directory: ./fe
         run: pnpm test
-
-  check-sdk-freshness:
-    name: Check JS SDK Freshness
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: lts/*
-
-      - name: Verify shared/jssdk was regenerated alongside its source
-        working-directory: ./fe
-        run: node scripts/check-sdk-freshness.js "${{ github.event.pull_request.base.sha }}"

@@ -107,4 +107,7 @@
   <navigator class="intro" url="web-gl/index">
     <view class="weui-cell__bd">WebGL</view>
   </navigator>
+  <navigator class="intro" url="socket-test/index">
+    <view class="weui-cell__bd">WebSocket</view>
+  </navigator>
 </view>

@@ -237,7 +237,11 @@ enum DMPSocketState {
 final class DMPOwnerState {
     var sockets: [String: DMPSocketEntry] = [:]
     var legacyBoundSocketId: String?
-    var legacySlots: [DMPWebSocketEventType: String] = [:]
+    /// Ordered, de-duplicated listener ids for the global `wx.onSocketXxx` API. Same shape as
+    /// `DMPSocketEntry.listeners`: fe keeps one callback id per registered listener function and
+    /// sends a separate `onSocketXxx` for each, so a single id per event would silently drop
+    /// every listener but the last one.
+    var legacySlots: [DMPWebSocketEventType: [String]] = [:]
     var backgrounded: Bool = false
     var graceTimer: DMPWebSocketCancellable?
     /// 已经派发过的终态事件（error/close）载荷，键是 "socketId|event"。连接一进入
@@ -454,8 +458,10 @@ final class DMPWebSocketManager {
 
     // MARK: Bridge entry points
 
-    func connectSocket(params: DMPMap, appId: String, callback: DMPBridgeCallback?) {
-        queue.async { [weak self] in self?.handleConnect(params: params, appId: appId, callback: callback) }
+    func connectSocket(params: DMPMap, appId: String, appVersion: String, callback: DMPBridgeCallback?) {
+        queue.async { [weak self] in
+            self?.handleConnect(params: params, appId: appId, appVersion: appVersion, callback: callback)
+        }
     }
 
     func sendSocketMessage(params: DMPMap, appId: String, callback: DMPBridgeCallback?) {
@@ -476,7 +482,7 @@ final class DMPWebSocketManager {
 
     // MARK: connectSocket
 
-    private func handleConnect(params: DMPMap, appId: String, callback: DMPBridgeCallback?) {
+    private func handleConnect(params: DMPMap, appId: String, appVersion: String, callback: DMPBridgeCallback?) {
         let owner = getOrCreateOwner(appId: appId)
 
         // 1. background
@@ -512,12 +518,15 @@ final class DMPWebSocketManager {
             fail(callback, api: Api.connect, tail: protocolsResult.errorTail ?? DMPWebSocketValidation.ErrorTail.protocolsNotArray)
             return
         }
-        // 7 + 8. header + origin injection
-        let headerResult = DMPWebSocketValidation.validateHeader(params.get("header"), url: url)
-        guard case let .success(header) = headerResult else {
+        // 7. header
+        let headerResult = DMPWebSocketValidation.validateHeader(params.get("header"))
+        guard case let .success(callerHeader) = headerResult else {
             fail(callback, api: Api.connect, tail: headerResult.errorTail ?? DMPWebSocketValidation.ErrorTail.headerNotObject)
             return
         }
+        // 8. 容器自己的 Referer：调用方传的那份已经在校验里被丢掉了，这里补上固定值。
+        var header = callerHeader
+        header["Referer"] = DMPWebSocketValidation.refererValue(appId: appId, appVersion: appVersion)
 
         // 9. all checks passed: register, bind legacy, ack, then dial.
         let entry = DMPSocketEntry(socketId: socketId)
@@ -538,6 +547,11 @@ final class DMPWebSocketManager {
         if !protocols.isEmpty {
             request.setValue(protocols.joined(separator: ", "), forHTTPHeaderField: "Sec-WebSocket-Protocol")
         }
+
+        // URLRequest 的 timeoutInterval 默认 60 秒，调用方要求更长时会被 Foundation 先掐断。
+        // 这里跟着请求值走，并留一点余量，让容器自己的 connectTimer 始终先到，Foundation
+        // 的超时只当兜底——否则两个超时同时到点，最终报的是哪一条错误就不确定了。
+        request.timeoutInterval = Double(timeoutMs) / 1000.0 + 1
 
         entry.connectTimer = scheduling.schedule(after: Double(timeoutMs) / 1000.0) { [weak self] in
             self?.queue.async { self?.handleConnectTimeout(appId: appId, socketId: socketId) }
@@ -620,14 +634,22 @@ final class DMPWebSocketManager {
         let completion: (Error?) -> Void = { [weak self] error in
             guard let self else { return }
             self.queue.async {
+                // A send completion can land long after the caller moved on - the transport reports
+                // cancellation asynchronously once the connection is torn down. If the owner is gone
+                // the JS context went with it, so there is nobody left to call back.
+                guard let liveOwner = self.owners[appId], liveOwner === owner else { return }
                 if let error {
                     self.fail(callback, api: Api.send, tail: error.localizedDescription)
-                } else {
-                    // Only a confirmed-successful send counts as outbound traffic for
-                    // idle-timer purposes, matching Android/HarmonyOS.
-                    self.resetIdleTimerIfNeeded(entry: entry, appId: appId)
-                    self.succeed(callback, api: Api.send)
+                    return
                 }
+                // Only a confirmed-successful send counts as outbound traffic for
+                // idle-timer purposes, matching Android/HarmonyOS. The timer may only be rearmed
+                // while this entry is still the live, open connection for its socket - rescheduling
+                // on an entry that was already removed would keep it alive until the timeout fires.
+                if let liveEntry = liveOwner.sockets[socketId], liveEntry === entry, liveEntry.state == .open {
+                    self.resetIdleTimerIfNeeded(entry: liveEntry, appId: appId)
+                }
+                self.succeed(callback, api: Api.send)
             }
         }
 
@@ -742,16 +764,11 @@ final class DMPWebSocketManager {
 
     // MARK: on* / off*
 
-    /// fe's `invokeAPI` auto-wraps any call not in its `promiseUnsupportedApis`
-    /// whitelist in a Promise, attaching temporary `success`/`fail` callback
-    /// ids to `params` (see `fe/packages/service/src/api/common/index.js`).
-    /// `onSocketOpen`/`onSocketMessage`/etc are not in that whitelist, so
-    /// every `on*`/`off*` call MUST complete `callback` exactly once or
-    /// those temp ids (and the wrapping Promise) leak forever. This has no
-    /// bearing on WeChat's own on/off semantics (there is no user-facing
-    /// success/fail here) — it only exists to satisfy fe's bridge plumbing,
-    /// matching HarmonyOS's `DMPWebSocketManager.ts` (`invokeSuccess(callback,
-    /// undefined)` at the end of its on/off handling).
+    /// Every `on*`/`off*` completes `callback` exactly once, so the bridge call has a
+    /// definite outcome on the fe side like every other API here. There is no user-facing
+    /// success/fail in WeChat's on/off semantics; fe's `createSocketEvent` sends these with
+    /// `keep: true` and no success/fail/complete of its own, so nothing on that side is
+    /// waiting on the result.
     private func legacyApiName(event: DMPWebSocketEventType, isOn: Bool) -> String {
         let suffix: String
         switch event {
@@ -790,8 +807,9 @@ final class DMPWebSocketManager {
                 pushEvent(appId: appId, callbackId: callbackId, payload: replay)
             }
         } else {
-            // Legacy: single slot, later registration silently overwrites.
-            owner.legacySlots[event] = callbackId
+            if !(owner.legacySlots[event] ?? []).contains(callbackId) {
+                owner.legacySlots[event, default: []].append(callbackId)
+            }
         }
     }
 
@@ -804,13 +822,21 @@ final class DMPWebSocketManager {
             if let cb = params.getString(key: "callback"), !cb.isEmpty {
                 entry.listeners[event]?.removeAll { $0 == cb }
             } else {
-                // fe drops the raw function crossing the bridge; fall back
-                // to clearing every listener for this (socketId, event).
+                // The script layer always sends the id of the listener it wants removed, even for
+                // `off()` with no argument - it walks its own table and sends one request per id.
+                // A request with no id can still arrive from a direct bridge caller, and clearing
+                // the whole event is the only sensible reading of it.
                 entry.listeners[event] = []
             }
         } else {
-            // fe never exports a global off*; defensively clear the slot.
-            owner.legacySlots.removeValue(forKey: event)
+            // fe does export the global wx.offSocketOpen/offSocketMessage/offSocketError/
+            // offSocketClose, so this path is reachable and must behave like the task-mode one:
+            // an explicit id removes exactly that listener, a missing one clears the event.
+            if let cb = params.getString(key: "callback"), !cb.isEmpty {
+                owner.legacySlots[event]?.removeAll { $0 == cb }
+            } else {
+                owner.legacySlots[event] = []
+            }
         }
     }
 
@@ -996,7 +1022,7 @@ final class DMPWebSocketManager {
             recordTerminalEvent(owner: owner, socketId: entry.socketId, event: event, payload: payload)
         }
         let taskListeners = entry.listeners[event] ?? []
-        let legacyCallbackId = (owner.legacyBoundSocketId == entry.socketId) ? owner.legacySlots[event] : nil
+        let legacyCallbackIds = (owner.legacyBoundSocketId == entry.socketId) ? (owner.legacySlots[event] ?? []) : []
 
         owner.sockets.removeValue(forKey: entry.socketId)
         entry.connectTimer?.cancel()
@@ -1009,8 +1035,8 @@ final class DMPWebSocketManager {
         for callbackId in taskListeners {
             pushEvent(appId: appId, callbackId: callbackId, payload: payload)
         }
-        if let legacyCallbackId {
-            pushEvent(appId: appId, callbackId: legacyCallbackId, payload: payload)
+        for callbackId in legacyCallbackIds {
+            pushEvent(appId: appId, callbackId: callbackId, payload: payload)
         }
     }
 
@@ -1025,8 +1051,10 @@ final class DMPWebSocketManager {
         for callbackId in taskListeners {
             pushEvent(appId: appId, callbackId: callbackId, payload: payload)
         }
-        if owner.legacyBoundSocketId == entry.socketId, let legacyCallbackId = owner.legacySlots[event] {
-            pushEvent(appId: appId, callbackId: legacyCallbackId, payload: payload)
+        if owner.legacyBoundSocketId == entry.socketId {
+            for callbackId in owner.legacySlots[event] ?? [] {
+                pushEvent(appId: appId, callbackId: callbackId, payload: payload)
+            }
         }
     }
 
