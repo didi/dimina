@@ -27,11 +27,14 @@ public class WebSocketAPI: DMPContainerApi {
 
     @BridgeMethod(CONNECT_SOCKET)
     var connectSocket: DMPBridgeMethodHandler = { param, env, callback in
-        let appVersion = DMPAppManager.sharedInstance().getApp(appIndex: env.appIndex)?.jsAppVersion() ?? "0"
+        let app = DMPAppManager.sharedInstance().getApp(appIndex: env.appIndex)
+        // app.json 的 `networkTimeout.connectSocket` 是这个小程序自己的连接超时默认值，
+        // 调用方传的 timeout 优先于它，两者都没有时才是 60000。
         DMPWebSocketManager.shared.connectSocket(
             params: param.getMap(),
             appId: env.appId,
-            appVersion: appVersion,
+            appVersion: app?.jsAppVersion() ?? "0",
+            appNetworkTimeoutMs: app?.getBundleAppConfig()?.networkTimeoutConnectSocketMs,
             callback: callback
         )
         return DMPNoneResult()

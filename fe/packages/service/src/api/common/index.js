@@ -60,6 +60,7 @@ const promiseUnsupportedApis = new Set([
 const optionalParamPromiseApis = new Set([
 	'FileSystemManager.getSavedFileList',
 	'clearStorage',
+	'closeSocket',
 	'chooseImage',
 	'chooseMedia',
 	'chooseVideo',
@@ -214,7 +215,7 @@ function canPairSettlers({ success, fail, keep, evtId }) {
 	return (isFunction(success) || isAbsentSettler(success)) && (isFunction(fail) || isAbsentSettler(fail))
 }
 
-export function invokeAPI(name, data, target = 'container') {
+export function invokeAPI(name, data, target = 'container', allowPromise = true) {
 	const resolveFromHostEnv = hostEnvResolvers[name]
 	if (target === 'container' && resolveFromHostEnv) {
 		const cachedValue = resolveFromHostEnv()
@@ -231,7 +232,7 @@ export function invokeAPI(name, data, target = 'container') {
 	// 了 evtId 的，那个 id 可能早就被别人占着，本次只是覆盖了它。
 	const disposableIds = []
 	if (data === undefined) {
-		if (canReturnPromise(name, data)) {
+		if (allowPromise && canReturnPromise(name, data)) {
 			return invokePromiseAPI(name, {}, target)
 		}
 		params = data
@@ -294,7 +295,7 @@ export function invokeAPI(name, data, target = 'container') {
 	else {
 		const { keep, ...rest } = data
 		delete rest.evtId
-		if (!keep && canReturnPromise(name, data)) {
+		if (!keep && allowPromise && canReturnPromise(name, data)) {
 			params = { ...rest }
 			return invokePromiseAPI(name, params, target)
 		}
@@ -310,4 +311,10 @@ export function invokeAPI(name, data, target = 'container') {
 		}
 		throw error
 	}
+}
+
+// SocketTask 的实例方法在微信中固定返回 void，不能因为调用方没传 success/fail 就走
+// 通用 API 的 Promise 分支。这个入口只给这类 callback-only API 的内部实现使用。
+export function invokeAPIWithoutPromise(name, data, target = 'container') {
+	return invokeAPI(name, data, target, false)
 }

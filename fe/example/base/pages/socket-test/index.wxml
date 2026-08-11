@@ -1,6 +1,6 @@
 <view class="container">
   <view class="row">
-    <input class="url-input" value="{{wsUrl}}" bindinput="onUrlInput" placeholder="ws:// echo server url" />
+    <input class="url-input" value="{{wsUrl}}" bindinput="onUrlInput" placeholder="wss:// echo server url" />
     <button type="primary" size="mini" bindtap="runTests" disabled="{{running}}">{{running ? '运行中...' : '运行全部用例'}}</button>
   </view>
   <view class="summary {{summaryClass}}">{{summaryText}}</view>

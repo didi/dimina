@@ -20,13 +20,14 @@ import {
   newSocketIdCodeReasonParams,
   newSocketIdParams,
   newTaskEventParams,
+  newTransportError,
   payloadCloseCode,
   payloadCloseReason,
   payloadErrMsg,
   payloadHeaderValue,
   payloadMessageData,
   payloadMessageIsBuffer,
-  payloadProfileNumber,
+  payloadKeys,
   TestSetup,
 } from './DMPWebSocketTestSupport';
 
@@ -51,21 +52,26 @@ export default function dmpWebSocketManagerTest() {
 
     // ---------------- 并发 ----------------
 
+    // 所有未终态连接共同占用名额；完整边界验收在 DMPWebSocketDiminaBehaviorTest。
+
     it('concurrency_6th_connect_fails_others_unaffected', 0, async () => {
       const appId = 'app-concurrency';
       for (let i = 0; i < 5; i++) {
         const calls = connectAndCapture(setup.manager, appId, 1, `s${i}`);
         await flushMicrotasks();
         expect(firstSuccessErrMsg(calls)).assertEqual('connectSocket:ok');
+        setup.createdTransports[i].fireOpen();
       }
       const sixth = connectAndCapture(setup.manager, appId, 1, 's5');
       await flushMicrotasks();
-      expect(firstFailMessage(sixth)).assertEqual('connectSocket:fail reach max websocket connect count 5');
+      expect(firstFailMessage(sixth)).assertEqual('connectSocket:fail fail reach max websocket connect count 5');
     });
 
     it('concurrency_different_owners_do_not_share_quota', 0, async () => {
       for (let i = 0; i < 5; i++) {
         connectAndCapture(setup.manager, 'owner-a', 1, `a${i}`);
+        await flushMicrotasks();
+        setup.createdTransports[i].fireOpen();
       }
       const otherOwner = connectAndCapture(setup.manager, 'owner-b', 2, 'b0');
       await flushMicrotasks();
@@ -76,10 +82,14 @@ export default function dmpWebSocketManagerTest() {
       const appId = 'app-freed';
       for (let i = 0; i < 5; i++) {
         connectAndCapture(setup.manager, appId, 1, `s${i}`);
+        await flushMicrotasks();
+        setup.createdTransports[i].fireOpen();
       }
       const closeCap = captureCallback();
       setup.manager.closeSocket(appId, newSocketIdParams('s0'), closeCap.fn);
       expect(firstSuccessErrMsg(closeCap.calls)).assertEqual('closeSocket:ok');
+      // 名额在 close 事件到达时才归还，光发出 close 请求不算。
+      setup.createdTransports[0].fireClose(1000, '');
 
       const retry = connectAndCapture(setup.manager, appId, 1, 's-new');
       await flushMicrotasks();
@@ -111,7 +121,7 @@ export default function dmpWebSocketManagerTest() {
 
     // ---------------- 生命周期 ----------------
 
-    it('lifecycle_open_carries_header_and_profile', 0, async () => {
+    it('lifecycle_open_omits_profile_when_harmony_cannot_measure_it', 0, async () => {
       connectAndCapture(setup.manager, 'app-open', 1, 's0');
       await flushMicrotasks();
       const t = setup.createdTransports[0];
@@ -124,8 +134,7 @@ export default function dmpWebSocketManagerTest() {
       const openEvt = findEventByCallbackId(setup.events, 'cb-open');
       expect(openEvt !== undefined).assertTrue();
       expect(payloadHeaderValue(openEvt!.payload, 'x-server')).assertEqual('dimina');
-      expect(payloadProfileNumber(openEvt!.payload, 'fetchStart') >= 0).assertTrue();
-      expect(payloadProfileNumber(openEvt!.payload, 'cost') >= 0).assertTrue();
+      expect(payloadKeys(openEvt!.payload)).assertEqual('header');
     });
 
     it('lifecycle_text_and_binary_message', 0, async () => {
@@ -136,14 +145,18 @@ export default function dmpWebSocketManagerTest() {
       t.fireOpen();
 
       t.fireMessage('hello');
-      const bytes = new Uint8Array([1, 2, 3]);
-      t.fireMessage(bytes.buffer);
+      // 逐字钉死编码结果，不是只要求「非空」——空的断言让编码表写错、字节顺序反转、
+      // 只编第一个字节这几种改法全都照样绿。三字节走整组分支，四字节走带 `=` 的收尾分支。
+      t.fireMessage(new Uint8Array([1, 2, 3]).buffer);
+      t.fireMessage(new Uint8Array([1, 2, 3, 4]).buffer);
 
-      expect(countEventsByCallbackId(setup.events, 'cb-msg')).assertEqual(2);
+      expect(countEventsByCallbackId(setup.events, 'cb-msg')).assertEqual(3);
       const msgEvents = setup.events.filter((e) => e.callbackId === 'cb-msg');
       expect(payloadMessageData(msgEvents[0].payload)).assertEqual('hello');
       expect(payloadMessageIsBuffer(msgEvents[1].payload)).assertTrue();
-      expect(payloadMessageData(msgEvents[1].payload).length > 0).assertTrue();
+      expect(payloadMessageData(msgEvents[1].payload)).assertEqual('AQID');
+      expect(payloadMessageIsBuffer(msgEvents[2].payload)).assertTrue();
+      expect(payloadMessageData(msgEvents[2].payload)).assertEqual('AQIDBA==');
     });
 
     it('lifecycle_server_close_reports_code_and_reason', 0, async () => {
@@ -197,6 +210,77 @@ export default function dmpWebSocketManagerTest() {
       expect(payloadErrMsg(errEvt!.payload)).assertEqual('connectSocket:fail WebSocket connection failed');
       expect(countEventsByCallbackId(setup.events, 'cb-err')).assertEqual(1);
       expect(findEventByCallbackId(setup.events, 'cb-close') === undefined).assertTrue();
+    });
+
+    /*
+     * `connect()` 的结果回调与 open / message / close 三个事件回调，第一个参数都是
+     * BusinessError；带错时第二个参数可能是 undefined。下面四条各自守住一处判错分支，
+     * 断言选的都是「拿掉判错之后会变成什么」，而不是只看有没有 error 事件：
+     * 拿掉 open 的判错会让连接进入 OPEN，拿掉 message 的会派发一条空的二进制消息，
+     * 拿掉 close 的会按默认码报一次正常关闭，拿掉 connect 的则什么都不报。
+     */
+
+    it('transport_connect_callback_error_reports_error', 0, async () => {
+      setup.pendingConnectError = newTransportError('dial refused');
+      connectAndCapture(setup.manager, 'app-dial-err', 1, 's0');
+      setup.manager.onSocketEvent('error', 'app-dial-err', newTaskEventParams('s0', 'cb-err'), captureCallback().fn);
+      await flushMicrotasks();
+
+      const errEvt = findEventByCallbackId(setup.events, 'cb-err');
+      expect(errEvt !== undefined).assertTrue();
+      expect(payloadErrMsg(errEvt!.payload)).assertEqual('connectSocket:fail WebSocket connection failed');
+    });
+
+    it('transport_open_callback_error_does_not_open_the_connection', 0, async () => {
+      connectAndCapture(setup.manager, 'app-open-err', 1, 's0');
+      await flushMicrotasks();
+      const t = setup.createdTransports[0];
+      setup.manager.onSocketEvent('open', 'app-open-err', newTaskEventParams('s0', 'cb-open'), captureCallback().fn);
+      setup.manager.onSocketEvent('error', 'app-open-err', newTaskEventParams('s0', 'cb-err'), captureCallback().fn);
+
+      t.fireOpenError('handshake aborted');
+
+      expect(findEventByCallbackId(setup.events, 'cb-open') === undefined).assertTrue();
+      expect(payloadErrMsg(findEventByCallbackId(setup.events, 'cb-err')!.payload))
+        .assertEqual('connectSocket:fail WebSocket connection failed');
+      // 连接没进 OPEN，所以后续的 send 只能失败——这一条才是「没被打开」的证据。
+      const sendCap = captureCallback();
+      setup.manager.sendSocketMessage('app-open-err', newSendParams('s0', 'ping'), sendCap.fn);
+      expect(firstFailMessage(sendCap.calls)).assertEqual('sendSocketMessage:fail WebSocket is not connected');
+      expect(t.sendCalls.length).assertEqual(0);
+    });
+
+    it('transport_message_callback_error_does_not_deliver_an_empty_frame', 0, async () => {
+      connectAndCapture(setup.manager, 'app-msg-err', 1, 's0');
+      await flushMicrotasks();
+      const t = setup.createdTransports[0];
+      setup.manager.onSocketEvent('message', 'app-msg-err', newTaskEventParams('s0', 'cb-msg'), captureCallback().fn);
+      setup.manager.onSocketEvent('error', 'app-msg-err', newTaskEventParams('s0', 'cb-err'), captureCallback().fn);
+      t.fireOpen();
+
+      t.fireMessageError('receive failed');
+
+      expect(countEventsByCallbackId(setup.events, 'cb-msg')).assertEqual(0);
+      expect(findEventByCallbackId(setup.events, 'cb-err') !== undefined).assertTrue();
+    });
+
+    it('transport_close_callback_error_is_not_reported_as_a_normal_close', 0, async () => {
+      connectAndCapture(setup.manager, 'app-close-err', 1, 's0');
+      await flushMicrotasks();
+      const t = setup.createdTransports[0];
+      setup.manager.onSocketEvent('close', 'app-close-err', newTaskEventParams('s0', 'cb-close'), captureCallback().fn);
+      setup.manager.onSocketEvent('error', 'app-close-err', newTaskEventParams('s0', 'cb-err'), captureCallback().fn);
+      t.fireOpen();
+
+      t.fireCloseError('close failed');
+
+      // 带错的 close 回调走的是传输失败那条路：先报 error，再本地合成一个 1006 的 close。
+      // 不判错直接当成正常关闭的话，既不会有 error，close 的 code 也会变成默认的那个。
+      expect(findEventByCallbackId(setup.events, 'cb-err') !== undefined).assertTrue();
+      const closeEvt = findEventByCallbackId(setup.events, 'cb-close');
+      expect(closeEvt !== undefined).assertTrue();
+      expect(payloadCloseCode(closeEvt!.payload)).assertEqual(1006);
+      expect(payloadCloseReason(closeEvt!.payload)).assertEqual('');
     });
 
     // ---------------- 后台/前台 ----------------
@@ -569,8 +653,8 @@ export default function dmpWebSocketManagerTest() {
       expect(tC.sendCalls.length).assertEqual(1);
     });
 
-    it('legacy_close_with_dead_binding_fails_and_sweeps_remaining', 0, async () => {
-      const appId = 'app-legacy-sweep';
+    it('legacy_close_with_dead_binding_does_not_touch_other_tasks', 0, async () => {
+      const appId = 'app-legacy-dead-binding';
       setup.manager.onSocketEvent('close', appId, newLegacyEventParams('legacy-close'), captureCallback().fn);
       // A/B/C 全部先连上（A 存活期间 B/C 连接都不会改绑，绑定始终是首个存活连接 A）
       connectAndCapture(setup.manager, appId, 1, 'A');
@@ -592,21 +676,36 @@ export default function dmpWebSocketManagerTest() {
 
       const legacyCloseCap = captureCallback();
       setup.manager.closeSocket(appId, newEmptyParams(), legacyCloseCap.fn);
-      // B/C 是 OPEN 状态，扫尾发起的是真实关闭握手，要等 wire 层 close 事件才真正
-      // 结算并发 close；手动触发以模拟握手完成。
-      tB.fireClose(1000, '');
-      tC.fireClose(1000, '');
-
       expect(firstFailMessage(legacyCloseCap.calls)).assertEqual('closeSocket:fail WebSocket is not connected');
-      expect(findEventByCallbackId(setup.events, 'b-close') !== undefined).assertTrue();
-      expect(findEventByCallbackId(setup.events, 'c-close') !== undefined).assertTrue();
+      expect(tB.closeCalls.length).assertEqual(0);
+      expect(tC.closeCalls.length).assertEqual(0);
+      expect(findEventByCallbackId(setup.events, 'b-close') === undefined).assertTrue();
+      expect(findEventByCallbackId(setup.events, 'c-close') === undefined).assertTrue();
     });
 
-    it('legacy_close_hitting_closing_binding_with_invalid_code_still_fails_not_connected_and_sweeps', 0, async () => {
+    it('legacy_close_with_an_invalid_code_fails_that_call_only_and_leaves_the_bound_connection_open', 0, async () => {
+      // Invalid parameters fail without touching the bound connection or other SocketTasks.
+      const appId = 'app-legacy-invalid-code-bound';
+      connectAndCapture(setup.manager, appId, 1, 'A');
+      await flushMicrotasks();
+      connectAndCapture(setup.manager, appId, 1, 'B');
+      await flushMicrotasks();
+      const tA = setup.createdTransports[0];
+      const tB = setup.createdTransports[1];
+      tA.fireOpen();
+      tB.fireOpen();
+
+      const legacyCloseCap = captureCallback();
+      setup.manager.closeSocket(appId, newLegacyCodeParams(500), legacyCloseCap.fn);
+
+      expect(firstFailMessage(legacyCloseCap.calls)).assertEqual('closeSocket:fail invalid code');
+      expect(tA.closeCalls.length).assertEqual(0);
+      expect(tB.closeCalls.length).assertEqual(0);
+    });
+
+    it('legacy_close_hitting_closing_binding_does_not_touch_other_tasks', 0, async () => {
       // Distinct from the dead/never-opened-binding case above - here the bound target is
-      // OPEN, gets moved to CLOSING by a first legacy close, and a SECOND legacy close (with
-      // a deliberately invalid code) targets that still-CLOSING entry. Existence must be
-      // checked before code validation for legacy mode too, and the sweep must still run.
+      // OPEN, gets moved to CLOSING by a first global close, then receives another global close.
       const appId = 'app-legacy-closing-invalid-code';
       setup.manager.onSocketEvent('close', appId, newLegacyEventParams('legacy-close'), captureCallback().fn);
       connectAndCapture(setup.manager, appId, 1, 'A');
@@ -623,11 +722,42 @@ export default function dmpWebSocketManagerTest() {
 
       const legacyCloseCap = captureCallback();
       setup.manager.closeSocket(appId, newLegacyCodeParams(5000), legacyCloseCap.fn);
-      tB.fireClose(1000, '');
 
       expect(firstFailMessage(legacyCloseCap.calls)).assertEqual('closeSocket:fail WebSocket is not connected');
-      expect(findEventByCallbackId(setup.events, 'b-close') !== undefined).assertTrue();
+      expect(tB.closeCalls.length).assertEqual(0);
+      expect(findEventByCallbackId(setup.events, 'b-close') === undefined).assertTrue();
     });
+
+    it('legacy_close_does_not_take_over_a_task_mode_closing_binding',
+      0, async () => {
+        // Global close does not close or reroute a target already closing through SocketTask.close().
+        const appId = 'app-legacy-close-frees-task-closing-binding';
+        connectAndCapture(setup.manager, appId, 1, 'A');
+        await flushMicrotasks();
+        const tA = setup.createdTransports[0];
+        tA.fireOpen();
+
+        // Task-mode close leaves `A` CLOSING without marking it closed-by-global-door.
+        setup.manager.closeSocket(appId, newSocketIdParams('A'), captureCallback().fn);
+
+        // Global close reports not-connected against the CLOSING binding.
+        const legacyCloseCap = captureCallback();
+        setup.manager.closeSocket(appId, newEmptyParams(), legacyCloseCap.fn);
+        expect(firstFailMessage(legacyCloseCap.calls)).assertEqual('closeSocket:fail WebSocket is not connected');
+
+        // A fresh SocketTask may connect, but Dimina's unspecified global route remains unchanged.
+        connectAndCapture(setup.manager, appId, 1, 'B');
+        await flushMicrotasks();
+        const tB = setup.createdTransports[1];
+        tB.fireOpen();
+
+        const sendCap = captureCallback();
+        setup.manager.sendSocketMessage(appId, newLegacySendParams('hi'), sendCap.fn);
+
+        expect(firstFailMessage(sendCap.calls)).assertEqual('sendSocketMessage:fail WebSocket is not connected');
+        expect(tB.sendCalls.length).assertEqual(0);
+        expect(tA.sendCalls.length).assertEqual(0);
+      });
 
     it('onOff_registration_success_payload_carries_correct_errMsg', 0, async () => {
       // The completion used to resolve to an empty payload instead of the Android/iOS

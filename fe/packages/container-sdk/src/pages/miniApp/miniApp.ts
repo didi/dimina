@@ -1,9 +1,11 @@
 import type { Application } from '../application/application.js'
 import type { BridgeOptions, PageStackEntry, StorageAdapter } from '../../types.js'
+import type { ApiParams, SocketEventName } from '../../core/webSocketManager.js'
 import type { AppWindowConfig, MergedPageConfig, PageConfig } from '../../utils/util.js'
 import { LAUNCH_SCREEN_MIN_MS, MODAL_GUARD_MS, WAIT_TRANSITION_TIMEOUT_MS } from '../../constants/animation.js'
 import { Bridge } from '../../core/bridge.js'
 import { JSCore } from '../../core/jscore.js'
+import { WebSocketManager } from '../../core/webSocketManager.js'
 import { resolveStorageAdapter } from '../../config.js'
 import { mergePageConfig, queryPath, readFile, sleep, uuid } from '../../utils/util.js'
 import { Navigator } from './navigator.js'
@@ -86,6 +88,9 @@ interface AppConfigApp {
 	pages: string[]
 	window?: AppWindowConfig
 	tabBar?: TabBarConfig
+	networkTimeout?: {
+		connectSocket?: number
+	}
 }
 
 export interface MiniAppConfig {
@@ -217,6 +222,7 @@ export class MiniApp {
 	toastInfo: ToastInfo
 	color: string | null
 	apiRegistry: Record<string, (this: MiniApp, params?: unknown, callerBridge?: Bridge) => void>
+	webSocketManager: WebSocketManager
 	/** 维护第三方扩展的持续订阅，key: `${module}_${event}`，value: unsubscribe 函数 */
 	_extSubscriptions: Map<string, (() => void) | null>
 	_windowResizeHandlers: Set<() => void>
@@ -268,6 +274,10 @@ export class MiniApp {
 		}
 		this.color = null
 		this.apiRegistry = {}
+		this.webSocketManager = new WebSocketManager({
+			emitCallback: (callbackId, payload) => this.createCallbackFunction(callbackId)?.(payload),
+			getAppConnectTimeout: () => this.appConfig?.app.networkTimeout?.connectSocket,
+		})
 		this._extSubscriptions = new Map()
 		this._windowResizeHandlers = new Set()
 		this.tabBarConfig = null
@@ -866,6 +876,7 @@ export class MiniApp {
 
 	onPresentIn(): void {
 		const currentBridge = this.navigator.top
+		this.webSocketManager.onAppShow()
 		// appShow/appHide 是 app 粒度信号，由共享的 jscore 统一记账去重，不挂在
 		// 当前栈顶这一个 Bridge 上——见 JSCore.appShow() 上的说明。
 		this.jscore.appShow()
@@ -875,6 +886,7 @@ export class MiniApp {
 	onPresentOut(): void {
 		const currentBridge = this.navigator.top
 
+		this.webSocketManager.onAppHide()
 		this.jscore.appHide()
 		currentBridge?.pageHide()
 	}
@@ -2055,6 +2067,7 @@ export class MiniApp {
 		this._destroyed = true
 		// 打断在途的 bridge.init()：不再等一个必然不会触发 load 的 iframe 握手。
 		this._destroyAbortController.abort()
+		this.webSocketManager.destroy()
 
 		let extUnsubscribeError: unknown
 		for (const unsubscribe of this._extSubscriptions.values()) {
@@ -2111,6 +2124,58 @@ export class MiniApp {
 			// eslint-disable-next-line no-throw-literal
 			throw extUnsubscribeError
 		}
+	}
+
+	connectSocket(opts: ApiParams = {}): void {
+		this.webSocketManager.connectSocket(opts)
+	}
+
+	sendSocketMessage(opts: ApiParams = {}): void {
+		this.webSocketManager.sendSocketMessage(opts)
+	}
+
+	closeSocket(opts: ApiParams = {}): void {
+		this.webSocketManager.closeSocket(opts)
+	}
+
+	onSocketOpen(opts: ApiParams = {}): void {
+		this.onSocketEvent('open', opts)
+	}
+
+	onSocketMessage(opts: ApiParams = {}): void {
+		this.onSocketEvent('message', opts)
+	}
+
+	onSocketError(opts: ApiParams = {}): void {
+		this.onSocketEvent('error', opts)
+	}
+
+	onSocketClose(opts: ApiParams = {}): void {
+		this.onSocketEvent('close', opts)
+	}
+
+	offSocketOpen(opts: ApiParams = {}): void {
+		this.offSocketEvent('open', opts)
+	}
+
+	offSocketMessage(opts: ApiParams = {}): void {
+		this.offSocketEvent('message', opts)
+	}
+
+	offSocketError(opts: ApiParams = {}): void {
+		this.offSocketEvent('error', opts)
+	}
+
+	offSocketClose(opts: ApiParams = {}): void {
+		this.offSocketEvent('close', opts)
+	}
+
+	private onSocketEvent(event: SocketEventName, opts: ApiParams): void {
+		this.webSocketManager.onSocketEvent(event, opts)
+	}
+
+	private offSocketEvent(event: SocketEventName, opts: ApiParams): void {
+		this.webSocketManager.offSocketEvent(event, opts)
 	}
 
 	/**

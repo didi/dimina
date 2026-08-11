@@ -36,7 +36,7 @@ object WebSocketValidation {
     data class ValidatedUrl(val url: String, val scheme: String)
 
     /**
-     * Validates the `url` param: must parse, scheme must be `ws`/`wss`, no fragment.
+     * Validates the `url` param: must parse, scheme must be `wss`, no fragment.
      * Failure errMsg: "invalid url".
      */
     fun validateUrl(rawUrl: Any?): Result<ValidatedUrl> {
@@ -50,8 +50,8 @@ object WebSocketValidation {
         }
 
         val scheme = uri.scheme?.lowercase()
-        if (scheme != "ws" && scheme != "wss") return Result.Fail("invalid url")
-        // rawFragment 而不是 fragment.isNullOrEmpty()：`ws://host/#` 解析出来的是空字符串
+        if (scheme != "wss") return Result.Fail("invalid url")
+        // rawFragment 而不是 fragment.isNullOrEmpty()：`wss://host/#` 解析出来的是空字符串
         // 而不是 null，用后者会把带空 fragment 的地址放过去，iOS 和 HarmonyOS 都是拒绝的。
         if (uri.rawFragment != null) return Result.Fail("invalid url")
         if (uri.host.isNullOrEmpty()) return Result.Fail("invalid url")
@@ -66,7 +66,8 @@ object WebSocketValidation {
     fun validateTimeout(rawTimeout: Any?): Result<Int> {
         if (rawTimeout == null) return Result.Ok(DEFAULT_TIMEOUT_MS)
 
-        val asDouble = coerceToDouble(rawTimeout)
+        if (rawTimeout !is Number) return Result.Fail("invalid timeout")
+        val asDouble = rawTimeout.toDouble()
         if (asDouble.isNaN() || asDouble.isInfinite() || asDouble > 0x7fffffff) {
             return Result.Fail("invalid timeout")
         }
@@ -129,7 +130,10 @@ object WebSocketValidation {
                 if (value == null || value == JSONObject.NULL) continue
 
                 val strValue = value.toString()
-                if (containsCrlf(strValue) || containsForbiddenControlChar(strValue)) {
+                if (containsCrlf(strValue) ||
+                    containsForbiddenControlChar(strValue) ||
+                    containsNonAscii(strValue)
+                ) {
                     return Result.Fail("invalid header")
                 }
 
@@ -159,40 +163,13 @@ object WebSocketValidation {
     }
 
     /**
-     * Decimal number literal accepted from a string `code`. Deliberately narrower than the
-     * platform's own string-to-double parsers, which additionally accept things JavaScript rejects
-     * (Java takes a trailing `d`/`f` suffix and hexadecimal float notation); keeping the shape
-     * explicit is what lets Android, iOS and HarmonyOS accept exactly the same set of strings.
-     */
-    private val DECIMAL_NUMBER = Regex("^[+-]?(\\d+(\\.\\d*)?|\\.\\d+)([eE][+-]?\\d+)?$")
-
-    /**
-     * Validates `closeSocket`'s `code`. Missing -> 1000. Host numbers and decimal-literal strings
-     * are accepted; an empty or blank string is rejected, as are booleans and every other type.
-     * The converted value must be a finite integer that is either 1000 or inside [3000, 4999],
-     * otherwise -> fail "invalid code".
-     *
-     * Note this is narrower than JavaScript's `Number()`, which also reads `0xBB8` and `0b1011`.
-     * The script layer coerces `code` with a real `Number()` before it reaches the bridge, so a
-     * mini program gets the full JavaScript semantics; this narrower rule is what a direct bridge
-     * caller sees, and it is identical on all three platforms.
+     * Validates `closeSocket`'s `code`. Missing -> 1000. Only host numbers are accepted; the value
+     * must be a finite integer that is either 1000 or inside [3000, 4999].
      */
     fun validateCloseCode(rawCode: Any?): Result<Int> {
         if (rawCode == null) return Result.Ok(1000)
-
-        val doubleValue: Double = when (rawCode) {
-            is Boolean -> return Result.Fail("invalid code")
-            is Int -> rawCode.toDouble()
-            is Long -> rawCode.toDouble()
-            is Double -> rawCode
-            is Float -> rawCode.toDouble()
-            is String -> {
-                val trimmed = rawCode.trim()
-                if (!DECIMAL_NUMBER.matches(trimmed)) return Result.Fail("invalid code")
-                trimmed.toDoubleOrNull() ?: return Result.Fail("invalid code")
-            }
-            else -> return Result.Fail("invalid code")
-        }
+        if (rawCode !is Number) return Result.Fail("invalid code")
+        val doubleValue = rawCode.toDouble()
 
         if (doubleValue.isNaN() || doubleValue.isInfinite() || doubleValue != Math.floor(doubleValue)) {
             return Result.Fail("invalid code")
@@ -246,22 +223,18 @@ object WebSocketValidation {
     }
 
     /**
-     * Coercion used by [validateTimeout]: host numbers, booleans and decimal-literal strings;
-     * non-coercible input yields NaN. Narrower than JavaScript's `Number()` in the same way
-     * [validateCloseCode] is, and for the same reason - the script layer already coerced.
+     * True if [s] holds any character above US-ASCII. RFC 7230 deprecated obs-text (0x80-0xFF) in
+     * field values, and the platforms disagree about what to do with such a value - one request
+     * builder refuses the header outright while another puts it on the wire - so the same mini
+     * program would connect on one device and fail on another.
+     *
+     * The script layer hands string values through untouched, which makes a non-ASCII value a
+     * perfectly reachable input rather than a curiosity, so it is settled here, before the dial:
+     * a plain `fail` beats reporting success and then contradicting it with an error event.
+     *
+     * This applies to header values only. A url may legitimately carry non-ASCII (CJK paths, IDN
+     * hosts) and is governed by its own rules.
      */
-    private fun coerceToDouble(raw: Any): Double {
-        return when (raw) {
-            is Int -> raw.toDouble()
-            is Long -> raw.toDouble()
-            is Double -> raw
-            is Float -> raw.toDouble()
-            is Boolean -> if (raw) 1.0 else 0.0
-            is String -> {
-                val trimmed = raw.trim()
-                if (trimmed.isEmpty()) 0.0 else trimmed.toDoubleOrNull() ?: Double.NaN
-            }
-            else -> Double.NaN
-        }
-    }
+    internal fun containsNonAscii(s: String): Boolean = s.any { it.code > 0x7F }
+
 }

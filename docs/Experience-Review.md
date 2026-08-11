@@ -29,6 +29,7 @@
 问题做法：
 
 - 硬编码 `/dd`、`/wx`、特定项目包名、特定字段、固定 1.5s、两个 animation frame、固定高度、固定 centerOffset。
+- 在 Xcode 工程中把 Foundation 等系统 framework 固定到 `iPhoneOS26.0.sdk` 或其他带版本号的本机 SDK 绝对路径。
 - 为单一 case 添加特判，没有证明它是框架语义的一部分。
 
 正确做法：
@@ -36,6 +37,7 @@
 - 从最终编译产物、配置、运行时状态、API 返回、平台能力或标准规范里推导值。
 - 对 UI 高度、位置、动画，优先使用布局、内容尺寸、CSS/native 动画能力、safe area、平台组件能力，而不是固定数值。
 - 对路径和依赖，参考微信小程序官方文档、Vite 迁移文档等权威来源。
+- iOS 系统 framework 必须跟随当前 Xcode 选择的 SDK：在 `project.pbxproj` 中使用 `sourceTree = SDKROOT` 和 `System/Library/Frameworks/Foundation.framework` 这类 SDK 相对路径；没有必要显式链接时应直接移除引用，禁止写死 `iPhoneOS<版本>.sdk`。
 
 教训：
 
@@ -181,6 +183,7 @@
 16. 地图、导航、扫码、蓝牙、压缩、相机等平台能力问题，先查 SDK/平台源码与参数语义，再决定上层适配。
 17. 长任务要阶段性落盘，防止上下文压缩、网络错误或进程中断导致结论丢失。
 18. 最终回复要说清改了什么、验证了什么、哪些没有验证；不要堆砌过程，也不要隐藏失败。
+19. 审查或修改 iOS 工程时，Foundation 等系统 framework 必须使用 `SDKROOT` 相对引用或移除不必要的显式链接，禁止固定到 `iPhoneOS<版本>.sdk`。
 
 ## 四、默认执行模板
 

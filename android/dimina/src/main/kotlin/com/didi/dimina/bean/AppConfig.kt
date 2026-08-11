@@ -55,13 +55,27 @@ data class SubPackage(
     val pages: List<String>
 )
 
+/**
+ * `app.json`'s `networkTimeout` block. Every entry is independently optional and defaults to
+ * 60000 ms, so a mini program may configure only the timeouts it cares about.
+ *
+ * The defaults are load-bearing rather than cosmetic: `app-config.json` is decoded as one unit
+ * when the mini program opens, and a missing required field aborts that whole decode - a
+ * partially-configured block would stop the mini program from starting instead of degrading a
+ * single timeout. `ignoreUnknownKeys` does not help here; it forgives extra keys, not absent ones.
+ */
 @Serializable
 data class NetworkTimeout(
-    val request: Int,
-    val connectSocket: Int,
-    val uploadFile: Int,
-    val downloadFile: Int
-)
+    val request: Int = DEFAULT_NETWORK_TIMEOUT_MS,
+    val connectSocket: Int = DEFAULT_NETWORK_TIMEOUT_MS,
+    val uploadFile: Int = DEFAULT_NETWORK_TIMEOUT_MS,
+    val downloadFile: Int = DEFAULT_NETWORK_TIMEOUT_MS
+) {
+    companion object {
+        /** The documented default for every `networkTimeout` entry a mini program leaves unset. */
+        const val DEFAULT_NETWORK_TIMEOUT_MS = 60000
+    }
+}
 
 @Serializable
 data class PageModule(

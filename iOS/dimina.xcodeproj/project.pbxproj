@@ -17,6 +17,7 @@
 		4AAB204EFEBA61F955A67553 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 69C73737CB86CC434E8DE5B7 /* Foundation.framework */; };
 		7500C22DE15B570EC7A4FD2B /* DMPWebSocketValidationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAB6B466B43575C7978B1BAD /* DMPWebSocketValidationTests.swift */; };
 		9E9F7EDCE127D18B2331A8DC /* DMPWebSocketManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23EDE52DA8E2C3DFF607829B /* DMPWebSocketManagerTests.swift */; };
+		E90FD67E791E4377923344EF /* DMPEngineTimerThreadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 898FFD601DB04AFEBBAAAE0A /* DMPEngineTimerThreadTests.swift */; };
 /* End PBXBuildFile section */
 /* Begin PBXContainerItemProxy section */
 		425BDC30CA314D645195B564 /* PBXContainerItemProxy */ = {
@@ -45,6 +46,7 @@
 		69C73737CB86CC434E8DE5B7 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
 		AE429915A2BA3583BF99A758 /* DiminaKitTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DiminaKitTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		FAB6B466B43575C7978B1BAD /* DMPWebSocketValidationTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DMPWebSocketValidationTests.swift; sourceTree = "<group>"; };
+		898FFD601DB04AFEBBAAAE0A /* DMPEngineTimerThreadTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DMPEngineTimerThreadTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		0A6F85DA2DAE3D7D0047A006 /* dimina */ = {
@@ -154,6 +156,7 @@
 				FAB6B466B43575C7978B1BAD /* DMPWebSocketValidationTests.swift */,
 				3A624932ADE9898E587249FA /* DMPWebSocketTestDoubles.swift */,
 				23EDE52DA8E2C3DFF607829B /* DMPWebSocketManagerTests.swift */,
+				898FFD601DB04AFEBBAAAE0A /* DMPEngineTimerThreadTests.swift */,
 			);
 			name = DiminaKitTests;
 			path = DiminaKitTests;
@@ -331,6 +334,7 @@
 				7500C22DE15B570EC7A4FD2B /* DMPWebSocketValidationTests.swift in Sources */,
 				1AE8A186852DBE677D065599 /* DMPWebSocketTestDoubles.swift in Sources */,
 				9E9F7EDCE127D18B2331A8DC /* DMPWebSocketManagerTests.swift in Sources */,
+				E90FD67E791E4377923344EF /* DMPEngineTimerThreadTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

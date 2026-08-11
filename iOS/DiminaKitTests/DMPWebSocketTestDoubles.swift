@@ -137,6 +137,21 @@ final class FakeTransport: DMPSocketTransport {
         delegate?.transportDidOpen(self, headers: headers)
     }
 
+    /// Reports the handshake phase boundaries the transport measured, in milliseconds since epoch
+    /// (the unit `DMPWebSocketScheduling.now()` uses). On iOS these come from
+    /// `URLSessionTaskMetrics`' `domainLookupStartDate` / `domainLookupEndDate` /
+    /// `connectStartDate` / `connectEndDate`; a nil field means the phase did not happen or was
+    /// not measured (a reused connection performs no DNS lookup, for instance).
+    func simulateHandshakeMetrics(domainLookupStart: Double? = nil, domainLookupEnd: Double? = nil,
+                                  connectStart: Double? = nil, connectEnd: Double? = nil) {
+        delegate?.transport(self, didCollectHandshakeMetrics: DMPSocketHandshakeMetrics(
+            domainLookupStart: domainLookupStart,
+            domainLookupEnd: domainLookupEnd,
+            connectStart: connectStart,
+            connectEnd: connectEnd
+        ))
+    }
+
     func simulateText(_ text: String) {
         delegate?.transport(self, didReceiveText: text)
     }
@@ -165,6 +180,7 @@ final class FakeTransportFactory: DMPSocketTransportFactory {
 final class CallbackRecorder {
     private(set) var successParams: [DMPMap] = []
     private(set) var failParams: [DMPMap] = []
+    private(set) var completeParams: [DMPMap] = []
     private(set) var completeCount = 0
 
     func makeCallback() -> DMPBridgeCallback {
@@ -172,9 +188,18 @@ final class CallbackRecorder {
             switch type {
             case .success: self?.successParams.append(args)
             case .fail: self?.failParams.append(args)
-            case .complete: self?.completeCount += 1
+            case .complete:
+                self?.completeParams.append(args)
+                self?.completeCount += 1
             }
         }
+    }
+
+    /// The errMsg carried by the `complete` callback's own result object. `complete` fires for both
+    /// outcomes and must describe the outcome it is completing.
+    var lastCompleteErrMsg: String? {
+        if let last = completeParams.last { return DMPWebSocketTestHelpers.errMsg(from: last) }
+        return nil
     }
 
     var lastErrMsg: String? {

@@ -19,6 +19,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 // ---------------------------------------------------------------------------
 vi.mock('@/api/common', () => ({
 	invokeAPI: vi.fn(() => 'mocked-result'),
+	invokeAPIWithoutPromise: vi.fn(() => 'mocked-result'),
 }))
 
 vi.mock('@dimina/common', () => ({
@@ -137,6 +138,7 @@ describe('globalApi enumerability contract', () => {
 		const ghost = '__ghostApiNeverRegistered__'
 		expect(Object.keys(globalApi)).not.toContain(ghost)
 		expect(ghost in globalApi).toBe(false)
+		expect(globalApi[ghost]).toBeUndefined()
 	})
 
 	// -----------------------------------------------------------------------
@@ -150,5 +152,23 @@ describe('globalApi enumerability contract', () => {
 		expect(Object.keys(globalApi)).not.toContain('toString')
 		// toString is still inherited from Object.prototype, not an own prop.
 		expect(Object.getOwnPropertyDescriptor(globalApi, 'toString')).toBeUndefined()
+	})
+
+	it('native 注册表不能让已删除的非微信 WebSocket API 在 wx 上复活', () => {
+		const removed = [
+			'SocketTask',
+			'readyState',
+			'offSocketOpen',
+			'offSocketMessage',
+			'offSocketError',
+			'offSocketClose',
+		]
+		registerEnumerableApiNames(removed)
+
+		for (const name of removed) {
+			expect(globalApi[name]).toBeUndefined()
+			expect(name in globalApi).toBe(false)
+			expect(Object.keys(globalApi)).not.toContain(name)
+		}
 	})
 })

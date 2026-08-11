@@ -291,7 +291,19 @@ DMPApp.init(context, { apiNamespaces: ["myapp"] })
 |               | TCPSocket.offError                | ✓       | ✓   | ✓       | ✗   |
 |               | TCPSocket.onMessage               | ✓       | ✓   | ✓       | ✗   |
 |               | TCPSocket.offMessage              | ✓       | ✓   | ✓       | ✗   |
-| 网络 - WebSocket | connectSocket / SocketTask      | ✓       | ✓   | ✓       | ✗   |
+| 网络 - WebSocket | connectSocket                    | ✓       | ✓   | ✓       | ✓   |
+|               | sendSocketMessage                | ✓       | ✓   | ✓       | ✓   |
+|               | closeSocket                      | ✓       | ✓   | ✓       | ✓   |
+|               | onSocketOpen                     | ✓       | ✓   | ✓       | ✓   |
+|               | onSocketMessage                  | ✓       | ✓   | ✓       | ✓   |
+|               | onSocketError                    | ✓       | ✓   | ✓       | ✓   |
+|               | onSocketClose                    | ✓       | ✓   | ✓       | ✓   |
+|               | SocketTask.send                  | ✓       | ✓   | ✓       | ✓   |
+|               | SocketTask.close                 | ✓       | ✓   | ✓       | ✓   |
+|               | SocketTask.onOpen                | ✓       | ✓   | ✓       | ✓   |
+|               | SocketTask.onMessage             | ✓       | ✓   | ✓       | ✓   |
+|               | SocketTask.onError               | ✓       | ✓   | ✓       | ✓   |
+|               | SocketTask.onClose               | ✓       | ✓   | ✓       | ✓   |
 | 数据缓存      | setStorageSync                   | ✓       | ✓   | ✓       | ✗   |
 |               | getStorageSync                   | ✓       | ✓   | ✓       | ✗   |
 |               | removeStorageSync                | ✓       | ✓   | ✓       | ✗   |

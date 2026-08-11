@@ -6,7 +6,8 @@ import {
   DMPAppManager,
   DMPLaunchConfig,
   DMPOpenType,
-  DMPColorUtils
+  DMPColorUtils,
+  DMPMap
 } from '@didi-dimina/dimina';
 import { common } from '@kit.AbilityKit';
 import { MiniProgramDataSource, MiniProgramModel } from './data/MiniProgramDataSource';
@@ -23,6 +24,9 @@ struct Index {
   @StorageProp('topRectHeight') safeAreaTop: number = 0;
   private dataSource: MiniProgramDataSource = new MiniProgramDataSource();
   curProgram?: MiniProgramModel;
+  // 自动化测试钩子用：aboutToAppear 扫描列表时顺带记下待自动打开的那一项。
+  private testAutoOpenItem?: MiniProgramModel;
+  private static didAutoOpenForTest: boolean = false;
 
   aboutToAppear(): void {
     const list = getContext().resourceManager.getRawFileListSync("jsapp")
@@ -39,12 +43,16 @@ struct Index {
         let configObj: Map<string, string> = JSON.parse(config)
         const appId: string = configObj["appId"] ?? ""
         const name: string = configObj["name"] ?? ""
-        this.dataSource.pushData(new MiniProgramModel(appId, name, DMPColorUtils.generateColorFromName(name)))
+        const model: MiniProgramModel = new MiniProgramModel(appId, name, DMPColorUtils.generateColorFromName(name))
+        this.dataSource.pushData(model)
+        if (appId.length > 0 && appId === (AppStorage.get<string>('testAutoOpenAppId') ?? '')) {
+          this.testAutoOpenItem = model
+        }
       }
     })
   }
 
-  openDiminaApp(item: MiniProgramModel) {
+  openDiminaApp(item: MiniProgramModel, entryPath?: string, query?: DMPMap) {
     this.curProgram = item;
     const appConfig: DMPAppConfig = new DMPAppConfig(item.name, item.appId)
     appConfig.isDebugMode = true
@@ -53,7 +61,47 @@ struct Index {
     this.app.startPackageLoader(getContext(this) as common.UIAbilityContext)
     const launchConfig: DMPLaunchConfig = new DMPLaunchConfig()
     launchConfig.openType = DMPOpenType.NavigateTo
+    if (entryPath !== undefined && entryPath.length > 0) {
+      launchConfig.appEntryPath = entryPath
+    }
+    if (query !== undefined) {
+      launchConfig.query = query
+    }
     this.app.launch(launchConfig)
+  }
+
+  /**
+   * 自动化测试钩子（仅 demo 宿主，非 SDK 能力）：`aa start --ps DMP_TEST_AUTO_OPEN_APPID <appId>`
+   * 指定时，宿主启动后直接打开该小程序，`DMP_TEST_ENTRY_PATH` / `DMP_TEST_ENTRY_QUERY`
+   * 可再指定启动页与其 query。对等物是 iOS demo 宿主 ContentView.swift 的同名环境变量钩子，
+   * 目的是让端到端用例不必靠点屏幕逐层导航。不传参数时本方法直接返回，启动路径不受影响。
+   *
+   * 只触发一次：小程序 relaunch 会让本页重新 onAppear，无防重会用测试入口页重启小程序、
+   * 打断正在进行的 relaunch。
+   */
+  private autoOpenAppForTestIfRequested(): void {
+    if (Index.didAutoOpenForTest) {
+      return
+    }
+    const item: MiniProgramModel | undefined = this.testAutoOpenItem
+    if (item === undefined) {
+      return
+    }
+    Index.didAutoOpenForTest = true
+    const entryPath: string = AppStorage.get<string>('testEntryPath') ?? ''
+    const rawQuery: string = AppStorage.get<string>('testEntryQuery') ?? ''
+    const query: DMPMap = new DMPMap()
+    if (rawQuery.length > 0) {
+      // 写法是 a=1&b=2；启动页路径本身不接受问号，参数要走 query 字段。
+      rawQuery.split('&').forEach((pair: string) => {
+        const idx: number = pair.indexOf('=')
+        const key: string = idx >= 0 ? pair.substring(0, idx) : pair
+        if (key.length > 0) {
+          query.set(key, idx >= 0 ? pair.substring(idx + 1) : '')
+        }
+      })
+    }
+    this.openDiminaApp(item, entryPath, query)
   }
 
   @State widthSize: number = 250
@@ -84,6 +132,11 @@ struct Index {
     .hideTitleBar(true)
     .navDestination(this.routerFactory)
     .backgroundColor(PAGE_BACKGROUND_COLOR)
+    // 自动化测试钩子的触发点：等 Navigation 真正出现、NavPathStack 可用之后再自动打开，
+    // 放在 aboutToAppear 里会因为导航栈尚未就绪而丢掉这次跳转。
+    .onAppear(() => {
+      this.autoOpenAppForTestIfRequested()
+    })
 
   }
 

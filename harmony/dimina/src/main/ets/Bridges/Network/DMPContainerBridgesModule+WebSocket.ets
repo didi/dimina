@@ -63,8 +63,13 @@ export class DMPContainerBridgesModuleWebSocket extends DMPContainerBridgesModul
     // 版本号直接问 bundleLoader 要，不走 this.appData.jsAppVersion：主线程上的
     // appData 是空壳（见 DMPContainerBridgesModule 构造函数），只有 worker 那份才有值。
     const appVersion = this.app.bundleManager.bundleLoader.getJsAppVersion() ?? '';
-    DMPWebSocketManager.sharedInstance()
-      .connectSocket(this.app.appConfig.appId, this.app.appIndex, appVersion, params, callback);
+    const manager = DMPWebSocketManager.sharedInstance();
+    // app.json 的 networkTimeout.connectSocket 是这个小程序的连接超时默认值，夹在调用方
+    // 传的 timeout 与容器兜底值之间。配置跟小程序包一起解析（bundleAppConfigNext），
+    // 这里每次调用都同步一次，不依赖某个一次性的启动时机；包还没解析完时按「没配」登记。
+    manager.updateNetworkTimeout(this.app.appConfig.appId,
+      this.app.bundleManager.bundleAppConfigNext?.networkTimeoutConnectSocketMs ?? null);
+    manager.connectSocket(this.app.appConfig.appId, this.app.appIndex, appVersion, params, callback);
   }
 
   sendSocketMessage(params: DMPMap, callback: DMPBridgeCallback): void {

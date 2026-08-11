@@ -8,6 +8,32 @@ import { DMPApp } from '@didi-dimina/dimina/src/main/ets/DApp/DMPApp';
 export default class EntryAbility extends UIAbility {
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     hilog.info(0x0000, 'testTag', '%{public}s', 'Ability onCreate');
+    EntryAbility.stashTestLaunchHook(want);
+  }
+
+  /**
+   * 自动化测试钩子（仅 demo 宿主，非 SDK 能力）：把 `aa start --ps <key> <value>` 传进来的
+   * 三个测试参数放进 AppStorage，供 Index 页在启动后直接打开指定小程序的指定页面。
+   * 与 iOS demo 宿主 ContentView.swift 里的 DMP_TEST_AUTO_OPEN_APPID / DMP_TEST_ENTRY_PATH /
+   * DMP_TEST_ENTRY_QUERY 环境变量钩子对等，用途是让端到端用例免去手工点屏幕。
+   * 三个参数都不传时（正常启动）本方法只写入空串，行为与没有钩子时完全一致。
+   */
+  private static stashTestLaunchHook(want: Want): void {
+    const params: Record<string, Object> | undefined = want.parameters;
+    AppStorage.setOrCreate('testAutoOpenAppId', EntryAbility.readStringParam(params, 'DMP_TEST_AUTO_OPEN_APPID'));
+    AppStorage.setOrCreate('testEntryPath', EntryAbility.readStringParam(params, 'DMP_TEST_ENTRY_PATH'));
+    AppStorage.setOrCreate('testEntryQuery', EntryAbility.readStringParam(params, 'DMP_TEST_ENTRY_QUERY'));
+  }
+
+  private static readStringParam(params: Record<string, Object> | undefined, key: string): string {
+    if (!params) {
+      return '';
+    }
+    const value: Object | undefined = params[key];
+    if (value === undefined || value === null) {
+      return '';
+    }
+    return `${value}`;
   }
 
   onDestroy(): void {

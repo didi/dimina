@@ -2,6 +2,16 @@ import { invokeAPI } from '@/api/common'
 
 const apiInfo = import.meta.glob('./core/**/index.js', { eager: true })
 const api = {}
+// 这些名字曾由 WebSocket/EventEmitter 式实现暴露，但不属于微信公开 API。native 仍保留
+// offSocket* 作为脚本层注册失败时的内部回滚桥，不能因此把它们重新登记到 wx 上。
+const blockedPublicApiNames = new Set([
+	'SocketTask',
+	'readyState',
+	'offSocketOpen',
+	'offSocketMessage',
+	'offSocketError',
+	'offSocketClose',
+])
 for (const f of Object.values(apiInfo)) {
 	for (const [k, v] of Object.entries(f)) {
 		api[k] = v
@@ -16,6 +26,7 @@ export function registerEnumerableApiNames(names) {
 	for (const name of names || []) {
 		if (
 			typeof name !== 'string'
+			|| blockedPublicApiNames.has(name)
 			|| Object.prototype.hasOwnProperty.call(api, name)
 			|| name in Object.prototype
 		) {
@@ -32,6 +43,9 @@ export function registerEnumerableApiNames(names) {
 
 const handler = {
 	get(target, prop, receiver) {
+		if (blockedPublicApiNames.has(prop)) {
+			return undefined
+		}
 		const origMethod = Reflect.get(target, prop, receiver)
 
 		// API存在则直接调用，API 已具体实现
@@ -39,15 +53,10 @@ const handler = {
 			return origMethod
 		}
 
-		// 如果是非函数属性且已存在，或者特殊处理 webpackJsonp 属性来兼容 Taro，直接返回
-		if (origMethod !== undefined || prop === 'webpackJsonp') {
-			return origMethod
-		}
-
-		// API 不存在则返回一个函数，通过消息通道调用
-		return (...args) => {
-			return invokeAPI(prop, ...args)
-		}
+		// 未实现且未由 native 注册的名字必须保持 undefined。以前这里为任意属性动态造
+		// invokeAPI 函数，导致 wx.foo、wx.SocketTask、wx.readyState 等不存在的 API 看起来
+		// 全都存在；宿主扩展现在必须通过 registerEnumerableApiNames 明确登记。
+		return origMethod
 	},
 	set(target, prop, value, receiver) {
 		// 允许对target对象进行属性赋值
@@ -55,7 +64,7 @@ const handler = {
 	},
 }
 /**
- * 外部挂载 API，内部转发不存在 API
+ * 外部挂载 API；宿主扩展 API 需先通过 registerEnumerableApiNames 登记
  * [Render]invokeAPI -> [Container]invokeAPI -> [Service]invokeAPI -> [Container]invokeAPI
  */
 

@@ -86,7 +86,13 @@ public class DMPEngine: NSObject {
         context.evaluateScript("DiminaServiceBridge = {};")
         
         DMPEngineLog.injectConsole(to: context)
-        DMPEngineTimer.registerTimerFunctions(to: context)
+        // setTimeout/setInterval callbacks must land on this engine's own JS thread like
+        // every other entry into `context`, not on whatever queue the timer fires on —
+        // otherwise a timer callback can race a container message for the JSContext's lock
+        // and split what the script treats as one uninterruptible turn.
+        DMPEngineTimer.registerTimerFunctions(to: context, executor: { [weak self] closure in
+            self?.performOnJSThread(closure)
+        })
         DMPEngineInvoke.registerInvoke(to: context)
         DMPEnginePublish.registerPublish(to: context)
         

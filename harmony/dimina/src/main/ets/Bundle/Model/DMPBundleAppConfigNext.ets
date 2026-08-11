@@ -64,6 +64,26 @@ export class DMPBundleAppConfigNext {
     }
   }
 
+  /**
+   * app.json 的 `networkTimeout.connectSocket`，毫秒。没配这一项、或配了非数字/非正数时
+   * 是 null，由调用方继续回落到自己的默认值。
+   */
+  get networkTimeoutConnectSocketMs(): number | null {
+    const networkTimeout: ESObject = this.app['networkTimeout'];
+    if (!networkTimeout) {
+      return null;
+    }
+    const raw: ESObject = networkTimeout['connectSocket'];
+    if (typeof raw !== 'number') {
+      return null;
+    }
+    const ms: number = raw as number;
+    if (!Number.isFinite(ms) || ms <= 0 || ms > 0x7fffffff) {
+      return null;
+    }
+    return Math.trunc(ms);
+  }
+
   public getRootPackage(pagePath: string): string {
     return this.moduleMaps.get(pagePath)?.root ?? "main";
   }

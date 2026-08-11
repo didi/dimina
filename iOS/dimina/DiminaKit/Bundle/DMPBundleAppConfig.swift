@@ -44,6 +44,21 @@ public class DMPBundleAppConfig {
         self.moduleMaps = maps
     }
     
+    /// app.json 的 `networkTimeout.connectSocket`，毫秒。未配置或配了非正数时是 nil，
+    /// 由调用方回落到自己的默认值。
+    var networkTimeoutConnectSocketMs: Int? {
+        guard let networkTimeout = app["networkTimeout"] as? [String: Any],
+              let boxed = networkTimeout["connectSocket"] as? NSNumber,
+              CFGetTypeID(boxed) != CFBooleanGetTypeID(),
+              boxed.doubleValue.isFinite,
+              boxed.doubleValue > 0,
+              boxed.doubleValue <= Double(0x7fffffff)
+        else {
+            return nil
+        }
+        return Int(boxed.doubleValue.rounded(.down))
+    }
+
     func getRootPackage(pagePath: String) -> String {
         return moduleMaps[pagePath]?.root ?? "main"
     }

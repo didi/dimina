@@ -177,13 +177,18 @@ public class DMPApp {
            let json = String(data: data, encoding: .utf8) {
             await service?.evaluateScript("globalThis.__diminaRegisteredApis = \(json)")
         }
-        await service?.loadFile(path: DMPSandboxManager.sdkServicePath())
-        await service?.loadFile(path: DMPSandboxManager.appServicePath(appId: appId))
-
+        // 顺序承重，不要把这段挪到下面两次 loadFile 之后：logic.js 一被求值，小程序自己的
+        // 代码就有机会跑，而它读到的容器状态里必须已经有 app.json（比如 connectSocket 要按
+        // networkTimeout.connectSocket 定超时，缺了就会静默落到 60000）。当前编译产物把小程序
+        // 代码都包在 modDefine 工厂里、顶层无副作用，所以即使顺序反过来也碰巧不出事——但那是
+        // 产物形状的巧合，不是保证。先解析配置再求值脚本，这条边界才是结构性关掉的。
         let path = DMPSandboxManager.appConfigPath(appId: appId)
         let config = DMPFileUtil.readJsonFile(at: path)
         DMPLogger.debug("config: \(String(describing: config))")
         self.bundleAppConfig = DMPBundleAppConfig.fromJsonString(json: config)
+
+        await service?.loadFile(path: DMPSandboxManager.sdkServicePath())
+        await service?.loadFile(path: DMPSandboxManager.appServicePath(appId: appId))
     }
 
     func notifyUpdateStatus(event: String) async {

@@ -37,12 +37,28 @@ protocol DMPSocketTransport: AnyObject {
     func abort()
 }
 
+/// The handshake phase boundaries a transport measured, in milliseconds since epoch (the unit
+/// `DMPWebSocketScheduling.now()` uses). A nil field means that phase did not happen or was not
+/// measured — a reused connection performs no DNS lookup, for instance — and the profile falls
+/// back to the previous boundary for it.
+struct DMPSocketHandshakeMetrics {
+    var domainLookupStart: Double?
+    var domainLookupEnd: Double?
+    var connectStart: Double?
+    var connectEnd: Double?
+}
+
 protocol DMPSocketTransportDelegate: AnyObject {
     func transportDidOpen(_ transport: DMPSocketTransport, headers: [String: String])
     func transport(_ transport: DMPSocketTransport, didReceiveText text: String)
     func transport(_ transport: DMPSocketTransport, didReceiveData data: Data)
     func transport(_ transport: DMPSocketTransport, didCloseWithCode code: Int, reason: Data?)
     func transport(_ transport: DMPSocketTransport, didCompleteWithError error: Error?)
+    /// Reports the measured DNS/TCP phase boundaries. `URLSession` delivers these while the task
+    /// is still running — a probe against a server that delays its 101 response shows
+    /// `didFinishCollecting` landing ~2 ms *before* `didOpenWithProtocol` — so the numbers are
+    /// available in time to go into the open event's `profile`.
+    func transport(_ transport: DMPSocketTransport, didCollectHandshakeMetrics metrics: DMPSocketHandshakeMetrics)
 }
 
 protocol DMPSocketTransportFactory {
@@ -130,6 +146,10 @@ extension DMPURLSessionWebSocketFactory: URLSessionTaskDelegate {
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         transport(for: task)?.handleComplete(error: error)
     }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didFinishCollecting metrics: URLSessionTaskMetrics) {
+        transport(for: task)?.handleMetrics(metrics)
+    }
 }
 
 /// Wraps a single `URLSessionWebSocketTask`. Not shared across connections.
@@ -205,6 +225,21 @@ final class DMPURLSessionWebSocketTransport: DMPSocketTransport {
         delegate?.transportDidOpen(self, headers: headers)
     }
 
+    /// The metrics for the HTTP transaction that carried the upgrade. Only the last transaction
+    /// matters: an intermediate redirect's DNS/connect timings describe a different endpoint.
+    fileprivate func handleMetrics(_ metrics: URLSessionTaskMetrics) {
+        guard let transaction = metrics.transactionMetrics.last else { return }
+        func epochMs(_ date: Date?) -> Double? {
+            return date.map { $0.timeIntervalSince1970 * 1000 }
+        }
+        delegate?.transport(self, didCollectHandshakeMetrics: DMPSocketHandshakeMetrics(
+            domainLookupStart: epochMs(transaction.domainLookupStartDate),
+            domainLookupEnd: epochMs(transaction.domainLookupEndDate),
+            connectStart: epochMs(transaction.connectStartDate),
+            connectEnd: epochMs(transaction.connectEndDate)
+        ))
+    }
+
     fileprivate func handleClose(code: Int, reason: Data?) {
         guard !didFinish else { return }
         didFinish = true
@@ -234,13 +269,25 @@ enum DMPSocketState {
     case created, connecting, open, closing, closed
 }
 
+/// Which API surface a listener was registered through. The two surfaces receive different open
+/// payloads, so every delivery has to say which one it is headed for — see `projectedPayload`.
+enum DMPSocketListenerScope {
+    /// `SocketTask.onOpen` / `onMessage` / `onError` / `onClose`.
+    case task
+    /// The global `wx.onSocketOpen` / `onSocketMessage` / `onSocketError` / `onSocketClose`.
+    case global
+}
+
 final class DMPOwnerState {
     var sockets: [String: DMPSocketEntry] = [:]
     var legacyBoundSocketId: String?
     /// Ordered, de-duplicated listener ids for the global `wx.onSocketXxx` API. Same shape as
-    /// `DMPSocketEntry.listeners`: fe keeps one callback id per registered listener function and
-    /// sends a separate `onSocketXxx` for each, so a single id per event would silently drop
-    /// every listener but the last one.
+    /// `DMPSocketEntry.listeners`. The current script layer registers exactly one callback id per
+    /// event and fans the event out to the business listeners itself, so in that path the array
+    /// holds a single id; keeping an array rather than one slot is what lets a caller that
+    /// registers several *distinct* ids - a host extension, or a direct bridge caller - have all
+    /// of them delivered, rather than each registration replacing the last. Registering the same
+    /// id twice still collapses to one delivery.
     var legacySlots: [DMPWebSocketEventType: [String]] = [:]
     var backgrounded: Bool = false
     var graceTimer: DMPWebSocketCancellable?
@@ -249,7 +296,7 @@ final class DMPOwnerState {
     /// wx.connectSocket 一返回原生就立刻开始拨号，连本机地址被拒绝都可能比调用方的
     /// onSocketError/onSocketClose 注册消息更早到达（实测早 1 毫秒），这个事件就会
     /// 永久丢失。这里按插入顺序在 owner 级别保留最近若干条终态事件，注册时补发一次。
-    var terminalReplay: [String: DMPMap] = [:]
+    var terminalReplay: [String: DMPTerminalEvent] = [:]
     /// terminalReplay 的插入顺序（Dictionary 本身无序），用于容量超限时淘汰最旧的一条。
     var terminalReplayOrder: [String] = []
 }
@@ -257,17 +304,21 @@ final class DMPOwnerState {
 struct DMPWebSocketProfile {
     var fetchStart: Double?
     var openedAt: Double?
+    /// The DNS/TCP boundaries the transport measured, reported before the open event fires.
+    var handshakeMetrics: DMPSocketHandshakeMetrics?
 
-    /// Best-effort fill: only fetchStart and cost are guaranteed real on iOS
-    /// (URLSessionTaskMetrics arrives too late to back-fill dns/connect
-    /// phases before the open event must fire).
+    /// The DNS and connect phases are measurements, not restatements of `fetchStart`:
+    /// `rtt` covers the connect phase alone, `handshakeCost` the WebSocket upgrade that follows
+    /// it, and `cost` the whole attempt. Each boundary falls back to the previous one when the
+    /// phase was not measured, which is also what happens when a transport reports no metrics at
+    /// all — the eight fields stay present and numeric either way.
     func toDictionary() -> [String: Any] {
         let fetchStart = self.fetchStart ?? 0
         let openedAt = self.openedAt ?? fetchStart
-        let connectStart = fetchStart
-        let connectEnd = openedAt
-        let domainLookUpStart = fetchStart
-        let domainLookUpEnd = fetchStart
+        let domainLookUpStart = handshakeMetrics?.domainLookupStart ?? fetchStart
+        let domainLookUpEnd = handshakeMetrics?.domainLookupEnd ?? domainLookUpStart
+        let connectStart = handshakeMetrics?.connectStart ?? domainLookUpEnd
+        let connectEnd = handshakeMetrics?.connectEnd ?? openedAt
         let rtt = max(0, connectEnd - connectStart)
         let handshakeCost = max(0, openedAt - connectEnd)
         let cost = max(0, openedAt - fetchStart)
@@ -295,8 +346,15 @@ final class DMPSocketEntry {
     /// Set when a close() call lands while still CREATED; tells the queued
     /// dial task to abandon before touching the network.
     var cancelled = false
+    /// Whether this connection accepted a global `wx.closeSocket` request. The transport state
+    /// cannot distinguish that route from `SocketTask.close()`; this flag controls global rebinding.
+    var closedByGlobalApi = false
     var connectTimer: DMPWebSocketCancellable?
     var idleTimer: DMPWebSocketCancellable?
+    /// 单调递增的 idle 定时器代际。每次调度新的 idle 定时器（或显式取消旧的）都会推进它；
+    /// `scheduling.schedule` 把回调投进 `queue` 之后，取消动作撤不回已经排队的那个闭包，
+    /// 只能让它到达 `handleIdleTimeout` 时比对代际、发现自己手里的值已经过期，静默作废。
+    var idleGeneration: Int = 0
     /// The caller's own (code, reason) for a client-initiated close; always
     /// what gets reported to JS regardless of wire echo.
     var requestedClose: (code: Int, reason: String)?
@@ -308,9 +366,23 @@ final class DMPSocketEntry {
     /// after this connection already reached OPEN can be handed the event
     /// immediately (see `handleOn`) instead of missing it forever.
     var openPayload: DMPMap?
+    /// 已经收到过本代 open 事件的 callback id；正常派发和迟到补发共用，保证同一 id 只收到一次。
+    var openDeliveredCallbackIds: Set<String> = []
 
     init(socketId: String) {
         self.socketId = socketId
+    }
+}
+
+/// 一条已经派发过的终态事件：载荷本身，外加已经收到过它的 callback id。正常派发和迟到
+/// 补发写同一份名单，因此正常收到事件的 id 重复注册时也不会再收到陈旧补发。这份名单跟着
+/// 记录一起被 `terminalReplay` 的容量淘汰。
+final class DMPTerminalEvent {
+    let payload: DMPMap
+    var deliveredCallbackIds: Set<String> = []
+
+    init(payload: DMPMap) {
+        self.payload = payload
     }
 }
 
@@ -458,9 +530,14 @@ final class DMPWebSocketManager {
 
     // MARK: Bridge entry points
 
-    func connectSocket(params: DMPMap, appId: String, appVersion: String, callback: DMPBridgeCallback?) {
+    /// `appNetworkTimeoutMs` is this mini program's `app.json` `networkTimeout.connectSocket`;
+    /// `nil` means the key is absent and the 60000 default applies. The container reads it out of
+    /// the parsed app config and hands it over the same way it hands over `appVersion`.
+    func connectSocket(params: DMPMap, appId: String, appVersion: String,
+                       appNetworkTimeoutMs: Int? = nil, callback: DMPBridgeCallback?) {
         queue.async { [weak self] in
-            self?.handleConnect(params: params, appId: appId, appVersion: appVersion, callback: callback)
+            self?.handleConnect(params: params, appId: appId, appVersion: appVersion,
+                                appNetworkTimeoutMs: appNetworkTimeoutMs, callback: callback)
         }
     }
 
@@ -482,7 +559,8 @@ final class DMPWebSocketManager {
 
     // MARK: connectSocket
 
-    private func handleConnect(params: DMPMap, appId: String, appVersion: String, callback: DMPBridgeCallback?) {
+    private func handleConnect(params: DMPMap, appId: String, appVersion: String,
+                               appNetworkTimeoutMs: Int?, callback: DMPBridgeCallback?) {
         let owner = getOrCreateOwner(appId: appId)
 
         // 1. background
@@ -495,7 +573,7 @@ final class DMPWebSocketManager {
             fail(callback, api: Api.connect, tail: DMPWebSocketValidation.ErrorTail.invalidSocketId)
             return
         }
-        // 3. concurrency cap
+        // 3. 官方上限统计所有尚未终态的连接，包含 created、connecting、open 和 closing。
         guard owner.sockets.count < Self.maxConnectionsPerOwner else {
             fail(callback, api: Api.connect, tail: DMPWebSocketValidation.ErrorTail.reachMaxCount)
             return
@@ -507,7 +585,8 @@ final class DMPWebSocketManager {
             return
         }
         // 5. timeout
-        let timeoutResult = DMPWebSocketValidation.validateTimeout(params.get("timeout"))
+        let timeoutResult = DMPWebSocketValidation.validateTimeout(params.get("timeout"),
+                                                                   appDefaultMs: appNetworkTimeoutMs)
         guard case let .success(timeoutMs) = timeoutResult else {
             fail(callback, api: Api.connect, tail: timeoutResult.errorTail ?? DMPWebSocketValidation.ErrorTail.invalidTimeout)
             return
@@ -529,19 +608,29 @@ final class DMPWebSocketManager {
         header["Referer"] = DMPWebSocketValidation.refererValue(appId: appId, appVersion: appVersion)
 
         // 9. all checks passed: register, bind legacy, ack, then dial.
+        // socketId 只要求当前没有同名存活连接，因此终态后的 id 可以复用。新连接已经全部
+        // 校验通过后，旧连接留下的 error/close 不能再被这代监听误认为自己的事件。
+        clearTerminalReplay(owner: owner, socketId: socketId)
         let entry = DMPSocketEntry(socketId: socketId)
         entry.timeoutMs = timeoutMs
         entry.profile.fetchStart = scheduling.now()
         owner.sockets[socketId] = entry
 
-        if owner.legacyBoundSocketId == nil || owner.sockets[owner.legacyBoundSocketId!] == nil {
+        // The global wx.onSocket* / sendSocketMessage / closeSocket surface follows the oldest
+        // connection that has not reached CLOSED yet, and a new connect is the only moment the
+        // binding may move. "Not CLOSED" is the service layer's question, so it goes through
+        // isClosedToService — a connection the caller already closed has handed the binding over
+        // even while its transport is still winding down.
+        let boundHasHandedOver = owner.legacyBoundSocketId
+            .map { isClosedToService(owner: owner, socketId: $0) } ?? true
+        if boundHasHandedOver {
             owner.legacyBoundSocketId = socketId
         }
 
         succeed(callback, api: Api.connect)
 
         var request = URLRequest(url: url)
-        for (name, value) in header {
+        for (name, value) in dialableHeaderFields(header) {
             request.setValue(value, forHTTPHeaderField: name)
         }
         if !protocols.isEmpty {
@@ -565,6 +654,39 @@ final class DMPWebSocketManager {
         }
     }
 
+    /// The header fields to put on the dial, with field names that differ only in case collapsed to
+    /// one deterministic winner.
+    ///
+    /// The validated header keeps every spelling the caller wrote — WeChat does not fold request
+    /// header case and neither does this container. `URLRequest` does: measured against a server
+    /// that dumps the raw request head, `setValue`, a whole-dictionary `allHTTPHeaderFields`
+    /// assignment, and `URLSessionConfiguration.httpAdditionalHeaders` all emit exactly one field
+    /// for `X-Dimina-Case` + `x-dimina-case` (and `addValue` folds them into one comma-joined
+    /// value, which is a different header again). There is no entry point on
+    /// `URLSessionWebSocketTask` that takes an ordered, case-preserving field list, so on this
+    /// platform "send both" is not expressible — see the PR's known limitations.
+    ///
+    /// What is fully in our hands is *which* one survives. Feeding a `[String: String]` straight to
+    /// `setValue` let dictionary iteration order pick the winner, so the very same call sent
+    /// `upper` on one run and `lower` on the next. Collapsing here by lowercased name and keeping
+    /// the lexicographically smallest spelling makes the outcome a property of the caller's input
+    /// alone. Names that do not collide keep their spelling exactly as written.
+    private func dialableHeaderFields(_ header: [String: String]) -> [(name: String, value: String)] {
+        var winnerByLowercasedName: [String: String] = [:]
+        for name in header.keys {
+            let key = name.lowercased()
+            if let existing = winnerByLowercasedName[key] {
+                if name < existing { winnerByLowercasedName[key] = name }
+                DMPLogger.debug("WebSocket header \(key) supplied in multiple spellings; URLRequest carries one")
+            } else {
+                winnerByLowercasedName[key] = name
+            }
+        }
+        return winnerByLowercasedName.values
+            .sorted()
+            .map { (name: $0, value: header[$0] ?? "") }
+    }
+
     private func performDial(appId: String, socketId: String, request: URLRequest) {
         guard let owner = owners[appId],
               let entry = owner.sockets[socketId],
@@ -584,8 +706,11 @@ final class DMPWebSocketManager {
         guard let owner = owners[appId], let entry = owner.sockets[socketId] else { return }
         guard entry.state == .created || entry.state == .connecting else { return }
         killTransport(entry)
+        // The same errMsg the transport's own timeout reports (see normalizeConnectError). A
+        // connection that ran out of time is one outcome as far as a mini program is concerned;
+        // which of the two clocks noticed first is an implementation detail it cannot branch on.
         teardown(owner: owner, appId: appId, entry: entry, event: .error,
-                 payload: DMPMap(["errMsg": "\(Api.connect):fail \(DMPWebSocketValidation.ErrorTail.timedOut)"]))
+                 payload: DMPMap(["errMsg": "\(Api.connect):fail \(DMPWebSocketValidation.ErrorTail.timeout)"]))
     }
 
     // MARK: sendSocketMessage
@@ -638,8 +763,12 @@ final class DMPWebSocketManager {
                 // cancellation asynchronously once the connection is torn down. If the owner is gone
                 // the JS context went with it, so there is nobody left to call back.
                 guard let liveOwner = self.owners[appId], liveOwner === owner else { return }
-                if let error {
-                    self.fail(callback, api: Api.send, tail: error.localizedDescription)
+                if error != nil {
+                    // One fixed English string, never the NSError's localizedDescription: that text
+                    // is translated into the device's language, so passing it through would make the
+                    // same failure read differently per phone and no errMsg comparison a mini
+                    // program writes could hold. Android and HarmonyOS report this same string.
+                    self.fail(callback, api: Api.send, tail: DMPWebSocketValidation.ErrorTail.notConnected)
                     return
                 }
                 // Only a confirmed-successful send counts as outbound traffic for
@@ -675,58 +804,48 @@ final class DMPWebSocketManager {
         let targetSocketId: String? = isLegacy ? owner.legacyBoundSocketId : params.getString(key: "socketId")
         let targetEntry: DMPSocketEntry? = targetSocketId.flatMap { owner.sockets[$0] }
 
-        // Existence and "already closing/closed" must be checked BEFORE
-        // code/reason for BOTH task and legacy mode — an invalid code/reason
-        // must never preempt the mandatory "not connected" (+ legacy-sweep)
-        // path. Matches Android's combined `entry == null || entry.state ==
-        // CLOSING` guard, which runs before its own code/reason validation.
+        // wx.closeSocket 的官方示例要求在 wx.onSocketOpen 之后调用。全局入口只处理已打开的
+        // 绑定连接；任务入口仍可取消 created/connecting 状态下的自身连接。
         let notConnected = targetEntry == nil
             || targetEntry?.state == .closing || targetEntry?.state == .closed
-        guard !notConnected, let socketId = targetSocketId, let entry = targetEntry else {
+            || (isLegacy && targetEntry?.state != .open)
+        guard !notConnected, let entry = targetEntry else {
             fail(callback, api: Api.close, tail: DMPWebSocketValidation.ErrorTail.notConnected)
-            if isLegacy {
-                sweepCloseRemaining(owner: owner, appId: appId, excluding: nil)
-            }
             return
         }
 
         let codeResult = DMPWebSocketValidation.validateCloseCode(params.get("code"))
         guard case let .success(code) = codeResult else {
             fail(callback, api: Api.close, tail: codeResult.errorTail ?? DMPWebSocketValidation.ErrorTail.invalidCode)
-            // The legacy sweep of every other bound socket is mandatory
-            // regardless of the addressed target's own outcome — an invalid
-            // code/reason on the bound target must not skip it (matches
-            // Android/HarmonyOS, which sweep unconditionally).
-            if isLegacy {
-                sweepCloseRemaining(owner: owner, appId: appId, excluding: socketId)
-            }
             return
         }
         let reasonResult = DMPWebSocketValidation.validateCloseReason(params.get("reason"))
         guard case let .success(reason) = reasonResult else {
             fail(callback, api: Api.close, tail: reasonResult.errorTail ?? DMPWebSocketValidation.ErrorTail.reasonMustBeString)
-            if isLegacy {
-                sweepCloseRemaining(owner: owner, appId: appId, excluding: socketId)
-            }
             return
         }
 
-        switch performClose(owner: owner, appId: appId, entry: entry, code: code, reason: reason) {
+        switch performClose(owner: owner, appId: appId, entry: entry, code: code, reason: reason,
+                            fromGlobalApi: isLegacy) {
         case .success:
             succeed(callback, api: Api.close)
         case let .failure(tail):
             fail(callback, api: Api.close, tail: tail)
         }
-
-        if isLegacy {
-            sweepCloseRemaining(owner: owner, appId: appId, excluding: socketId)
-        }
     }
 
-    /// Pure state-machine transition for a single socket's close — never
-    /// touches the one-shot callback (used both by the direct close path
-    /// and by the legacy sweep, which has no callback of its own to fire).
-    private func performClose(owner: DMPOwnerState, appId: String, entry: DMPSocketEntry, code: Int, reason: String) -> DMPWebSocketValidation.Result<Void> {
+    /// Pure state-machine transition for a single socket's close; never touches the one-shot callback.
+    ///
+    /// `fromGlobalApi` says which door the caller came through, which is what decides whether this
+    /// connection hands the global binding over (see `isClosedToService`).
+    private func performClose(owner: DMPOwnerState, appId: String, entry: DMPSocketEntry, code: Int, reason: String,
+                              fromGlobalApi: Bool) -> DMPWebSocketValidation.Result<Void> {
+        // Record the entry route before changing transport state so later connect calls can decide
+        // whether the global binding has handed over.
+        if fromGlobalApi {
+            entry.closedByGlobalApi = true
+        }
+
         switch entry.state {
         case .created:
             // Dial hasn't run yet, settle purely locally.
@@ -748,17 +867,6 @@ final class DMPWebSocketManager {
         case .closing, .closed:
             // Collapse repeated close on an already-closing socket.
             return .failure(DMPWebSocketValidation.ErrorTail.notConnected)
-        }
-    }
-
-    /// Legacy closeSocket sweep: regardless of whether the bound target
-    /// itself was alive or dead, every other still-live socket on this
-    /// owner gets closed with default parameters.
-    private func sweepCloseRemaining(owner: DMPOwnerState, appId: String, excluding socketId: String?) {
-        let remaining = owner.sockets.values.filter { $0.socketId != socketId }
-        for entry in remaining {
-            _ = performClose(owner: owner, appId: appId, entry: entry,
-                              code: DMPWebSocketValidation.defaultCloseCode, reason: "")
         }
     }
 
@@ -787,55 +895,106 @@ final class DMPWebSocketManager {
 
         if DMPWebSocketValidation.hasSocketId(params) {
             guard let socketId = params.getString(key: "socketId"), !socketId.isEmpty else { return }
-            if let entry = owner.sockets[socketId] {
-                if !(entry.listeners[event] ?? []).contains(callbackId) {
-                    entry.listeners[event, default: []].append(callbackId)
-                }
-                // wx.connectSocket 一返回，原生就立刻开始拨号；调用方紧接着才会把这条
-                // onSocketOpen 注册消息发过桥。本机回环握手可能只要几毫秒，比这条注册
-                // 消息更快到达，导致原生派发 open 事件时监听器列表还是空的，事件就永久
-                // 丢失。这里在注册时补一次判断：连接已经 OPEN 且之前存过 open 载荷，就
-                // 立刻把它推给刚注册的这个 callback id，结果不再取决于两条消息谁先到。
-                if event == .open, entry.state == .open, let openPayload = entry.openPayload {
-                    pushEvent(appId: appId, callbackId: callbackId, payload: openPayload)
-                }
+            if let entry = owner.sockets[socketId], !(entry.listeners[event] ?? []).contains(callbackId) {
+                entry.listeners[event, default: []].append(callbackId)
             }
-            // error/close 是终态：entry 一旦进入终态就从 sockets 里删掉了，上面这条
-            // "entry 还在就补发" 的路径对它们必然落空，只能靠 owner 级别的终态记录补。
-            if event == .error || event == .close,
-               let replay = owner.terminalReplay["\(socketId)|\(event.rawValue)"] {
-                pushEvent(appId: appId, callbackId: callbackId, payload: replay)
-            }
+            replayMissedEvent(owner: owner, appId: appId, socketId: socketId, event: event,
+                              callbackId: callbackId, scope: .task)
         } else {
             if !(owner.legacySlots[event] ?? []).contains(callbackId) {
                 owner.legacySlots[event, default: []].append(callbackId)
             }
+            // 全局态的补发对象是当前 legacy 绑定的那条连接；没有绑定就没有可补的事件。
+            if let boundSocketId = owner.legacyBoundSocketId {
+                replayMissedEvent(owner: owner, appId: appId, socketId: boundSocketId, event: event,
+                                  callbackId: callbackId, scope: .global)
+            }
+        }
+    }
+
+    /// 把注册时已经错过的事件补发给 `callbackId`。wx.connectSocket 一返回，原生就立刻
+    /// 开始拨号；调用方紧接着才会把 onSocketXxx 注册消息发过桥。本机回环握手或连接被拒
+    /// 可能只要几毫秒，比这条注册消息更快到达，导致派发时监听器列表还是空的，事件就永久
+    /// 丢失。open 取 `socketId` 那条连接自己保存的载荷；error / close 是终态，那时条目
+    /// 早已从 `sockets` 删掉，只能取 owner 的终态记录。
+    ///
+    /// 两条记录各自记着已经实际投递过的 callback id，正常派发和补发共用，所以同一个 id
+    /// 即使在正常收到事件后又直接向桥重复注册，也不会收到第二份陈旧事件。message 不补发。
+    private func replayMissedEvent(owner: DMPOwnerState, appId: String, socketId: String,
+                                   event: DMPWebSocketEventType, callbackId: String,
+                                   scope: DMPSocketListenerScope) {
+        switch event {
+        case .open:
+            guard let entry = owner.sockets[socketId], entry.state == .open,
+                  let payload = entry.openPayload else { return }
+            guard entry.openDeliveredCallbackIds.insert(callbackId).inserted else { return }
+            pushEvent(appId: appId, callbackId: callbackId,
+                      payload: projectedPayload(payload, event: event, scope: scope))
+        case .error, .close:
+            guard let record = owner.terminalReplay["\(socketId)|\(event.rawValue)"] else { return }
+            guard record.deliveredCallbackIds.insert(callbackId).inserted else { return }
+            pushEvent(appId: appId, callbackId: callbackId,
+                      payload: projectedPayload(record.payload, event: event, scope: scope))
+        case .message:
+            break
+        }
+    }
+
+    /// `off` 结束一次监听生命周期，同时回收这次生命周期在事件投递账本里的 id。逻辑层后续
+    /// 重新注册会生成新的 callback id；及时移除旧 id，避免长连接反复 on/off 时集合无界增长。
+    private func forgetDeliveredCallback(owner: DMPOwnerState, socketId: String, event: DMPWebSocketEventType, callbackId: String) {
+        let deliveredIds: Set<String>?
+        switch event {
+        case .open:
+            deliveredIds = owner.sockets[socketId]?.openDeliveredCallbackIds
+        case .error, .close:
+            deliveredIds = owner.terminalReplay["\(socketId)|\(event.rawValue)"]?.deliveredCallbackIds
+        case .message:
+            deliveredIds = nil
+        }
+        guard var ids = deliveredIds else { return }
+        if callbackId.isEmpty {
+            ids.removeAll()
+        } else {
+            ids.remove(callbackId)
+        }
+        switch event {
+        case .open:
+            owner.sockets[socketId]?.openDeliveredCallbackIds = ids
+        case .error, .close:
+            owner.terminalReplay["\(socketId)|\(event.rawValue)"]?.deliveredCallbackIds = ids
+        case .message:
+            break
         }
     }
 
     private func handleOff(event: DMPWebSocketEventType, params: DMPMap, appId: String, callback: DMPBridgeCallback?) {
         defer { succeed(callback, api: legacyApiName(event: event, isOn: false)) }
         let owner = getOrCreateOwner(appId: appId)
+        let callbackId = params.getString(key: "callback") ?? ""
 
         if DMPWebSocketValidation.hasSocketId(params) {
-            guard let socketId = params.getString(key: "socketId"), let entry = owner.sockets[socketId] else { return }
-            if let cb = params.getString(key: "callback"), !cb.isEmpty {
-                entry.listeners[event]?.removeAll { $0 == cb }
-            } else {
-                // The script layer always sends the id of the listener it wants removed, even for
-                // `off()` with no argument - it walks its own table and sends one request per id.
-                // A request with no id can still arrive from a direct bridge caller, and clearing
-                // the whole event is the only sensible reading of it.
-                entry.listeners[event] = []
+            guard let socketId = params.getString(key: "socketId") else { return }
+            if let entry = owner.sockets[socketId] {
+                if callbackId.isEmpty {
+                    // Public wx/SocketTask has no off API. A bridge-private rollback carries an id;
+                    // a direct compatibility call without one clears the event.
+                    entry.listeners[event] = []
+                } else {
+                    entry.listeners[event]?.removeAll { $0 == callbackId }
+                }
             }
+            forgetDeliveredCallback(owner: owner, socketId: socketId, event: event, callbackId: callbackId)
         } else {
-            // fe does export the global wx.offSocketOpen/offSocketMessage/offSocketError/
-            // offSocketClose, so this path is reachable and must behave like the task-mode one:
-            // an explicit id removes exactly that listener, a missing one clears the event.
-            if let cb = params.getString(key: "callback"), !cb.isEmpty {
-                owner.legacySlots[event]?.removeAll { $0 == cb }
-            } else {
+            // Bridge-private compatibility path: an explicit id removes exactly that listener,
+            // while a missing id clears the event.
+            if callbackId.isEmpty {
                 owner.legacySlots[event] = []
+            } else {
+                owner.legacySlots[event]?.removeAll { $0 == callbackId }
+            }
+            if let boundSocketId = owner.legacyBoundSocketId {
+                forgetDeliveredCallback(owner: owner, socketId: boundSocketId, event: event, callbackId: callbackId)
             }
         }
     }
@@ -868,6 +1027,11 @@ final class DMPWebSocketManager {
         ])
         entry.openPayload = payload
         dispatchEvent(owner: owner, appId: appId, entry: entry, event: .open, payload: payload)
+    }
+
+    private func handleTransportMetrics(_ transport: DMPSocketTransport, metrics: DMPSocketHandshakeMetrics) {
+        guard let (_, entry, _) = activeEntry(for: transport) else { return }
+        entry.profile.handshakeMetrics = metrics
     }
 
     /// A message racing in right before/during the close handshake must
@@ -936,25 +1100,40 @@ final class DMPWebSocketManager {
 
         // Opened connection, genuine network failure: error is not terminal
         // by itself, immediately followed by close.
+        //
+        // The close is synthesised locally — no close frame ever arrived — so there is no peer
+        // reason to quote and `reason` stays empty. That is both the honest answer and what
+        // RFC 6455 describes for a locally-generated 1006, which carries no reason. It must not
+        // become the error's localizedDescription: `reason` is a business-visible field of the
+        // close payload, so OS text translated per device would break it the same way it breaks
+        // errMsg (see normalizeConnectError).
         let message = normalizeConnectError(error)
         dispatchEvent(owner: owner, appId: appId, entry: entry, event: .error, payload: DMPMap(["errMsg": message]))
         teardown(owner: owner, appId: appId, entry: entry, event: .close,
-                 payload: DMPMap(["code": 1006, "reason": (error as NSError).localizedDescription]))
+                 payload: DMPMap(["code": 1006, "reason": ""]))
     }
 
+    /// Maps a transport error onto one of the container's own fixed English strings.
+    ///
+    /// The choice is made **only** from structured fields — the error's domain and code. It must
+    /// never be made from the error's text: `NSError.localizedDescription` is translated into the
+    /// device's language, so both quoting it and pattern-matching it would let the phone's language
+    /// decide what a mini program reads. Matching text is the subtler of the two mistakes — it
+    /// leaks no foreign words into errMsg, yet still classifies one and the same failure
+    /// differently per locale.
+    ///
+    /// Anything not recognised structurally reports the same generic string as the sibling path
+    /// where the peer closes before the upgrade completes. The raw error goes to the log instead.
     private func normalizeConnectError(_ error: Error) -> String {
         let nsError = error as NSError
-        if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorTimedOut {
-            return "\(Api.connect):fail \(DMPWebSocketValidation.ErrorTail.timeout)"
-        }
-        let message = nsError.localizedDescription
-        if message.range(of: "time.?out", options: [.regularExpression, .caseInsensitive]) != nil {
-            return "\(Api.connect):fail \(DMPWebSocketValidation.ErrorTail.timeout)"
-        }
-        if message.isEmpty {
-            return "\(Api.connect):fail \(DMPWebSocketValidation.ErrorTail.connectionFailed)"
-        }
-        return "\(Api.connect):fail \(message)"
+        DMPLogger.debug("WebSocket transport failure [\(nsError.domain) \(nsError.code)] \(nsError.localizedDescription)")
+
+        let isTimeout = (nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorTimedOut)
+            || (nsError.domain == NSPOSIXErrorDomain && nsError.code == Int(ETIMEDOUT))
+        let tail = isTimeout
+            ? DMPWebSocketValidation.ErrorTail.timeout
+            : DMPWebSocketValidation.ErrorTail.connectionFailed
+        return "\(Api.connect):fail \(tail)"
     }
 
     // MARK: Idle timeout
@@ -966,19 +1145,33 @@ final class DMPWebSocketManager {
 
     private func resetIdleTimerIfNeeded(entry: DMPSocketEntry, appId: String) {
         guard idleTimeoutMs > 0 else { return }
-        entry.idleTimer?.cancel()
+        cancelIdleTimer(entry)
         scheduleIdleTimer(entry: entry, appId: appId)
     }
 
     private func scheduleIdleTimer(entry: DMPSocketEntry, appId: String) {
         let socketId = entry.socketId
+        entry.idleGeneration += 1
+        let generation = entry.idleGeneration
         entry.idleTimer = scheduling.schedule(after: Double(idleTimeoutMs) / 1000.0) { [weak self] in
-            self?.queue.async { self?.handleIdleTimeout(appId: appId, socketId: socketId) }
+            self?.queue.async { self?.handleIdleTimeout(appId: appId, socketId: socketId, generation: generation) }
         }
     }
 
-    private func handleIdleTimeout(appId: String, socketId: String) {
-        guard let owner = owners[appId], let entry = owner.sockets[socketId], entry.state == .open else { return }
+    /// 取消 entry 的 idle 定时器（若有）。所有显式取消的地方都必须走这里而不是直接调
+    /// `idleTimer?.cancel()`——`cancel()` 只能拦住尚未触发的调度本身，拦不住已经经
+    /// `queue.async` 排进队列的那个闭包；推进 `DMPSocketEntry.idleGeneration` 让那个
+    /// 迟到的闭包在 `handleIdleTimeout` 里比对代际时发现自己已经过期，静默作废。
+    private func cancelIdleTimer(_ entry: DMPSocketEntry) {
+        entry.idleTimer?.cancel()
+        entry.idleTimer = nil
+        entry.idleGeneration += 1
+    }
+
+    private func handleIdleTimeout(appId: String, socketId: String, generation: Int) {
+        guard let owner = owners[appId], let entry = owner.sockets[socketId] else { return }
+        guard generation == entry.idleGeneration else { return }
+        guard entry.state == .open else { return }
         killTransport(entry)
         teardown(owner: owner, appId: appId, entry: entry, event: .close,
                  payload: DMPMap(["code": 1006, "reason": "idle timeout"]))
@@ -1000,6 +1193,19 @@ final class DMPWebSocketManager {
         return owner
     }
 
+    /// Transport-layer question: is this connection still holding one of the owner's concurrency
+    /// slots — is the wire still there? A slot is taken at the open event and given back when the
+    /// terminal (close/error) event arrives, so a CLOSING connection **still holds one**: its
+    /// transport has not released anything yet, and the peer may take a full round trip to answer
+    /// (or never answer).
+    ///
+    /// Whether the global binding target has handed over. A CLOSING transport may come from either
+    /// close entry point, so transport state alone cannot answer this routing question.
+    private func isClosedToService(owner: DMPOwnerState, socketId: String) -> Bool {
+        guard let entry = owner.sockets[socketId] else { return true }
+        return entry.closedByGlobalApi
+    }
+
     private func unregisterTransport(_ entry: DMPSocketEntry) {
         if let transport = entry.transport {
             transportKeys.removeValue(forKey: ObjectIdentifier(transport))
@@ -1018,9 +1224,9 @@ final class DMPWebSocketManager {
     /// the legacy-bound socket) the matching legacy slot. Terminal — use for
     /// close/error events that end the connection's life.
     private func teardown(owner: DMPOwnerState, appId: String, entry: DMPSocketEntry, event: DMPWebSocketEventType, payload: DMPMap) {
-        if event == .error || event == .close {
-            recordTerminalEvent(owner: owner, socketId: entry.socketId, event: event, payload: payload)
-        }
+        let terminalRecord = (event == .error || event == .close)
+            ? recordTerminalEvent(owner: owner, socketId: entry.socketId, event: event, payload: payload)
+            : nil
         let taskListeners = entry.listeners[event] ?? []
         let legacyCallbackIds = (owner.legacyBoundSocketId == entry.socketId) ? (owner.legacySlots[event] ?? []) : []
 
@@ -1033,45 +1239,91 @@ final class DMPWebSocketManager {
         unregisterTransport(entry)
 
         for callbackId in taskListeners {
-            pushEvent(appId: appId, callbackId: callbackId, payload: payload)
+            pushEventOnce(appId: appId, entry: entry, event: event, terminalRecord: terminalRecord,
+                          callbackId: callbackId, payload: payload, scope: .task)
         }
         for callbackId in legacyCallbackIds {
-            pushEvent(appId: appId, callbackId: callbackId, payload: payload)
+            pushEventOnce(appId: appId, entry: entry, event: event, terminalRecord: terminalRecord,
+                          callbackId: callbackId, payload: payload, scope: .global)
         }
     }
 
     /// Same dispatch as `teardown`, but the entry stays alive (open/message,
     /// or the non-terminal error preceding an opened connection's close).
     private func dispatchEvent(owner: DMPOwnerState, appId: String, entry: DMPSocketEntry, event: DMPWebSocketEventType, payload: DMPMap) {
-        if event == .error || event == .close {
-            recordTerminalEvent(owner: owner, socketId: entry.socketId, event: event, payload: payload)
-        }
+        let terminalRecord = (event == .error || event == .close)
+            ? recordTerminalEvent(owner: owner, socketId: entry.socketId, event: event, payload: payload)
+            : nil
         if event == .error { entry.errorEmitted = true }
         let taskListeners = entry.listeners[event] ?? []
         for callbackId in taskListeners {
-            pushEvent(appId: appId, callbackId: callbackId, payload: payload)
+            pushEventOnce(appId: appId, entry: entry, event: event, terminalRecord: terminalRecord,
+                          callbackId: callbackId, payload: payload, scope: .task)
         }
         if owner.legacyBoundSocketId == entry.socketId {
             for callbackId in owner.legacySlots[event] ?? [] {
-                pushEvent(appId: appId, callbackId: callbackId, payload: payload)
+                pushEventOnce(appId: appId, entry: entry, event: event, terminalRecord: terminalRecord,
+                              callbackId: callbackId, payload: payload, scope: .global)
             }
         }
+    }
+
+    /// 按作用域投影事件载荷：`SocketTask.onOpen` 收 `{header, profile}`，全局
+    /// `wx.onSocketOpen` 只收 `{header}`。两个作用域的结果类型是分开声明的，全局那个
+    /// 没有 profile 成员，把任务态的载荷原样交给全局监听等于凭空多出一个不存在的 API 面。
+    /// 其余事件两个作用域形状相同，原样返回。
+    ///
+    /// 正常派发（`pushEventOnce`）与迟到补发（`replayMissedEvent`）都必须过这里：这两条
+    /// 路径各自造自己的投递，只在其中一条上做投影，泄漏会从另一条继续跑出去。
+    private func projectedPayload(_ payload: DMPMap, event: DMPWebSocketEventType,
+                                  scope: DMPSocketListenerScope) -> DMPMap {
+        guard event == .open, scope == .global else { return payload }
+        return DMPMap(["header": payload.get("header") ?? [String: String]()])
+    }
+
+    /// 正常派发和迟到补发必须共享同一份投递账本；否则一个已经正常收到事件的 callback id
+    /// 再次注册时，会被 replay 路径误判成从未收到而拿到第二份陈旧事件。
+    private func pushEventOnce(appId: String, entry: DMPSocketEntry, event: DMPWebSocketEventType,
+                               terminalRecord: DMPTerminalEvent?, callbackId: String, payload: DMPMap,
+                               scope: DMPSocketListenerScope) {
+        switch event {
+        case .open:
+            guard entry.openDeliveredCallbackIds.insert(callbackId).inserted else { return }
+        case .error, .close:
+            guard let terminalRecord,
+                  terminalRecord.deliveredCallbackIds.insert(callbackId).inserted else { return }
+        case .message:
+            break
+        }
+        pushEvent(appId: appId, callbackId: callbackId,
+                  payload: projectedPayload(payload, event: event, scope: scope))
     }
 
     /// 记录一次终态事件（error/close）载荷，供之后才注册的监听补发（见 handleOn）。
     /// 按插入顺序保留最近 terminalReplayCapacity 条，超出容量淘汰最旧的一条；同一个
     /// key 再次触发时先移除旧位置再重新追加，保证淘汰顺序始终对应"最近一次触发"。
-    private func recordTerminalEvent(owner: DMPOwnerState, socketId: String, event: DMPWebSocketEventType, payload: DMPMap) {
+    private func recordTerminalEvent(owner: DMPOwnerState, socketId: String, event: DMPWebSocketEventType, payload: DMPMap) -> DMPTerminalEvent {
         let key = "\(socketId)|\(event.rawValue)"
         if owner.terminalReplay.removeValue(forKey: key) != nil {
             owner.terminalReplayOrder.removeAll { $0 == key }
         }
-        owner.terminalReplay[key] = payload
+        let record = DMPTerminalEvent(payload: payload)
+        owner.terminalReplay[key] = record
         owner.terminalReplayOrder.append(key)
         while owner.terminalReplayOrder.count > Self.terminalReplayCapacity {
             let oldest = owner.terminalReplayOrder.removeFirst()
             owner.terminalReplay.removeValue(forKey: oldest)
         }
+        return record
+    }
+
+    /// 新一代同 socketId 连接开始前，移除上一代连接留下的终态补发记录及其顺序索引。
+    private func clearTerminalReplay(owner: DMPOwnerState, socketId: String) {
+        let keys = ["\(socketId)|error", "\(socketId)|close"]
+        for key in keys {
+            owner.terminalReplay.removeValue(forKey: key)
+        }
+        owner.terminalReplayOrder.removeAll { keys.contains($0) }
     }
 
     /// disposeOwner / background-grace "already-errored handshake" reclaim:
@@ -1087,12 +1339,17 @@ final class DMPWebSocketManager {
 
     // MARK: One-shot callback helpers
 
+    // `complete` fires on either outcome and must describe the outcome it completes, so it gets the
+    // same result object success/fail got — `complete: res => res.errMsg` is the ordinary shape and
+    // an empty object hands the caller undefined.
     private func fail(_ callback: DMPBridgeCallback?, api: String, tail: String) {
-        DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "\(api):fail \(tail)")
+        DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "\(api):fail \(tail)",
+                                      completeCarriesResult: true)
     }
 
     private func succeed(_ callback: DMPBridgeCallback?, api: String) {
-        DMPContainerApi.invokeSuccess(callback: callback, param: DMPMap(["errMsg": "\(api):ok"]))
+        DMPContainerApi.invokeSuccess(callback: callback, param: DMPMap(["errMsg": "\(api):ok"]),
+                                      completeCarriesResult: true)
     }
 
     // MARK: Persistent event push
@@ -1138,5 +1395,9 @@ extension DMPWebSocketManager: DMPSocketTransportDelegate {
 
     func transport(_ transport: DMPSocketTransport, didCompleteWithError error: Error?) {
         queue.async { [weak self] in self?.handleTransportComplete(transport, error: error) }
+    }
+
+    func transport(_ transport: DMPSocketTransport, didCollectHandshakeMetrics metrics: DMPSocketHandshakeMetrics) {
+        queue.async { [weak self] in self?.handleTransportMetrics(transport, metrics: metrics) }
     }
 }

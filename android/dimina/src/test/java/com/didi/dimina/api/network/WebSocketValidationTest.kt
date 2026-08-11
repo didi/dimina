@@ -22,12 +22,13 @@ class WebSocketValidationTest {
     // ---- validateUrl ----
 
     @Test
-    fun validateUrlAcceptsWsAndWss() {
-        val ws = WebSocketValidation.validateUrl("ws://example.com/path") as WebSocketValidation.Result.Ok
-        assertEquals("ws", ws.value.scheme)
-
+    fun validateUrlAcceptsWssAndRejectsWs() {
         val wss = WebSocketValidation.validateUrl("wss://example.com/path") as WebSocketValidation.Result.Ok
         assertEquals("wss", wss.value.scheme)
+        assertEquals(
+            WebSocketValidation.Result.Fail("invalid url"),
+            WebSocketValidation.validateUrl("ws://example.com/path"),
+        )
     }
 
     @Test
@@ -44,12 +45,85 @@ class WebSocketValidationTest {
         )
     }
 
+    /** URI schemes are case-insensitive, but the public network policy only permits WSS. */
+    @Test
+    fun validateUrlAcceptsEveryCaseVariantOfWss() {
+        val cases = listOf(
+            "wss://example.com/socket" to "wss",
+            "WSS://example.com/socket" to "wss",
+            "Wss://example.com/socket" to "wss",
+            "wSs://example.com/socket" to "wss",
+        )
+        for ((url, expectedScheme) in cases) {
+            val result = WebSocketValidation.validateUrl(url)
+            assertTrue("expected $url to be accepted, got $result", result is WebSocketValidation.Result.Ok)
+            val ok = result as WebSocketValidation.Result.Ok
+            assertEquals("scheme for $url", expectedScheme, ok.value.scheme)
+            assertEquals("url for $url must be passed through unchanged", url, ok.value.url)
+        }
+    }
+
+    @Test
+    fun validateUrlRejectsEverySchemeOtherThanWss() {
+        val urls = listOf(
+            "ws://example.com/socket",
+            "WS://example.com/socket",
+            "http://example.com/socket",
+            "https://example.com/socket",
+            "HTTPS://example.com/socket",
+            "ftp://example.com/socket",
+            "wsx://example.com/socket",
+            "wsss://example.com/socket",
+            "//example.com/socket",
+            "example.com/socket",
+        )
+        for (url in urls) {
+            assertEquals(
+                "expected $url to be rejected",
+                WebSocketValidation.Result.Fail("invalid url"),
+                WebSocketValidation.validateUrl(url),
+            )
+        }
+    }
+
     @Test
     fun validateUrlRejectsFragment() {
         assertEquals(
             WebSocketValidation.Result.Fail("invalid url"),
-            WebSocketValidation.validateUrl("ws://example.com/path#frag"),
+            WebSocketValidation.validateUrl("wss://example.com/path#frag"),
         )
+    }
+
+    /**
+     * A bare space anywhere in the url is rejected rather than passed on. An unescaped space cannot
+     * survive the request line, so letting it through only moves the failure to a later, less
+     * legible place - and lets the same url be accepted on one platform and refused on another.
+     * This is the strict reading the three platforms converge on; loosening it here would put them
+     * back out of step.
+     */
+    @Test
+    fun validateUrlRejectsBareSpacesAnywhereInTheUrl() {
+        val urls = listOf(
+            "wss://example.com/a b",
+            "wss://example.com/path?q=a b",
+            "wss://example.com/ leading",
+            "wss://example.com/trailing ",
+        )
+        for (url in urls) {
+            assertEquals(
+                "expected \"$url\" to be rejected for its bare space",
+                WebSocketValidation.Result.Fail("invalid url"),
+                WebSocketValidation.validateUrl(url),
+            )
+        }
+    }
+
+    /** The rule is about *bare* spaces: a properly percent-encoded one is a normal url. */
+    @Test
+    fun validateUrlAcceptsAPercentEncodedSpace() {
+        val result = WebSocketValidation.validateUrl("wss://example.com/a%20b")
+        assertTrue("percent-encoded spaces must stay legal, got $result", result is WebSocketValidation.Result.Ok)
+        assertEquals("wss://example.com/a%20b", (result as WebSocketValidation.Result.Ok).value.url)
     }
 
     // ---- validateTimeout ----
@@ -75,6 +149,13 @@ class WebSocketValidationTest {
             WebSocketValidation.Result.Fail("invalid timeout"),
             WebSocketValidation.validateTimeout(3_000_000_000.0),
         )
+    }
+
+    @Test
+    fun validateTimeoutRejectsNonNumberTypes() {
+        for (value in listOf<Any>("5000", true, JSONArray().put(5000), JSONObject())) {
+            assertEquals(WebSocketValidation.Result.Fail("invalid timeout"), WebSocketValidation.validateTimeout(value))
+        }
     }
 
     @Test
@@ -210,6 +291,37 @@ class WebSocketValidationTest {
         }
     }
 
+    /**
+     * A header value must be ASCII. RFC 7230 deprecated obs-text (0x80-0xFF) in field values, and
+     * the platforms disagree about what to do with it - one request builder refuses the header
+     * outright while another sends it - so the same mini program would connect on one device and
+     * fail on another. The script layer passes string values through untouched, which makes a
+     * non-ASCII value a perfectly reachable input, so it has to be settled here, before the dial.
+     */
+    @Test
+    fun validateHeaderRejectsNonAsciiValues() {
+        // Escapes rather than literal bytes so each case says what it is: CJK, Latin-1
+        // accents, a non-breaking space that reads like the space which stays legal, an
+        // astral-plane emoji, and the very first obs-text byte.
+        for (value in listOf("\u4E2D\u6587", "caf\u00E9", "a\u00A0b", "hi \uD83D\uDE00", "x\u0080")) {
+            val header = JSONObject().apply { put("X-Custom", value) }
+            assertEquals(
+                "expected the non-ASCII value \"$value\" to be rejected",
+                WebSocketValidation.Result.Fail("invalid header"),
+                WebSocketValidation.validateHeader(header),
+            )
+        }
+    }
+
+    /** The boundary: 0x7E is the last printable ASCII character and stays legal. */
+    @Test
+    fun validateHeaderKeepsPrintableAsciiValuesUpToTheBoundary() {
+        val value = "plain-ASCII_value~"
+        val header = JSONObject().apply { put("X-Custom", value) }
+        val result = WebSocketValidation.validateHeader(header) as WebSocketValidation.Result.Ok
+        assertEquals(value, result.value["X-Custom"])
+    }
+
     @Test
     fun validateHeaderKeepsTabAndSpaceInValue() {
         val header = JSONObject().apply { put("X-Custom", "a\tb c") }
@@ -254,16 +366,7 @@ class WebSocketValidationTest {
         assertEquals(WebSocketValidation.Result.Fail("invalid code"), WebSocketValidation.validateCloseCode(1000.5))
     }
 
-    /**
-     * Cross-platform contract table (WebIDL `WebSocket.close(code)` semantics, string args coerced
-     * via ToNumber): shared boundary values are checked against iOS/HarmonyOS test suites for the
-     * same behavior. Kept as one table (rather than one @Test per row) so the whole contract is
-     * visible at a glance, but each [CloseCodeCase.label] pinpoints exactly which input failed.
-     *
-     * Known pre-existing gap this table exposes: the current Android implementation parses strings
-     * with `trim().toIntOrNull()`, which rejects a decimal-looking-but-integer-valued string like
-     * "3000.0" - the new contract requires JS `Number()` semantics instead, which accepts it as 3000.
-     */
+    /** Cross-platform table: only finite integer host numbers are accepted. */
     @Test
     fun validateCloseCodeCrossPlatformBoundaryTable() {
         val ok1000 = WebSocketValidation.Result.Ok(1000)
@@ -284,9 +387,9 @@ class WebSocketValidationTest {
             CloseCodeCase("double 3000.5 (fractional)", 3000.5, fail),
             CloseCodeCase("double NaN", Double.NaN, fail),
             CloseCodeCase("double +Infinity", Double.POSITIVE_INFINITY, fail),
-            CloseCodeCase("string \"3000\"", "3000", ok3000),
-            CloseCodeCase("string \" 3000 \" (padded whitespace, trimmed first)", " 3000 ", ok3000),
-            CloseCodeCase("string \"3000.0\" (ToNumber must accept trailing .0 as integer-valued)", "3000.0", ok3000),
+            CloseCodeCase("string \"3000\"", "3000", fail),
+            CloseCodeCase("string \" 3000 \"", " 3000 ", fail),
+            CloseCodeCase("string \"3000.0\"", "3000.0", fail),
             CloseCodeCase("string \"3000.5\" (fractional string)", "3000.5", fail),
             CloseCodeCase("string \"abc\" (non-numeric -> NaN)", "abc", fail),
             CloseCodeCase("string \"\" (empty after trim)", "", fail),

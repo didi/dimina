@@ -30,11 +30,9 @@ export default function dmpWebSocketValidationTest() {
       expect(DMPWebSocketValidation.validateUrl(123).ok).assertFalse();
     });
 
-    it('url_accepts_ws_and_wss', 0, () => {
+    it('url_accepts_wss_and_rejects_ws', 0, () => {
       const ws = DMPWebSocketValidation.validateUrl('ws://example.com:8080/path');
-      expect(ws.ok).assertTrue();
-      expect(ws.scheme).assertEqual('ws:');
-      expect(ws.host).assertEqual('example.com:8080');
+      expect(ws.ok).assertFalse();
 
       const wss = DMPWebSocketValidation.validateUrl('wss://example.com/path');
       expect(wss.ok).assertTrue();
@@ -44,14 +42,14 @@ export default function dmpWebSocketValidationTest() {
     it('url_rejects_invalid_host_characters', 0, () => {
       // 之前用宽松正则放行、真正失败要等深到 SDK 内部才报错；现在必须在
       // connectSocket 校验阶段就同步拒绝，对齐 Android/iOS。
-      const r = DMPWebSocketValidation.validateUrl('ws://bad host/path');
+      const r = DMPWebSocketValidation.validateUrl('wss://bad host/path');
       expect(r.ok).assertFalse();
       expect(r.errMsg).assertEqual('invalid url');
     });
 
     it('url_strips_userinfo_from_host', 0, () => {
       // host 只应包含 host[:port]，不应包含 userinfo/凭据。
-      const r = DMPWebSocketValidation.validateUrl('ws://user:pass@example.com:8080/path');
+      const r = DMPWebSocketValidation.validateUrl('wss://user:pass@example.com:8080/path');
       expect(r.ok).assertTrue();
       expect(r.host).assertEqual('example.com:8080');
     });
@@ -80,6 +78,27 @@ export default function dmpWebSocketValidationTest() {
 
       const inf = DMPWebSocketValidation.validateTimeout(Number.POSITIVE_INFINITY);
       expect(inf.ok).assertFalse();
+    });
+
+    it('timeout_rejects_non_number_types', 0, () => {
+      // 逐个断言而不是塞进一个 Object[]：混合类型的数组字面量触发
+      // arkts-no-noninferrable-arr-literals，数组元素位置上的对象字面量还会触发
+      // arkts-no-untyped-obj-literals，整个测试模块编译不过。
+      const asString = DMPWebSocketValidation.validateTimeout('5000');
+      expect(asString.ok).assertFalse();
+      expect(asString.errMsg).assertEqual('invalid timeout');
+
+      const asBoolean = DMPWebSocketValidation.validateTimeout(true);
+      expect(asBoolean.ok).assertFalse();
+      expect(asBoolean.errMsg).assertEqual('invalid timeout');
+
+      const asArray = DMPWebSocketValidation.validateTimeout([5000]);
+      expect(asArray.ok).assertFalse();
+      expect(asArray.errMsg).assertEqual('invalid timeout');
+
+      const asObject = DMPWebSocketValidation.validateTimeout({ timeout: 5000 });
+      expect(asObject.ok).assertFalse();
+      expect(asObject.errMsg).assertEqual('invalid timeout');
     });
 
     it('timeout_rejects_over_max', 0, () => {
@@ -264,9 +283,8 @@ export default function dmpWebSocketValidationTest() {
     });
 
     // ---------------- close code：三端对照边界用例表 ----------------
-    // 按 WebIDL `WebSocket.close(code)` 语义：缺失/null/undefined 通过取默认值 1000；
-    // number 必须有限整数；string 先 trim，空串直接不通过，否则按 `Number()` 转换后
-    // 必须是有限整数；boolean/数组/对象等其他类型一律不通过；最后统一做范围校验
+    // 缺失/null/undefined 通过取默认值 1000；只有有限整数 number 可以通过；
+    // string/boolean/数组/对象等其他类型一律不通过；最后统一做范围校验
     // （必须等于 1000 或落在 [3000, 4999]）。errMsg 沿用本文件既有约定，所有不通过
     // 情形统一是 'invalid code'（校验函数当前对类型/范围两类失败共用同一条 errMsg）。
     // 本组用例会被拿去和 Android/iOS 的同名对照用例比对，命名与取值需保持一致。
@@ -350,25 +368,22 @@ export default function dmpWebSocketValidationTest() {
       expect(r.errMsg).assertEqual('invalid code');
     });
 
-    it('close_code_boundary_string_3000_passes_with_value_3000', 0, () => {
-      // 当前 Harmony 实现是 `typeof raw !== 'number'` 直接拒，字符串 "3000" 会被判
-      // 不通过；新契约要求按 ToNumber 语义解析后通过，取值 3000。三端最大差异点。
+    it('close_code_boundary_string_3000_fails', 0, () => {
       const r = DMPWebSocketValidation.validateCloseCode('3000');
-      expect(r.ok).assertTrue();
-      expect(r.value).assertEqual(3000);
+      expect(r.ok).assertFalse();
+      expect(r.errMsg).assertEqual('invalid code');
     });
 
-    it('close_code_boundary_string_padded_3000_passes_with_value_3000', 0, () => {
-      // 先 trim 再解析：首尾空白不应影响解析结果。
+    it('close_code_boundary_string_padded_3000_fails', 0, () => {
       const r = DMPWebSocketValidation.validateCloseCode(' 3000 ');
-      expect(r.ok).assertTrue();
-      expect(r.value).assertEqual(3000);
+      expect(r.ok).assertFalse();
+      expect(r.errMsg).assertEqual('invalid code');
     });
 
-    it('close_code_boundary_string_3000_point_0_passes_with_value_3000', 0, () => {
+    it('close_code_boundary_string_3000_point_0_fails', 0, () => {
       const r = DMPWebSocketValidation.validateCloseCode('3000.0');
-      expect(r.ok).assertTrue();
-      expect(r.value).assertEqual(3000);
+      expect(r.ok).assertFalse();
+      expect(r.errMsg).assertEqual('invalid code');
     });
 
     it('close_code_boundary_string_3000_point_5_fails', 0, () => {

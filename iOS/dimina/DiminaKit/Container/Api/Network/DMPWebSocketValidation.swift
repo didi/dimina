@@ -21,7 +21,12 @@ enum DMPWebSocketValidation {
 
     enum ErrorTail {
         static let invalidSocketId = "invalid socketId"
-        static let reachMaxCount = "reach max websocket connect count 5"
+        /// Carries the word `fail` twice on purpose. The script layer builds
+        /// `"\(api):fail \(errMsg)"` while the errMsg for the connection cap already starts
+        /// with `fail `, so a mini program sees
+        /// `connectSocket:fail fail reach max websocket connect count 5`. That doubled word is
+        /// part of the string WeChat emits, not a typo to correct.
+        static let reachMaxCount = "fail reach max websocket connect count 5"
         static let invalidUrl = "invalid url"
         static let invalidTimeout = "invalid timeout"
         static let protocolsNotArray = "protocols must be an array"
@@ -29,7 +34,10 @@ enum DMPWebSocketValidation {
         static let headerNotObject = "header must be an object"
         static let invalidHeader = "invalid header"
         static let interrupted = "interrupted"
-        static let timedOut = "timed out"
+        /// The one string every timed-out connect attempt reports, whichever clock noticed first —
+        /// the container's own connect watchdog or the transport's. A second, near-synonymous
+        /// constant is how the two paths drifted apart before; one constant is what keeps them
+        /// together.
         static let timeout = "timeout"
         static let connectionFailed = "WebSocket connection failed"
         static let notConnected = "WebSocket is not connected"
@@ -68,12 +76,14 @@ enum DMPWebSocketValidation {
 
     // MARK: - url
 
-    /// scheme must be ws/wss, must parse, must carry no fragment.
+    /// scheme must be wss, must parse, must carry no fragment, and must not hold a character a
+    /// url may only carry percent-encoded.
     static func validateUrl(_ raw: Any?) -> Result<URL> {
         guard let str = raw as? String, !str.isEmpty,
+              !containsIllegalURLCharacter(str),
               let components = URLComponents(string: str),
               let scheme = components.scheme?.lowercased(),
-              scheme == "ws" || scheme == "wss",
+              scheme == "wss",
               components.fragment == nil,
               let url = components.url,
               url.host != nil
@@ -83,24 +93,79 @@ enum DMPWebSocketValidation {
         return .success(url)
     }
 
+    /// Characters a url may never carry literally: RFC 3986's excluded set, minus the two that
+    /// carry meaning here. `[` and `]` stay legal because an IPv6 literal host needs them, and `%`
+    /// is checked separately below since it must introduce an escape rather than stand alone.
+    private static let urlExcludedScalars = Set<Unicode.Scalar>(" \"<>{}|\\^`".unicodeScalars)
+
+    /// True if `s` holds a character that may only appear percent-encoded.
+    ///
+    /// `URLComponents` accepts several of them and quietly percent-encodes them on the way out, so
+    /// without this check the container would dial a url the caller never wrote — a bare space in
+    /// `wss://host/a b` silently becomes `%20` and the mini program gets a live connection to a
+    /// different resource with nothing reporting the rewrite. Android's `java.net.URI` refuses this
+    /// same character class outright; rejecting here keeps the platforms answering alike, and the
+    /// caller keeps the legitimate way to express the character by encoding it themselves.
+    private static func containsIllegalURLCharacter(_ s: String) -> Bool {
+        let scalars = Array(s.unicodeScalars)
+        var index = 0
+        while index < scalars.count {
+            let scalar = scalars[index]
+            if scalar.value < 0x20 || scalar.value == 0x7F { return true }
+            if urlExcludedScalars.contains(scalar) { return true }
+            if scalar == "%" {
+                guard index + 2 < scalars.count,
+                      isHexDigit(scalars[index + 1]), isHexDigit(scalars[index + 2])
+                else {
+                    return true
+                }
+                index += 3
+                continue
+            }
+            index += 1
+        }
+        return false
+    }
+
+    private static func isHexDigit(_ scalar: Unicode.Scalar) -> Bool {
+        switch scalar {
+        case "0"..."9", "a"..."f", "A"..."F": return true
+        default: return false
+        }
+    }
+
     // MARK: - timeout
 
-    /// Missing -> default. Non-finite or > 0x7fffffff -> error. <=0 -> silent
-    /// fallback to default. Otherwise floored to an integer, matching
+    /// Missing -> the caller's default. Non-finite or > 0x7fffffff -> error. Below 1 ms -> silent
+    /// fallback to that same default. Otherwise floored to an integer, matching
     /// `dimina-kit`'s `normalize.ts` (`Math.floor`), not rounded.
-    static func validateTimeout(_ raw: Any?) -> Result<Int> {
+    ///
+    /// `appDefaultMs` is this mini program's `app.json` `networkTimeout.connectSocket`; `nil`
+    /// means the key is absent and 60000 applies. A `timeout` supplied at the call site outranks
+    /// both. A `timeout` that cannot express a deadline counts as unspecified rather than as
+    /// "never time out": otherwise a mistyped parameter would silently turn into an unbounded
+    /// connect attempt.
+    static func validateTimeout(_ raw: Any?, appDefaultMs: Int? = nil) -> Result<Int> {
+        let fallbackMs = (appDefaultMs.flatMap { $0 > 0 && $0 <= 0x7fffffff ? $0 : nil }) ?? defaultTimeoutMs
         guard let raw = raw, !(raw is NSNull) else {
-            return .success(defaultTimeoutMs)
+            return .success(fallbackMs)
         }
-        let number = jsNumberValue(raw)
+        guard let boxed = raw as? NSNumber, CFGetTypeID(boxed) != CFBooleanGetTypeID() else {
+            return .failure(ErrorTail.invalidTimeout)
+        }
+        let number = boxed.doubleValue
         if !number.isFinite {
             return .failure(ErrorTail.invalidTimeout)
         }
         if number > Double(0x7fffffff) {
             return .failure(ErrorTail.invalidTimeout)
         }
-        if number <= 0 {
-            return .success(defaultTimeoutMs)
+        // Below 1 ms there is nothing left after flooring, and 0 is not "no deadline" — it is a
+        // deadline that already passed, so the attempt would fail before the handshake could
+        // possibly finish. A value smaller than the unit it is expressed in carries no usable
+        // intent, so it counts as unspecified. 1 ms itself is expressible and is honoured verbatim.
+        if number < 1 {
+            return .success(fallbackMs)
         }
         return .success(Int(number.rounded(.down)))
     }
@@ -161,7 +226,7 @@ enum DMPWebSocketValidation {
                     continue
                 }
                 let stringValue = jsStringValue(rawValue)
-                if containsCRLF(stringValue) || containsForbiddenControlChar(stringValue) {
+                if containsCRLF(stringValue) || containsForbiddenValueChar(stringValue) {
                     return .failure(ErrorTail.invalidHeader)
                 }
                 header[trimmedName] = stringValue
@@ -193,11 +258,18 @@ enum DMPWebSocketValidation {
         return !s.isEmpty && s.unicodeScalars.allSatisfy { httpTokenScalars.contains($0) }
     }
 
-    /// True if `s` holds a control character an HTTP field value may not carry. Values may hold
-    /// visible characters, space and horizontal tab; CR and LF are caught by `containsCRLF` and
-    /// report the same error.
-    private static func containsForbiddenControlChar(_ s: String) -> Bool {
-        return s.unicodeScalars.contains { ($0.value < 0x20 && $0 != "\t") || $0.value == 0x7F }
+    /// True if `s` holds a character an HTTP field value may not carry. A value may hold horizontal
+    /// tab and printable US-ASCII (0x20–0x7E) and nothing else: control characters are illegal, and
+    /// RFC 7230 deprecated obs-text (>= 0x80), which OkHttp enforces by refusing the byte outright.
+    /// Accepting a Chinese header value here while Android refuses it would mean one platform
+    /// connects and another does not for identical mini-program code, so the byte range is the
+    /// narrower of the two. CR and LF land in this range too and are also caught by `containsCRLF`;
+    /// both report the same error.
+    ///
+    /// This rule governs header values only. A url is bound by percent-encoding and IDN rules
+    /// instead, so non-ASCII paths and internationalised hosts stay valid there.
+    private static func containsForbiddenValueChar(_ s: String) -> Bool {
+        return s.unicodeScalars.contains { $0 != "\t" && ($0.value < 0x20 || $0.value > 0x7E) }
     }
 
     private static func containsCRLF(_ s: String) -> Bool {
@@ -210,50 +282,17 @@ enum DMPWebSocketValidation {
 
     // MARK: - closeSocket code
 
-    /// Decimal number literal accepted from a string `code`. Deliberately narrower than the
-    /// platform's own string-to-double parsers, which additionally accept forms JavaScript rejects;
-    /// keeping the shape explicit is what lets Android, iOS and HarmonyOS accept exactly the same
-    /// set of strings.
-    private static let decimalNumberPattern = "^[+-]?([0-9]+(\\.[0-9]*)?|\\.[0-9]+)([eE][+-]?[0-9]+)?$"
-
-    /// Missing / NSNull -> 1000. Host numbers and decimal-literal strings are accepted; an empty or
-    /// blank string is rejected, as are booleans and every other type. The converted value must be
-    /// a finite integer that is either 1000 or within [3000, 4999], otherwise -> error.
-    ///
-    /// Note this is narrower than JavaScript's `Number()`, which also reads `0xBB8` and `0b1011`.
-    /// The script layer coerces `code` with a real `Number()` before it reaches the bridge, so a
-    /// mini program gets the full JavaScript semantics; this narrower rule is what a direct bridge
-    /// caller sees, and it is identical on all three platforms.
-    ///
-    /// Note this deliberately does not go through `jsNumberValue`, which maps blank strings and
-    /// booleans onto 0/1 - that is the right shape for `timeout`, but here those inputs must fail
-    /// on type rather than incidentally fall outside the accepted range.
+    /// Missing / NSNull -> 1000. Only host numbers are accepted. The value must be a finite integer that is either 1000 or
+    /// within [3000, 4999], otherwise -> error.
     static func validateCloseCode(_ raw: Any?) -> Result<Int> {
         guard let raw = raw, !(raw is NSNull) else {
             return .success(defaultCloseCode)
         }
 
-        let number: Double
-        switch raw {
-        case is Bool:
-            return .failure(ErrorTail.invalidCode)
-        case let n as NSNumber:
-            // NSNumber also boxes Bool on this bridge; the case above only catches a native Swift
-            // Bool, so re-check the boxed type before treating it as a number.
-            if CFGetTypeID(n) == CFBooleanGetTypeID() {
-                return .failure(ErrorTail.invalidCode)
-            }
-            number = n.doubleValue
-        case let s as String:
-            let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard trimmed.range(of: Self.decimalNumberPattern, options: .regularExpression) != nil,
-                  let parsed = Double(trimmed) else {
-                return .failure(ErrorTail.invalidCode)
-            }
-            number = parsed
-        default:
+        guard let boxed = raw as? NSNumber, CFGetTypeID(boxed) != CFBooleanGetTypeID() else {
             return .failure(ErrorTail.invalidCode)
         }
+        let number = boxed.doubleValue
 
         guard number.isFinite, number == number.rounded() else {
             return .failure(ErrorTail.invalidCode)
@@ -283,31 +322,6 @@ enum DMPWebSocketValidation {
             return .failure(ErrorTail.reasonTooLong)
         }
         return .success(s)
-    }
-
-    // MARK: - JS-ish coercions
-
-    /// Best-effort approximation of JavaScript's `Number(x)` coercion for the
-    /// value shapes that can realistically cross the JSON bridge
-    /// (NSNumber/Bool/String/NSNull). Non-numeric, non-coercible input
-    /// (dictionaries/arrays-with-not-exactly-one-numeric-item) yields NaN,
-    /// matching `Number({})` / `Number([1,2])` semantics closely enough for
-    /// the contract's purposes.
-    static func jsNumberValue(_ raw: Any) -> Double {
-        switch raw {
-        case is NSNull:
-            return 0
-        case let b as Bool:
-            return b ? 1 : 0
-        case let n as NSNumber:
-            return n.doubleValue
-        case let s as String:
-            let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.isEmpty { return 0 }
-            return Double(trimmed) ?? Double.nan
-        default:
-            return Double.nan
-        }
     }
 
     /// Best-effort `String(x)` stringification for header values.
