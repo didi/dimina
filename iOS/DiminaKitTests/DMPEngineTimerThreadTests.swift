@@ -80,8 +80,8 @@ final class DMPEngineTimerThreadTests: XCTestCase {
                         "setTimeout callback ran on thread \(observedThreadName ?? "nil"), expected \(jsEngineThreadName)")
     }
 
-    /// Same invariant for `setInterval` (`DMPEngineTimer.swift:108/118` share
-    /// the same `DispatchQueue.main` scheduling as setTimeout).
+    /// Same invariant for `setInterval`: its source queue schedules the fire, while the
+    /// callback itself must execute on the engine's JS thread.
     func test_setIntervalCallback_executesOnDedicatedJSEngineThread() {
         let engine = makeInitializedEngine()
         defer { engine.destroy() }
@@ -113,25 +113,166 @@ final class DMPEngineTimerThreadTests: XCTestCase {
                         "setInterval callback ran on the main thread; it must run on \(jsEngineThreadName)")
         XCTAssertEqual(observedThreadName, jsEngineThreadName,
                         "setInterval callback ran on thread \(observedThreadName ?? "nil"), expected \(jsEngineThreadName)")
-        // engine.destroy() cancels the still-running interval via
-        // DMPEngineTimer.shared.clearAllTimers(); no manual clearInterval needed.
+        // engine.destroy() cancels only this engine's still-running interval;
+        // no manual clearInterval is needed.
+    }
+
+    // MARK: - Timers must be isolated between engines
+
+    /// A process can host more than one mini program. Destroying one service engine must not
+    /// cancel timers belonging to another engine.
+    func test_destroyingOneEngine_doesNotCancelAnotherEnginesTimeoutOrInterval() {
+        let engineA = makeInitializedEngine()
+        let engineB = makeInitializedEngine()
+        defer { engineB.destroy() }
+
+        let timeoutFired = expectation(description: "engine B timeout fired")
+        let intervalFired = expectation(description: "engine B interval fired twice")
+        intervalFired.expectedFulfillmentCount = 2
+
+        engineB.registerMethod(name: "__reportSurvivingTimeout") { _ in
+            timeoutFired.fulfill()
+            return nil
+        }
+        engineB.registerMethod(name: "__reportSurvivingInterval") { _ in
+            intervalFired.fulfill()
+            return nil
+        }
+
+        let armed = expectation(description: "engine B timers armed")
+        Task {
+            await engineB.evaluateScript("""
+            setTimeout(function () { __reportSurvivingTimeout(); }, 300);
+            var survivingIntervalCount = 0;
+            var survivingIntervalId = setInterval(function () {
+                survivingIntervalCount += 1;
+                __reportSurvivingInterval();
+                if (survivingIntervalCount === 2) clearInterval(survivingIntervalId);
+            }, 200);
+            """)
+            armed.fulfill()
+        }
+        wait(for: [armed], timeout: 5)
+
+        // Teardown must only reach A's engine-scoped timer manager.
+        engineA.destroy()
+
+        wait(for: [timeoutFired, intervalFired], timeout: 5)
+    }
+
+    /// Timer ids are meaningful only inside their engine. Even if two engines allocate the same
+    /// numeric id, clearTimeout in B must never reach A's timer registry.
+    func test_clearTimeoutInOneEngine_doesNotCancelAnotherEnginesTimer() {
+        let engineA = makeInitializedEngine()
+        let engineB = makeInitializedEngine()
+        defer {
+            engineA.destroy()
+            engineB.destroy()
+        }
+
+        let timerIdReported = expectation(description: "engine A timer id reported")
+        let timerFired = expectation(description: "engine A timer survived engine B clearTimeout")
+        let timerIdLock = NSLock()
+        var timerId: Int32?
+
+        engineA.registerMethod(name: "__reportOwnedTimerId") { value in
+            timerIdLock.lock()
+            timerId = value.toInt32()
+            timerIdLock.unlock()
+            timerIdReported.fulfill()
+            return nil
+        }
+        engineA.registerMethod(name: "__reportOwnedTimerFired") { _ in
+            timerFired.fulfill()
+            return nil
+        }
+
+        Task {
+            await engineA.evaluateScript("""
+            var ownedTimerId = setTimeout(function () { __reportOwnedTimerFired(); }, 400);
+            __reportOwnedTimerId(ownedTimerId);
+            """)
+        }
+        wait(for: [timerIdReported], timeout: 5)
+
+        timerIdLock.lock()
+        let reportedTimerId = timerId
+        timerIdLock.unlock()
+        guard let reportedTimerId else {
+            return XCTFail("engine A did not return its timer id")
+        }
+
+        let clearCompleted = expectation(description: "engine B clearTimeout completed")
+        Task {
+            await engineB.evaluateScript("clearTimeout(\(reportedTimerId));")
+            clearCompleted.fulfill()
+        }
+        wait(for: [clearCompleted, timerFired], timeout: 5)
+    }
+
+    /// Mirrors the service WebSocket event scheduler: the first deferred error sets a latch,
+    /// close and later events queue behind it, and only the timeout callback resets the latch.
+    /// If another engine can cancel that timeout, this queue remains permanently frozen.
+    func test_destroyingOneEngine_doesNotFreezeAnotherEnginesDeferredEventQueue() {
+        let engineA = makeInitializedEngine()
+        let engineB = makeInitializedEngine()
+        defer { engineB.destroy() }
+
+        let log = ThreadSafeEventLog()
+        let delivered = expectation(description: "engine B deferred events delivered")
+        delivered.expectedFulfillmentCount = 3
+
+        engineB.registerMethod(name: "__reportDeferredEvent") { value in
+            log.record(value.toString() ?? "?")
+            delivered.fulfill()
+            return nil
+        }
+
+        let queueArmed = expectation(description: "engine B deferred queue armed")
+        Task {
+            await engineB.evaluateScript("""
+            var eventDispatchQueue = [];
+            var eventDispatchScheduled = false;
+            function drainEventDispatchQueue() {
+                eventDispatchScheduled = false;
+                var pending = eventDispatchQueue.splice(0, eventDispatchQueue.length);
+                pending.forEach(function (dispatch) { dispatch(); });
+            }
+            function deliverInOrderForTest(value, defer) {
+                if (!defer && eventDispatchQueue.length === 0) {
+                    __reportDeferredEvent(value);
+                    return;
+                }
+                eventDispatchQueue.push(function () { __reportDeferredEvent(value); });
+                if (eventDispatchScheduled) return;
+                eventDispatchScheduled = true;
+                setTimeout(drainEventDispatchQueue, 300);
+            }
+            deliverInOrderForTest('error', true);
+            deliverInOrderForTest('close', false);
+            """)
+            queueArmed.fulfill()
+        }
+        wait(for: [queueArmed], timeout: 5)
+
+        engineA.destroy()
+
+        let laterEventQueued = expectation(description: "later engine B event queued")
+        Task {
+            await engineB.evaluateScript("deliverInOrderForTest('message', false);")
+            laterEventQueued.fulfill()
+        }
+        wait(for: [laterEventQueued, delivered], timeout: 5)
+
+        XCTAssertEqual(log.events, ["error", "close", "message"])
     }
 
     // MARK: - A multi-callout JS turn must not be split by a container message
 
-    /// Reproduces the root-cause mechanism through the production types
-    /// directly: a `setTimeout` callback (today scheduled on
-    /// `DispatchQueue.main`, bypassing the engine's jsThread serialization)
-    /// makes two consecutive native callouts within what the script treats as
-    /// one turn. Concurrently, a message arrives via `enqueueScript` - the
-    /// same call `DMPService.swift:95` uses to push a container event into the
-    /// service engine, correctly serialized onto jsThread. JavaScriptCore
-    /// hands its context lock off at native-callout boundaries,
-    /// so the two unsynchronized entrants can interleave: the message's
-    /// script runs between the turn's first and second callout instead of
-    /// before or after it. Runs the race several times because the
-    /// interleaving is a timing window, not guaranteed on every single
-    /// attempt.
+    /// Guards the original thread-safety regression through production types: a setTimeout
+    /// callback makes two native callouts in one JavaScript turn while a container message arrives
+    /// through enqueueScript. Both entries must serialize on the engine's JS thread, so the message
+    /// can run before or after that complete turn but never between its two callouts.
     func test_multiCalloutTurn_isNotSplitByConcurrentContainerMessage() {
         let engine = makeInitializedEngine()
         defer { engine.destroy() }
@@ -200,13 +341,10 @@ final class DMPEngineTimerThreadTests: XCTestCase {
     /// an engine that has been torn down, must not get one more JS execution
     /// out of a timer everyone already considers dead.
     ///
-    /// The sequence is driven off the main thread on purpose - the timer source
-    /// fires on the main queue, so blocking main here would keep the timer from
-    /// firing at all and the test would pass without ever reaching the window
-    /// it is meant to cover.
+    /// The cancellation sequence runs off the main thread because destroy waits for the JS thread
+    /// to stop, while this test deliberately keeps that thread blocked until cancellation occurs.
     func test_timerCancelledWhileItsCallbackIsQueued_doesNotRunTheCallback() {
         let engine = makeInitializedEngine()
-        defer { engine.destroy() }
 
         let log = ThreadSafeEventLog()
         let blockerEntered = DispatchSemaphore(value: 0)
@@ -238,7 +376,9 @@ final class DMPEngineTimerThreadTests: XCTestCase {
                            "the JS thread never entered the blocking callout")
 
             Thread.sleep(forTimeInterval: 0.7)
-            DMPEngineTimer.shared.clearAllTimers()
+            // Engine teardown cancels its own timers immediately, before the teardown closure
+            // queued behind this blocked JS call gets a chance to run.
+            engine.destroy()
 
             releaseBlocker.signal()
             Thread.sleep(forTimeInterval: 0.5)
@@ -248,5 +388,20 @@ final class DMPEngineTimerThreadTests: XCTestCase {
 
         XCTAssertFalse(log.events.contains("FIRED"),
                         "a cancelled timer still ran its callback: \(log.events)")
+    }
+
+    /// Calls that race behind teardown must settle rather than being posted to a stopped run loop.
+    func test_evaluateScriptAfterDestroy_returnsNilInsteadOfHanging() {
+        let engine = makeInitializedEngine()
+        engine.destroy()
+
+        let settled = expectation(description: "post-destroy evaluation settled")
+        Task {
+            let result = await engine.evaluateScript("1 + 1")
+            XCTAssertNil(result)
+            settled.fulfill()
+        }
+
+        wait(for: [settled], timeout: 2)
     }
 }

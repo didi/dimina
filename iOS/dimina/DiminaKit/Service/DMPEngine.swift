@@ -11,12 +11,30 @@ import JavaScriptCore
 public class DMPEngine: NSObject {
     
     private var jsContext: JSContext?
+
+    /// Timer state is engine-scoped. No other mini program can cancel this manager's sources.
+    private let timerManager = DMPEngineTimer()
     
     private var jsThread: Thread
+    private let jsThreadStopped = DispatchSemaphore(value: 0)
+    private let destroyLock = NSLock()
+    private var destroyStarted = false
     
     private let jsQueue = DispatchQueue(label: "com.dimina.jsengine.queue")
-    
-    private var isThreadRunning = false
+
+    /// Accessed only on jsQueue. Tasks submitted while teardown is in flight are retained until
+    /// jsContext has been cleared, then executed on jsQueue so async continuations can return nil
+    /// instead of being stranded on a run loop that no longer exists.
+    private enum JSThreadState {
+        case accepting
+        case stopping
+        case stopped
+    }
+    private var jsThreadState: JSThreadState = .accepting
+    private var tasksWaitingForStop: [() -> Void] = []
+
+    private let initializationLock = NSLock()
+    private var _isThreadRunning = false
     
     private var initCompletionHandlers: [() -> Void] = []
     
@@ -27,6 +45,7 @@ public class DMPEngine: NSObject {
         
         jsThread = Thread { [weak self] in
             guard let self = self else { return }
+            defer { self.jsThreadStopped.signal() }
             self.jsThreadMain()
         }
         jsThread.name = "com.dimina.jsengine.thread"
@@ -36,13 +55,21 @@ public class DMPEngine: NSObject {
     }
     
     public var isInitialized: Bool {
-        return isThreadRunning
+        initializationLock.lock()
+        defer { initializationLock.unlock() }
+        return _isThreadRunning
+    }
+
+    private func setThreadRunning(_ value: Bool) {
+        initializationLock.lock()
+        _isThreadRunning = value
+        initializationLock.unlock()
     }
     
     public func onInitialized(_ handler: @escaping () -> Void) {
         jsQueue.async { [weak self] in
             guard let self = self else { return }
-            if self.isThreadRunning {
+            if self.isInitialized {
                 handler()
             } else {
                 self.initCompletionHandlers.append(handler)
@@ -58,7 +85,7 @@ public class DMPEngine: NSObject {
             setupJSEnvironment()
         }
         
-        isThreadRunning = true
+        setThreadRunning(true)
         
         jsQueue.async { [weak self] in
             guard let self = self else { return }
@@ -70,7 +97,7 @@ public class DMPEngine: NSObject {
         
         let port = Port()
         runLoop.add(port, forMode: .default)
-        while true {
+        while !Thread.current.isCancelled {
             runLoop.run(until: Date(timeIntervalSinceNow: 0.1))
         }
     }
@@ -87,10 +114,9 @@ public class DMPEngine: NSObject {
         
         DMPEngineLog.injectConsole(to: context)
         // setTimeout/setInterval callbacks must land on this engine's own JS thread like
-        // every other entry into `context`, not on whatever queue the timer fires on —
-        // otherwise a timer callback can race a container message for the JSContext's lock
-        // and split what the script treats as one uninterruptible turn.
-        DMPEngineTimer.registerTimerFunctions(to: context, executor: { [weak self] closure in
+        // every other entry into `context`, not on the timer source queue — otherwise a timer
+        // callback can race a container message and split one JavaScript turn.
+        timerManager.registerTimerFunctions(to: context, executor: { [weak self] closure in
             self?.performOnJSThread(closure)
         })
         DMPEngineInvoke.registerInvoke(to: context)
@@ -141,10 +167,15 @@ public class DMPEngine: NSObject {
 
     private func performOnJSThread(_ closure: @escaping () -> Void) {
         self.jsQueue.async {
-            if Thread.current != self.jsThread {
+            switch self.jsThreadState {
+            case .accepting:
                 let selector = #selector(self.runClosureOnJSThread(_:))
                 self.perform(selector, on: self.jsThread, with: closure, waitUntilDone: false)
-            } else {
+            case .stopping:
+                self.tasksWaitingForStop.append(closure)
+            case .stopped:
+                // The context has already been cleared. Running the closure here lets callers
+                // such as evaluateScript/loadFile resume their continuations with nil.
                 closure()
             }
         }
@@ -166,31 +197,56 @@ public class DMPEngine: NSObject {
     }
     
     public func destroy() {
-        isThreadRunning = false
-        
+        destroyLock.lock()
+        guard !destroyStarted else {
+            destroyLock.unlock()
+            return
+        }
+        destroyStarted = true
+        destroyLock.unlock()
+
+        setThreadRunning(false)
+
+        // Cancel immediately so callbacks already waiting for the JS thread observe teardown.
+        // Repeat inside the teardown turn to catch a timer registered by JavaScript that was
+        // already executing when destroy() began. The manager belongs only to this engine.
+        timerManager.clearAllTimers()
+
         jsQueue.async { [weak self] in
-            self?.initCompletionHandlers.removeAll()
+            guard let self, self.jsThreadState == .accepting else { return }
+            self.initCompletionHandlers.removeAll()
+            self.jsThreadState = .stopping
+
+            let teardown = { [weak self] in
+                guard let self else { return }
+                self.timerManager.clearAllTimers()
+                self.jsContext?.exception = nil
+                self.jsContext = nil
+                self.setThreadRunning(false)
+
+                // The run-loop condition observes cancellation after this turn returns. Stopping
+                // the current run wakes it instead of waiting for the next 100 ms deadline.
+                Thread.current.cancel()
+                CFRunLoopStop(CFRunLoopGetCurrent())
+
+                self.jsQueue.async { [weak self] in
+                    guard let self else { return }
+                    self.jsThreadState = .stopped
+                    let waiting = self.tasksWaitingForStop
+                    self.tasksWaitingForStop.removeAll()
+                    for task in waiting {
+                        task()
+                    }
+                }
+            }
+            let selector = #selector(self.runClosureOnJSThread(_:))
+            self.perform(selector, on: self.jsThread, with: teardown, waitUntilDone: false)
         }
         
-        performOnJSThread { [weak self] in
-            DMPEngineTimer.shared.clearAllTimers()
-            
-            self?.jsContext?.exception = nil
-            self?.jsContext = nil
-            
-            CFRunLoopStop(CFRunLoopGetCurrent())
-        }
-        
-        // 取消线程
-        jsThread.cancel()
-        
-        // 等待线程结束，最多等待1秒
-        let timeout = Date(timeIntervalSinceNow: 1.0)
-        while jsThread.isExecuting && Date() < timeout {
-            Thread.sleep(forTimeInterval: 0.1)
-        }
-        
-        if jsThread.isExecuting {
+        // A native callback can request teardown while it is already running on the JS thread.
+        // Waiting there would deadlock the teardown turn; all other callers wait without polling.
+        if Thread.current != jsThread,
+           jsThreadStopped.wait(timeout: .now() + 1) == .timedOut {
             DMPLogger.debug("destroy engine failed")
         }
     }
