@@ -106,11 +106,10 @@ Dimina 正在持续对齐小程序标准与微信小程序主要能力，但尚�
 
 Dimina 遵循[小程序标准化白皮书](https://www.w3.org/TR/mini-app-white-paper/)进行设计，欢迎围绕兼容语义、跨端运行时、组件和原生能力一起完善项目。
 
-- Bug 与功能建议： [Issues](https://github.com/didi/dimina/issues)
-- 方案讨论与提案： [Discussions](https://github.com/didi/dimina/discussions)
+- 问题反馈与功能建议： [Issues](https://github.com/didi/dimina/issues)
 - 提交代码前： [贡献指南](./CONTRIBUTING.md)
 
-<details>
+<details open>
   <summary>加入微信交流群</summary>
   <br>
   <img src="./static/wechat.png" alt="Dimina 微信交流群二维码" width="240">

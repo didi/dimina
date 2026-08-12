@@ -106,11 +106,10 @@ Dimina continues to align with mini app standards and major WeChat Mini Program 
 
 Dimina is designed in accordance with the [Mini App Standard White Paper](https://www.w3.org/TR/mini-app-white-paper/). Contributions around compatibility semantics, cross-platform runtimes, components, and native capabilities are welcome.
 
-- Bugs and feature requests: [Issues](https://github.com/didi/dimina/issues)
-- Design discussions and proposals: [Discussions](https://github.com/didi/dimina/discussions)
+- Bug reports and feature requests: [Issues](https://github.com/didi/dimina/issues)
 - Before submitting code: [Contribution Guidelines](./CONTRIBUTING_EN.md)
 
-<details>
+<details open>
   <summary>Join the WeChat community</summary>
   <br>
   <img src="./static/wechat.png" alt="QR code for the Dimina WeChat community" width="240">
