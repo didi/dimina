@@ -1,0 +1,38 @@
+fe/packages/compiler/src/env.js
+  6fdd775256ecc71a 189-190
+fe/packages/compiler/__tests__/temporary-output-path.spec.js
+  27da87209a8ebda1 1-56
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "ed148c141757de079c00d58cc7fb339690956ffd",
+  "prompts": {
+    "27da87209a8ebda1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ff92f-84fe-78a1-a76b-350eac638ee9",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 56,
+      "total_deletions": 0,
+      "accepted_lines": 56,
+      "overriden_lines": 0
+    },
+    "6fdd775256ecc71a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ff917-87d7-72a3-8387-788a4e6446de",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 2,
+      "total_deletions": 6,
+      "accepted_lines": 2,
+      "overriden_lines": 0
+    }
+  }
+}
