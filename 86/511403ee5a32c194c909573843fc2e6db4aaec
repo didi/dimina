@@ -1,0 +1,43 @@
+harmony/dimina/src/main/ets/Service/DMPWorker.ets
+  6fdd775256ecc71a 52-53,55-58
+android/dimina/src/main/kotlin/com/didi/dimina/api/network/NetworkApi.kt
+  6fdd775256ecc71a 14,19,22-25,31-32,46,82-105,108-110,325,328-338,340-344,351,354-365,367-375,377-391,393-394,397-402,408-412,418-438
+iOS/dimina/DiminaKit/Container/Api/Network/NetworkAPI.swift
+  6fdd775256ecc71a 23-26,208-210,213-214,219-220,225-230,234-241,249,257,262,264,269-285,287,295,298-299,302,304-305,308,312-364
+harmony/dimina/src/main/ets/Bridges/DMPBridges.ets
+  6fdd775256ecc71a 59-60,62-65
+harmony/dimina/src/main/ets/Bridges/Network/DMPContainerBridgesModule+Http.ets
+  6fdd775256ecc71a 4,6,11-14,16,89-102,104,106-115,117-174,176-182,184,186-200,202-205,208-230
+fe/packages/service/src/api/core/network/upload/index.js
+  6fdd775256ecc71a 1-51,54,56-152
+fe/packages/service/__tests__/upload-file.spec.js
+  6fdd775256ecc71a 1-163
+iOS/dimina/DiminaKit/Container/Api/Network/DMPNetwork.swift
+  6fdd775256ecc71a 215-216,218,226-227,229-230,235,238,263-272,285-287,291-292,294
+android/dimina/src/test/java/com/didi/dimina/api/network/NetworkApiTest.kt
+  6fdd775256ecc71a 3,7,10,47-86
+docs/API-Reference.md
+  6fdd775256ecc71a 341
+harmony/dimina/src/main/ets/Bridges/DMPTSUtil.ts
+  6fdd775256ecc71a 63-66
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "86511403ee5a32c194c909573843fc2e6db4aaec",
+  "prompts": {
+    "6fdd775256ecc71a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ff917-87d7-72a3-8387-788a4e6446de",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 773,
+      "total_deletions": 135,
+      "accepted_lines": 773,
+      "overriden_lines": 0
+    }
+  }
+}
