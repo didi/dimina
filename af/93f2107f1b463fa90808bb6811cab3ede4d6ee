@@ -1,0 +1,33 @@
+fe/package.json
+  6fdd775256ecc71a 30-32,34
+fe/packages/container-sdk/package.json
+  6fdd775256ecc71a 41-44
+fe/packages/render/package.json
+  6fdd775256ecc71a 27,32
+fe/packages/compiler/package.json
+  6fdd775256ecc71a 57-59,63-64,66,70-73
+fe/packages/components/package.json
+  6fdd775256ecc71a 28-29,33
+fe/packages/container/package.json
+  6fdd775256ecc71a 21
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "af93f2107f1b463fa90808bb6811cab3ede4d6ee",
+  "prompts": {
+    "6fdd775256ecc71a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ff917-87d7-72a3-8387-788a4e6446de",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 24,
+      "total_deletions": 24,
+      "accepted_lines": 41,
+      "overriden_lines": 0
+    }
+  }
+}
