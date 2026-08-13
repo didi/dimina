@@ -1,0 +1,29 @@
+fe/packages/render/src/core/runtime.js
+  27da87209a8ebda1 228-249,773,795,816
+shared/jssdk/config.json
+  27da87209a8ebda1 2-3
+fe/packages/compiler/__tests__/style-compiler.spec.js
+  27da87209a8ebda1 406-409,416-419
+fe/packages/render/__tests__/runtime.spec.js
+  27da87209a8ebda1 685,800,854-856
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "217a76c5e603c86eb7055157ece1d91b9a6328f0",
+  "prompts": {
+    "27da87209a8ebda1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ff92f-84fe-78a1-a76b-350eac638ee9",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 40,
+      "total_deletions": 3,
+      "accepted_lines": 40,
+      "overriden_lines": 0
+    }
+  }
+}
