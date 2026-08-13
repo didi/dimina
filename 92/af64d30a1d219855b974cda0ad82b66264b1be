@@ -1,0 +1,23 @@
+fe/packages/compiler/src/common/compatibility-reference.js
+  6fdd775256ecc71a 2
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "92af64d30a1d219855b974cda0ad82b66264b1be",
+  "prompts": {
+    "6fdd775256ecc71a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ff917-87d7-72a3-8387-788a4e6446de",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 1,
+      "accepted_lines": 49,
+      "overriden_lines": 0
+    }
+  }
+}
