@@ -1,0 +1,37 @@
+android/dimina/src/main/kotlin/com/didi/dimina/ui/container/DiminaActivity.kt
+  6fdd775256ecc71a 4,12,215-235,320-331
+android/dimina/src/main/kotlin/com/didi/dimina/api/media/ImageApi.kt
+  6fdd775256ecc71a 5-9,24-27,38,42,163-164,170-346
+iOS/dimina/DiminaKit/Container/Api/Media/MessageFileAPI.swift
+  6fdd775256ecc71a 1-235
+fe/packages/service/src/api/core/media/image/index.js
+  6fdd775256ecc71a 34-41
+iOS/dimina/DiminaKit/Container/Api/DMPContainerApi.swift
+  6fdd775256ecc71a 85
+fe/packages/service/__tests__/choose-message-file.spec.js
+  6fdd775256ecc71a 1-29
+android/dimina/src/main/kotlin/com/didi/dimina/api/media/ChooseMessageFileContract.kt
+  6fdd775256ecc71a 1-41
+fe/packages/compiler/src/common/compatibility-reference.js
+  6fdd775256ecc71a 181
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "9dfb544e10528619926b19a4c9f66bbe6780875d",
+  "prompts": {
+    "6fdd775256ecc71a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ff917-87d7-72a3-8387-788a4e6446de",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 557,
+      "total_deletions": 13,
+      "accepted_lines": 545,
+      "overriden_lines": 0
+    }
+  }
+}
