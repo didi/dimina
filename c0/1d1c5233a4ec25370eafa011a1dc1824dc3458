@@ -1,0 +1,25 @@
+android/dimina/src/test/java/com/didi/dimina/ui/view/MiniProgramWindowInsetsPolicyTest.kt
+  bd5fb9ec281685cf 1-16
+android/dimina/src/main/kotlin/com/didi/dimina/ui/view/DiminaWebView.kt
+  bd5fb9ec281685cf 14-16,28-55,115
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "c01d1c5233a4ec25370eafa011a1dc1824dc3458",
+  "prompts": {
+    "bd5fb9ec281685cf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f6f64-bac2-7170-80ec-61918c95d2da",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 48,
+      "total_deletions": 0,
+      "accepted_lines": 48,
+      "overriden_lines": 0
+    }
+  }
+}
