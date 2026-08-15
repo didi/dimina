@@ -67,7 +67,7 @@
 		"less": "^4.8.1",
 		"listr2": "^9.0.5",
 		"magic-string": "^0.30.21",
-		"oxc-parser": "^0.143.0",
+		"oxc-parser": "^0.144.0",
 		"oxc-walker": "^1.1.1",
 		"postcss": "^8.5.26",
 		"postcss-selector-parser": "^7.1.5",
