@@ -1,0 +1,14 @@
+CHANGELOG.md
+  h_26bc2624df64e5 3-12
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "91f757fd8123b42a613c91b8ad6e81dfd80572a4",
+  "prompts": {},
+  "humans": {
+    "h_26bc2624df64e5": {
+      "author": "doslin"
+    }
+  }
+}
