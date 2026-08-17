@@ -1,0 +1,57 @@
+fe/example/air-battle/js/game.js
+  f9579e894d58654c 1-480
+shared/jsapp/wx9f8c2d7e6a5b4c3d/config.json
+  f9579e894d58654c 1-7
+fe/example/air-battle/project.config.json
+  h_26bc2624df64e5 1-12
+fe/example/air-battle/README.md
+  f9579e894d58654c 1-20
+docs/API-Reference.md
+  f9579e894d58654c 268-269
+fe/example/air-battle/game.js
+  f9579e894d58654c 1-17
+fe/example/air-battle/js/config.js
+  f9579e894d58654c 1-35
+fe/example/air-battle/game.json
+  f9579e894d58654c 1-7
+fe/.gitignore
+  f9579e894d58654c 13
+fe/packages/compiler/__tests__/compatibility.spec.js
+  f9579e894d58654c 67
+fe/packages/render/src/core/runtime.js
+  f9579e894d58654c 1575-1587,1593-1598,1604-1638
+shared/.gitignore
+  f9579e894d58654c 3-4
+fe/packages/compiler/src/common/compatibility-reference.js
+  f9579e894d58654c 122-123
+fe/example/air-battle/js/renderer.js
+  f9579e894d58654c 1-285,287-351
+  h_26bc2624df64e5 286
+fe/packages/render/__tests__/mini-game-runtime.spec.js
+  f9579e894d58654c 15,42-79
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "1fd3784d83eff2bd0f0ceeceabfdceaed876099d",
+  "prompts": {
+    "f9579e894d58654c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a00e8b-2893-7ee3-9177-891a74c099e3",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 1054,
+      "total_deletions": 29,
+      "accepted_lines": 14374,
+      "overriden_lines": 1
+    }
+  },
+  "humans": {
+    "h_26bc2624df64e5": {
+      "author": "doslin"
+    }
+  }
+}
