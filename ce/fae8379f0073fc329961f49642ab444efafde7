@@ -1,0 +1,25 @@
+fe/packages/container/__tests__/device-stage-markup.spec.js
+  27da87209a8ebda1 1-24
+fe/packages/container/src/pages/device/device.scss
+  27da87209a8ebda1 2-6,10,15-16,19,21-26,29-373,538,540-541
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "cefae8379f0073fc329961f49642ab444efafde7",
+  "prompts": {
+    "27da87209a8ebda1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ff92f-84fe-78a1-a76b-350eac638ee9",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 425,
+      "total_deletions": 74,
+      "accepted_lines": 395,
+      "overriden_lines": 0
+    }
+  }
+}
