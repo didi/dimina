@@ -10,42 +10,49 @@ class MapContext {
 	}
 
 	addMarkers(data) {
-		return invokeAPI('addMarkers', data)
+		return this.invoke('addMarkers', data)
 	}
 
 	removeMarkers(data) {
-		return invokeAPI('removeMarkers', data)
+		return this.invoke('removeMarkers', data)
 	}
 
 	includePoints(data) {
-		return invokeAPI('includePoints', data)
+		return this.invoke('includePoints', data)
 	}
 
 	setCenterOffset(data) {
-		return invokeAPI('setCenterOffset', data)
+		return this.invoke('setCenterOffset', data)
 	}
 
 	getCenterLocation(data) {
-		return invokeAPI('getCenterLocation', data)
+		return this.invoke('getCenterLocation', data)
 	}
 
 	getScale(data) {
-		return invokeAPI('getScale', data)
+		return this.invoke('getScale', data)
 	}
 
 	moveToLocation(data) {
-		return invokeAPI('moveToLocation', data)
+		return this.invoke('moveToLocation', data)
 	}
 
 	translateMarker(data) {
-		return invokeAPI('translateMarker', data)
+		return this.invoke('translateMarker', data)
 	}
 
 	addArc(data) {
-		return invokeAPI('addArc', data)
+		return this.invoke('addArc', data)
 	}
 
 	removeArc(data) {
-		return invokeAPI('removeArc', data)
+		return this.invoke('removeArc', data)
+	}
+
+	invoke(apiName, data = {}) {
+		return invokeAPI(apiName, {
+			mapId: this.opts.mapId,
+			...data,
+		})
 	}
 }

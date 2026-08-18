@@ -1,4 +1,5 @@
-import { camelCaseToUnderscore, deepEqual, get, isFunction, isNil, isString, toCamelCase } from '@dimina/common'
+import { camelCaseToUnderscore, cloneDeep, deepEqual, get, isFunction, isNil, normalizePropertyDefinition, toCamelCase } from '@dimina/common'
+import { invokeDataObservers, invokePropertyChanges, parseDataPath } from './data-update'
 
 const queue = []
 let isFlushing = false
@@ -22,66 +23,31 @@ function flushQueue() {
 }
 
 export { deepEqual }
-/**
- * 将 computed 的 key 提前写入 data，确保渲染层初始化时能正确追踪这些 key 的响应式依赖。
- *
- * 背景：渲染层 setup() 收到 initData 后才首次渲染，若 computed key 不在 initData 里，
- * 渲染函数第一次执行时访问该 key 拿到 undefined，Vue 不会建立依赖，后续值更新也不会触发重渲染。
- *
- * computed 经框架（如 mpx）的 filterOptions 处理后不会出现在 moduleInfo 里，
- * 只能在实例初始化完成后从框架运行时读取。目前通过 __mpxProxy 访问，
- * 后续若框架侧暴露标准字段（如 moduleInfo.__computedKeys），可在此替换为更通用的读取方式。
- */
-export function addComputedData(self) {
-	const computed = self.__mpxProxy?.options?.computed
-	if (computed) {
-		for (const ck of Object.keys(computed)) {
-			if (!Object.prototype.hasOwnProperty.call(self.data, ck)) {
-				self.data[ck] = null
-			}
-		}
-	}
-}
 
 export function filterData(obj) {
 	if (isNil(obj)) {
 		return obj
 	}
+	if (isFunction(obj)) {
+		return obj
+	}
+	if (obj instanceof Date) {
+		return obj.getTime()
+	}
+	if (Array.isArray(obj)) {
+		return obj.map(item => filterData(item))
+	}
+	if (typeof obj !== 'object') {
+		return obj
+	}
+
 	return Object.entries(obj).reduce((acc, [key, value]) => {
 		if (key.startsWith('$')) {
 			// 过滤以 $ 开头的内部属性
 			return acc
 		}
-		else if (isFunction(value)) {
-			console.warn('[service] 值不支持函数引用', key)
-			return acc
-		}
-		else if (Array.isArray(value)) {
-			// 如果值是数组，递归过滤其中的函数
-			acc[key] = value
-				.map(item => {
-					if (typeof item === 'object' && item !== null) {
-						// 特殊处理 Date 对象，转换为时间戳
-						if (item instanceof Date) {
-							return item.getTime()
-						}
-						return filterData(item)
-					}
-					return item
-				})
-		}
-		else if (value && typeof value === 'object' && !Array.isArray(value)) {
-			// 如果值是对象（非数组），递归过滤该对象中的函数
-			// 特殊处理 Date 对象，转换为时间戳
-			if (value instanceof Date) {
-				acc[key] = value.getTime()
-			} else {
-				acc[key] = filterData(value)
-			}
-		}
 		else {
-			// 其他类型（包括简单类型和非函数对象）直接保留
-			acc[key] = value
+			acc[key] = filterData(value)
 		}
 
 		return acc
@@ -97,38 +63,11 @@ export function serializeProps(properties) {
 	if (properties) {
 		const props = {}
 		for (const key in properties) {
-			const item = properties[key]
-			props[key] = props[key] || {}
-
-			// 处理 type 字段
-			// 兼容 items: Array 和 item: { type: String, value: '' } 两种形式
-			const transType = item && typeof item === 'object' && Object.prototype.hasOwnProperty.call(item, 'type') ? convertToStringType(item.type) : convertToStringType(item)
-			let array = null
-			if (Array.isArray(transType)) {
-				array = [...transType]
-			}
-			else {
-				array = [transType]
-			}
-
-			// 处理 optionalTypes 字段
-			if (item && item.optionalTypes) {
-				const oTransType = convertToStringType(item.optionalTypes)
-				if (Array.isArray(oTransType)) {
-					array = [...oTransType]
-				}
-				else {
-					array.push(oTransType)
-				}
-			}
-			props[key].type = array
-			if (props[key].type.length > 0) {
-				if (item && isFunction(item.value)) {
-					props[key].default = item.value()
-				}
-				else if (item) {
-					props[key].default = item.value
-				}
+			const schema = normalizePropertyDefinition(properties[key])
+			props[key] = {
+				// 第一个类型是主类型，后续类型是只做严格匹配的 optionalTypes。
+				type: [schema.type, ...schema.optionalTypes].map(convertToStringType),
+				default: schema.value,
 			}
 
 			// 标记处理 observer 字段
@@ -146,7 +85,6 @@ const TYPE_TO_STRING_MAP = new Map([
 	[Boolean, 'b'],
 	[Object, 'o'],
 	[Array, 'a'],
-	[Function, 'f'],
 ])
 
 /**
@@ -184,67 +122,10 @@ function convertToStringType(type) {
  * @param {object} observers 组件定义的 observers 对象
  * @param {object} data 更新后的完整数据
  * @param {object} ctx 组件实例（this）
- * @param {object} oldValues 各 key 的旧值 { key: oldVal }
  */
-export function invokeObserversOnce(changedKeys, observers, data, ctx, oldValues) {
-	const triggered = new Set()
-
-	for (const changedKey of changedKeys) {
-		for (const observerKey in observers) {
-			if (triggered.has(observerKey)) {
-				continue
-			}
-
-			const keys = observerKey.split(',').map(k => k.trim())
-
-			// 简单字段匹配 / 组合字段匹配
-			if (keys.includes(changedKey)) {
-				triggered.add(observerKey)
-				const observerFn = observers[observerKey]
-				const args = keys.map(key => get(data, key))
-				if (keys.length === 1) {
-					observerFn.call(ctx, ...args, oldValues[changedKey])
-				} else {
-					observerFn.call(ctx, ...args)
-				}
-				continue
-			}
-
-			// 通配符 **
-			if (observerKey === '**') {
-				triggered.add(observerKey)
-				observers[observerKey].call(ctx, data)
-				continue
-			}
-
-			// 子字段路径匹配（如 'a.b' 监听 'a.b.c' 的变化，或 'a.**'）
-			const observerKeyParts = observerKey.split('.')
-			const changedKeyParts = changedKey.split('.')
-			let matched = true
-			for (let i = 0; i < observerKeyParts.length; i++) {
-				if (observerKeyParts[i] === '**' || changedKeyParts[i] === undefined) {
-					break
-				} else if (observerKeyParts[i] !== changedKeyParts[i]) {
-					matched = false
-					break
-				}
-			}
-			if (matched && observerKeyParts.length > 1) {
-				triggered.add(observerKey)
-				let targetData = data
-				for (const part of observerKeyParts) {
-					if (part !== '**') {
-						targetData = targetData?.[part]
-					}
-				}
-				if (observerKey === changedKey) {
-					observers[observerKey].call(ctx, targetData, oldValues[changedKey])
-				} else {
-					observers[observerKey].call(ctx, targetData)
-				}
-			}
-		}
-	}
+export function invokeObserversOnce(changedKeys, observers, data, ctx) {
+	const changedPaths = changedKeys.map(parseDataPath).filter(Boolean)
+	invokeDataObservers(ctx || {}, changedPaths, data, { observers })
 }
 
 /**
@@ -254,84 +135,15 @@ export function invokeObserversOnce(changedKeys, observers, data, ctx, oldValues
  * @param {*} observers
  * @param {*} data
  * @param {*} ctx
- * @param {*} oldVal
  */
-export function filterInvokeObserver(changedKey, observers, data, ctx, oldVal) {
-	for (const observerKey in observers) {
-		const observerFn = observers[observerKey]
-
-		// 处理简单字段匹配和组合字段匹配
-		const keys = observerKey.split(',').map(k => k.trim())
-
-		if (keys.includes(changedKey)) {
-			const args = keys.map(key => get(data, key))
-			// 对于单个字段的观察器，如果正好是变化的字段，添加 oldVal 参数
-			if (keys.length === 1 && keys[0] === changedKey) {
-				observerFn.call(ctx, ...args, oldVal)
-			} else {
-				observerFn.call(ctx, ...args)
-			}
-			continue
-		}
-
-		// 处理通配符 ** 匹配
-		if (observerKey === '**') {
-			observerFn.call(ctx, data)
-			continue
-		}
-
-		// 处理子字段匹配
-		const observerKeyParts = observerKey.split('.')
-		const changedKeyParts = changedKey.split('.')
-		let matched = true
-		for (let i = 0; i < observerKeyParts.length; i++) {
-			if (observerKeyParts[i] === '**' || changedKeyParts[i] === undefined) {
-				break
-			}
-			else if (observerKeyParts[i] !== changedKeyParts[i]) {
-				matched = false
-				break
-			}
-		}
-		if (matched) {
-			let targetData = data
-			for (const part of observerKeyParts) {
-				if (part !== '**') {
-					targetData = targetData[part]
-				}
-			}
-			// 对于完全匹配的字段，添加 oldVal 参数
-			if (observerKey === changedKey) {
-				observerFn.call(ctx, targetData, oldVal)
-			} else {
-				observerFn.call(ctx, targetData)
-			}
-			continue
-		}
-
-		// 处理数组字段匹配
-		const arrayMatch = observerKey.match(/^(.+)\[(\d+)\]$/)
-		if (arrayMatch) {
-			const arrayKey = arrayMatch[1]
-			const index = Number.parseInt(arrayMatch[2], 10)
-			if (arrayKey === changedKey.split('[')[0] && data[arrayKey] && data[arrayKey][index] !== undefined) {
-				observerFn.call(ctx, data[arrayKey][index])
-				continue
-			}
-		}
-
-		// 处理包含子字段的匹配，如 some.subfield
-		if (changedKey.startsWith(observerKey)) {
-			const targetData = observerKey.split('.').reduce((acc, key) => acc && acc[key], data)
-			if (targetData !== undefined) {
-				observerFn.call(ctx, targetData)
-				continue
-			}
-		}
+export function filterInvokeObserver(changedKey, observers, data, ctx) {
+	const changedPath = parseDataPath(changedKey)
+	if (changedPath) {
+		invokeDataObservers(ctx || {}, [changedPath], data, { observers })
 	}
 }
 
-export function resolveEventHandler(eventAttr = {}, type = '') {
+export function resolveEventBinding(eventAttr = {}, type = '') {
 	const normalizedType = type.trim()
 	if (!normalizedType) {
 		return
@@ -347,29 +159,38 @@ export function resolveEventHandler(eventAttr = {}, type = '') {
 
 	for (const candidate of candidates) {
 		if (candidate && eventAttr[candidate] !== undefined) {
-			return eventAttr[candidate]
+			const binding = eventAttr[candidate]
+			if (typeof binding === 'string') {
+				return { bind: binding }
+			}
+			if (binding && typeof binding === 'object') {
+				return binding
+			}
 		}
 	}
 }
 
-export function invokeBehaviorObservers(ctx, changedKeys, oldValues) {
+export function resolveEventHandler(eventAttr = {}, type = '', { capture = false } = {}) {
+	const binding = resolveEventBinding(eventAttr, type)
+	if (!binding) {
+		return
+	}
+	return capture
+		? (binding.captureCatch ?? binding.captureBind)
+		: (binding.catch ?? binding.bind)
+}
+
+export function invokeBehaviorObservers(ctx, changedKeys) {
 	const info = ctx.__info__ || {}
 	if (!info.behaviorObservers) {
 		return
 	}
 
-	for (const observerKey in info.behaviorObservers) {
-		const observers = info.behaviorObservers[observerKey]
-		if (!Array.isArray(observers) || observers.length === 0) {
-			continue
-		}
-
-		for (const changedKey of changedKeys) {
-			observers.forEach((observer) => {
-				filterInvokeObserver(changedKey, { [observerKey]: observer }, ctx.data, ctx, oldValues[changedKey])
-			})
-		}
-	}
+	const changedPaths = changedKeys.map(parseDataPath).filter(Boolean)
+	invokeDataObservers(ctx, changedPaths, ctx.data, {
+		behaviorObserverList: info.behaviorObserverList,
+		behaviorObservers: info.behaviorObservers,
+	})
 }
 
 export function invokePropertyObservers(ctx, changedKeys, oldValues) {
@@ -377,26 +198,16 @@ export function invokePropertyObservers(ctx, changedKeys, oldValues) {
 }
 
 export function collectPropertyObservers(ctx, changedKeys, oldValues) {
-	const propertyObserversToExecute = []
-
-	for (const prop of changedKeys) {
-		const observer = ctx.__info__.properties?.[prop]?.observer
-		const val = ctx.data[prop]
-		const oldVal = oldValues[prop]
-
-		if (isString(observer)) {
-			propertyObserversToExecute.push(() => ctx[observer]?.(val, oldVal))
-		}
-		else if (isFunction(observer)) {
-			propertyObserversToExecute.push(() => observer.call(ctx, val, oldVal))
-		}
-	}
-
-	return propertyObserversToExecute
+	return changedKeys.map(prop => ({
+		propertyName: prop,
+		oldValue: oldValues[prop],
+		path: [prop],
+		value: ctx.data[prop],
+	}))
 }
 
 export function runPropertyObservers(ctx, changedKeys, oldValues) {
-	collectPropertyObservers(ctx, changedKeys, oldValues).reverse().forEach(run => run())
+	invokePropertyChanges(ctx, collectPropertyObservers(ctx, changedKeys, oldValues))
 }
 
 /**
@@ -416,8 +227,20 @@ export function mergeBehaviors(obj, behaviors) {
 		return
 	}
 
-	// 使用 WeakMap 缓存已处理的 behavior,避免重复执行生命周期和 observers
+	// 字段在 behavior 每次出现的位置都会重新参与覆盖；生命周期和 observers 只注册一次。
 	const processedBehaviors = new WeakMap()
+	const activeBehaviors = new WeakSet()
+	const componentProperties = obj.properties
+	const componentData = obj.data
+	const componentMethods = obj.methods
+	const componentRelations = obj.relations
+	const hasComponentExport = Object.prototype.hasOwnProperty.call(obj, 'export')
+	const componentExport = obj.export
+	let behaviorProperties
+	let behaviorData
+	let behaviorMethods
+	let behaviorRelations
+	let behaviorExport
 
 	/**
 	 * 深度合并对象类型的 data 字段
@@ -426,21 +249,20 @@ export function mergeBehaviors(obj, behaviors) {
 	 * @returns {object} 合并后的对象
 	 */
 	function deepMergeData(target, source) {
-		const result = { ...target }
+		const result = Array.isArray(target) ? [...target] : { ...target }
 		
 		for (const key in source) {
 			if (Object.prototype.hasOwnProperty.call(source, key)) {
 				const targetValue = result[key]
 				const sourceValue = source[key]
-				
-				// 如果两个值都是对象类型(非 null、非数组),则递归合并
+
+				// exparser clones the existing object-like value (including null as
+				// an empty object) before recursively merging a higher-priority object.
 				if (
-					targetValue && 
-					typeof targetValue === 'object' && 
-					!Array.isArray(targetValue) &&
-					sourceValue && 
-					typeof sourceValue === 'object' && 
-					!Array.isArray(sourceValue)
+					typeof targetValue === 'object'
+					&& sourceValue !== null
+					&& typeof sourceValue === 'object'
+					&& !Array.isArray(sourceValue)
 				) {
 					result[key] = deepMergeData(targetValue, sourceValue)
 				} else {
@@ -470,78 +292,85 @@ export function mergeBehaviors(obj, behaviors) {
 			return
 		}
 		
-		// 检查是否已处理过该 behavior(避免重复执行生命周期和 observers)
-		if (processedBehaviors.has(behavior)) {
+		// 与 exparser prepare 一样在循环引用时停止继续递归。
+		if (activeBehaviors.has(behavior)) {
 			return
 		}
-		processedBehaviors.set(behavior, true)
+		activeBehaviors.add(behavior)
+		const callbacksAlreadyProcessed = processedBehaviors.has(behavior)
 
 		// 先递归处理嵌套的 behaviors(被引用的 behavior 优先于引用者 behavior)
 		if (Array.isArray(behavior.behaviors)) {
 			behavior.behaviors.forEach(b => merge(target, b))
 		}
 
-	// 合并 properties
-	// 规则: 组件本身覆盖 behavior, 靠后的 behavior 覆盖靠前的, 引用者覆盖被引用者
-	if (behavior.properties) {
-		target.properties = { ...behavior.properties, ...target.properties }
-	}
+		// 先累积 behavior 字段；全部 behavior 处理完后再叠加组件自身字段。
+		if (behavior.properties) {
+			behaviorProperties = { ...behaviorProperties, ...behavior.properties }
+		}
 
 		// 合并 data
 		// 规则: 组件本身覆盖 behavior, 对象类型深度合并, 其他类型按优先级覆盖
 		if (behavior.data) {
-			if (!target.data) {
-				target.data = {}
-			}
-			target.data = deepMergeData(behavior.data, target.data)
+			behaviorData = deepMergeData(behaviorData || {}, behavior.data)
 		}
 
-		// 合并生命周期函数
-		// 规则: 不覆盖, 按顺序执行 (被引用的 > 引用者 > 靠前的 > 靠后的)
-		const lifetimes = ['created', 'attached', 'ready', 'detached']
-		target.behaviorLifetimes = target.behaviorLifetimes || {}
+		if (!callbacksAlreadyProcessed) {
+			processedBehaviors.set(behavior, true)
 
-		for (const lifetime of lifetimes) {
-			if (isFunction(behavior[lifetime])) {
-				target.behaviorLifetimes[lifetime] = target.behaviorLifetimes[lifetime] || []
-				target.behaviorLifetimes[lifetime].push(behavior[lifetime])
-			}
-		}
+			// 合并生命周期函数
+			// 规则: 不覆盖, 按顺序执行 (被引用的 > 引用者 > 靠前的 > 靠后的)
+			const lifetimes = ['created', 'attached', 'ready', 'moved', 'detached', 'error']
+			target.behaviorLifetimes = target.behaviorLifetimes || {}
 
-		// 合并 observers
-		// 规则: 不覆盖, 按顺序执行 (被引用的 > 引用者 > 靠前的 > 靠后的)
-		if (behavior.observers) {
-			target.behaviorObservers = target.behaviorObservers || {}
-			
-			for (const observerKey in behavior.observers) {
-				if (!target.behaviorObservers[observerKey]) {
-					target.behaviorObservers[observerKey] = []
+			for (const lifetime of lifetimes) {
+				const lifecycleMethod = behavior.lifetimes?.[lifetime] || behavior[lifetime]
+				if (isFunction(lifecycleMethod)) {
+					target.behaviorLifetimes[lifetime] = target.behaviorLifetimes[lifetime] || []
+					target.behaviorLifetimes[lifetime].push(lifecycleMethod)
 				}
-				target.behaviorObservers[observerKey].push(behavior.observers[observerKey])
+			}
+
+			// 合并 observers
+			// 规则: 不覆盖, 按顺序执行 (被引用的 > 引用者 > 靠前的 > 靠后的)
+			if (behavior.observers) {
+				target.behaviorObservers = target.behaviorObservers || {}
+				target.behaviorObserverList = target.behaviorObserverList || []
+
+				for (const observerKey in behavior.observers) {
+					if (!target.behaviorObservers[observerKey]) {
+						target.behaviorObservers[observerKey] = []
+					}
+					target.behaviorObservers[observerKey].push(behavior.observers[observerKey])
+					target.behaviorObserverList.push({
+						key: observerKey,
+						observer: behavior.observers[observerKey],
+					})
+				}
 			}
 		}
 
-	// 合并 methods
-	// 规则: 组件本身覆盖 behavior, 靠后的 behavior 覆盖靠前的, 引用者覆盖被引用者
-	if (behavior.methods) {
-		target.methods = { ...behavior.methods, ...target.methods }
-	}
+		// 合并 methods
+		// 规则: 组件本身覆盖 behavior, 靠后的 behavior 覆盖靠前的, 引用者覆盖被引用者
+		if (behavior.methods) {
+			behaviorMethods = { ...behaviorMethods, ...behavior.methods }
+		}
 
 		// 合并 relations
 		// 规则: 靠后的覆盖靠前的
 		if (behavior.relations) {
-			target.relations = { ...target.relations, ...behavior.relations }
+			behaviorRelations = { ...behaviorRelations, ...behavior.relations }
 		}
 
 		// 合并 export 方法 (用于 wx://component-export)
 		// 规则: 靠后的覆盖靠前的
 		if (behavior.export) {
-			target.export = behavior.export
+			behaviorExport = behavior.export
 		}
 
 		// 合并 pageLifetimes (页面生命周期)
 		// 规则: 不覆盖, 按顺序执行
-		if (behavior.pageLifetimes) {
+		if (!callbacksAlreadyProcessed && behavior.pageLifetimes) {
 			target.behaviorPageLifetimes = target.behaviorPageLifetimes || {}
 			const pageLifetimes = ['show', 'hide', 'resize', 'routeDone']
 			
@@ -552,6 +381,8 @@ export function mergeBehaviors(obj, behaviors) {
 				}
 			}
 		}
+
+		activeBehaviors.delete(behavior)
 	}
 
 	/**
@@ -566,11 +397,20 @@ export function mergeBehaviors(obj, behaviors) {
 				// 只需要确保 behaviors 数组中包含这个 behavior
 				break
 			case 'wx://form-field':
-				// 表单字段 behavior 的处理
-				// 这里可以添加表单字段相关的属性和方法
+				// exparser 为 form-field 自动注入公开的 name/value 属性，组件
+				// 自身声明的同名属性仍会在最终合并时覆盖这里的定义。
+				behaviorProperties = {
+					...behaviorProperties,
+					name: { type: String },
+					value: { type: null },
+				}
 				break
+			case 'wx://form-field-group':
 			case 'wx://form-field-button':
-				// TODO: https://developers.weixin.qq.com/miniprogram/dev/component/form.html#wx-form-field-button
+			case 'wx://label-target':
+			case 'wx://style-filter':
+			case 'wx://request-filter':
+				// 这些 behavior 的关系/事件语义由运行时组件树维护。
 				break
 			default:
 				console.warn(`[service] 未知的内置 behavior: ${behaviorName}`)
@@ -579,6 +419,28 @@ export function mergeBehaviors(obj, behaviors) {
 
 	// 按顺序合并所有 behaviors (靠前的先执行)
 	behaviors.forEach(behavior => merge(obj, behavior))
+
+	// exparser prepares ancestors in declaration order, then the component
+	// definition itself. Therefore later behaviors override earlier ones,
+	// referrers override nested behaviors, and the component always wins last.
+	if (behaviorProperties || componentProperties) {
+		obj.properties = { ...behaviorProperties, ...componentProperties }
+	}
+	if (behaviorData || componentData) {
+		obj.data = deepMergeData(behaviorData || {}, componentData || {})
+	}
+	if (behaviorMethods || componentMethods) {
+		obj.methods = { ...behaviorMethods, ...componentMethods }
+	}
+	if (behaviorRelations || componentRelations) {
+		obj.relations = { ...behaviorRelations, ...componentRelations }
+	}
+	if (hasComponentExport) {
+		obj.export = componentExport
+	}
+	else if (behaviorExport) {
+		obj.export = behaviorExport
+	}
 }
 
 /**
@@ -752,17 +614,21 @@ export function syncUpdateChildrenProps(parent, allInstances, changedData) {
 			// 检查依赖是否变化
 			if (hasDependencyChanged(bindingInfo, changedData)) {
 				// 重新计算表达式的值
-				const newValue = evaluateExpression(bindingInfo, parent.data)
+				// exparser deep-copies template expression results before assigning
+				// component properties, so parent and child never share an object.
+				const newValue = cloneDeep(evaluateExpression(bindingInfo, parent.data))
 				updateData[propName] = newValue
 			}
 		}
 
 		// 如果有数据需要更新，直接触发子组件 observers，确保属性驱动的行为在 service 侧即时生效
 		if (Object.keys(updateData).length > 0) {
-			child.tO?.(updateData)
+			const incomingData = child.normalizePropertyValues?.(updateData, { applyFilter: false }) || updateData
+			const appliedData = child.tO?.(incomingData)
+			const normalizedData = appliedData || child.normalizePropertyValues?.(incomingData) || incomingData
 			child.__pendingSyncedProps__ = child.__pendingSyncedProps__ || {}
-			Object.assign(child.__pendingSyncedProps__, updateData)
-			syncedChildren.push({ child, data: updateData })
+			Object.assign(child.__pendingSyncedProps__, incomingData)
+			syncedChildren.push({ child, data: normalizedData })
 		}
 	}
 

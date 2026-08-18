@@ -90,6 +90,24 @@ describe('UpdateManager API', () => {
 		expect(failedListener).toHaveBeenCalledWith()
 	})
 
+	it('reports one positive check while update moves from downloading to ready', async () => {
+		const { getUpdateManager } = await loadUpdateModule()
+		const updateManager = getUpdateManager()
+		const checkListener = vi.fn()
+		const readyListener = vi.fn()
+
+		updateManager.onCheckForUpdate(checkListener)
+		updateManager.onUpdateReady(readyListener)
+
+		emitUpdateStatus({ event: 'updating' })
+		emitUpdateStatus({ event: 'updateready' })
+		emitUpdateStatus({ event: 'updateready' })
+
+		expect(checkListener).toHaveBeenCalledTimes(1)
+		expect(checkListener).toHaveBeenCalledWith({ hasUpdate: true })
+		expect(readyListener).toHaveBeenCalledTimes(1)
+	})
+
 	it('applies a ready update at most once', async () => {
 		const { getUpdateManager } = await loadUpdateModule()
 		const error = vi.spyOn(console, 'error').mockImplementation(() => {})

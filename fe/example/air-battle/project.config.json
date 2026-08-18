@@ -1,0 +1,12 @@
+{
+  "description": "Dimina Canvas 2D 微信小游戏示例",
+  "compileType": "game",
+  "libVersion": "3.8.6",
+  "appid": "wx9f8c2d7e6a5b4c3d",
+  "projectname": "星河空战",
+  "setting": {
+    "es6": true,
+    "minified": true,
+    "urlCheck": false
+  }
+}

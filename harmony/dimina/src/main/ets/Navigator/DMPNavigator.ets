@@ -83,15 +83,23 @@ export class DMPNavigator {
     const callback: DMPBridgeCallback = (_, cbType: DMPBridgeCallbackType) => {
       DMPLogger.d(Tags.LAUNCH, "loadSubPackage end");
       if (cbType == DMPBridgeCallbackType.Success) {
-        this.openPage(stackId, pagePath, params, launchConfig.openType, launchConfig?.customLaunchPageCallBack)
+        const routeStarted = this.openPage(stackId, pagePath, params, launchConfig.openType,
+          launchConfig?.customLaunchPageCallBack)
+        this.settleLaunch(launchConfig, routeStarted)
       }
       if (cbType == DMPBridgeCallbackType.Fail) {
+        this.settleLaunch(launchConfig, false)
         promptAction.showToast({ message: '子包加载失败', duration: 1, alignment: Alignment.Center })
       }
       DMPLogger.d(Tags.NAVIGATOR, 'loadSubPackage callback result=' + cbType)
     }
     DMPLogger.d(Tags.LAUNCH, "loadSubPackage start");
-    this.loadSubPackage(pagePath, callback)
+    try {
+      this.loadSubPackage(pagePath, callback)
+    } catch (error) {
+      DMPLogger.e(Tags.NAVIGATOR, `loadSubPackage failed: ${(error as Error).message}`)
+      this.settleLaunch(launchConfig, false)
+    }
 
   }
 
@@ -127,6 +135,43 @@ export class DMPNavigator {
     }
     this.app.reLaunch()
 
+  }
+
+  /**
+   * 返回首页（导航栏 home 按钮的唯一路由入口），终态都是只剩首页：
+   * 首页是 tab 页走 switchTab（保留其它 tab 状态并露出 tabBar，自带清非 tab 栈）；
+   * 首页非 tab 且当前是栈底，redirectTo 原地替换；非栈底（homeButton: true
+   * 的内页）redirect 只会替换栈顶、栈底仍在，须 relaunch 清整栈
+   */
+  async navigateHome(stackId: number) {
+    const appConfig = this.app.bundleManager.getJsAppModuleConfig()
+    const entryPagePath = appConfig?.entryPagePath
+    if (!appConfig || !entryPagePath) {
+      return
+    }
+    const routerParam = new DMPMap({ query: new DMPMap(), pagePath: entryPagePath })
+    if (appConfig.isTabBarPage(entryPagePath)) {
+      // 冷启动直达非 tab 内页时，栈内没有任何 tabBar 页，switchTab 清栈后无处可切
+      // （会抛 no tabBar context）；此时没有已加载的 tab 状态可保留，清栈重启到
+      // tab 首页与 switchTab 终态等价
+      const tabBarPagePaths = appConfig.getTabBarPagePaths()
+      let hasTabInStack = false
+      for (let record of this._stacks.data) {
+        if (tabBarPagePaths.has(record.pagePath)) {
+          hasTabInStack = true
+          break
+        }
+      }
+      if (hasTabInStack) {
+        await this.switchTab(routerParam)
+      } else {
+        await this.relaunchTo(routerParam)
+      }
+    } else if (this.pageCount() <= 1) {
+      await this.redirectTo(stackId, routerParam)
+    } else {
+      await this.relaunchTo(routerParam)
+    }
   }
 
   async redirectTo(stackId: number, params: DMPMap) {
@@ -200,11 +245,19 @@ export class DMPNavigator {
       }
       for (let i = 0; i < delta; i++) {
         this.pageLifecycle.onUnload(this.app.currentWebViewId)
-        DRouter.getInstance().pop(animated)
-        // DNavigation.pop()
+        // 弹路由前先看账本顶部记录是否真的占了 NavPathStack 槽位（见
+        // DMPPageRecord.shouldPopRouter）；popPageRecord() 会立刻把它从账本弹掉，须先取
+        if (DMPPageRecord.shouldPopRouter(this._stacks.peek()?.ownsRouterEntry)) {
+          DRouter.getInstance().pop(animated)
+        }
         this.popPageRecord()
       }
-      //ReLaunch 模式下，如自定义页面或启动模式是Insert情况，会导致页面少回退一个，但是小程序页面必须要解绑
+      // ReLaunch 补弹分支：与上面的 shouldPopRouter 判据是两件独立的事，不要合并。
+      // DApp.reLaunchCurrentStack/reLaunchRootStack 在被清空的 navigator 本身以
+      // customLaunchPageCallBack/openType=Insert 启动时，会把传入的 delta 预先 -1，
+      // 让上面的循环少处理这最后一条记录；这里只把它从账本弹掉，不调用 DRouter.pop()——
+      // 该记录要么从未进入 NavPathStack（customLaunchPageCallBack），要么是靠 replace
+      // 复用下层已有槽位（Insert），两种情况都不需要（也不能）在此额外弹一次路由帧
       if (isReLaunch && this._stacks.size() > 0) {
         this.pageLifecycle.onUnload(this.app.currentWebViewId)
         this.popPageRecord()
@@ -230,6 +283,19 @@ export class DMPNavigator {
 
     } catch (err) {
       DMPLogger.e(Tags.BRIDGE, `msg: ${(err as BusinessError).message}`)
+    }
+  }
+
+  closeAllPages(animated: boolean = false) {
+    const pageCount = this._stacks.size()
+    for (let i = 0; i < pageCount; i++) {
+      this.pageLifecycle.onUnload(this.app.currentWebViewId)
+      // 同 pop()：customLaunchPageCallBack 挂载的记录从未占用 NavPathStack 槽位，
+      // 无条件 DRouter.pop() 会误弹宿主自己挂载的页面
+      if (DMPPageRecord.shouldPopRouter(this._stacks.peek()?.ownsRouterEntry)) {
+        DRouter.getInstance().pop(animated)
+      }
+      this.popPageRecord()
     }
   }
 
@@ -292,8 +358,12 @@ export class DMPNavigator {
       // Unload lifecycle（非 tab 页面是真正销毁，应当走 onUnload 而不是 onHide）
       this.pageLifecycle.onUnload(topRecord.webViewId)
 
-      // Pop from actual Navigation stack
-      DRouter.getInstance().pop(false) // animated = false for batch operations
+      // 弹路由前先看这条记录是否真的占了 NavPathStack 槽位（见 pop() 里同一判据的
+      // 注释）；customLaunchPageCallBack 挂载的页面从未进入 DRouter，若在这里无脑
+      // pop 会误弹共享单例栈里一条不相关的原生路由
+      if (DMPPageRecord.shouldPopRouter(topRecord.ownsRouterEntry)) {
+        DRouter.getInstance().pop(false) // animated = false，批量操作不做转场动画
+      }
 
       // Remove from internal stack
       this._stacks.data.pop()
@@ -329,14 +399,18 @@ export class DMPNavigator {
   //打开页面
   private openPage(stackId: number, pagePath: string, params: DMPMap,
     openType: DMPOpenType = DMPOpenType.NavigateTo,
-    customLaunchPageCallBack?: (record: DMPPageRecord, path: String, stackId: number, isRelaunch?: boolean) => void) {
-    DMPLogger.i(Tags.LAUNCH, "openPage");
-    DMPLogger.d(Tags.LAUNCH, "notify page.onHide start");
-    this.pageLifecycle.onHide(this.app.currentWebViewId)
-    DMPLogger.d(Tags.LAUNCH, "notify page.onHide end");
-    const pageRecord = this.preLoadPage(pagePath, params)
-
+    customLaunchPageCallBack?: (record: DMPPageRecord, path: String, stackId: number,
+      isRelaunch?: boolean) => void): boolean {
     try {
+      DMPLogger.i(Tags.LAUNCH, "openPage");
+      DMPLogger.d(Tags.LAUNCH, "notify page.onHide start");
+      this.pageLifecycle.onHide(this.app.currentWebViewId)
+      DMPLogger.d(Tags.LAUNCH, "notify page.onHide end");
+      const pageRecord = this.preLoadPage(pagePath, params)
+      // A preloaded record does not own a shared NavPathStack slot yet. Keep it false until
+      // DRouter.start returns successfully so failure cleanup cannot pop a host-owned route.
+      pageRecord.ownsRouterEntry = false
+
       if (customLaunchPageCallBack) {
         customLaunchPageCallBack(pageRecord, pagePath, stackId, this.app.getLaunchConfig()?.isRelaunch)
       } else {
@@ -347,13 +421,20 @@ export class DMPNavigator {
           .putExtra("stackId", stackId)
           .setNavMode(openType)
           .start()
+        pageRecord.ownsRouterEntry = DMPPageRecord.computeOwnsRouterEntry(false)
       }
+      this.pageLifecycle.onShow(pageRecord.webViewId)
+      return true
     } catch (err) {
       DMPLogger.e(Tags.NAVIGATOR, `msg: ${(err as BusinessError).message}`)
+      return false
     }
+  }
 
-    this.pageLifecycle.onShow(pageRecord.webViewId)
-
+  private settleLaunch(launchConfig: DMPLaunchConfig, success: boolean): void {
+    const completion = launchConfig.completion
+    launchConfig.completion = undefined
+    completion?.(success)
   }
 
   private popPageRecord() {
@@ -388,6 +469,9 @@ export class DMPNavigator {
     const pageRecord =
       new DMPPageRecord(newWebViewId, currentPageRecord?.webViewId ?? -1, pagePath, this.app.appIndex,
         webViewNodeController)
+    // preLoadPage pushes before resource loading; keep cleanup conservative if loading throws
+    // before openPage can attempt DRouter.start.
+    pageRecord.ownsRouterEntry = false
     pageRecord.params = params
     const navStyle = this.app.bundleManager.getJsAppModuleConfig()!.getPageConfigNext(pagePath)
     pageRecord.pageStyle = new DMPPageStyle(navStyle ?? new DMPMap(), this.app.appIndex)

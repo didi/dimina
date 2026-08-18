@@ -190,8 +190,7 @@ describe('setData update batching', () => {
 			[component.__id__]: component,
 		}
 
-		component.init()
-		await new Promise(resolve => setTimeout(resolve, 0))
+		await component.init()
 
 		expect(callback).not.toHaveBeenCalled()
 		expect(sentMessages).toHaveLength(1)
@@ -200,9 +199,27 @@ describe('setData update batching', () => {
 			target: 'render',
 			body: {
 				bridgeId,
-				data: {
-					currentIndex: 0,
-				},
+				data: {},
+			},
+		})
+
+		await runtime.moduleAttached({
+			bridgeId,
+			moduleId: component.__id__,
+		})
+		await Promise.resolve()
+
+		expect(sentMessages).toHaveLength(2)
+		expect(sentMessages[1]).toMatchObject({
+			type: 'ub',
+			target: 'render',
+			body: {
+				bridgeId,
+				callbackIds: [expect.any(String)],
+				updates: [{
+					moduleId: component.__id__,
+					data: { currentIndex: 0 },
+				}],
 			},
 		})
 
@@ -213,22 +230,6 @@ describe('setData update batching', () => {
 		await Promise.resolve()
 
 		expect(callback).not.toHaveBeenCalled()
-		expect(sentMessages).toHaveLength(2)
-		expect(sentMessages[1]).toMatchObject({
-			type: 'ub',
-			target: 'render',
-			body: {
-				bridgeId,
-				callbackIds: [expect.any(String)],
-				updates: [
-					{
-						moduleId: component.__id__,
-						data: {},
-					},
-				],
-			},
-		})
-
 		callbackRegistry.invoke(sentMessages[1].body.callbackIds[0])
 
 		expect(callback).toHaveBeenCalledTimes(1)
@@ -353,12 +354,14 @@ describe('setData update batching', () => {
 		parent.init()
 		child.init()
 		await new Promise(resolve => setTimeout(resolve, 0))
+		await runtime.moduleAttached({ bridgeId, moduleId: parent.__id__ })
+		await runtime.moduleAttached({ bridgeId, moduleId: child.__id__ })
 
 		expect(parent.data.value).toBe('recommend')
 		expect(parent.data.currentIndex).toBe(0)
 	})
 
-	it('links mutually declared ancestor relations when slot rendering loses the direct parent chain', async () => {
+	it('uses the rendered parent when slot content has a different lexical parent', async () => {
 		const bridgeId = 'bridge-1'
 		const parentModule = new ComponentModule({
 			data: {
@@ -462,12 +465,14 @@ describe('setData update batching', () => {
 		parent.init()
 		child.init()
 		await new Promise(resolve => setTimeout(resolve, 0))
+		await runtime.moduleAttached({ bridgeId, moduleId: parent.__id__ })
+		await runtime.moduleAttached({ bridgeId, moduleId: child.__id__, parentId: parent.__id__ })
 
 		expect(parent.children).toEqual([child])
 		expect(parent.data.currentIndex).toBe(0)
 	})
 
-	it('links implicit descendant relations when the child is initialized first', async () => {
+	it('uses the rendered parent when a slotted child is initialized first', async () => {
 		const bridgeId = 'bridge-1'
 		const parentModule = new ComponentModule({
 			data: {
@@ -571,6 +576,8 @@ describe('setData update batching', () => {
 		child.init()
 		parent.init()
 		await new Promise(resolve => setTimeout(resolve, 0))
+		await runtime.moduleAttached({ bridgeId, moduleId: child.__id__, parentId: parent.__id__ })
+		await runtime.moduleAttached({ bridgeId, moduleId: parent.__id__ })
 
 		expect(parent.children).toEqual([child])
 		expect(parent.data.currentIndex).toBe(0)

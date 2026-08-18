@@ -1,9 +1,9 @@
 Page({
   data: {
-    text: '返回首页',
+    text: '返回实验室',
     item: {
       index: 0,
-      msg: 'this is a msg',
+      msg: '模板数据已成功展开',
       time: '2016-09-15'
     },
     myTime: '2024-02-28'

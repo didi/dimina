@@ -1,0 +1,64 @@
+name: iOS Tests
+
+on:
+  push:
+    paths: ['iOS/**', 'shared/**', '.github/workflows/ios-tests.yml']
+  pull_request:
+    paths: ['iOS/**', 'shared/**', '.github/workflows/ios-tests.yml']
+  workflow_dispatch:
+
+jobs:
+  unit-test:
+    name: iOS Unit Tests
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Cache Swift Package Manager dependencies
+        uses: actions/cache@v4
+        with:
+          path: iOS/SourcePackages
+          key: ${{ runner.os }}-spm-${{ hashFiles('iOS/dimina.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-
+
+      - name: Resolve Swift Package dependencies
+        working-directory: ./iOS
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project dimina.xcodeproj \
+            -scheme dimina \
+            -clonedSourcePackagesDirPath SourcePackages
+
+      - name: Run unit tests
+        working-directory: ./iOS
+        run: |
+          xcodebuild test \
+            -project dimina.xcodeproj \
+            -scheme dimina \
+            -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
+            -clonedSourcePackagesDirPath SourcePackages \
+            -disableAutomaticPackageResolution \
+            -resultBundlePath TestResults.xcresult
+
+      - name: Compress test results
+        if: always()
+        working-directory: ./iOS
+        run: test -d TestResults.xcresult && zip -qr TestResults.xcresult.zip TestResults.xcresult || true
+
+      - name: Upload unit test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-unit-test-reports
+          path: ./iOS/TestResults.xcresult.zip
+          retention-days: 5
+          if-no-files-found: ignore

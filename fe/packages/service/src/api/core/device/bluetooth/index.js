@@ -1,4 +1,19 @@
 import { invokeAPI } from '@/api/common'
+import {
+	createBluetoothEvent,
+	invokeBluetoothAPI,
+	normalizeDeviceResult,
+} from './shared'
+
+const deviceFoundEvent = createBluetoothEvent(
+	'onBluetoothDeviceFound',
+	'offBluetoothDeviceFound',
+	normalizeDeviceResult,
+)
+const adapterStateEvent = createBluetoothEvent(
+	'onBluetoothAdapterStateChange',
+	'offBluetoothAdapterStateChange',
+)
 
 /**
  * 停止搜寻附近的蓝牙外围设备。若已经找到需要的蓝牙设备并不需要继续搜索时，建议调用该接口停止蓝牙搜索。
@@ -28,32 +43,32 @@ export function openBluetoothAdapter(opts) {
  * 监听搜索到新设备的事件
  * https://developers.weixin.qq.com/miniprogram/dev/api/device/bluetooth/wx.onBluetoothDeviceFound.html
  */
-export function onBluetoothDeviceFound(opts) {
-	return invokeAPI('onBluetoothDeviceFound', opts)
+export function onBluetoothDeviceFound(listener) {
+	return deviceFoundEvent.on(listener)
 }
 
 /**
  * 监听蓝牙适配器状态变化事件
  * https://developers.weixin.qq.com/miniprogram/dev/api/device/bluetooth/wx.onBluetoothAdapterStateChange.html
  */
-export function onBluetoothAdapterStateChange(opts) {
-	return invokeAPI('onBluetoothAdapterStateChange', opts)
+export function onBluetoothAdapterStateChange(listener) {
+	return adapterStateEvent.on(listener)
 }
 
 /**
  * 移除搜索到新设备的事件的全部监听函数
  * https://developers.weixin.qq.com/miniprogram/dev/api/device/bluetooth/wx.offBluetoothDeviceFound.html
  */
-export function offBluetoothDeviceFound() {
-	return invokeAPI('offBluetoothDeviceFound')
+export function offBluetoothDeviceFound(listener) {
+	return deviceFoundEvent.off(listener)
 }
 
 /**
  * 移除蓝牙适配器状态变化事件的全部监听函数
  * https://developers.weixin.qq.com/miniprogram/dev/api/device/bluetooth/wx.offBluetoothAdapterStateChange.html
  */
-export function offBluetoothAdapterStateChange() {
-	return invokeAPI('offBluetoothAdapterStateChange')
+export function offBluetoothAdapterStateChange(listener) {
+	return adapterStateEvent.off(listener)
 }
 
 /**
@@ -61,7 +76,7 @@ export function offBluetoothAdapterStateChange() {
  * https://developers.weixin.qq.com/miniprogram/dev/api/device/bluetooth/wx.getConnectedBluetoothDevices.html
  */
 export function getConnectedBluetoothDevices(opts) {
-	return invokeAPI('getConnectedBluetoothDevices', opts)
+	return invokeBluetoothAPI('getConnectedBluetoothDevices', opts, { transform: normalizeDeviceResult })
 }
 
 /**
@@ -69,7 +84,7 @@ export function getConnectedBluetoothDevices(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/device/bluetooth/wx.getBluetoothDevices.html
  */
 export function getBluetoothDevices(opts) {
-	return invokeAPI('getBluetoothDevices', opts)
+	return invokeBluetoothAPI('getBluetoothDevices', opts, { transform: normalizeDeviceResult })
 }
 
 /**
@@ -86,4 +101,20 @@ export function getBluetoothAdapterState(opts) {
  */
 export function closeBluetoothAdapter(opts) {
 	return invokeAPI('closeBluetoothAdapter', opts)
+}
+
+/**
+ * 判断蓝牙设备是否已经配对。仅 Android 支持。
+ * https://developers.weixin.qq.com/miniprogram/dev/api/device/bluetooth/wx.isBluetoothDevicePaired.html
+ */
+export function isBluetoothDevicePaired(opts) {
+	return invokeAPI('isBluetoothDevicePaired', opts)
+}
+
+/**
+ * 蓝牙配对接口。仅 Android 支持。
+ * https://developers.weixin.qq.com/miniprogram/dev/api/device/bluetooth/wx.makeBluetoothPair.html
+ */
+export function makeBluetoothPair(opts) {
+	return invokeAPI('makeBluetoothPair', opts)
 }

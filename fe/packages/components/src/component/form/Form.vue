@@ -28,14 +28,34 @@ defineProps({
 
 // 创建一个响应式对象来存储子组件的数据
 const formValues = ref({})
+const formControls = new Set()
 
 // 提供一个方法来收集子组件的数据
 function collectFormValue(name, value) {
-	formValues.value[name] = value
+	if (name) {
+		formValues.value[name] = value
+	}
+}
+
+function registerFormControl(control) {
+	formControls.add(control)
+	return () => formControls.delete(control)
+}
+
+function readFormValues() {
+	const values = { ...toRaw(formValues.value) }
+	for (const control of formControls) {
+		const name = control.getName?.()
+		if (name) {
+			values[name] = control.getValue?.()
+		}
+	}
+	return values
 }
 
 // 提供这个方法给子组件
 provide('collectFormValue', collectFormValue)
+provide('registerFormControl', registerFormControl)
 
 const info = useInfo()
 function handleEvent(event, formType) {
@@ -45,11 +65,15 @@ function handleEvent(event, formType) {
 			event,
 			info,
 			detail: {
-				value: toRaw(formValues.value),
+				value: readFormValues(),
 			},
 		})
 	}
 	else if (formType === 'reset') {
+		for (const control of formControls) {
+			control.reset?.()
+		}
+		formValues.value = {}
 		triggerEvent('reset', {
 			event,
 			info,

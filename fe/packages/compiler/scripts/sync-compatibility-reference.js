@@ -6,6 +6,9 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.resolve(scriptDir, '../../../..')
 const docPath = path.join(repoRoot, 'docs/API-Reference.md')
 const outputPath = path.resolve(scriptDir, '../src/common/compatibility-reference.js')
+const checkOnly = process.argv.includes('--check')
+const sourceLabel = path.relative(repoRoot, docPath)
+const outputLabel = path.relative(repoRoot, outputPath)
 
 const content = fs.readFileSync(docPath, 'utf-8')
 
@@ -15,7 +18,7 @@ const reference = {
 }
 
 const output = `// Generated from docs/API-Reference.md.
-// Keep this file in sync by running: pnpm --filter compiler sync:compat
+// Keep this file in sync by running: pnpm --filter @dimina/compiler sync:compat
 
 const supportedBuiltinComponents = ${formatArray(reference.supportedBuiltinComponents)}
 
@@ -27,7 +30,28 @@ export {
 }
 `
 
-fs.writeFileSync(outputPath, output)
+const currentOutput = fs.existsSync(outputPath)
+	? fs.readFileSync(outputPath, 'utf-8')
+	: ''
+const summary = `${reference.supportedBuiltinComponents.length} components, ${reference.supportedWxApis.length} APIs`
+
+if (checkOnly) {
+	if (currentOutput !== output) {
+		console.error(`[compat] Out of sync: ${sourceLabel} -> ${outputLabel}`)
+		console.error('[compat] Run: pnpm --filter @dimina/compiler sync:compat')
+		process.exitCode = 1
+	}
+	else {
+		console.log(`[compat] In sync: ${sourceLabel} -> ${outputLabel} (${summary})`)
+	}
+}
+else if (currentOutput === output) {
+	console.log(`[compat] Already in sync: ${sourceLabel} -> ${outputLabel} (${summary})`)
+}
+else {
+	fs.writeFileSync(outputPath, output)
+	console.log(`[compat] Synced: ${sourceLabel} -> ${outputLabel} (${summary})`)
+}
 
 function parseSingleColumnTable(markdown, heading) {
 	const section = getSectionContent(markdown, heading)

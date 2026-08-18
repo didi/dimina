@@ -1,5 +1,6 @@
 import { DMPMap } from "../Utils/DMPMap";
 import { DRouter } from "./DRouter";
+import { DMPLogger } from "../EventTrack/DMPLogger";
 
 export class Request {
   private routeName: string;
@@ -27,7 +28,7 @@ export class Request {
   }
 
   start(): void {
-    console.log(`Navigate to ${this.routeName} with extras:`, this.extras);
+    DMPLogger.d('', `Navigate to ${this.routeName} with extras: ${this.extras.toStr()}`);
     switch (this.navMode) {
       case 0:
         DRouter.getInstance().push(this.routeName, this.extras)

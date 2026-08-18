@@ -12,7 +12,7 @@ class DMPChannelProxy {
         type: String, body: DMPMap,
         target: String, app: DMPApp
     ) -> Any {
-        print("🔴 messageHandler:type=\(type) target=\(target) body=\(body.toJsonString())")
+        DMPLogger.debug("🔴 messageHandler:type=\(type) target=\(target) body=\(body.toJsonString())")
 
         let webViewId: Int = body.get("bridgeId") as? Int ?? 0
         let webview = app.render?.getWebView(byId: webViewId)
@@ -28,28 +28,37 @@ class DMPChannelProxy {
             ])
 
             if type == "serviceResourceLoaded" || type == "renderResourceLoaded" {
+                guard let container = app.container else {
+                    DMPLogger.debug("resourceLoaded ignored: runtime container is unavailable")
+                    return DMPMap()
+                }
                 let resourceType: ResourceLoadType =
                     type == "serviceResourceLoaded" ? .serviceLoaded : .renderLoaded
-                app.container!.hasLoadResource(webViewId: webViewId, type: resourceType)
+                container.hasLoadResource(webViewId: webViewId, type: resourceType)
 
-                if app.container!.isResourceLoaded(webViewId: webViewId) {
-                    body.set("scene", DMPScene.fromMainEntry.rawValue)
+                if container.isResourceLoaded(webViewId: webViewId) {
+                    let launchConfig = app.getCurrentLaunchConfig()
+                    body.set("scene", launchConfig?.scene ?? DMPScene.fromMainEntry.rawValue)
+                    if let referrerInfo = launchConfig?.referrerInfo {
+                        body.set("referrerInfo", referrerInfo)
+                    }
 
                     transMsg.set("type", "resourceLoaded")
+                    transMsg.set("body", body.toDictionary())
 
                     Task { @MainActor in
                         await app.service?.postMessage(data: transMsg)
                     }
-                    print(
+                    DMPLogger.debug(
                         "send \(resourceType == .serviceLoaded ? "service" : "render") resourceLoaded"
                     )
                     return DMPMap()
                 } else {
-                    print("isResourceLoaded false")
+                    DMPLogger.debug("isResourceLoaded false")
                     return DMPMap()
                 }
             } else {
-                print("🔴🔴🔴 DMPChannelProxy.postMessage")
+                DMPLogger.debug("🔴🔴🔴 DMPChannelProxy.postMessage")
                 Task { @MainActor in
                     await app.service?.postMessage(data: transMsg)
                 }
@@ -57,18 +66,27 @@ class DMPChannelProxy {
         } else if target == "container" {
             if type == "invokeAPI" {
                 guard let name = body.get("name") as? String, !name.isEmpty else {
-                    print("参数格式错误：name为空")
+                    DMPLogger.debug("参数格式错误：name为空")
+                    return DMPMap()
+                }
+                guard let container = app.container else {
+                    DMPLogger.debug("invokeAPI ignored: runtime container is unavailable")
                     return DMPMap()
                 }
 
                 let param: DMPBridgeParam = DMPBridgeParam(value: body.get("params") as Any)
-                return app.container!.callBridgeMethod(methodName: name, webViewId: webViewId, param: param, app: app)
+                return container.callBridgeMethod(
+                    methodName: name,
+                    webViewId: webViewId,
+                    param: param,
+                    app: app
+                )
             } else if type == "domReady" {
                 app.container?.isNavigating = false
                 if let webview = webview {
                     webview.hideLoading()
                 }
-                print("domReady")
+                DMPLogger.debug("domReady")
             }
         } else if target == "webview" {
             // 处理 来自h5 jssdk 的消息
@@ -79,7 +97,7 @@ class DMPChannelProxy {
             //        (params is String || params is Int || params is Bool || params is [Any]) {
             //         return app.container?.callBridgeMethods(methodName: name, webViewId: webViewId, params: params, app: app)
             //     } else {
-            //         print("params is not String, Int, Bool, [Any]")
+            //         DMPLogger.debug("params is not String, Int, Bool, [Any]")
             //     }
             // }
         }
@@ -88,17 +106,17 @@ class DMPChannelProxy {
     }
 
     static func containerToService(msg: DMPMap, app: DMPApp?) {
-        print("🔴 DMPChannelProxy.containerToService: \(msg.toJsonString()) \(app)")
+        DMPLogger.debug("🔴 DMPChannelProxy.containerToService: \(msg.toJsonString()) \(app)")
         app?.service?.fromContainer(data: msg)
     }
 
     static func containerToRender(msg: DMPMap, app: DMPApp?, webViewId: Int) {
-        print("🔴 DMPChannelProxy.containerToRender: \(msg.toJsonString()) \(app) \(webViewId)")
+        DMPLogger.debug("🔴 DMPChannelProxy.containerToRender: \(msg.toJsonString()) \(app) \(webViewId)")
         app?.render?.fromContainer(data: msg, webViewId: webViewId)
     }
 
     static func serviceToRender(msg: String, webViewId: Int, app: DMPApp?) {
-        print("🔴 DMPChannelProxy.serviceToRender: \(msg) \(webViewId) \(app)")
+        DMPLogger.debug("🔴 DMPChannelProxy.serviceToRender: \(msg) \(webViewId) \(app)")
 
         // Canvas message interception — execute natively instead of forwarding to WebView
         if CanvasManager.shouldIntercept(msg) {
@@ -112,7 +130,7 @@ class DMPChannelProxy {
     }
 
     static func renderToService(msg: String, app: DMPApp?) async {
-        print("🔴 DMPChannelProxy.renderToService: \(msg) \(app)")
+        DMPLogger.debug("🔴 DMPChannelProxy.renderToService: \(msg) \(app)")
         await app?.service?.fromRender(data: msg)
     }
 }

@@ -75,6 +75,7 @@ export function extOffBridge({ event, module, callBack }) {
 	const eventName = `${module}_${event}`
 
 	invokeAPI(eventName, {
+		evtId: eventName,
 		success: callBack,
 	})
 }

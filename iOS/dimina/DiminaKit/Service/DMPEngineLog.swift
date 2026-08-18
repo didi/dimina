@@ -59,11 +59,11 @@ public class DMPEngineLog {
         
         switch level {
         case .log, .info:
-            print("[\(level.prefix)] \(message)")
+            DMPLogger.debug("[\(level.prefix)] \(message)")
         case .warn:
-            print("⚠️ [\(level.prefix)] \(message)")
+            DMPLogger.debug("⚠️ [\(level.prefix)] \(message)")
         case .error:
-            print("❌ [\(level.prefix)] \(message)")
+            DMPLogger.debug("❌ [\(level.prefix)] \(message)")
         }
     }
     

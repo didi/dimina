@@ -1,8 +1,22 @@
 // 从 core/amd 导入
-export { modDefine, modRequire } from '@/core/amd'
+export { hasModule, modDefine, modRequire } from './core/amd'
 
 // 从 core/callback 导入
-export { default as callback } from '@/core/callback'
+export { default as callback } from './core/callback'
+
+export {
+	createDataFunctionReference,
+	getDataFunctionReferenceId,
+	isDataFunctionReference,
+	transformDataFunctions,
+} from './core/data-function'
+
+export {
+	matchesPropertyType,
+	normalizePropertyDefinition,
+	normalizePropertyValues,
+	resolvePropertyValue,
+} from './core/properties'
 
 // 从 core/utils 导入
 export {
@@ -28,4 +42,4 @@ export {
 	toCamelCase,
 	transformRpx,
 	uuid,
-} from '@/core/utils'
+} from './core/utils'

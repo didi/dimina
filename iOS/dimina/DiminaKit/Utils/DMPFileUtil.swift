@@ -30,10 +30,10 @@ public class DMPFileUtil {
                 at: URL(fileURLWithPath: zipPath),
                 to: URL(fileURLWithPath: destinationPath)
             )
-            print("成功解压文件: \(zipPath) 到 \(destinationPath)")
+            DMPLogger.debug("成功解压文件: \(zipPath) 到 \(destinationPath)")
             return true
         } catch {
-            print("解压文件过程中发生错误: \(error)")
+            DMPLogger.debug("解压文件过程中发生错误: \(error)")
             return false
         }
     }
@@ -83,7 +83,7 @@ public class DMPFileUtil {
 
             return true
         } catch {
-            print("复制文件过程中发生错误: \(error)")
+            DMPLogger.debug("复制文件过程中发生错误: \(error)")
             return false
         }
     }
@@ -97,7 +97,7 @@ public class DMPFileUtil {
             }
             return false
         } catch {
-            print("删除文件失败: \(error)")
+            DMPLogger.debug("删除文件失败: \(error)")
             return false
         }
     }
@@ -109,7 +109,7 @@ public class DMPFileUtil {
                 atPath: path, withIntermediateDirectories: true, attributes: nil)
             return true
         } catch {
-            print("创建目录失败: \(error)")
+            DMPLogger.debug("创建目录失败: \(error)")
             return false
         }
     }
@@ -130,7 +130,7 @@ public class DMPFileUtil {
             let fileURL = URL(fileURLWithPath: filePath).isFileURL
                 ? URL(fileURLWithPath: filePath) : nil
         else {
-            print("无效的文件路径")
+            DMPLogger.debug("无效的文件路径")
             return nil
         }
 
@@ -138,7 +138,7 @@ public class DMPFileUtil {
             let data = try Data(contentsOf: fileURL)
             return try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any]
         } catch {
-            print("加载 JSON 文件失败: \(error)")
+            DMPLogger.debug("加载 JSON 文件失败: \(error)")
             return nil
         }
     }
@@ -158,20 +158,49 @@ public class DMPFileUtil {
     }
 
     public static func sandboxPathFromVPath(from vPath: String, appId: String) -> String? {
-        guard let components: URLComponents = URLComponents(string: vPath) else {
+        guard let components: URLComponents = URLComponents(string: vPath),
+              components.scheme?.lowercased() == DMPFileURLScheme,
+              components.user == nil,
+              components.password == nil else {
             return nil
         }
 
         let host = components.host ?? ""
         let path: String = components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         if host == "usr" {
-            return (DMPSandboxManager.appStoreResourceDirectoryPath(appId: appId) as NSString)
-                .appendingPathComponent(path)
+            return confinedPath(
+                rootPath: DMPSandboxManager.appStoreResourceDirectoryPath(appId: appId),
+                relativePath: path
+            )
         }
         let resourceDirectory: String = DMPSandboxManager.appTmpResourceDirectoryPath(appId: appId)
         let relativePath = ([host, path].filter { !$0.isEmpty }).joined(separator: "/")
-        let sandboxPath: String = (resourceDirectory as NSString).appendingPathComponent(relativePath)
-        return sandboxPath
+        return confinedPath(rootPath: resourceDirectory, relativePath: relativePath)
+    }
+
+    /// Resolve a relative path while guaranteeing that the final filesystem
+    /// location remains under `rootPath`, including after dot-segment and
+    /// symlink resolution.
+    public static func confinedPath(rootPath: String, relativePath: String) -> String? {
+        guard !rootPath.isEmpty,
+              !relativePath.contains("\0") else {
+            return nil
+        }
+
+        let rootURL = URL(fileURLWithPath: rootPath, isDirectory: true)
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+        let trimmedPath = relativePath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let targetURL = rootURL
+            .appendingPathComponent(trimmedPath)
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+        let root = rootURL.path
+        let target = targetURL.path
+        guard target == root || target.hasPrefix(root + "/") else {
+            return nil
+        }
+        return target
     }
 
 }

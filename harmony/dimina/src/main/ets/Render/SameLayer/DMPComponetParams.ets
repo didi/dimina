@@ -59,17 +59,20 @@ export class WebViewParams {
   url?: string
 }
 
+export class CanvasParams {
+  appIndex?: number
+  parentWebViewId?: number
+  width: number | undefined
+  height: number | undefined
+  id?: string
+  canvasId?: string
+  disableScroll?: boolean
+  hidden?: boolean
+}
+
 export class Attributes {
   src?: string
   javascript?: string
   attrs?: object
   moduleId?: string
-}
-
-export class CanvasParams {
-  id?: string
-  appIndex?: number
-  parentWebViewId?: number
-  width: number | undefined
-  height: number | undefined
 }

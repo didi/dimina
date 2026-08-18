@@ -8,7 +8,7 @@ describe('组件间关系测试', () => {
 		runtime.instances = {}
 	})
 
-	test('parent-child 关系建立', () => {
+	test('parent-child 关系建立', async () => {
 		const bridgeId = 'test-bridge'
 		runtime.instances[bridgeId] = {}
 
@@ -77,30 +77,26 @@ describe('组件间关系测试', () => {
 		runtime.instances[bridgeId]['child-1'] = childComponent
 
 		// 初始化组件以建立关系
-		parentComponent.init()
-		childComponent.init()
+		await Promise.all([parentComponent.init(), childComponent.init()])
+		await runtime.moduleAttached({ bridgeId, moduleId: parentComponent.__id__ })
+		await runtime.moduleAttached({ bridgeId, moduleId: childComponent.__id__ })
 
-		// 等待关系建立
-		return new Promise((resolve) => {
-			setTimeout(() => {
-				// 验证父组件获取子组件
-				const childNodes = parentComponent.getRelationNodes('./child-component')
-				expect(childNodes).toHaveLength(1)
-				expect(childNodes[0]).toBe(childComponent)
-				expect(parentComponent.linkedChild).toBe(childComponent)
+		// 验证父组件获取子组件
+		const childNodes = parentComponent.getRelationNodes('./child-component')
+		expect(childNodes).toHaveLength(1)
+		expect(childNodes[0]).toBe(childComponent)
+		expect(parentComponent.linkedChild).toBe(childComponent)
+		expect(parentComponent.getRelationNodes('./undeclared-component')).toBeNull()
+		expect(parentComponent.getRelationNodes()).toBeNull()
 
-				// 验证子组件获取父组件
-				const parentNodes = childComponent.getRelationNodes('./parent-component')
-				expect(parentNodes).toHaveLength(1)
-				expect(parentNodes[0]).toBe(parentComponent)
-				expect(childComponent.linkedParent).toBe(parentComponent)
-
-				resolve()
-			}, 10)
-		})
+		// 验证子组件获取父组件
+		const parentNodes = childComponent.getRelationNodes('./parent-component')
+		expect(parentNodes).toHaveLength(1)
+		expect(parentNodes[0]).toBe(parentComponent)
+		expect(childComponent.linkedParent).toBe(parentComponent)
 	})
 
-	test('ancestor-descendant 关系建立', () => {
+	test('ancestor-descendant 关系建立', async () => {
 		const bridgeId = 'test-bridge-2'
 		runtime.instances[bridgeId] = {}
 
@@ -187,32 +183,89 @@ describe('组件间关系测试', () => {
 		runtime.instances[bridgeId]['descendant-1'] = descendantComponent
 
 		// 初始化组件以建立关系
-		ancestorComponent.init()
-		middleComponent.init()
-		descendantComponent.init()
+		await Promise.all([ancestorComponent.init(), middleComponent.init(), descendantComponent.init()])
+		await runtime.moduleAttached({ bridgeId, moduleId: ancestorComponent.__id__ })
+		await runtime.moduleAttached({ bridgeId, moduleId: middleComponent.__id__ })
+		await runtime.moduleAttached({ bridgeId, moduleId: descendantComponent.__id__ })
 
-		// 等待关系建立
-		return new Promise((resolve) => {
-			setTimeout(() => {
-				// 验证祖先组件获取后代组件
-				const descendantNodes = ancestorComponent.getRelationNodes('./descendant-component')
-				expect(descendantNodes).toHaveLength(1)
-				expect(descendantNodes[0]).toBe(descendantComponent)
-				expect(ancestorComponent.descendants).toContain(descendantComponent)
+		// 验证祖先组件获取后代组件
+		const descendantNodes = ancestorComponent.getRelationNodes('./descendant-component')
+		expect(descendantNodes).toHaveLength(1)
+		expect(descendantNodes[0]).toBe(descendantComponent)
+		expect(ancestorComponent.descendants).toContain(descendantComponent)
 
-				// 验证后代组件获取祖先组件
-				const ancestorNodes = descendantComponent.getRelationNodes('./ancestor-component')
-				expect(ancestorNodes).toHaveLength(1)
-				expect(ancestorNodes[0]).toBe(ancestorComponent)
-				expect(descendantComponent.ancestor).toBe(ancestorComponent)
-
-				resolve()
-			}, 10)
-		})
+		// 验证后代组件获取祖先组件
+		const ancestorNodes = descendantComponent.getRelationNodes('./ancestor-component')
+		expect(ancestorNodes).toHaveLength(1)
+		expect(ancestorNodes[0]).toBe(ancestorComponent)
+		expect(descendantComponent.ancestor).toBe(ancestorComponent)
 	})
 
-	test('组件 detached 时移除关系', () => {
+	test('多个同类祖先只连接各自渲染树中的后代', async () => {
+		const bridgeId = 'test-bridge-isolated-relations'
+		const parentModule = new ComponentModule({
+			lifetimes: {
+				created() {
+					this.children = []
+				},
+			},
+			relations: {
+				'./tab-panel': {
+					type: 'descendant',
+					linked(target) {
+						this.children.push(target)
+					},
+				},
+			},
+			methods: {},
+		}, {
+			component: true,
+			path: 'tabs',
+			usingComponents: {},
+		})
+		const childModule = new ComponentModule({
+			relations: {
+				'./tabs': { type: 'ancestor' },
+			},
+			methods: {},
+		}, {
+			component: true,
+			path: 'tab-panel',
+			usingComponents: {},
+		})
+		const create = (module, moduleId, path) => new Component(module, {
+			bridgeId,
+			moduleId,
+			path,
+			pageId: 'page-1',
+			parentId: 'page-1',
+			eventAttr: {},
+			properties: {},
+			targetInfo: {},
+		})
+		const parent1 = create(parentModule, 'tabs-1', 'tabs')
+		const parent2 = create(parentModule, 'tabs-2', 'tabs')
+		const child1 = create(childModule, 'panel-1', 'tab-panel')
+		const child2 = create(childModule, 'panel-2', 'tab-panel')
+		runtime.instances[bridgeId] = {
+			[parent1.__id__]: parent1,
+			[parent2.__id__]: parent2,
+			[child1.__id__]: child1,
+			[child2.__id__]: child2,
+		}
+		for (const instance of [parent1, parent2, child1, child2]) instance.init()
+		await runtime.moduleAttached({ bridgeId, moduleId: parent1.__id__ })
+		await runtime.moduleAttached({ bridgeId, moduleId: parent2.__id__ })
+		await runtime.moduleAttached({ bridgeId, moduleId: child1.__id__, parentId: parent1.__id__ })
+		await runtime.moduleAttached({ bridgeId, moduleId: child2.__id__, parentId: parent2.__id__ })
+
+		expect(parent1.children).toEqual([child1])
+		expect(parent2.children).toEqual([child2])
+	})
+
+	test('组件 detached 时移除关系', async () => {
 		const bridgeId = 'test-bridge-3'
+		const detachCalls = []
 		runtime.instances[bridgeId] = {}
 
 		// 创建父组件模块
@@ -225,6 +278,7 @@ describe('组件间关系测试', () => {
 						this.linkedChildren.push(target)
 					},
 					unlinked: function(target) {
+						detachCalls.push('relation:unlinked')
 						this.unlinkedChildren = this.unlinkedChildren || []
 						this.unlinkedChildren.push(target)
 					}
@@ -239,6 +293,11 @@ describe('组件间关系测试', () => {
 
 		// 创建子组件模块
 		const childModule = new ComponentModule({
+			lifetimes: {
+				detached() {
+					detachCalls.push(`detached:relations=${runtime.instances[bridgeId]['parent-1'].getRelationNodes('./child-component').length}`)
+				},
+			},
 			relations: {
 				'./parent-component': {
 					type: 'parent'
@@ -278,26 +337,21 @@ describe('组件间关系测试', () => {
 		runtime.instances[bridgeId]['child-1'] = childComponent
 
 		// 初始化组件以建立关系
-		parentComponent.init()
-		childComponent.init()
+		await Promise.all([parentComponent.init(), childComponent.init()])
+		await runtime.moduleAttached({ bridgeId, moduleId: parentComponent.__id__ })
+		await runtime.moduleAttached({ bridgeId, moduleId: childComponent.__id__ })
 
-		// 等待关系建立
-		return new Promise((resolve) => {
-			setTimeout(() => {
-				// 验证关系已建立
-				expect(parentComponent.getRelationNodes('./child-component')).toHaveLength(1)
-				expect(parentComponent.linkedChildren).toContain(childComponent)
+		// 验证关系已建立
+		expect(parentComponent.getRelationNodes('./child-component')).toHaveLength(1)
+		expect(parentComponent.linkedChildren).toContain(childComponent)
 
-				// 模拟子组件被移除
-				childComponent.componentDetached()
+		// 模拟子组件被移除
+		childComponent.componentDetached()
 
-				// 验证关系已移除（同步）
-				expect(parentComponent.getRelationNodes('./child-component')).toHaveLength(0)
-				expect(parentComponent.unlinkedChildren).toContain(childComponent)
-
-				resolve()
-			}, 10)
-		})
+		// 验证关系已移除（同步）
+		expect(parentComponent.getRelationNodes('./child-component')).toHaveLength(0)
+		expect(parentComponent.unlinkedChildren).toContain(childComponent)
+		expect(detachCalls).toEqual(['detached:relations=1', 'relation:unlinked'])
 	})
 
 	test('相对路径解析', () => {
@@ -336,7 +390,7 @@ describe('组件间关系测试', () => {
 		expect(parentComponent.__relationPaths__.get('../sibling/child-component')).toBe('components/sibling/child-component')
 	})
 
-	test('双向关系建立 - 父组件先创建', () => {
+	test('双向关系建立 - 父组件先创建', async () => {
 		const bridgeId = 'test-bridge-5'
 		runtime.instances[bridgeId] = {}
 
@@ -390,12 +444,10 @@ describe('组件间关系测试', () => {
 		runtime.instances[bridgeId]['parent-1'] = parentComponent
 
 		// 初始化父组件
-		parentComponent.init()
+		await parentComponent.init()
+		await runtime.moduleAttached({ bridgeId, moduleId: parentComponent.__id__ })
 
-		// 延迟创建子组件
-		return new Promise((resolve) => {
-			setTimeout(() => {
-				const childComponent = new Component(childModule, {
+		const childComponent = new Component(childModule, {
 					bridgeId,
 					moduleId: 'child-1',
 					path: 'child-component',
@@ -404,30 +456,23 @@ describe('组件间关系测试', () => {
 					eventAttr: {},
 					properties: {},
 					targetInfo: {}
-				})
-
-				runtime.instances[bridgeId]['child-1'] = childComponent
-
-				// 初始化子组件
-				childComponent.init()
-
-				// 等待关系建立
-				setTimeout(() => {
-					// 验证父组件能获取子组件（这是关键测试点）
-					const childNodes = parentComponent.getRelationNodes('./child-component')
-					expect(childNodes).toHaveLength(1)
-					expect(childNodes[0]).toBe(childComponent)
-					expect(parentComponent.linkedChildren).toContain(childComponent)
-
-					// 验证子组件能获取父组件
-					const parentNodes = childComponent.getRelationNodes('./parent-component')
-					expect(parentNodes).toHaveLength(1)
-					expect(parentNodes[0]).toBe(parentComponent)
-					expect(childComponent.linkedParent).toBe(parentComponent)
-
-					resolve()
-				}, 10)
-			}, 5)
 		})
+
+		runtime.instances[bridgeId]['child-1'] = childComponent
+
+		await childComponent.init()
+		await runtime.moduleAttached({ bridgeId, moduleId: childComponent.__id__ })
+
+		// 验证父组件能获取子组件（这是关键测试点）
+		const childNodes = parentComponent.getRelationNodes('./child-component')
+		expect(childNodes).toHaveLength(1)
+		expect(childNodes[0]).toBe(childComponent)
+		expect(parentComponent.linkedChildren).toContain(childComponent)
+
+		// 验证子组件能获取父组件
+		const parentNodes = childComponent.getRelationNodes('./parent-component')
+		expect(parentNodes).toHaveLength(1)
+		expect(parentNodes[0]).toBe(parentComponent)
+		expect(childComponent.linkedParent).toBe(parentComponent)
 	})
-}) 
+})

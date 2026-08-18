@@ -5,6 +5,7 @@ import { abilityAccessCtrl, common, Permissions } from '@kit.AbilityKit';
 import { getPermissionStatus } from '../Render/SameLayer/PermissionUtils';
 import { DMPContextUtils } from '../Utils/DMPContextUtils';
 import { BusinessError } from '@kit.BasicServicesKit';
+import { DMPLogger } from '../EventTrack/DMPLogger';
 
 
 const userLocationScope = 'scope.userLocation' // 定位权限
@@ -112,7 +113,7 @@ export class DMPContainerBridgesModuleOpenSetting extends DMPContainerBridgesMod
       // 授权成功
     }).catch((err: BusinessError) => {
       onCallBack(false)
-      console.error(`Failed to request permissions from user. Code is ${err.code}, message is ${err.message}`);
+      DMPLogger.e('', `Failed to request permissions from user. Code is ${err.code}, message is ${err.message}`);
     })
   }
 }

@@ -14,6 +14,7 @@ import com.didi.dimina.api.base.SystemApi
 import com.didi.dimina.api.base.UpdateApi
 import com.didi.dimina.api.file.FileApi
 import com.didi.dimina.api.device.ClipboardApi
+import com.didi.dimina.api.device.BluetoothApi
 import com.didi.dimina.api.device.ContactApi
 import com.didi.dimina.api.device.KeyboardApi
 import com.didi.dimina.api.device.PhoneApi
@@ -21,6 +22,7 @@ import com.didi.dimina.api.device.ScanApi
 import com.didi.dimina.api.device.VibrateAPI
 import com.didi.dimina.api.media.ImageApi
 import com.didi.dimina.api.media.VideoApi
+import com.didi.dimina.api.network.LocalNetworkApi
 import com.didi.dimina.api.route.RouteApi
 import com.didi.dimina.api.storage.StorageApi
 import com.didi.dimina.api.ui.InteractionApi
@@ -31,11 +33,15 @@ import com.didi.dimina.api.ui.ScrollApi
 import com.didi.dimina.api.ui.TabBarApi
 import com.didi.dimina.bean.MiniProgram
 import com.didi.dimina.common.ApiUtils
+import com.didi.dimina.common.BundledResourcePolicy
 import com.didi.dimina.common.LogUtils
 import com.didi.dimina.common.Utils
 import com.didi.dimina.common.VersionUtils
 import com.didi.dimina.engine.qjs.JSValue
 import com.didi.dimina.ui.container.DiminaActivity
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.io.File
 
@@ -49,12 +55,18 @@ class MiniApp private constructor() {
     private val tag = "MiniApp"
 
     private val apiRegistry = ApiRegistry()
+    private val bluetoothApi = BluetoothApi()
+    private val localNetworkApi = LocalNetworkApi()
+    private val updateCheckRegistry = UpdateCheckRegistry()
 
     // Map to store JsCore instances for each MiniProgram
     private val jsCoreMap = mutableMapOf<String, JsCore>()
 
     // Map to store Bridge instances for each MiniProgram
     private val bridgeListMap = mutableMapOf<String, MutableList<Bridge>>()
+
+    // One-shot App.onShow options for a mini program revealed by navigateBackMiniProgram.
+    private val pendingAppShowOptions = mutableMapOf<String, JSONObject>()
 
     companion object {
         @Volatile
@@ -82,6 +94,19 @@ class MiniApp private constructor() {
         DiminaActivity.launch(context, miniProgram)
     }
 
+    @Synchronized
+    fun setPendingAppShowOptions(appId: String, options: JSONObject) {
+        pendingAppShowOptions[appId] = JSONObject(options.toString())
+    }
+
+    @Synchronized
+    fun consumePendingAppShowOptions(appId: String): JSONObject? {
+        return pendingAppShowOptions.remove(appId)
+    }
+
+    @Synchronized
+    fun isRunning(appId: String): Boolean = jsCoreMap.containsKey(appId)
+
     /**
      * Get the JsCore instance for a specific MiniProgram
      *
@@ -95,6 +120,20 @@ class MiniApp private constructor() {
 
     fun postUpdateStatus(appId: String, event: String) {
         jsCoreMap[appId]?.postMessage("onUpdateStatusChange", mapOf("event" to event))
+    }
+
+    fun startUpdateCheckIfNeeded(context: Context, miniProgram: MiniProgram) {
+        if (!updateCheckRegistry.begin(miniProgram.appId)) {
+            return
+        }
+
+        CoroutineScope(Dispatchers.IO).launch {
+            RemoteUpdateManager.checkForUpdate(
+                context = context.applicationContext,
+                miniProgram = miniProgram,
+                notify = { event -> postUpdateStatus(miniProgram.appId, event) },
+            )
+        }
     }
 
     /**
@@ -111,37 +150,48 @@ class MiniApp private constructor() {
                     if (initialized) {
                         context?.let {
                             try {
-                                // 判断是否需要检测 JSSDK 的逻辑：调试模式或者 App 版本已更新
-                                if (Dimina.getInstance().isDebugMode() || VersionUtils.isAppVersionUpdated(context)) {
-                                    LogUtils.d(tag, "Checking for JSSDK updates...")
-                                    val jsConfigString =
-                                        context.assets.open("jssdk/config.json").bufferedReader()
-                                            .use { it.readText() }
-                                    val sdkObject = JSONObject(jsConfigString)
-                                    val newVersionCode = sdkObject.getInt("versionCode")
-                                    val versionName = sdkObject.getString("versionName")
-                                    val oldVersionCode = VersionUtils.getJSVersion()
-                                    if (newVersionCode > oldVersionCode) {
-                                        LogUtils.d(tag, "JSSDK update found: $versionName($newVersionCode)")
-                                        if (Utils.unzipAssets(
-                                                context,
-                                                "jssdk/main.zip",
-                                                "jssdk/$newVersionCode",
-                                            )
-                                        ) {
-                                            VersionUtils.setJSVersion(newVersionCode)
-                                            LogUtils.d(tag, "JSSDK updated successfully to version $versionName($newVersionCode)")
-                                        } else {
-                                            LogUtils.e(
-                                                tag,
-                                                "Failed to extract JSSDK: $versionName($newVersionCode)"
-                                            )
-                                        }
+                                // JSSDK has its own version and readiness state. Do not gate it on
+                                // the host-app update marker: that marker is shared with jsapp and
+                                // reading it mutates the value seen by the next resource initializer.
+                                val jsConfigString =
+                                    context.assets.open("jssdk/config.json").bufferedReader()
+                                        .use { it.readText() }
+                                val sdkObject = JSONObject(jsConfigString)
+                                val newVersionCode = sdkObject.getInt("versionCode")
+                                val versionName = sdkObject.getString("versionName")
+                                val oldVersionCode = VersionUtils.getJSVersion()
+                                val activeServiceFile = File(
+                                    context.filesDir,
+                                    "jssdk/$oldVersionCode/main/assets/service.js"
+                                )
+                                val shouldExtract = BundledResourcePolicy.shouldExtract(
+                                    bundledVersion = newVersionCode,
+                                    installedVersion = oldVersionCode,
+                                    requiredResourcePresent = activeServiceFile.isFile,
+                                )
+
+                                if (shouldExtract) {
+                                    LogUtils.d(tag, "Extracting bundled JSSDK: $versionName($newVersionCode)")
+                                    if (Utils.unzipAssets(
+                                            context,
+                                            "jssdk/main.zip",
+                                            "jssdk/$newVersionCode",
+                                            requiredPaths = listOf(
+                                                "main/assets/service.js",
+                                                "main/pageFrame.html",
+                                            ),
+                                        )
+                                    ) {
+                                        VersionUtils.setJSVersion(newVersionCode)
+                                        LogUtils.d(tag, "JSSDK updated successfully to version $versionName($newVersionCode)")
                                     } else {
-                                        LogUtils.d(tag, "JSSDK is already up to date: $versionName($newVersionCode)")
+                                        LogUtils.e(
+                                            tag,
+                                            "Failed to extract JSSDK: $versionName($newVersionCode)"
+                                        )
                                     }
                                 } else {
-                                    LogUtils.d(tag, "Skipping JSSDK update check, last check was recent")
+                                    LogUtils.d(tag, "JSSDK is already available: version=$oldVersionCode")
                                 }
                                 // Inject custom API namespaces before loading service.js
                                 val namespaces = Dimina.getInstance().getApiNamespaces()
@@ -192,6 +242,7 @@ class MiniApp private constructor() {
         com.didi.dimina.api.device.NetworkApi().registerWith(apiRegistry)
         VibrateAPI().registerWith(apiRegistry)
         ScanApi().registerWith(apiRegistry)
+        bluetoothApi.registerWith(apiRegistry)
 
         // media
         ImageApi().registerWith(apiRegistry)
@@ -211,6 +262,8 @@ class MiniApp private constructor() {
 
         // network
         com.didi.dimina.api.network.NetworkApi().registerWith(apiRegistry)
+        localNetworkApi.registerWith(apiRegistry)
+        com.didi.dimina.api.network.WebSocketApi().registerWith(apiRegistry)
 
         // storage
         StorageApi().registerWith(apiRegistry)
@@ -259,6 +312,9 @@ class MiniApp private constructor() {
     ): JSValue? {
 
         var isAsyncMethod = false
+        var afterComplete: (() -> Unit)? = null
+        var completeCarriesResult = false
+        var callbackResult: JSONObject? = null
         try {
             LogUtils.d(tag, "Invoking API: $apiName with params: $params")
 
@@ -266,6 +322,9 @@ class MiniApp private constructor() {
             val result = apiRegistry.invoke(context, appId, apiName, params, responseCallback)
             if (result is AsyncResult) {
                 isAsyncMethod = true
+                afterComplete = result.afterComplete
+                completeCarriesResult = result.completeCarriesResult
+                callbackResult = result.value
                 val errorMsg = result.value.optString("errMsg", "")
                 if (errorMsg.isNotEmpty()) {
                     if (errorMsg.endsWith(":ok")) {
@@ -284,13 +343,22 @@ class MiniApp private constructor() {
             e.printStackTrace()
             LogUtils.e(tag, "Error invoking API: ${e.message}")
             if (isAsyncMethod) {
-                ApiUtils.invokeFail(params,  JSONObject().apply {
+                val failureResult = JSONObject().apply {
                     put("errMsg", "$apiName:fail ${e.message}")
-                }, responseCallback)
+                }
+                callbackResult = failureResult
+                ApiUtils.invokeFail(params, failureResult, responseCallback)
             }
         } finally {
             if (isAsyncMethod) {
-                ApiUtils.invokeComplete(params, responseCallback)
+                ApiUtils.invokeComplete(
+                    params,
+                    responseCallback,
+                    callbackResult.takeIf { completeCarriesResult },
+                )
+                afterComplete?.let { action ->
+                    jsCoreMap[appId]?.postAfterMessages(action) ?: action()
+                }
             }
         }
         return null
@@ -365,14 +433,24 @@ class MiniApp private constructor() {
      * @param appId The ID of the MiniProgram to clear resources for
      */
     fun clear(appId: String) {
-        // 清理第三方扩展的持续订阅
-        apiRegistry.clearExtSubscriptions()
+        updateCheckRegistry.reset(appId)
+        synchronized(this) {
+            pendingAppShowOptions.remove(appId)
+        }
+        // Silently tear down this owner's WebSocket connections/timers/listeners first,
+        // ahead of JsCore.destroy(), so no transport event can race into a dying JsCore.
+        com.didi.dimina.api.network.WebSocketManager.shared.disposeOwner(appId)
 
-        // Clear JsCore for this appId
-        jsCoreMap[appId]?.let { jsCore ->
-            LogUtils.d(tag, "Destroying JsCore for appId: $appId")
-            jsCore.destroy()
-            jsCoreMap.remove(appId)
+        // 清理第三方扩展的持续订阅
+        apiRegistry.clearExtSubscriptions(appId)
+        bluetoothApi.clearApp(appId)
+        localNetworkApi.clearApp(appId)
+
+        // Detach this generation immediately so a rapid reopen creates a fresh runtime, but place
+        // native engine destruction behind lifecycle messages already queued by Bridge.destroy().
+        jsCoreMap.remove(appId)?.let { jsCore ->
+            LogUtils.d(tag, "Scheduling JsCore destruction for appId: $appId")
+            jsCore.destroyAfterMessages()
         }
 
         // Clear Bridge list for this appId
@@ -385,12 +463,20 @@ class MiniApp private constructor() {
      * Clears all API resources and callbacks for all MiniPrograms
      */
     fun clearAll() {
-        // Destroy all JsCore instances
-        jsCoreMap.forEach { (appId, jsCore) ->
-            LogUtils.d(tag, "Destroying JsCore for appId: $appId")
-            jsCore.destroy()
+        updateCheckRegistry.resetAll()
+        synchronized(this) {
+            pendingAppShowOptions.clear()
         }
+        // Silently tear down every owner's WebSocket state before destroying JsCore instances.
+        com.didi.dimina.api.network.WebSocketManager.shared.disposeAll()
+
+        // Detach every generation before scheduling its own FIFO-safe destruction.
+        val jsCoresToDestroy = jsCoreMap.toMap()
         jsCoreMap.clear()
+        jsCoresToDestroy.forEach { (appId, jsCore) ->
+            LogUtils.d(tag, "Scheduling JsCore destruction for appId: $appId")
+            jsCore.destroyAfterMessages()
+        }
 
         // Clear all Bridge lists
         bridgeListMap.clear()

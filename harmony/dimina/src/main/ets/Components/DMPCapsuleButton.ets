@@ -1,6 +1,7 @@
 import { DMPAppManager } from '../DApp/DMPAppManager'
 import { DMPLogger } from '../EventTrack/DMPLogger'
 import { Tags } from '../EventTrack/Tags'
+import { DMPMenuButtonLayout } from '../Utils/DMPMenuButtonLayout'
 
 @Component
 export struct DMPCapsuleButton {
@@ -67,14 +68,14 @@ export struct DMPCapsuleButton {
         if (this.onCloseClick) {
           this.onCloseClick()
         } else {
-          DMPAppManager.sharedInstance().getApp(this.appIndex)?.navigatorManager.getCurNavigator()?.pop(999)
+          DMPAppManager.sharedInstance().getApp(this.appIndex)?.closeDimina()
         }
       })
     }
     .alignItems(VerticalAlign.Center)
-    .width(87)
-    .height(32)
-    .borderRadius(16)
+    .width(DMPMenuButtonLayout.capsuleWidth)
+    .height(DMPMenuButtonLayout.capsuleHeight)
+    .borderRadius(DMPMenuButtonLayout.capsuleHeight / 2)
     .border({ width: 0.5, color: this.getBorderColor() })
     .backgroundColor(this.getBackgroundColor())
   }

@@ -89,7 +89,7 @@ const iTitle = computed(() => {
 	}
 })
 
-const unit = /(?:\d+px|\d+rem)$/
+const unit = /^-?(?:\d+|\d*\.\d+)(?:px|rem|em|vw|vh|%)$/
 const iSize = computed(() => {
 	let size
 	if (!props.size) {

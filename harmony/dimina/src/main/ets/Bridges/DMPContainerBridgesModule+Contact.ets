@@ -91,7 +91,7 @@ export class DMPContainerBridgesModuleContact extends DMPContainerBridgesModule 
   // 查看更多：https://developer.harmonyos.com/cn/docs/documentation/doc-guides-V3/signing-0000001587684945-V3?catalogVersion=V3#section157591551175916
   addPhoneContact(params: AddPhoneContactClass) {
     if (params.firstName?.trim() == '') {
-      console.error('联系人姓名不能为空')
+      DMPLogger.e('', '联系人姓名不能为空')
       return
     }
     DMPLogger.d('djch addPhoneContact 入参：', JSON.stringify(params))
@@ -113,7 +113,7 @@ export class DMPContainerBridgesModuleContact extends DMPContainerBridgesModule 
     promise.then((data) => {
       DMPLogger.d(`djch addContact success: data->${JSON.stringify(data)}`);
     }).catch((err: Error) => {
-      console.error(`djch addContact fail: err->${JSON.stringify(err)}`);
+      DMPLogger.e('', `addContact failed: ${JSON.stringify(err)}`);
     });
   }
 }

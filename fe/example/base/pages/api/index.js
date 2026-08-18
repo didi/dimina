@@ -1,3 +1,46 @@
+function inspectChooseMessageFileResult(caseName, options, res) {
+  const tempFiles = Array.isArray(res.tempFiles) ? res.tempFiles : []
+  const allowedTypes = ['video', 'image', 'file']
+  const fieldsPassed = tempFiles.every(file => (
+    typeof file.name === 'string'
+    && typeof file.path === 'string'
+    && typeof file.size === 'number'
+    && typeof file.time === 'number'
+    && allowedTypes.includes(file.type)
+  ))
+
+  console.log(`[chooseMessageFile:${caseName}] success`, res)
+  console.log(`[chooseMessageFile:${caseName}] contract`, {
+    countPassed: tempFiles.length <= options.count,
+    fieldsPassed,
+    selectedCount: tempFiles.length,
+  })
+  tempFiles.forEach((file, index) => {
+    console.log(`[chooseMessageFile:${caseName}] tempFiles[${index}]`, {
+      name: file.name,
+      path: file.path,
+      size: file.size,
+      time: file.time,
+      type: file.type,
+    })
+  })
+}
+
+function runChooseMessageFileCase(caseName, options) {
+  wx.chooseMessageFile({
+    ...options,
+    success(res) {
+      inspectChooseMessageFileResult(caseName, options, res)
+    },
+    fail(res) {
+      console.log(`[chooseMessageFile:${caseName}] fail`, res)
+    },
+    complete(res) {
+      console.log(`[chooseMessageFile:${caseName}] complete`, res)
+    },
+  })
+}
+
 Page({
   openSystemBluetoothSetting: function () {
     wx.openSystemBluetoothSetting({
@@ -397,6 +440,44 @@ Page({
         console.log(res.tempFiles[0].size)
       }
     })
+  },
+  chooseMessageFileAll: function() {
+    runChooseMessageFileCase('all', {
+      count: 3,
+      type: 'all',
+    })
+  },
+  chooseMessageFileImage: function() {
+    runChooseMessageFileCase('image', {
+      count: 3,
+      type: 'image',
+    })
+  },
+  chooseMessageFileVideo: function() {
+    runChooseMessageFileCase('video', {
+      count: 2,
+      type: 'video',
+    })
+  },
+  chooseMessageFileByExtension: function() {
+    runChooseMessageFileCase('file-extension', {
+      count: 3,
+      type: 'file',
+      extension: ['pdf', 'txt'],
+    })
+  },
+  chooseMessageFilePromise: async function() {
+    const options = {
+      count: 1,
+      type: 'all',
+    }
+    try {
+      const res = await wx.chooseMessageFile(options)
+      inspectChooseMessageFileResult('promise', options, res)
+    }
+    catch (error) {
+      console.log('[chooseMessageFile:promise] fail', error)
+    }
   },
   vibrateLong: function() {
     wx.vibrateLong({})

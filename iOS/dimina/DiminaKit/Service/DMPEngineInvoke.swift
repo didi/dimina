@@ -9,22 +9,26 @@ import Foundation
 import JavaScriptCore
 
 public class DMPEngineInvoke {
-    
-    private static var appResolver: (() -> DMPApp?)?
-    
-    public static func registerAppResolver(_ resolver: @escaping () -> DMPApp?) {
-        appResolver = resolver
-    }
-    
-    public static func registerInvoke(to context: JSContext) {
+
+    public static func registerInvoke(
+        to context: JSContext,
+        appResolver: @escaping () -> DMPApp? = { nil }
+    ) {
         let invoke: @convention(block) (JSValue) -> JSValue? = { d in
             let msg = d.toDictionary()
             let type = msg!["type"] as! String
             let body = DMPMap.fromDict(dict:  msg!["body"] as! [String : Any])
             let target = msg!["target"] as! String
 
-            let app = appResolver?()
-            let result = DMPChannelProxy.messageHandler(type: type, body: body, target: target, app: app!)
+            guard let app = appResolver() else {
+                return JSValue(nullIn: context)
+            }
+            let result = DMPChannelProxy.messageHandler(
+                type: type,
+                body: body,
+                target: target,
+                app: app
+            )
 
             if let syncResult = result as? DMPSyncResult {
                 return DMPBridgeParam.from(rawValue: syncResult.value).getJSValue(context: context)
@@ -38,6 +42,6 @@ public class DMPEngineInvoke {
         
         bridge?.setObject(invoke, forKeyedSubscript: "invoke" as NSString)
         
-        print("registerInvoke 完成")
+        DMPLogger.debug("registerInvoke 完成")
     }
 }

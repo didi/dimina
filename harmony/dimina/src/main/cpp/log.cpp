@@ -2,11 +2,26 @@
 #include "cutils.h"
 #include "quickjs.h"
 #include "utils.h"
+#include <cstdlib>
 #include <exception>
 #include <sstream>
 #include "js_thread.h"
 const char *js_engine_tag = "dimina/QuickJS";
 const int js_engine_domain = 0x8989;
+
+namespace {
+// OwnedCStr 在 js_thread.h 里，两个文件共用。
+
+// 自己造出来的 JSValue，离开作用域就还回去。
+struct OwnedJSValue {
+    JSContext *ctx;
+    JSValue v;
+    OwnedJSValue(JSContext *c, JSValue val) : ctx(c), v(val) {}
+    ~OwnedJSValue() { JS_FreeValue(ctx, v); }
+    OwnedJSValue(const OwnedJSValue &) = delete;
+    OwnedJSValue &operator=(const OwnedJSValue &) = delete;
+};
+} // namespace
 
 static void DumpObj(JSContext *ctx, JSValueConst val) {
     const char *str = JS_ToCString(ctx, val);
@@ -42,15 +57,21 @@ void exceptionLogFunc(JSContext *ctx) {
 
 // 兼容多种 log 类型
 static JSValue consoleLog(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv, int magic) {
-    std::stringstream msg;
+    // stringstream 的构造函数不是 noexcept，内存不足时会抛。它必须在 try 里面构造，
+    // 否则异常会越过 QuickJS 的 C 回调边界直接终止进程。
     try {
+        std::stringstream msg;
         for (int i = 0; i < argc; i++) {
-            const char *str = JSValueToString(ctx, argv[i]);
-            if (str != nullptr) {
+            OwnedCStr str(JSValueToString(ctx, argv[i]));
+            if (str.get() != nullptr) {
                 if (i > 0)
                     msg << " "; // Adding space between items
-                msg << str;
+                msg << str.get();
             } else {
+                // 转不出字符串时 QuickJS 可能已经挂了异常（比如 console.log(1n)）。
+                // 打日志是尽力而为的，不该因此中断调用方，但异常必须取走——留在
+                // runtime 上会被后面某个不相干的调用当成自己的错误报出来。
+                discardPendingException(ctx);
                 msg << "<invalid>"; // Placeholder for null or invalid strings
             }
         }
@@ -74,11 +95,12 @@ static JSValue consoleLog(JSContext *ctx, JSValueConst this_val, int argc, JSVal
             break;
         }
         if (isDebugMode) {
-            // 调用 js_thread.cpp 中的 publish 方法
-            JSValue argv[3];                                // 根据 publish 的参数需求构造参数
-            argv[0] = JS_NewInt32(ctx, magic);                 // webViewId 示例值
-            argv[1] = JS_NewString(ctx, msg.str().c_str()); // 日志信息作为参数传入
-            sendLogToContainer(ctx, JS_UNDEFINED, 2, argv);
+            // sendLogToContainer 只读这两个值、不接管它们，这里造的就得这里还。
+            // 调试模式下每条 console 日志都会走到，不还就是一条日志漏一个字符串对象。
+            OwnedJSValue level_value(ctx, JS_NewInt32(ctx, magic));
+            OwnedJSValue text_value(ctx, JS_NewString(ctx, msg.str().c_str()));
+            JSValue args[2] = {level_value.v, text_value.v};
+            sendLogToContainer(ctx, JS_UNDEFINED, 2, args);
         }
 
         OH_LOG_Print(LOG_APP, level, js_engine_domain, js_engine_tag, "[dimina][service]: %{public}s",
@@ -88,7 +110,8 @@ static JSValue consoleLog(JSContext *ctx, JSValueConst this_val, int argc, JSVal
     } catch (const std::exception &e) {
         OH_LOG_Print(LOG_APP, LOG_ERROR, js_engine_domain, js_engine_tag, "[dimina][service] exception: %{public}s",
                      e.what());
-        return JS_EXCEPTION;
+        // C++ 异常不会给 QuickJS 挂上异常对象，返回哨兵前得自己补一个。
+        return throwNativeError(ctx, e.what());
     }
 
     return JS_UNDEFINED;

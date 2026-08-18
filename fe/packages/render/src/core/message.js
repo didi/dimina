@@ -1,5 +1,6 @@
 import { isAndroid, isIOS } from '@dimina/common'
 import mitt from 'mitt'
+import { decodeDataFunctions } from './data-function'
 
 class Message {
 	constructor() {
@@ -13,8 +14,9 @@ class Message {
 		}
 		// window.DiminaRenderBridge 是容器提供，容器调用此方法给视图层发消息
 		window.DiminaRenderBridge.onMessage = (msg) => {
-			console.log('[system]', '[render]', 'receive msg: ', msg)
-			const { type, body } = msg
+			const decodedMsg = decodeDataFunctions(msg)
+			console.log('[system]', '[render]', 'receive msg: ', decodedMsg)
+			const { type, body } = decodedMsg
 			this.event.emit(type, body)
 		}
 	}
@@ -56,6 +58,12 @@ class Message {
 				this.off(eventName)
 			})
 		})
+	}
+
+	waitAndSend(eventName, msg) {
+		const response = this.wait(eventName)
+		this.send(msg)
+		return response
 	}
 }
 

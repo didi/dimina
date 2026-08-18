@@ -125,4 +125,39 @@ describe('模板表达式空值保护', () => {
 		expect(output).not.toContain('selected?[')
 		expect(output).not.toContain('coupons?[0]')
 	})
+
+	it('应该保护 class、列表和 template data 中的深层成员访问', async () => {
+		fs.writeFileSync(path.join(tempDir, 'app.json'), JSON.stringify({
+			pages: ['pages/collection/index'],
+		}))
+		fs.writeFileSync(path.join(tempDir, 'project.config.json'), JSON.stringify({
+			appid: 'test-app-id',
+		}))
+
+		fs.mkdirSync(path.join(tempDir, 'pages/collection'), { recursive: true })
+		fs.writeFileSync(path.join(tempDir, 'pages/collection/index.wxml'), `
+			<template name="card"><view>{{title}}</view></template>
+			<view class="{{renderTabList.tabList.length >= 5 ? 'menu-full' : ''}}">
+				<view wx:for="{{renderTabList.tabList}}" wx:key="id">{{item.name}}</view>
+				<template is="card" data="{{title: pageInfo.header.title}}"></template>
+			</view>
+		`)
+
+		const outputDir = path.join(tempDir, 'dist')
+		fs.mkdirSync(outputDir, { recursive: true })
+		process.env.TARGET_PATH = outputDir
+
+		const { storeInfo, getPages } = await import('../src/env.js')
+		storeInfo(tempDir)
+
+		const { compileML } = await import('../src/core/view-compiler.js')
+		await compileML(getPages().mainPages, null, { completedTasks: 0 })
+
+		const output = fs.readFileSync(path.join(outputDir, 'main/pages_collection_index.js'), 'utf-8')
+		expect(output).toContain('renderTabList?.tabList?.length')
+		expect(output).toContain('renderTabList?.tabList')
+		expect(output).toContain('pageInfo?.header?.title')
+		expect(output).not.toContain('renderTabList.tabList')
+		expect(output).not.toContain('pageInfo.header.title')
+	})
 })

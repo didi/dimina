@@ -10,10 +10,16 @@ export struct DMPCommonDialog {
         .fontWeight(FontWeight.Bold)
         .fontColor(0x333333).margin({ top: 18 })
 
-      Text(this.option?.content ?? '')
-        .fontSize(16)
-        .fontColor(0x666666)
-        .margin({ top: 17, bottom: 17 })
+      Scroll() {
+        Text(this.option?.content ?? '')
+          .fontSize(16)
+          .fontColor(0x666666)
+          .margin({ top: 17, bottom: 17 })
+          .width('100%')
+      }
+      .width('100%')
+      .flexShrink(1)
+      .edgeEffect(EdgeEffect.None)
 
       Divider().strokeWidth(1).color('#c8c8c8')
 
@@ -45,7 +51,11 @@ export struct DMPCommonDialog {
           })
       }
       .height(45)
-    }.backgroundColor(0xffffff).margin({ left: 40, right: 40 }).borderRadius(6)
+    }
+    .constraintSize({ maxHeight: '90%' })
+    .backgroundColor(0xffffff)
+    .margin({ left: 40, right: 40 })
+    .borderRadius(6)
   }
 }
 
@@ -53,6 +63,7 @@ export declare interface ModalOption {
   dialogId?: string;
   cancel?: () => void;
   confirm?: () => void;
+  fail?: () => void;
   title?: string;
   content?: string;
   showCancel?: Boolean;

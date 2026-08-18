@@ -2,363 +2,252 @@
 // 地图
 // https://developers.weixin.qq.com/miniprogram/dev/component/map.html
 import { isAndroid, isDesktop, isHarmonyOS, isIOS } from '@dimina/common'
-import { invokeAPI, offEvent, onEvent, triggerEvent, useInfo } from '@/common/events'
+import { invokeAPI, onEvent, triggerEvent, useInfo } from '@/common/events'
+import { ensureNativeLayerTouchBridge } from '@/common/nativeLayerTouchBridge'
 
 const props = defineProps({
-	/**
-	 * 地图 id
-	 */
-	id: {
-		type: String,
-		default: () => `map-${useId()}`,
-	},
-	/**
-	 * 中心经度
-	 */
-	longitude: {
-		type: Number,
-		required: true,
-	},
-	/**
-	 * 中心纬度
-	 */
-	latitude: {
-		type: Number,
-		required: true,
-	},
-	/**
-	 * 缩放级别，取值范围为3-20
-	 */
-	scale: {
-		type: Number,
-		default: 16,
-	},
-	/**
-	 * 最小缩放级别
-	 */
-	minScale: {
-		type: Number,
-		default: 3,
-	},
-	/**
-	 * 最大缩放级别
-	 */
-	maxScale: {
-		type: Number,
-		default: 20,
-	},
-	/**
-	 * 标记点
-	 */
-	markers: {
-		type: Array,
-	},
-	/**
-	 * 路线
-	 */
-	polyline: {
-		type: Array,
-	},
-	/**
-	 * 圆
-	 */
-	circles: {
-		type: Array,
-	},
-	/**
-	 * 缩放视野以包含所有给定的坐标点
-	 */
-	includePoints: {
-		type: Array,
-	},
-	/**
-	 * 显示带有方向的当前定位点
-	 */
-	showLocation: {
-		type: Boolean,
-		default: false,
-	},
-	/**
-	 * 多边形
-	 */
-	polygons: {
-		type: Array,
-	},
-	/**
-	 * 旋转角度，范围 0 ~ 360, 地图正北和设备 y 轴角度的夹角
-	 */
-	rotate: {
-		type: Number,
-		default: 0,
-	},
-	/**
-	 * 倾斜角度，范围 0 ~ 40 , 关于 z 轴的倾角
-	 */
-	skew: {
-		type: Number,
-		default: 0,
-	},
-	/**
-	 * 展示3D楼块
-	 */
-	enable3D: {
-		type: Boolean,
-		default: false,
-	},
-	/**
-	 * 显示指南针
-	 */
-	showCompass: {
-		type: Boolean,
-		default: false,
-	},
-	/**
-	 * 显示比例尺
-	 */
-	showScale: {
-		type: Boolean,
-		default: false,
-	},
-	/**
-	 * 开启俯视
-	 */
-	enableOverlooking: {
-		type: Boolean,
-		default: false,
-	},
-	/**
-	 * 开启最大俯视角，俯视角度从 45 度拓展到 75 度
-	 */
-	enableAutoMaxOverlooking: {
-		type: Boolean,
-		default: false,
-	},
-	/**
-	 * 是否支持缩放
-	 */
-	enableZoom: {
-		type: Boolean,
-		default: true,
-	},
-	/**
-	 * 是否支持拖动
-	 */
-	enableScroll: {
-		type: Boolean,
-		default: true,
-	},
-	/**
-	 * 是否支持旋转
-	 */
-	enableRotate: {
-		type: Boolean,
-		default: false,
-	},
-	/**
-	 * 是否开启卫星图
-	 */
-	enableSatellite: {
-		type: Boolean,
-		default: false,
-	},
-	/**
-	 * 是否开启实时路况
-	 */
-	enableTraffic: {
-		type: Boolean,
-		default: false,
-	},
-	/**
-	 * 是否展示 POI 点
-	 */
-	enablePOI: {
-		type: Boolean,
-		default: true,
-	},
-	/**
-	 * 是否展示建筑物
-	 */
-	enableBuilding: {
-		type: Boolean,
-	},
+	id: { type: String, default: () => `map-${useId()}` },
+	latitude: { type: Number, default: 39.92 },
+	longitude: { type: Number, default: 116.46 },
+	scale: { type: Number, default: 16 },
+	markers: { type: Array, default: () => [] },
+	covers: { type: Array, default: () => [] },
+	includePoints: { type: Array, default: () => [] },
+	polyline: { type: Array, default: () => [] },
+	circles: { type: Array, default: () => [] },
+	controls: { type: Array, default: () => [] },
+	polygons: { type: Array, default: () => [] },
+	showLocation: { type: Boolean, default: false },
+	showScale: { type: Boolean, default: false },
+	showCompass: { type: Boolean, default: false },
+	theme: { type: String, default: 'normal' },
+	subkey: { type: String, default: '' },
+	layerStyle: { type: Number, default: 1 },
+	usePluginId: { type: Boolean, default: false },
+	enableZoom: { type: Boolean, default: true },
+	enableScroll: { type: Boolean, default: true },
+	enableRotate: { type: Boolean, default: false },
+	enable3D: { type: Boolean, default: false },
+	enableOverlooking: { type: Boolean, default: false },
+	enableAutoMaxOverlooking: { type: Boolean, default: false },
+	enableSatellite: { type: Boolean, default: false },
+	enableTraffic: { type: Boolean, default: false },
+	enablePoi: { type: Boolean, default: true },
+	// 兼容 Dimina 旧属性拼写；未显式传入时以 exparser 的 enable-poi 为准。
+	enablePOI: { type: Boolean, default: undefined },
+	enableBuilding: { type: Boolean, default: true },
+	enableIndoor: { type: Boolean, default: false },
+	enableIndoorBuildingPick: { type: Boolean, default: false },
+	enableIndoorLevelPick: { type: Boolean, default: false },
+	rotate: { type: Number, default: 0 },
+	skew: { type: Number, default: 0 },
+	minScale: { type: Number, default: 3 },
+	maxScale: { type: Number, default: 22 },
+	setting: { type: Object, default: () => ({}) },
 })
 
+const rootRef = ref()
 const info = useInfo()
 const type = 'native/map'
+const isNativeMap = computed(() => isAndroid || isIOS || isHarmonyOS)
+const nativeEventOffs = []
+let resizeObserver
+let syncFrameId = 0
+let lastRectKey = ''
+let nativeMounted = false
 
-watch(
-	[
-		() => props.longitude,
-		() => props.latitude,
-		() => props.scale,
-		() => props.markers,
-		() => props.polyline,
-		() => props.polygons,
-		() => props.circles,
-		() => props.includePoints,
-		() => props.showLocation,
-	],
-	(
-		[newLongitude, newLatitude, newScale, newMarkers, newPolyline, newPolygons, newCircles, newIncludePoints, newShowLocation],
-		[oldLongitude, oldLatitude, oldScale, oldMarkers, oldPolyline, oldPolygons, oldCircles, oldIncludePoints, oldShowLocation],
-	) => {
-		const params = { type, id: props.id }
+function getRect() {
+	if (!rootRef.value) return {}
+	const rect = rootRef.value.getBoundingClientRect()
+	return {
+		left: rect.left,
+		top: rect.top,
+		width: rect.width,
+		height: rect.height,
+		pageLeft: rect.left + window.scrollX,
+		pageTop: rect.top + window.scrollY,
+		scrollX: window.scrollX,
+		scrollY: window.scrollY,
+		viewportWidth: window.innerWidth,
+		viewportHeight: window.innerHeight,
+	}
+}
 
-		if (newScale !== oldScale) {
-			params.scale = newScale
-		}
-		if (newMarkers !== oldMarkers) {
-			params.markers = newMarkers
-		}
-		if (newPolyline !== oldPolyline) {
-			params.polyline = newPolyline
-		}
-		if (newPolygons !== oldPolygons) {
-			params.polygons = newPolygons
-		}
-		if (newCircles !== oldCircles) {
-			params.circles = newCircles
-		}
-		if (newIncludePoints !== oldIncludePoints) {
-			params.includePoints = newIncludePoints
-			params.longitude = newLongitude
-			params.latitude = newLatitude
-		}
-		else {
-			if (newLongitude !== oldLongitude || newLatitude !== oldLatitude) {
-				params.longitude = newLongitude
-				params.latitude = newLatitude
-			}
-		}
-		if (newShowLocation !== oldShowLocation) {
-			params.showLocation = newShowLocation
-		}
+function getNativeParams() {
+	const enablePoi = props.enablePOI === undefined ? props.enablePoi : props.enablePOI
+	return {
+		latitude: props.latitude,
+		longitude: props.longitude,
+		scale: props.scale,
+		markers: props.markers,
+		covers: props.covers,
+		includePoints: props.includePoints,
+		polyline: props.polyline,
+		circles: props.circles,
+		controls: props.controls,
+		polygons: props.polygons,
+		showLocation: props.showLocation,
+		showScale: props.showScale,
+		showCompass: props.showCompass,
+		theme: props.theme,
+		subkey: props.subkey,
+		layerStyle: props.layerStyle,
+		usePluginId: props.usePluginId,
+		enableZoom: props.enableZoom,
+		enableScroll: props.enableScroll,
+		enableRotate: props.enableRotate,
+		enable3D: props.enable3D,
+		enableOverlooking: props.enableOverlooking,
+		enableAutoMaxOverlooking: props.enableAutoMaxOverlooking,
+		enableSatellite: props.enableSatellite,
+		enableTraffic: props.enableTraffic,
+		enablePoi,
+		enablePOI: enablePoi,
+		enableBuilding: props.enableBuilding,
+		enableIndoor: props.enableIndoor,
+		enableIndoorBuildingPick: props.enableIndoorBuildingPick,
+		enableIndoorLevelPick: props.enableIndoorLevelPick,
+		rotate: props.rotate,
+		skew: props.skew,
+		minScale: props.minScale,
+		maxScale: props.maxScale,
+		setting: props.setting,
+		...props.setting,
+		type,
+		id: props.id,
+		hidden: rootRef.value?.hasAttribute('hidden') || false,
+		rect: getRect(),
+	}
+}
 
-		invokeAPI('propsUpdate', {
-			bridgeId: info.bridgeId,
-			params,
-		})
-	},
-)
-
-onBeforeMount(() => {
-	onEvent('bindcallouttap', (msg) => {
-		triggerEvent('callouttap', {
-			type: 'callouttap',
-			info,
-			detail: {
-				id: msg.id,
-				markerId: msg.markerId,
-				longitude: msg.longitude,
-				latitude: msg.latitude,
-			},
-		})
-	})
-
-	onEvent('bindmarkertap', (msg) => {
-		triggerEvent('markertap', {
-			type: 'markertap',
-			info,
-			detail: {
-				id: msg.id,
-				markerId: msg.markerId,
-				longitude: msg.longitude,
-				latitude: msg.latitude,
-			},
-		})
-	})
-
-	onEvent('bindregionchange', (msg) => {
-		triggerEvent('regionchange', {
-			type: 'regionchange',
-			info,
-			detail: msg,
-		})
-	})
-
-	onEvent('bindtap', (msg) => {
-		triggerEvent('tap', {
-			type: 'tap',
-			info,
-			detail: {
-				markerId: msg.markerId,
-			},
-		})
-	})
-
-	invokeAPI('componentMount', {
+function invokeNative(apiName) {
+	if (!isNativeMap.value) return
+	if (apiName === 'propsUpdate' && !nativeMounted) return
+	invokeAPI(apiName, {
 		bridgeId: info.bridgeId,
-		params: {
-			type,
-			id: props.id,
-			longitude: props.longitude,
-			latitude: props.latitude,
-			scale: props.scale,
-			markers: props.markers,
-			polyline: props.polyline,
-			polygons: props.polygons,
-			circles: props.circles,
-			includePoints: props.includePoints,
-			showLocation: props.showLocation,
-		},
+		params: getNativeParams(),
+	})
+}
+
+function bindNativeEvent(nativeEvent, eventType) {
+	const off = onEvent(nativeEvent, (msg) => {
+		if (msg.id !== undefined && msg.id !== props.id && msg.mapId !== props.id) return
+		triggerEvent(eventType, { type: eventType, info, detail: msg })
+	})
+	nativeEventOffs.push(off)
+}
+
+function syncRect(force = false) {
+	const rectKey = JSON.stringify({
+		...getRect(),
+		hidden: rootRef.value?.hasAttribute('hidden') || false,
+	})
+	if (force || rectKey !== lastRectKey) {
+		lastRectKey = rectKey
+		invokeNative('propsUpdate')
+	}
+}
+
+function scheduleSyncRect() {
+	if (syncFrameId) return
+	syncFrameId = requestAnimationFrame(() => {
+		syncFrameId = 0
+		syncRect()
+	})
+}
+
+onMounted(() => {
+	if (!isNativeMap.value) return
+	if (isAndroid) ensureNativeLayerTouchBridge()
+
+	for (const eventType of [
+		'callouttap',
+		'markertap',
+		'labeltap',
+		'controltap',
+		'regionchange',
+		'tap',
+		'indoorchange',
+		'poitap',
+		'anchorpointtap',
+		'updated',
+		'rendersuccess',
+		'error',
+	]) bindNativeEvent(`bind${eventType}`, eventType)
+
+	nextTick(() => {
+		nativeMounted = true
+		invokeNative('componentMount')
+		lastRectKey = JSON.stringify({ ...getRect(), hidden: rootRef.value?.hasAttribute('hidden') || false })
+		window.addEventListener('resize', scheduleSyncRect)
+		window.addEventListener('scroll', scheduleSyncRect, true)
+		if (window.ResizeObserver && rootRef.value) {
+			resizeObserver = new ResizeObserver(scheduleSyncRect)
+			resizeObserver.observe(rootRef.value)
+		}
 	})
 })
 
+watch(
+	() => getNativeParams(),
+	() => invokeNative('propsUpdate'),
+	{ deep: true },
+)
+
 onBeforeUnmount(() => {
-	invokeAPI('componentUnmount', {
-		bridgeId: info.bridgeId,
-		params: {
-			type,
-			id: props.id,
-			longitude: props.longitude,
-			latitude: props.latitude,
-			scale: props.scale,
-			markers: props.markers,
-			polyline: props.polyline,
-			polygons: props.polygons,
-			circles: props.circles,
-			includePoints: props.includePoints,
-			showLocation: props.showLocation,
-		},
-	})
-	offEvent('bindcallouttap')
-	offEvent('bindmarkertap')
-	offEvent('bindregionchange')
-	offEvent('bindtap')
+	if (syncFrameId) cancelAnimationFrame(syncFrameId)
+	resizeObserver?.disconnect()
+	window.removeEventListener('resize', scheduleSyncRect)
+	window.removeEventListener('scroll', scheduleSyncRect, true)
+	invokeNative('componentUnmount')
+	nativeMounted = false
+	nativeEventOffs.splice(0).forEach(off => off())
 })
 </script>
 
 <template>
-	<div v-if="isDesktop" v-bind="$attrs" class="dd-map dd-map-desktop">
-		未实现组件
+	<div :id="id" ref="rootRef" v-bind="$attrs" class="dd-map">
+		<div v-if="isDesktop" class="dd-map-desktop">未实现组件</div>
+		<div v-else-if="isIOS" class="dd-map-native dd-map-container"><div /></div>
+		<embed
+			v-else-if="isAndroid"
+			class="dd-map-native"
+			type="application/view"
+			:comp_type="type"
+			data-dimina-native-type="native/map"
+			:data-dimina-native-id="id"
+		/>
+		<embed v-else-if="isHarmonyOS" class="dd-map-native" :type="type" />
+		<div v-else class="dd-map-desktop">未实现组件</div>
+		<div class="dd-map-slot"><slot /></div>
 	</div>
-	<div v-else-if="isIOS" v-bind="$attrs" class="dd-map">
-		<!-- iOS 特定的内容 -->
-		<div class="dd-map-container">
-			<div style="width: 101%; height: 101%" />
-		</div>
-	</div>
-	<!-- Android 特定的内容 -->
-	<embed v-else-if="isAndroid" v-bind="$attrs" class="dd-map" type="application/view" :comp_type="type" />
-	<!-- HarmonyOS 特定的内容 -->
-	<embed v-else-if="isHarmonyOS" :id="id" v-bind="$attrs" class="dd-map" :type="type" />
 </template>
 
 <style lang="scss">
 .dd-map {
-	width: inherit;
-	height: inherit;
+	display: block;
+	position: relative;
+	overflow: hidden;
+	width: 300px;
+	height: 150px;
 
-	&[hidden] {
-		display: none;
-	}
+	&[hidden] { display: none; }
+}
 
-	.dd-map-container {
-		overflow: scroll;
-		-webkit-overflow-scrolling: touch;
-		width: 100%;
-		height: 100%;
-	}
+.dd-map-native,
+.dd-map-desktop,
+.dd-map-slot {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+}
+
+.dd-map-container {
+	overflow: scroll;
+	-webkit-overflow-scrolling: touch;
+
+	> div { width: 101%; height: 101%; }
 }
 
 .dd-map-desktop {
@@ -368,4 +257,8 @@ onBeforeUnmount(() => {
 	align-items: center;
 	justify-content: center;
 }
+
+.dd-map-slot { pointer-events: none; }
+.dd-map-slot * { pointer-events: auto; }
+.dd-map-native[data-dimina-native-type='native/map'] { background: transparent !important; opacity: 0; }
 </style>

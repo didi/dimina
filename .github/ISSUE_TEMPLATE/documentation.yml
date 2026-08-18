@@ -1,0 +1,73 @@
+name: "📚 文档问题 / Documentation"
+description: 报告文档缺失、错误、过期或表述不清
+title: "[Docs]: "
+labels: ["documentation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢帮助改进文档！代码行为异常请改用 Bug 报告。
+
+  - type: input
+    id: location
+    attributes:
+      label: 文档位置 / Location
+      description: 请提供页面链接、仓库文件路径或具体章节。
+      placeholder: "例如：https://github.com/didi/dimina/blob/main/docs/API-Reference.md#..."
+    validations:
+      required: true
+
+  - type: dropdown
+    id: issue-type
+    attributes:
+      label: 问题类型 / Type
+      options:
+        - 内容错误 / Incorrect
+        - 内容过期 / Outdated
+        - 内容缺失 / Missing
+        - 表述不清 / Unclear
+        - 链接或示例失效 / Broken link or example
+        - 拼写或格式 / Typo or formatting
+        - 其他 / Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 问题描述 / Problem
+      description: 请指出当前内容的问题，以及它可能造成的误解或阻碍。
+    validations:
+      required: true
+
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: 修改建议 / Suggested Change
+      description: 如有明确建议，请提供期望文案、示例或权威参考链接。
+
+  - type: input
+    id: affected-version
+    attributes:
+      label: 相关版本 / Affected Version
+      description: 若文档与特定 SDK、编译器版本或提交有关，请在此说明。
+      placeholder: "例如：v1.4.1 或 main@abc1234"
+
+  - type: upload
+    id: attachments
+    attributes:
+      label: 截图或附件 / Attachments
+      description: 可上传截图或其他有助于说明问题的文件。
+    validations:
+      required: false
+      accept: ".png,.jpg,.jpeg,.gif,.webp,.pdf,.txt"
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: 提交检查 / Checklist
+      options:
+        - label: 我已确认该问题仍存在于 main 分支的当前文档中。
+          required: true
+        - label: 我已搜索现有 Issues，确认没有相同的文档问题。
+          required: true

@@ -5,6 +5,7 @@ import com.didi.dimina.api.APIResult
 import com.didi.dimina.api.AsyncResult
 import com.didi.dimina.api.BaseApiHandler
 import com.didi.dimina.api.SyncResult
+import com.didi.dimina.common.PathUtils
 import com.didi.dimina.engine.qjs.JSValue
 import com.didi.dimina.ui.container.DiminaActivity
 import org.brotli.dec.BrotliInputStream
@@ -178,10 +179,10 @@ class FileApi : BaseApiHandler() {
         }
 
     private fun userRoot(activity: DiminaActivity, appId: String): File =
-        File(activity.filesDir, "dimina-file-system/$appId/$USER_PREFIX").apply { mkdirs() }
+        PathUtils.appUserRoot(activity, appId)
 
-    private fun tempRoot(activity: DiminaActivity): File =
-        activity.cacheDir.apply { mkdirs() }
+    private fun tempRoot(activity: DiminaActivity, appId: String): File =
+        PathUtils.appTempRoot(activity, appId)
 
     private fun resolve(activity: DiminaActivity, appId: String, rawPath: String): File {
         val path = rawPath.ifBlank { throw IllegalArgumentException("missing file path") }
@@ -190,16 +191,16 @@ class FileApi : BaseApiHandler() {
             when {
                 relative == USER_PREFIX -> userRoot(activity, appId)
                 relative.startsWith("$USER_PREFIX/") -> File(userRoot(activity, appId), relative.removePrefix("$USER_PREFIX/"))
-                relative == TEMP_PREFIX -> tempRoot(activity)
-                relative.startsWith("$TEMP_PREFIX/") -> File(tempRoot(activity), relative.removePrefix("$TEMP_PREFIX/"))
-                else -> File(tempRoot(activity), relative)
+                relative == TEMP_PREFIX -> tempRoot(activity, appId)
+                relative.startsWith("$TEMP_PREFIX/") -> File(tempRoot(activity, appId), relative.removePrefix("$TEMP_PREFIX/"))
+                else -> File(tempRoot(activity, appId), relative)
             }
         } else {
             File(path)
         }
 
         val canonical = file.canonicalFile
-        val allowedRoots = listOf(userRoot(activity, appId).canonicalFile, tempRoot(activity).canonicalFile)
+        val allowedRoots = listOf(userRoot(activity, appId).canonicalFile, tempRoot(activity, appId).canonicalFile)
         if (allowedRoots.none { canonical.path == it.path || canonical.path.startsWith(it.path + File.separator) }) {
             throw SecurityException("permission denied, open $rawPath")
         }

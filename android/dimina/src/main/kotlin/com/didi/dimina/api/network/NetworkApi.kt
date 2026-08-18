@@ -11,17 +11,25 @@ import com.didi.dimina.ui.container.DiminaActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import okhttp3.Call
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
+import okio.Buffer
+import okio.BufferedSink
+import okio.ForwardingSink
+import okio.buffer
 import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
 import java.io.File
 import java.io.IOException
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
 /**
@@ -35,6 +43,7 @@ class NetworkApi : BaseApiHandler() {
         private const val REQUEST = "request"
         private const val DOWNLOAD_FILE = "downloadFile"
         private const val UPLOAD = "uploadFile"
+        private const val ABORT_UPLOAD = "uploadFileTaskAbort"
 
         // 单例 OkHttpClient
         private val client: OkHttpClient by lazy {
@@ -70,9 +79,35 @@ class NetworkApi : BaseApiHandler() {
                 bodyString
             }
         }
+
+        internal fun uploadFormData(params: JSONObject): JSONObject? = params.optJSONObject("formData")
+
+        internal fun buildUploadMultipartBody(
+            file: File,
+            name: String,
+            formData: JSONObject?,
+            mimeType: String = MimeTypeMap.getSingleton().getMimeTypeFromExtension(file.extension.lowercase())
+                ?: "application/octet-stream",
+        ): MultipartBody {
+            val builder = MultipartBody.Builder().setType(MultipartBody.FORM)
+                .addFormDataPart(name, file.name, file.asRequestBody(mimeType.toMediaTypeOrNull()))
+            formData?.keys()?.forEach { key ->
+                builder.addFormDataPart(key, formData.optString(key))
+            }
+            return builder.build()
+        }
+
+        internal fun uploadProgress(totalBytes: Long, sentBytes: Long): JSONObject = JSONObject().apply {
+            val progress = if (totalBytes > 0) ((sentBytes * 100) / totalBytes).coerceIn(0, 100) else 0
+            put("progress", progress)
+            put("totalBytesSent", sentBytes)
+            put("totalBytesExpectedToSend", totalBytes.coerceAtLeast(0))
+        }
     }
 
-    override val apiNames = setOf(REQUEST, DOWNLOAD_FILE, UPLOAD)
+    private val uploadCalls = ConcurrentHashMap<String, Call>()
+
+    override val apiNames = setOf(REQUEST, DOWNLOAD_FILE, UPLOAD, ABORT_UPLOAD)
 
     override fun handleAction(
         activity: DiminaActivity,
@@ -248,9 +283,13 @@ class NetworkApi : BaseApiHandler() {
 
                         val ext = MimeTypeMap.getSingleton().getExtensionFromMimeType(body.contentType()?.toString()) ?: "tmp"
                         val outFile = if (filePath.isNotEmpty()) {
-                            File(activity.cacheDir, filePath)
+                            PathUtils.appTempFile(activity, appId, filePath)
                         } else {
-                            File.createTempFile("download_${System.currentTimeMillis()}", ".$ext", activity.cacheDir)
+                            File.createTempFile(
+                                "download_${System.currentTimeMillis()}",
+                                ".$ext",
+                                PathUtils.appTempRoot(activity, appId),
+                            )
                         }
 
                         outFile.outputStream().use { output ->
@@ -282,76 +321,120 @@ class NetworkApi : BaseApiHandler() {
 
             UPLOAD -> {
                 val url = params.optString("url")
-
-                if (url.isEmpty()) {
-                    return AsyncResult(JSONObject().apply {
-                        put("errMsg", "$DOWNLOAD_FILE:fail url is required")
-                    })
-                }
-
                 val header = params.optJSONObject("header")
-                val timeout = params.optInt("timeout", 60000)
+                val timeout = params.optInt("timeout", 60_000).takeIf { it > 0 } ?: 60_000
                 val filePath = params.optString("filePath")
                 val name = params.optString("name")
-                val formData = params.optJSONObject("name")
+                val formData = uploadFormData(params)
+                val taskId = params.optString("taskId").ifEmpty { UUID.randomUUID().toString() }
+                val progressCallbackId = params.optString("progressCallback")
+                val headersCallbackId = params.optString("headersCallback")
 
-                val adjustedClient = if (timeout != 60000) { // 如果超时时间不是默认值
+                fun failImmediately(message: String): APIResult {
+                    val result = JSONObject().put("errMsg", "$UPLOAD:fail $message")
+                    ApiUtils.invokeFail(params, result, responseCallback)
+                    ApiUtils.invokeComplete(params, responseCallback, result)
+                    return NoneResult()
+                }
+
+                if (url.isEmpty() || filePath.isEmpty() || name.isEmpty()) {
+                    return failImmediately("missing required parameters")
+                }
+
+                val adjustedClient = if (timeout != 60_000) {
                     client.newBuilder()
                         .connectTimeout(timeout.toLong(), TimeUnit.MILLISECONDS)
                         .readTimeout(timeout.toLong(), TimeUnit.MILLISECONDS)
                         .writeTimeout(timeout.toLong(), TimeUnit.MILLISECONDS)
                         .build()
                 } else {
-                    client // 直接使用单例
+                    client
                 }
 
+                val call = try {
+                    val file = File(PathUtils.pathToReal(activity, filePath, appId))
+                    if (!file.isFile) return failImmediately("file does not exist")
+                    val multipart = buildUploadMultipartBody(file, name, formData)
+                    val requestBody: RequestBody = ProgressRequestBody(multipart) { sent, total ->
+                        if (progressCallbackId.isNotEmpty() && uploadCalls.containsKey(taskId)) {
+                            responseCallback(
+                                ApiUtils.createCallbackResponse(
+                                    progressCallbackId,
+                                    uploadProgress(total, sent),
+                                )
+                            )
+                        }
+                    }
+                    val requestBuilder = Request.Builder().url(url).post(requestBody)
+                    header?.keys()?.forEach { key ->
+                        requestBuilder.addHeader(key, header.optString(key))
+                    }
+                    adjustedClient.newCall(requestBuilder.build())
+                } catch (e: Exception) {
+                    return failImmediately(e.message ?: "invalid parameters")
+                }
+
+                uploadCalls[taskId] = call
                 CoroutineScope(Dispatchers.IO).launch {
                     try {
-                        var file = File(PathUtils.pathToReal(activity, filePath))
-                        val fileRequestBody = file.asRequestBody("application/octet-stream".toMediaTypeOrNull())
-                        val multipartBuilder = MultipartBody.Builder().setType(MultipartBody.FORM)
-                            .addFormDataPart(name, file.name, fileRequestBody)
-
-                        // 附加 formData 参数
-                        formData?.keys()?.forEach { key ->
-                            multipartBuilder.addFormDataPart(key, formData.optString(key))
-                        }
-
-                        val requestBuilder = Request.Builder()
-                            .url(url)
-                            .post(multipartBuilder.build())
-
-                        // Set headers
-                        header?.let {
-                            header.keys().forEach { key ->
-                                requestBuilder.addHeader(key, header.optString(key))
+                        call.execute().use { response ->
+                            if (headersCallbackId.isNotEmpty()) {
+                                val headerResult = JSONObject().put(
+                                    "header",
+                                    JSONObject(mergeResponseHeaders(response.headers)),
+                                )
+                                responseCallback(ApiUtils.createCallbackResponse(headersCallbackId, headerResult))
                             }
+                            val result = JSONObject().apply {
+                                put("statusCode", response.code)
+                                put("data", response.body?.string() ?: "")
+                                put("errMsg", "$UPLOAD:ok")
+                            }
+                            ApiUtils.invokeSuccess(params, result, responseCallback)
+                            ApiUtils.invokeComplete(params, responseCallback, result)
                         }
-
-                        val response = adjustedClient.newCall(requestBuilder.build()).execute()
-                        val responseBody = response.body?.string() ?: ""
-
-                        ApiUtils.invokeSuccess(params, JSONObject().apply {
-                            put("statusCode", response.code)
-                            put("data", responseBody)
-                            put("errMsg", "$UPLOAD:ok")
-                        }, responseCallback)
-
-                        ApiUtils.invokeComplete(params, responseCallback)
-
                     } catch (e: Exception) {
-                        ApiUtils.invokeFail(params, JSONObject().apply {
-                            put("errMsg", "$UPLOAD:fail ${e.message}")
-                        }, responseCallback)
-
-                        ApiUtils.invokeComplete(params, responseCallback)
+                        val message = if (call.isCanceled()) "abort" else (e.message ?: "network error")
+                        val result = JSONObject().put("errMsg", "$UPLOAD:fail $message")
+                        ApiUtils.invokeFail(params, result, responseCallback)
+                        ApiUtils.invokeComplete(params, responseCallback, result)
+                    } finally {
+                        uploadCalls.remove(taskId, call)
                     }
                 }
+                NoneResult()
+            }
+
+            ABORT_UPLOAD -> {
+                uploadCalls.remove(params.optString("taskId"))?.cancel()
                 NoneResult()
             }
 
             else ->
                 super.handleAction(activity, appId, apiName, params, responseCallback)
         }
+    }
+}
+
+private class ProgressRequestBody(
+    private val delegate: RequestBody,
+    private val onProgress: (sentBytes: Long, totalBytes: Long) -> Unit,
+) : RequestBody() {
+    override fun contentType() = delegate.contentType()
+
+    override fun contentLength() = delegate.contentLength()
+
+    override fun writeTo(sink: BufferedSink) {
+        val total = contentLength()
+        var sent = 0L
+        val countingSink = object : ForwardingSink(sink) {
+            override fun write(source: Buffer, byteCount: Long) {
+                super.write(source, byteCount)
+                sent += byteCount
+                onProgress(sent, total)
+            }
+        }.buffer()
+        delegate.writeTo(countingSink)
+        countingSink.flush()
     }
 }

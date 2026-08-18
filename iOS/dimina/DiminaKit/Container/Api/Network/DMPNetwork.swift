@@ -212,8 +212,10 @@ class DMPNetwork {
      * @param timeout Upload timeout interval
      * @param success Callback with server response and status code
      * @param fail Callback for upload failure
-     * @param complete Callback for upload completion
+     * @param progress Callback for upload progress
+     * @param headersReceived Callback for response headers
      */
+    @discardableResult
     func uploadFile(
         url: String,
         filePath: String,
@@ -221,18 +223,19 @@ class DMPNetwork {
         header: [String: String]?,
         formData: [String: Any]?,
         timeout: TimeInterval,
+        progress: @escaping (Int64, Int64) -> Void,
+        headersReceived: @escaping ([String: String]) -> Void,
         success: @escaping (String, Int) -> Void,
-        fail: @escaping (String) -> Void,
-        complete: @escaping () -> Void
-    ) {
+        fail: @escaping (String) -> Void
+    ) -> UploadRequest {
         // 创建文件URL
         let fileURL = URL(fileURLWithPath: filePath)
         
         // 创建请求头，默认是multipart/form-data
-        var headers: HTTPHeaders = header.map { HTTPHeaders($0) } ?? []
+        let headers: HTTPHeaders = header.map { HTTPHeaders($0) } ?? []
         
         // 开始上传
-        AF.upload(multipartFormData: { multipartFormData in
+        let request = AF.upload(multipartFormData: { multipartFormData in
             // 添加文件
             multipartFormData.append(fileURL, withName: name)
             
@@ -257,7 +260,16 @@ class DMPNetwork {
         }, to: url, method: .post, headers: headers, requestModifier: { request in
             request.timeoutInterval = timeout
         })
-        .validate()
+        .uploadProgress { uploadProgress in
+            progress(uploadProgress.completedUnitCount, uploadProgress.totalUnitCount)
+        }
+        .onHTTPResponse { response in
+            var responseHeaders: [String: String] = [:]
+            response.allHeaderFields.forEach { key, value in
+                responseHeaders[String(describing: key)] = String(describing: value)
+            }
+            headersReceived(responseHeaders)
+        }
         .responseData { response in
             switch response.result {
             case .success(let data):
@@ -270,12 +282,13 @@ class DMPNetwork {
                 
             case .failure(let error):
                 // 上传失败
-                let errorMessage = "uploadFile:fail \(error.localizedDescription)"
+                let errorMessage = error.isExplicitlyCancelledError
+                    ? "uploadFile:fail abort"
+                    : "uploadFile:fail \(error.localizedDescription)"
                 fail(errorMessage)
             }
-            
-            // 完成回调
-            complete()
         }
+
+        return request
     }
-} 
+}

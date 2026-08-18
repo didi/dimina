@@ -1,8 +1,9 @@
 <script setup>
 // https://developers.weixin.qq.com/miniprogram/dev/component/navigator.html
 
-import { parsePath, sleep } from '@dimina/common'
-import { invokeAPI, useInfo } from '@/common/events'
+import { parsePath } from '@dimina/common'
+import { invokeAPIWithCallback, triggerEvent, useInfo } from '@/common/events'
+import { useHover } from '@/common/useHover'
 
 const props = defineProps({
 	/**
@@ -63,12 +64,24 @@ const props = defineProps({
 	shortLink: {
 		type: String,
 	},
+	scene: {
+		type: Number,
+		default: 1037,
+	},
+	sceneNote: {
+		type: String,
+		default: '',
+	},
 	/**
 	 * 指定点击时的样式类，当hover-class="none"时，没有点击态效果
 	 */
 	hoverClass: {
 		type: String,
 		default: 'navigator-hover',
+	},
+	hover: {
+		type: Boolean,
+		default: true,
 	},
 	/**
 	 * 指定是否阻止本节点的祖先节点出现点击态
@@ -93,86 +106,83 @@ const props = defineProps({
 	},
 })
 
-const isActive = ref(false)
-
-async function handleDown(event) {
-	if (props.hoverStopPropagation) {
-		event.stopPropagation()
-	}
-	await sleep(props.hoverStartTime)
-	isActive.value = true
-}
-
-async function handleUp() {
-	await sleep(props.hoverStayTime)
-	isActive.value = false
-}
+const { isHover, onHoverCancel, onHoverEnd, onHoverStart } = useHover(props)
 
 const info = useInfo()
-function clicked() {
+function invokeNavigationAPI(apiName, params, event) {
+	const preservedEvent = { ...event, currentTarget: event.currentTarget, target: event.target }
+	invokeAPIWithCallback(apiName, {
+		bridgeId: info.bridgeId,
+		params,
+		success: (result = {}) => triggerEvent('success', { event: preservedEvent, info, detail: result }),
+		fail: (result = {}) => triggerEvent('fail', { event: preservedEvent, info, detail: result }),
+		complete: (result = {}) => triggerEvent('complete', { event: preservedEvent, info, detail: result }),
+	})
+}
+
+function clicked(event) {
 	const { openType, target, url, redirect } = props
 	if (url?.includes('javascript:')) {
 		return
 	}
 	if (redirect) {
-		invokeAPI('redirectTo', {
-			bridgeId: info.bridgeId,
-			params: { url: parsePath(info.path, url) },
-		})
+		invokeNavigationAPI('redirectTo', { url: parsePath(info.path, url) }, event)
+		return
+	}
+	if (target === 'miniProgram') {
+		if (openType === 'navigate') {
+			invokeNavigationAPI('navigateToMiniProgram', {
+				appId: props.appId,
+				path: props.path,
+				shortLink: props.shortLink,
+				extraData: props.extraData,
+				envVersion: props.version,
+				scene: props.scene,
+				sceneNote: props.sceneNote,
+			}, event)
+		}
+		else if (openType === 'navigateBack') {
+			invokeNavigationAPI('navigateBackMiniProgram', { extraData: props.extraData }, event)
+		}
+		else if (openType === 'exit') {
+			invokeNavigationAPI('exitMiniProgram', {}, event)
+		}
 		return
 	}
 
 	switch (openType) {
 		case 'navigate': {
-			invokeAPI('navigateTo', {
-				bridgeId: info.bridgeId,
-				params: { url: parsePath(info.path, url) },
-			})
+			invokeNavigationAPI('navigateTo', { url: parsePath(info.path, url) }, event)
 			break
 		}
 		case 'redirect': {
-			invokeAPI('redirectTo', {
-				bridgeId: info.bridgeId,
-				params: { url: parsePath(info.path, url) },
-			})
+			invokeNavigationAPI('redirectTo', { url: parsePath(info.path, url) }, event)
 			break
 		}
 		case 'switchTab': {
-			invokeAPI('switchTab', {
-				bridgeId: info.bridgeId,
-				params: { url: parsePath(info.path, url) },
-			})
+			invokeNavigationAPI('switchTab', { url: parsePath(info.path, url) }, event)
 			break
 		}
 		case 'reLaunch': {
-			invokeAPI('reLaunch', {
-				bridgeId: info.bridgeId,
-				params: { url: parsePath(info.path, url) },
-			})
+			invokeNavigationAPI('reLaunch', { url: parsePath(info.path, url) }, event)
 			break
 		}
 		case 'navigateBack': {
-			invokeAPI('navigateBack', {
-				bridgeId: info.bridgeId,
-			})
+			invokeNavigationAPI('navigateBack', { delta: props.delta }, event)
 			break
 		}
-		case 'exit': {
-			if (target === 'miniProgram') {
-				invokeAPI('exit', {
-					bridgeId: info.bridgeId,
-				})
-			}
+		case 'exit':
 			break
-		}
 	}
 }
 </script>
 
 <template>
 	<span
-		v-bind="$attrs" class="dd-navigator" :class="[isActive ? hoverClass : undefined]" @click="clicked"
-		@mousedown="handleDown" @mouseup="handleUp"
+		v-bind="$attrs" class="dd-navigator" role="link" tabindex="0" :class="[isHover ? hoverClass : undefined]" @click="clicked"
+		@keydown.enter.prevent="clicked"
+		@touchstart="onHoverStart" @touchend="onHoverEnd" @touchcancel="onHoverCancel"
+		@mousedown="onHoverStart" @mouseup="onHoverEnd" @mouseleave="onHoverCancel"
 	>
 		<slot />
 	</span>

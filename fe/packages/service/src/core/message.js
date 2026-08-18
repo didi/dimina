@@ -1,6 +1,8 @@
 /* eslint-disable no-undef */
 import { isWebWorker } from '@dimina/common'
 import mitt from 'mitt'
+import { reportAppError } from './app-events'
+import { decodeDataFunctions, encodeDataFunctions } from './data-function'
 
 class Message {
 	constructor() {
@@ -21,9 +23,16 @@ class Message {
 	}
 
 	handleMsg(msg) {
-		console.log('[service] receive msg: ', isWebWorker ? msg : JSON.stringify(msg))
-		const { type, body } = msg
-		this.event.emit(type, body)
+		try {
+			const decodedMsg = decodeDataFunctions(msg)
+			console.log('[service] receive msg: ', isWebWorker ? decodedMsg : JSON.stringify(decodedMsg))
+			const { type, body } = decodedMsg
+			this.event.emit(type, body)
+		}
+		catch (error) {
+			reportAppError(error)
+			console.error('[service] message handler error:', error)
+		}
 	}
 
 	// 向逻辑层注册消息监听
@@ -39,13 +48,15 @@ class Message {
 	send(msg) {
 		if (isWebWorker) {
 			Message.prototype.send = function (msg) {
-				msg.method = 'publish'
-				globalThis.postMessage(msg)
+				const encodedMsg = encodeDataFunctions(msg)
+				encodedMsg.method = 'publish'
+				globalThis.postMessage(encodedMsg)
 			}
 		}
 		else {
 			Message.prototype.send = function (msg) {
-				return DiminaServiceBridge.publish(msg.body.bridgeId || '', msg)
+				const encodedMsg = encodeDataFunctions(msg)
+				return DiminaServiceBridge.publish(encodedMsg.body.bridgeId || '', encodedMsg)
 			}
 		}
 		return this.send(msg)

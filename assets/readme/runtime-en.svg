@@ -1,0 +1,163 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="520" viewBox="0 0 1200 520" role="img" aria-labelledby="title desc">
+  <title id="title">Dimina compiler and runtime flow</title>
+  <desc id="desc">DMCC compiles mini program source into a runtime bundle for Android, iOS, Harmony, and Web. A message channel connects logic, view, and native capabilities inside each container.</desc>
+
+  <style>
+    @media (prefers-reduced-motion: no-preference) {
+      .animated-arrow {
+        stroke-dasharray: 5 5;
+        animation: arrow-flow 0.75s linear infinite;
+      }
+      .meteor {
+        animation: meteor-fall 8s linear infinite;
+        will-change: transform, opacity;
+      }
+      .meteor-two { animation-delay: 2.7s; }
+      .meteor-three { animation-delay: 5.4s; }
+    }
+    .meteor { opacity: 0; }
+    @keyframes arrow-flow {
+      to { stroke-dashoffset: -10; }
+    }
+    @keyframes meteor-fall {
+      0%, 5% { opacity: 0; transform: translate(90px, -90px); }
+      8% { opacity: 0.72; }
+      30% { opacity: 0.72; transform: translate(-250px, 250px); }
+      34%, 100% { opacity: 0; transform: translate(-310px, 310px); }
+    }
+  </style>
+
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#0070F3"/>
+    </marker>
+    <linearGradient id="meteor-trail" x1="64" y1="0" x2="0" y2="64" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4AAEFF" stop-opacity="0"/>
+      <stop offset="0.68" stop-color="#4AAEFF" stop-opacity="0.22"/>
+      <stop offset="0.9" stop-color="#86CEFF" stop-opacity="0.58"/>
+      <stop offset="1" stop-color="#DDF4FF" stop-opacity="0.92"/>
+    </linearGradient>
+    <clipPath id="meteor-clip">
+      <rect width="1200" height="520" rx="26"/>
+    </clipPath>
+  </defs>
+
+  <rect width="1200" height="520" rx="26" fill="#FAFAFA"/>
+  <g id="meteor-shower" clip-path="url(#meteor-clip)" aria-hidden="true">
+    <g class="meteor meteor-one">
+      <g transform="translate(1110 4)">
+        <path d="M64 0 L0 64" fill="none" stroke="url(#meteor-trail)" stroke-width="3" stroke-linecap="round"/>
+        <circle cx="0" cy="64" r="5" fill="#9EDCFF" fill-opacity="0.18"/>
+        <circle cx="0" cy="64" r="2.6" fill="#FFF6DE" stroke="#72C7FF" stroke-width="1.2"/>
+      </g>
+    </g>
+    <g class="meteor meteor-two">
+      <g transform="translate(900 -24) scale(0.72)">
+        <path d="M64 0 L0 64" fill="none" stroke="url(#meteor-trail)" stroke-width="3" stroke-linecap="round"/>
+        <circle cx="0" cy="64" r="5" fill="#9EDCFF" fill-opacity="0.18"/>
+        <circle cx="0" cy="64" r="2.6" fill="#FFF6DE" stroke="#72C7FF" stroke-width="1.2"/>
+      </g>
+    </g>
+    <g class="meteor meteor-three">
+      <g transform="translate(1180 176) scale(0.58)">
+        <path d="M64 0 L0 64" fill="none" stroke="url(#meteor-trail)" stroke-width="3" stroke-linecap="round"/>
+        <circle cx="0" cy="64" r="5" fill="#9EDCFF" fill-opacity="0.18"/>
+        <circle cx="0" cy="64" r="2.6" fill="#FFF6DE" stroke="#72C7FF" stroke-width="1.2"/>
+      </g>
+    </g>
+  </g>
+  <text x="56" y="52" fill="#666666" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="14" font-weight="700" letter-spacing="1.6">ONE SOURCE · ONE RUNTIME CONTRACT · FOUR TARGETS</text>
+  <text x="56" y="86" fill="#000000" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="27" font-weight="750">From source to cross-platform containers</text>
+
+  <g id="compile-flow">
+    <rect x="56" y="116" width="216" height="108" rx="18" fill="#FFFFFF" stroke="#EAEAEA"/>
+    <text x="78" y="145" fill="#666666" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12" font-weight="700">MINI PROGRAM SOURCE</text>
+    <g transform="translate(78 166)">
+      <rect width="49" height="32" rx="8" fill="#E6F0FF"/>
+      <rect x="57" width="49" height="32" rx="8" fill="#F2F2F2"/>
+      <rect x="114" width="49" height="32" rx="8" fill="#F2F2F2"/>
+      <text x="24.5" y="21" text-anchor="middle" fill="#0070F3" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="700">WXML</text>
+      <text x="81.5" y="21" text-anchor="middle" fill="#333333" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="700">WXSS</text>
+      <text x="138.5" y="21" text-anchor="middle" fill="#666666" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="700">JS/TS</text>
+    </g>
+
+    <path class="animated-arrow" d="M272 170 H316" fill="none" stroke="#0070F3" stroke-width="2.5" marker-end="url(#arrow)"/>
+    <rect x="326" y="116" width="172" height="108" rx="18" fill="#FFFFFF" stroke="#EAEAEA"/>
+    <rect x="343" y="148" width="44" height="44" rx="11" fill="#000000"/>
+    <text x="365" y="176" text-anchor="middle" fill="#FFFFFF" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="14" font-weight="800">&lt;/&gt;</text>
+    <text x="397" y="166" fill="#000000" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="19" font-weight="800">DMCC</text>
+    <text x="397" y="187" fill="#666666" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11">COMPILER</text>
+
+    <path class="animated-arrow" d="M498 170 H542" fill="none" stroke="#0070F3" stroke-width="2.5" marker-end="url(#arrow)"/>
+    <rect id="runtime-bundle-card-en" x="552" y="116" width="240" height="108" rx="18" fill="#FFFFFF" stroke="#EAEAEA"/>
+    <path d="M578 145 H622 L636 159 V199 H578Z" fill="#E6F0FF" stroke="#99C2FF"/>
+    <path d="M622 145 V159 H636" fill="none" stroke="#99C2FF"/>
+    <path d="M589 172 H625 M589 184 H616" stroke="#0070F3" stroke-width="2" stroke-linecap="round"/>
+    <text id="runtime-bundle-label-en" x="654" y="166" fill="#000000" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="16" font-weight="700">Runtime bundle</text>
+    <text x="654" y="188" fill="#666666" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10">COMPILED RESOURCES</text>
+
+    <path class="animated-arrow" d="M792 170 H814" fill="none" stroke="#0070F3" stroke-width="2.5" marker-end="url(#arrow)"/>
+
+    <g transform="translate(824 113)">
+      <rect width="146" height="52" rx="13" fill="#FFFFFF" stroke="#EAEAEA"/>
+      <circle cx="22" cy="26" r="6" fill="#0070F3"/>
+      <text x="36" y="24" fill="#000000" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="15" font-weight="700">Android</text>
+      <text x="36" y="40" fill="#666666" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10">QuickJS</text>
+    </g>
+    <g transform="translate(982 113)">
+      <rect width="162" height="52" rx="13" fill="#FFFFFF" stroke="#EAEAEA"/>
+      <circle cx="22" cy="26" r="6" fill="#000000"/>
+      <text x="36" y="24" fill="#000000" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="15" font-weight="700">iOS</text>
+      <text x="36" y="40" fill="#666666" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10">JavaScriptCore</text>
+    </g>
+    <g transform="translate(824 175)">
+      <rect width="146" height="52" rx="13" fill="#FFFFFF" stroke="#EAEAEA"/>
+      <circle cx="22" cy="26" r="6" fill="#888888"/>
+      <text x="36" y="24" fill="#000000" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="15" font-weight="700">Harmony</text>
+      <text x="36" y="40" fill="#666666" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10">QuickJS</text>
+    </g>
+    <g transform="translate(982 175)">
+      <rect width="162" height="52" rx="13" fill="#FFFFFF" stroke="#EAEAEA"/>
+      <circle cx="22" cy="26" r="6" fill="#0070F3"/>
+      <text x="36" y="24" fill="#000000" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="15" font-weight="700">Web</text>
+      <text x="36" y="40" fill="#666666" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10">Web Worker</text>
+    </g>
+  </g>
+
+  <g id="runtime-contract">
+    <rect x="56" y="264" width="1088" height="208" rx="22" fill="#F2F2F2" stroke="#EAEAEA"/>
+    <text x="82" y="296" fill="#666666" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12" font-weight="700" letter-spacing="1.4">INSIDE EACH CONTAINER</text>
+
+    <g transform="translate(82 316)">
+      <rect width="282" height="112" rx="16" fill="#FFFFFF" stroke="#EAEAEA"/>
+      <rect x="18" y="18" width="44" height="8" rx="4" fill="#0070F3"/>
+      <text x="18" y="51" fill="#000000" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="18" font-weight="700">Logic · Service</text>
+      <text x="18" y="78" fill="#666666" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12">JS engine / Worker</text>
+      <text x="18" y="96" fill="#888888" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="13">lifecycle · API · state</text>
+    </g>
+
+    <path class="animated-arrow" d="M373 372 H410" fill="none" stroke="#0070F3" stroke-width="2.5" marker-end="url(#arrow)"/>
+    <path class="animated-arrow" d="M410 392 H373" fill="none" stroke="#888888" stroke-width="2.5" marker-end="url(#arrow)"/>
+
+    <g transform="translate(420 316)">
+      <rect width="282" height="112" rx="16" fill="#FFFFFF" stroke="#EAEAEA"/>
+      <rect x="18" y="18" width="44" height="8" rx="4" fill="#000000"/>
+      <text x="18" y="51" fill="#000000" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="18" font-weight="700">Message · Bridge</text>
+      <text x="18" y="78" fill="#666666" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12">event ⇄ data · JSBridge</text>
+      <text x="18" y="96" fill="#888888" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="13">connects logic, view &amp; native</text>
+    </g>
+
+    <path class="animated-arrow" d="M711 372 H748" fill="none" stroke="#0070F3" stroke-width="2.5" marker-end="url(#arrow)"/>
+    <path class="animated-arrow" d="M748 392 H711" fill="none" stroke="#888888" stroke-width="2.5" marker-end="url(#arrow)"/>
+
+    <g transform="translate(758 316)">
+      <rect width="360" height="112" rx="16" fill="#FFFFFF" stroke="#EAEAEA"/>
+      <rect x="18" y="18" width="44" height="8" rx="4" fill="#888888"/>
+      <text x="18" y="51" fill="#000000" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="18" font-weight="700">View + Native</text>
+      <text x="18" y="78" fill="#666666" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12">Vue runtime · components · WebView</text>
+      <text x="18" y="96" fill="#888888" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="13">native API · offline assets · preload</text>
+    </g>
+
+    <text x="82" y="454" fill="#666666" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="13">One runtime contract maps mini program semantics to every platform while retaining native capabilities.</text>
+  </g>
+</svg>

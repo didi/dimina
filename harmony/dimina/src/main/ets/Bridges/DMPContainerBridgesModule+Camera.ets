@@ -11,6 +11,7 @@ import cryptoFramework from '@ohos.security.cryptoFramework'
 import { DMPFileUrlConvertor } from '../Bundle/Util/DMPFileUrlConvertor'
 import { DMPFileManager } from '../Bundle/Util/DMPFileManager'
 import { DMPMap } from '../Utils/DMPMap'
+import { DMPLogger } from '../EventTrack/DMPLogger'
 
 
 export class DMPContainerBridgesModuleCamera extends DMPContainerBridgesModule {
@@ -67,7 +68,7 @@ export class DMPContainerBridgesModuleCamera extends DMPContainerBridgesModule {
         result.set('tempImagePath', tempFilePath)
         this.invokeSuccessCallback(callback, result)
       }).catch((error: BusinessError) => {
-        console.error('Failed to pack the image. And the error is: ' + error)
+        DMPLogger.e('', 'Failed to pack the image. And the error is: ' + error)
       })
 
     }
@@ -86,5 +87,4 @@ export class DMPContainerBridgesModuleCamera extends DMPContainerBridgesModule {
 
   }
 }
-
 

@@ -1,0 +1,1 @@
+.card{background:#fff;border:1rpx solid #dce5f2;border-radius:24rpx;box-shadow:0 12rpx 30rpx rgba(32,61,103,.08);margin-top:28rpx;padding:32rpx}.card__eyebrow{color:#53729f;font-size:24rpx}.card__title{color:#172033;font-size:36rpx;font-weight:600;margin-top:12rpx}.card__description{color:#69788f;font-size:26rpx;line-height:1.6;margin-top:12rpx}

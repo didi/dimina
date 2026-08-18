@@ -88,6 +88,26 @@ export class WorkerRequest {
   }
 }
 
+@Sendable
+export class WorkerFlushRequest {
+  command: string = 'flush';
+  requestId: number;
+
+  constructor(requestId: number) {
+    this.requestId = requestId;
+  }
+}
+
+@Sendable
+export class WorkerFlushResponse {
+  type: string = 'flush';
+  requestId: number;
+
+  constructor(requestId: number) {
+    this.requestId = requestId;
+  }
+}
+
 
 @Sendable
 export class WorkerAppDataRequest {

@@ -2,6 +2,7 @@ package com.didi.dimina.core
 
 import android.os.Handler
 import android.os.Looper
+import com.didi.dimina.common.JavaScriptUtils
 import com.didi.dimina.common.LogUtils
 import com.didi.dimina.engine.qjs.JSValue
 import com.didi.dimina.engine.qjs.QuickJSEngine
@@ -17,6 +18,9 @@ class JsCore {
     private val tag = "JsCore"
     private lateinit var jsEngine: QuickJSEngine
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val runtimeMessageQueue = RuntimeMessageQueue { action ->
+        mainHandler.post(action)
+    }
     // 记录所有已加载的 JS 文件路径
     private val loadedJsPaths = mutableSetOf<String>()
 
@@ -169,15 +173,16 @@ class JsCore {
      * @param body 消息内容
      */
     fun postMessage(type: String, body: Map<String, String> = emptyMap()) {
-        // 构建 JavaScript 代码来调用接收消息的函数
-        val jsonBody = StringBuilder()
-        jsonBody.append("{")
-        body.entries.forEachIndexed { index, entry ->
-            if (index > 0) jsonBody.append(",")
-            jsonBody.append("\"${entry.key}\":\"${entry.value}\"")
-        }
-        jsonBody.append("}")
-        postMessage("{type:'$type', body:$jsonBody}")
+        postMessage(JavaScriptUtils.message(type, body))
+    }
+
+    fun postMessage(type: String, body: JSONObject) {
+        postMessage(
+            JSONObject().apply {
+                put("type", type)
+                put("body", body)
+            }.toString()
+        )
     }
 
     fun postMessage(msg: String) {
@@ -185,8 +190,34 @@ class JsCore {
             LogUtils.e(tag, "Cannot post message: Engine not initialized")
             return
         }
-        mainHandler.post {
-            jsEngine.evaluate("DiminaServiceBridge.onMessage($msg)")
+        val accepted = runtimeMessageQueue.post {
+            // Immediate teardown may close the engine independently of this queued action.
+            if (isInitialized()) {
+                jsEngine.evaluate(JavaScriptUtils.invokeWithJson("DiminaServiceBridge.onMessage", msg))
+            }
+        }
+        if (!accepted) {
+            LogUtils.d(tag, "Dropping message after runtime teardown was scheduled")
+        }
+    }
+
+    /**
+     * Enqueues lifecycle work behind every service message already posted to this runtime.
+     * Destructive API actions use this instead of a delay so callback ordering is deterministic.
+     */
+    fun postAfterMessages(action: () -> Unit) {
+        if (!runtimeMessageQueue.post(action)) {
+            action()
+        }
+    }
+
+    /**
+     * Stops accepting new service messages and destroys QuickJS behind every message already
+     * queued for this runtime. Bridge.destroy() can therefore deliver Page.onUnload first.
+     */
+    fun destroyAfterMessages() {
+        runtimeMessageQueue.closeAfterPending {
+            destroyEngine()
         }
     }
 
@@ -203,9 +234,14 @@ class JsCore {
      * This method should be called when the engine is no longer needed
      */
     fun destroy() {
-        if (::jsEngine.isInitialized) {
-            loadedJsPaths.clear()
-            jsEngine.destroy()
+        if (runtimeMessageQueue.closeNow()) {
+            destroyEngine()
         }
+    }
+
+    private fun destroyEngine() {
+        if (!::jsEngine.isInitialized) return
+        loadedJsPaths.clear()
+        jsEngine.destroy()
     }
 }

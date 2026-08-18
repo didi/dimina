@@ -2,20 +2,36 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
+import { parseSync } from 'oxc-parser'
+import { walk } from 'oxc-walker'
 import { resolveMiniProgramPath, toMiniProgramModuleId } from './common/path-utils.js'
-import { isObjectEmpty, uuid } from './common/utils.js'
+import { isObjectEmpty, resolveAssetSourcePath, uuid } from './common/utils.js'
 import { NpmResolver } from './common/npm-resolver.js'
+import { DependencyGraph } from './common/dependency-graph.js'
 
 let pathInfo = {}
 let configInfo = {}
 let npmResolver = null
+let dependencyGraph = new DependencyGraph()
 
 // 小程序自定义文件类型：可扩展的文件扩展名和内联标签。
 // 始终保留内置 wx/dd 类型；调用方通过 build() 或 storeInfo() 的 options.fileTypes 追加自定义项。
 const DEFAULT_TEMPLATE_EXTS = ['.wxml', '.ddml']
+// 保留已有的微信、钉钉与支付宝指令前缀兼容；自定义模板类型会再显式派生前缀。
+const DEFAULT_TEMPLATE_DIRECTIVE_PREFIXES = ['wx', 'dd', 'a']
 const DEFAULT_STYLE_EXTS = ['.wxss', '.ddss', '.less', '.scss', '.sass']
 const DEFAULT_VIEW_SCRIPT_EXTS = ['.wxs']
 const DEFAULT_VIEW_SCRIPT_TAGS = ['wxs', 'dds']
+// 微信自定义 tabBar 的规范入口只在编译适配层解析；运行时通过产物元数据识别。
+const CUSTOM_TAB_BAR_COMPONENT_PATH = '/custom-tab-bar/index'
+const STYLE_ISOLATION_VALUES = new Set([
+	'isolated',
+	'apply-shared',
+	'shared',
+])
+const MINI_PROGRAM_RUNTIME_TYPE = 'miniProgram'
+const MINI_GAME_RUNTIME_TYPE = 'game'
+const MINI_GAME_ENTRY_PATH = 'game'
 
 // 保留扩展名：所有内置类型 + 逻辑(.js/.ts) + 配置(.json)。自定义项不得占用，
 // 否则会跨角色串编（如 template:['js'] 会把页面逻辑文件当成模板解析）。
@@ -90,8 +106,13 @@ function mergeUnique(builtins, custom, normalizer, reserved) {
  */
 function normalizeFileTypes(fileTypes = {}) {
 	const ft = fileTypes || {}
+	const templateExts = mergeUnique(DEFAULT_TEMPLATE_EXTS, ft.template, normalizeExt, RESERVED_EXTS)
 	return {
-		templateExts: mergeUnique(DEFAULT_TEMPLATE_EXTS, ft.template, normalizeExt, RESERVED_EXTS),
+		templateExts,
+		templateDirectivePrefixes: [...new Set([...DEFAULT_TEMPLATE_DIRECTIVE_PREFIXES, ...templateExts.map((extension) => {
+			const name = extension.slice(1)
+			return name.endsWith('ml') ? name.slice(0, -2) : name
+		}).filter(Boolean)])],
 		styleExts: mergeUnique(DEFAULT_STYLE_EXTS, ft.style, normalizeExt, RESERVED_EXTS),
 		viewScriptExts: mergeUnique(DEFAULT_VIEW_SCRIPT_EXTS, ft.viewScript, normalizeExt, RESERVED_EXTS),
 		viewScriptTags: mergeUnique(DEFAULT_VIEW_SCRIPT_TAGS, ft.viewScript, normalizeTag),
@@ -104,18 +125,20 @@ function normalizeFileTypes(fileTypes = {}) {
  * @param {{ fileTypes?: { template?: string[], style?: string[], viewScript?: string[] } }} [options] 构建选项
  */
 function storeInfo(workPath, options = {}) {
+	// 依赖图需要知道当前构建的文件类型，因此在扫描项目前先重建选项。
+	compilerOptions = normalizeFileTypes(options.fileTypes)
 	storePathInfo(workPath)
 	storeProjectConfig()
 	storeAppConfig()
 	storePageConfig()
-
-	// 根据当前 options 重建，避免上一次 build() 注入的自定义文件类型影响本次构建。
-	compilerOptions = normalizeFileTypes(options.fileTypes)
+	dependencyGraph = createInitialDependencyGraph()
+	dependencyGraph.merge(options.dependencyGraph)
 
 	return {
 		pathInfo,
 		configInfo,
 		compilerOptions,
+		dependencyGraph: dependencyGraph.toJSON(),
 	}
 }
 
@@ -124,6 +147,7 @@ function resetStoreInfo(opts) {
 	configInfo = opts.configInfo
 	// Worker 恢复上下文时使用主线程生成的自定义文件类型配置，缺省时回退到内置配置。
 	compilerOptions = opts.compilerOptions || normalizeFileTypes()
+	dependencyGraph = new DependencyGraph(opts.dependencyGraph)
 
 	// 重新初始化 npm 解析器
 	if (pathInfo.workPath) {
@@ -133,6 +157,11 @@ function resetStoreInfo(opts) {
 
 function getTemplateExts() {
 	return compilerOptions.templateExts
+}
+
+function getTemplateDirectivePrefixes() {
+	return compilerOptions.templateDirectivePrefixes
+		|| normalizeFileTypes({ template: compilerOptions.templateExts }).templateDirectivePrefixes
 }
 
 function getStyleExts() {
@@ -147,6 +176,10 @@ function getViewScriptTags() {
 	return compilerOptions.viewScriptTags
 }
 
+function getDependencyGraph() {
+	return dependencyGraph
+}
+
 function storePathInfo(workPath) {
 	pathInfo.workPath = workPath
 	
@@ -156,12 +189,8 @@ function storePathInfo(workPath) {
 	} else {
 		// 使用工作区目录或系统临时目录，确保有写入权限
 		const tempDir = process.env.GITHUB_WORKSPACE || os.tmpdir()
-		const targetDir = path.join(tempDir, `dimina-fe-dist-${Date.now()}`)
-
-		// 确保目录存在
-		if (!fs.existsSync(targetDir)) {
-			fs.mkdirSync(targetDir, { recursive: true })
-		}
+		// mkdtemp 的原子分配保证并行构建不会在同一毫秒复用并互相覆盖产物。
+		const targetDir = fs.mkdtempSync(path.join(tempDir, 'dimina-fe-dist-'))
 
 		pathInfo.targetPath = targetDir
 	}
@@ -206,8 +235,27 @@ function getProjectConfig() {
 }
 
 function storeAppConfig() {
-	const filePath = `${pathInfo.workPath}/app.json`
+	const runtimeType = detectRuntimeType()
+	const configFileName = runtimeType === MINI_GAME_RUNTIME_TYPE ? 'game.json' : 'app.json'
+	const filePath = `${pathInfo.workPath}/${configFileName}`
 	const content = parseContentByPath(filePath)
+	if (runtimeType === MINI_GAME_RUNTIME_TYPE) {
+		// 小游戏没有页面路由和 app.json。对下游维持统一的 app-config.json
+		// 形状，同时保留 game.json 原始字段，入口由 runtimeType 明确区分。
+		configInfo.runtimeType = MINI_GAME_RUNTIME_TYPE
+		configInfo.appInfo = {
+			...content,
+			runtimeType: MINI_GAME_RUNTIME_TYPE,
+			entryPagePath: MINI_GAME_ENTRY_PATH,
+			pages: [MINI_GAME_ENTRY_PATH],
+			window: {
+				backgroundColor: content.backgroundColor || '#000000',
+				navigationStyle: 'custom',
+			},
+		}
+		return
+	}
+
 	const newObj = {}
 	for (const key in content) {
 		if (Object.prototype.hasOwnProperty.call(content, key)) {
@@ -222,7 +270,36 @@ function storeAppConfig() {
 			}
 		}
 	}
+	configInfo.runtimeType = MINI_PROGRAM_RUNTIME_TYPE
+	newObj.runtimeType = MINI_PROGRAM_RUNTIME_TYPE
 	configInfo.appInfo = newObj
+}
+
+function detectRuntimeType() {
+	const compileType = configInfo.projectInfo?.compileType
+	const hasMiniProgramConfig = fs.existsSync(path.join(pathInfo.workPath, 'app.json'))
+	const hasMiniGameConfig = fs.existsSync(path.join(pathInfo.workPath, 'game.json'))
+	const hasMiniGameEntry = ['game.js', 'game.ts']
+		.some(fileName => fs.existsSync(path.join(pathInfo.workPath, fileName)))
+
+	if (compileType === 'game') {
+		return MINI_GAME_RUNTIME_TYPE
+	}
+	if (compileType === 'miniprogram') {
+		return MINI_PROGRAM_RUNTIME_TYPE
+	}
+	if (!hasMiniProgramConfig && hasMiniGameConfig && hasMiniGameEntry) {
+		return MINI_GAME_RUNTIME_TYPE
+	}
+	return MINI_PROGRAM_RUNTIME_TYPE
+}
+
+function getRuntimeType() {
+	return configInfo.runtimeType || MINI_PROGRAM_RUNTIME_TYPE
+}
+
+function isMiniGame() {
+	return getRuntimeType() === MINI_GAME_RUNTIME_TYPE
 }
 
 function getContentByPath(path) {
@@ -237,6 +314,11 @@ function parseContentByPath(path) {
  * 收集页面 json 信息
  */
 function storePageConfig() {
+	if (isMiniGame()) {
+		configInfo.pageInfo = {}
+		configInfo.componentInfo = {}
+		return
+	}
 	const { pages, subPackages } = configInfo.appInfo
 	configInfo.pageInfo = {}
 	configInfo.componentInfo = {}
@@ -256,6 +338,66 @@ function storePageConfig() {
 			collectionPageJson(subPkg.pages, subPkg.root)
 		})
 	}
+
+	storeCustomTabBarConfig()
+}
+
+/**
+ * 微信会把 custom-tab-bar/index 作为每个 tab 页的直属组件创建。业务页面
+ * 不需要在 usingComponents 中显式声明它，因此编译阶段补一个内部组件引用，
+ * 让逻辑、视图和样式三个编译器都能沿现有依赖图收集该组件。
+ */
+function storeCustomTabBarConfig() {
+	const tabBar = configInfo.appInfo?.tabBar
+	if (tabBar?.custom !== true || !Array.isArray(tabBar.list)) {
+		return
+	}
+
+	const componentJsonPath = path.join(pathInfo.workPath, 'custom-tab-bar/index.json')
+	if (!fs.existsSync(componentJsonPath)) {
+		console.warn('[env] tabBar.custom 已启用，但找不到 custom-tab-bar/index.json')
+		return
+	}
+
+	const dependencyName = `dimina-${uuid(CUSTOM_TAB_BAR_COMPONENT_PATH)}`
+	const internalConfig = {
+		usingComponents: {
+			[dependencyName]: CUSTOM_TAB_BAR_COMPONENT_PATH,
+		},
+	}
+	storeComponentConfig(internalConfig, path.join(pathInfo.workPath, 'app.json'))
+	const componentConfig = configInfo.componentInfo[CUSTOM_TAB_BAR_COMPONENT_PATH]
+	if (componentConfig) {
+		componentConfig.customTabBar = true
+	}
+
+	for (const item of tabBar.list) {
+		const pagePath = typeof item?.pagePath === 'string'
+			? item.pagePath.replace(/^\/+/, '')
+			: ''
+		if (!pagePath || !configInfo.appInfo.pages?.includes(pagePath)) {
+			continue
+		}
+		const pageConfig = configInfo.pageInfo[pagePath] ||= {}
+		pageConfig.usingComponents ||= {}
+		const declaredComponents = {
+			...(configInfo.appInfo.usingComponents || {}),
+			...pageConfig.usingComponents,
+		}
+		const declaredEntry = Object.entries(declaredComponents)
+			.find(([, componentPath]) => componentPath === CUSTOM_TAB_BAR_COMPONENT_PATH)
+		let componentName = declaredEntry?.[0] || dependencyName
+		let suffix = 0
+		while (
+			declaredComponents[componentName]
+			&& declaredComponents[componentName] !== CUSTOM_TAB_BAR_COMPONENT_PATH
+		) {
+			suffix++
+			componentName = `${dependencyName}-${suffix}`
+		}
+		pageConfig.usingComponents[componentName] = CUSTOM_TAB_BAR_COMPONENT_PATH
+		pageConfig.customTabBar = { componentName }
+	}
 }
 
 /**
@@ -263,6 +405,9 @@ function storePageConfig() {
  * @param {*} pages
  */
 function collectionPageJson(pages, root) {
+	if (!Array.isArray(pages)) {
+		return
+	}
 	pages.forEach((pagePath) => {
 		let np = pagePath
 		if (root) {
@@ -332,16 +477,19 @@ function storeComponentConfig(pageJsonContent, pageFilePath) {
 		
 		const cUsing = cContent.usingComponents || {}
 		const isComponent = cContent.component || false
+		const styleIsolation = resolveComponentStyleIsolation(cContent, componentFilePath)
 		const cComponents = Object.keys(cUsing).reduce((acc, key) => {
 			acc[key] = getModuleId(cUsing[key], componentFilePath)
 			return acc
 		}, {})
 
 		configInfo.componentInfo[moduleId] = {
-			id: uuid(),
+			id: uuid(moduleId),
 			path: moduleId,
 			component: isComponent,
+			styleIsolation,
 			usingComponents: cComponents,
+			componentPlaceholder: { ...(cContent.componentPlaceholder || {}) },
 		}
 
 		// 只有当配置文件存在时才递归处理
@@ -349,6 +497,84 @@ function storeComponentConfig(pageJsonContent, pageFilePath) {
 			storeComponentConfig(configInfo.componentInfo[moduleId], componentFilePath)
 		}
 	}
+}
+
+function getStaticProperty(objectExpression, propertyName) {
+	if (objectExpression?.type !== 'ObjectExpression') {
+		return undefined
+	}
+	return objectExpression.properties?.find((property) => {
+		if (property.type !== 'Property' || property.computed) {
+			return false
+		}
+		return property.key?.name === propertyName || property.key?.value === propertyName
+	})?.value
+}
+
+function normalizeStyleIsolation(value) {
+	return STYLE_ISOLATION_VALUES.has(value) ? value : undefined
+}
+
+/**
+ * styleIsolation can be declared either in component.json or in
+ * Component({ options }). The style compiler must know it before service
+ * runtime starts, so only statically-declared literal options participate.
+ * addGlobalClass is the legacy equivalent of apply-shared.
+ */
+function resolveComponentStyleIsolation(componentConfig, componentJsonPath) {
+	const jsonValue = normalizeStyleIsolation(componentConfig?.styleIsolation)
+	if (jsonValue) {
+		return jsonValue
+	}
+
+	const basePath = componentJsonPath.replace(/\.json$/i, '')
+	const scriptPath = ['.js', '.ts']
+		.map(ext => `${basePath}${ext}`)
+		.find(candidate => fs.existsSync(candidate))
+	if (!scriptPath) {
+		return 'isolated'
+	}
+
+	try {
+		const source = getContentByPath(scriptPath)
+		const { program } = parseSync(scriptPath, source, {
+			sourceType: 'unambiguous',
+		})
+		let extractedValue
+		walk(program, {
+			enter(expression) {
+				if (extractedValue) {
+					return
+				}
+				if (
+					expression?.type !== 'CallExpression'
+					|| expression.callee?.type !== 'Identifier'
+					|| expression.callee.name !== 'Component'
+				) {
+					return
+				}
+				const definition = expression.arguments?.[0]
+				const options = getStaticProperty(definition, 'options')
+				const styleIsolation = getStaticProperty(options, 'styleIsolation')?.value
+				const normalized = normalizeStyleIsolation(styleIsolation)
+				if (normalized) {
+					extractedValue = normalized
+					return
+				}
+				if (getStaticProperty(options, 'addGlobalClass')?.value === true) {
+					extractedValue = 'apply-shared'
+				}
+			},
+		})
+		if (extractedValue) {
+			return extractedValue
+		}
+	}
+	catch (error) {
+		console.warn(`[env] 无法解析组件样式隔离配置 ${scriptPath}: ${error.message}`)
+	}
+
+	return 'isolated'
 }
 
 /**
@@ -441,6 +667,17 @@ function transSubDir(name) {
  * 获取页面及其配置信息，并生成id（输出的 json 文件没有 id)
  */
 function getPages() {
+	if (isMiniGame()) {
+		return {
+			mainPages: [{
+				id: uuid(MINI_GAME_ENTRY_PATH),
+				path: MINI_GAME_ENTRY_PATH,
+				game: true,
+				usingComponents: {},
+			}],
+			subPages: {},
+		}
+	}
 	// 获取所有页面路径
 	const { pages, subPackages = [], usingComponents: globalComponents = {} } = getAppConfigInfo()
 	const pageInfo = getPageConfigInfo()
@@ -451,9 +688,13 @@ function getPages() {
 		const mergedComponents = { ...globalComponents, ...pageComponents }
 		
 		return {
-			id: uuid(),
+			id: uuid(path),
 			path,
+			appStyleScopeId: getAppStyleScopeId(),
+			sharedStyleScopeIds: collectSharedStyleScopeIds(mergedComponents),
 			usingComponents: mergedComponents,
+			componentPlaceholder: { ...(pageInfo[path]?.componentPlaceholder || {}) },
+			customTabBar: pageInfo[path]?.customTabBar,
 		}
 	})
 
@@ -470,9 +711,13 @@ function getPages() {
 				const mergedComponents = { ...globalComponents, ...pageComponents }
 				
 				return {
-					id: uuid(),
+					id: uuid(fullPath),
 					path: fullPath,
+					appStyleScopeId: getAppStyleScopeId(),
+					sharedStyleScopeIds: collectSharedStyleScopeIds(mergedComponents),
 					usingComponents: mergedComponents,
+					componentPlaceholder: { ...(pageInfo[fullPath]?.componentPlaceholder || {}) },
+					customTabBar: pageInfo[fullPath]?.customTabBar,
 				}
 			}),
 		}
@@ -483,22 +728,163 @@ function getPages() {
 	}
 }
 
+function addExistingModuleFiles(graph, moduleId) {
+	const relativeId = moduleId.replace(/^\/+/, '')
+	const basePath = path.resolve(getWorkPath(), relativeId)
+	const baseCandidates = [basePath, path.join(basePath, 'index')]
+	const extensions = [
+		'.json',
+		'.js',
+		'.ts',
+		...getTemplateExts(),
+		...getStyleExts(),
+		...getViewScriptExts(),
+	]
+	for (const candidateBase of baseCandidates) {
+		for (const extension of extensions) {
+			const filePath = `${candidateBase}${extension}`
+			if (fs.existsSync(filePath)) {
+				graph.addFile(moduleId, filePath, getFileDependencyKind(filePath))
+			}
+		}
+	}
+}
+
+function getFileDependencyKind(filePath) {
+	const extension = path.extname(filePath).toLowerCase()
+	if (extension === '.json') return 'config'
+	if (extension === '.js' || extension === '.ts') return 'logic'
+	if (getTemplateExts().includes(extension) || getViewScriptExts().includes(extension)) return 'view'
+	if (getStyleExts().includes(extension)) return 'style'
+	return 'module'
+}
+
+function createInitialDependencyGraph() {
+	const graph = new DependencyGraph()
+	if (isMiniGame()) {
+		graph.addNode(MINI_GAME_ENTRY_PATH, { type: MINI_GAME_RUNTIME_TYPE, entry: true })
+		for (const fileName of [
+			'game.json',
+			'game.js',
+			'game.ts',
+			'project.config.json',
+			'project.private.config.json',
+		]) {
+			const filePath = path.resolve(getWorkPath(), fileName)
+			if (fs.existsSync(filePath)) {
+				graph.addFile(MINI_GAME_ENTRY_PATH, filePath, getFileDependencyKind(filePath))
+			}
+		}
+		return graph
+	}
+	graph.addNode('app', { type: 'app' })
+	for (const fileName of [
+		'app.json',
+		'app.js',
+		'app.ts',
+		'project.config.json',
+		'project.private.config.json',
+	]) {
+		const filePath = path.resolve(getWorkPath(), fileName)
+		if (fs.existsSync(filePath)) {
+			graph.addFile('app', filePath, getFileDependencyKind(filePath))
+		}
+	}
+	addExistingModuleFiles(graph, 'app')
+	for (const item of getAppConfigInfo().tabBar?.list || []) {
+		for (const field of ['iconPath', 'selectedIconPath']) {
+			if (!item[field]) continue
+			const assetPath = resolveAssetSourcePath(getWorkPath(), '', item[field])
+			if (fs.existsSync(assetPath)) {
+				graph.addFile('app', assetPath, 'config')
+			}
+		}
+	}
+
+	for (const component of Object.values(configInfo.componentInfo || {})) {
+		graph.addNode(component.path, { type: 'component' })
+		addExistingModuleFiles(graph, component.path)
+	}
+	for (const component of Object.values(configInfo.componentInfo || {})) {
+		for (const dependencyPath of Object.values(component.usingComponents || {})) {
+			graph.addDependency(component.path, dependencyPath, 'component')
+		}
+	}
+
+	const pages = getPages()
+	const addEntry = (page, packageRoot) => {
+		graph.addNode(page.path, {
+			type: 'page',
+			entry: true,
+			packageRoot,
+		})
+		addExistingModuleFiles(graph, page.path)
+		graph.addDependency(page.path, 'app', 'app')
+		for (const dependencyPath of Object.values(page.usingComponents || {})) {
+			graph.addDependency(page.path, dependencyPath, 'component')
+		}
+	}
+	for (const page of pages.mainPages) {
+		addEntry(page, null)
+	}
+	for (const [packageRoot, subPackage] of Object.entries(pages.subPages)) {
+		for (const page of subPackage.info) {
+			addEntry(page, packageRoot)
+		}
+	}
+	return graph
+}
+
+function collectSharedStyleScopeIds(usingComponents) {
+	const result = []
+	const visited = new Set()
+	const visit = (componentPath) => {
+		if (visited.has(componentPath)) {
+			return
+		}
+		visited.add(componentPath)
+		const component = configInfo.componentInfo[componentPath]
+		if (!component) {
+			return
+		}
+		if (component.styleIsolation === 'shared') {
+			result.push(component.id)
+		}
+		for (const childPath of Object.values(component.usingComponents || {})) {
+			visit(childPath)
+		}
+	}
+	for (const componentPath of Object.values(usingComponents || {})) {
+		visit(componentPath)
+	}
+	return result
+}
+
+function getAppStyleScopeId() {
+	return uuid('app')
+}
+
 export {
 	getAppConfigInfo,
+	getDependencyGraph,
 	getAppId,
 	getAppName,
+	getAppStyleScopeId,
 	getComponent,
 	getContentByPath,
 	getNpmResolver,
 	getPageConfigInfo,
 	getPages,
 	getProjectConfig,
+	getRuntimeType,
 	getStyleExts,
 	getTargetPath,
+	getTemplateDirectivePrefixes,
 	getTemplateExts,
 	getViewScriptExts,
 	getViewScriptTags,
 	getWorkPath,
+	isMiniGame,
 	resetStoreInfo,
 	resolveAppAlias,
 	storeInfo,

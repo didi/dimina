@@ -13,7 +13,7 @@ extension DMPFileUtil {
     
     public static func createTemporaryImagePath(image: UIImage, appId: String) -> DMPImageFileModel? {
         guard let data = image.jpegData(compressionQuality: 1.0) else {
-            print("Failed to create JPEG data from image")
+            DMPLogger.debug("Failed to create JPEG data from image")
             return nil
         }
 
@@ -29,7 +29,7 @@ extension DMPFileUtil {
                 withIntermediateDirectories: true,
                 attributes: nil)
         } catch {
-            print("Failed to create temporary directory: \(error.localizedDescription)")
+            DMPLogger.debug("Failed to create temporary directory: \(error.localizedDescription)")
             return nil
         }
         
@@ -43,7 +43,7 @@ extension DMPFileUtil {
             try data.write(to: URL(fileURLWithPath: imagePath))
             return DMPImageFileModel(path: imagePath, size: data.count, vPath: vPath)
         } catch {
-            print("Failed to write image data: \(error.localizedDescription)")
+            DMPLogger.debug("Failed to write image data: \(error.localizedDescription)")
             return nil
         }
     }
@@ -65,7 +65,7 @@ extension DMPFileUtil {
         // 获取文件大小
         guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
               let fileSize = attrs[.size] as? Int else {
-            print("Failed to get video file size")
+            DMPLogger.debug("Failed to get video file size")
             return nil
         }
         
@@ -77,7 +77,7 @@ extension DMPFileUtil {
                 withIntermediateDirectories: true,
                 attributes: nil)
         } catch {
-            print("Failed to create temporary directory: \(error.localizedDescription)")
+            DMPLogger.debug("Failed to create temporary directory: \(error.localizedDescription)")
             return nil
         }
         
@@ -96,7 +96,7 @@ extension DMPFileUtil {
                 try FileManager.default.copyItem(at: url, to: URL(fileURLWithPath: videoPath))
                 return DMPVideoFileModel(path: videoPath, size: fileSize, vPath: vPath, duration: duration, height: height, width: width)
             } catch {
-                print("Failed to copy video file: \(error.localizedDescription)")
+                DMPLogger.debug("Failed to copy video file: \(error.localizedDescription)")
                 return nil
             }
         }
@@ -112,7 +112,7 @@ extension DMPFileUtil {
         let avAsset = AVAsset(url: sourceURL)
         
         guard let exportSession = AVAssetExportSession(asset: avAsset, presetName: compressQuality) else {
-            print("Failed to create export session")
+            DMPLogger.debug("Failed to create export session")
             return nil
         }
         
@@ -131,7 +131,7 @@ extension DMPFileUtil {
                 // 获取压缩后的文件大小
                 guard let attrs = try? FileManager.default.attributesOfItem(atPath: destinationPath),
                       let fileSize = attrs[.size] as? Int else {
-                    print("Failed to get compressed video file size")
+                    DMPLogger.debug("Failed to get compressed video file size")
                     semaphore.signal()
                     return
                 }
@@ -139,13 +139,13 @@ extension DMPFileUtil {
                 videoFileModel = DMPVideoFileModel(path: destinationPath, size: fileSize, vPath: vPath, duration: duration, height: height, width: width)
                 
             case .failed:
-                print("Export failed: \(String(describing: exportSession.error))")
+                DMPLogger.debug("Export failed: \(String(describing: exportSession.error))")
                 
             case .cancelled:
-                print("Export cancelled")
+                DMPLogger.debug("Export cancelled")
                 
             default:
-                print("Export unknown status: \(exportSession.status.rawValue)")
+                DMPLogger.debug("Export unknown status: \(exportSession.status.rawValue)")
             }
             
             semaphore.signal()
@@ -170,7 +170,7 @@ extension DMPFileUtil {
             let cgImage = try imageGenerator.copyCGImage(at: time, actualTime: nil)
             return UIImage(cgImage: cgImage)
         } catch {
-            print("Failed to generate thumbnail: \(error.localizedDescription)")
+            DMPLogger.debug("Failed to generate thumbnail: \(error.localizedDescription)")
             return nil
         }
     }

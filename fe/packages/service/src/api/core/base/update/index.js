@@ -50,10 +50,16 @@ class UpdateManager {
 		}
 
 		if (event === EVENT_UPDATE_READY) {
+			const shouldEmitCheck = this.checkForUpdateResult?.hasUpdate !== true
+			const shouldEmitReady = !this.updateReady
 			this.updateReady = true
 			this.checkForUpdateResult = { hasUpdate: true }
-			this.emit(this.checkForUpdateListeners, this.checkForUpdateResult)
-			this.emit(this.updateReadyListeners)
+			if (shouldEmitCheck) {
+				this.emit(this.checkForUpdateListeners, this.checkForUpdateResult)
+			}
+			if (shouldEmitReady) {
+				this.emit(this.updateReadyListeners)
+			}
 			return
 		}
 

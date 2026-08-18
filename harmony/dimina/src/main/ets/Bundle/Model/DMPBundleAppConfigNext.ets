@@ -27,6 +27,7 @@ export class DMPBundleAppConfigNext {
   sitemapLocation: string;
   subPackages: SubPackageConfig[];
   _entryPagePath: string;
+  runtimeType: string;
   moduleMaps: Map<string, ModuleConfig>
   tabBar?: DMPTabBarConfig;
 
@@ -41,6 +42,7 @@ export class DMPBundleAppConfigNext {
     this.sitemapLocation = this.app['sitemapLocation'];
     this.subPackages = this.app['subPackages'];
     this._entryPagePath = this.app['entryPagePath'];
+    this.runtimeType = this.app['runtimeType'] === 'game' ? 'game' : 'miniProgram';
 
     // Parse tabBar config
     if (this.app['tabBar']) {
@@ -62,6 +64,26 @@ export class DMPBundleAppConfigNext {
         };
       }
     }
+  }
+
+  /**
+   * app.json 的 `networkTimeout.connectSocket`，毫秒。没配这一项、或配了非数字/非正数时
+   * 是 null，由调用方继续回落到自己的默认值。
+   */
+  get networkTimeoutConnectSocketMs(): number | null {
+    const networkTimeout: ESObject = this.app['networkTimeout'];
+    if (!networkTimeout) {
+      return null;
+    }
+    const raw: ESObject = networkTimeout['connectSocket'];
+    if (typeof raw !== 'number') {
+      return null;
+    }
+    const ms: number = raw as number;
+    if (!Number.isFinite(ms) || ms <= 0 || ms > 0x7fffffff) {
+      return null;
+    }
+    return Math.trunc(ms);
   }
 
   public getRootPackage(pagePath: string): string {
@@ -89,7 +111,8 @@ export class DMPBundleAppConfigNext {
     if (!this._entryPagePath || !this._entryPagePath.length) {
       this._entryPagePath = this.pages![0]
     }
-    return this._entryPagePath
+    // 权威 getter 统一输出无前导斜杠路径，与页面栈/模块表的 key 口径一致
+    return this._entryPagePath.replace(/^\/+/, '')
   }
 
   set entryPagePath(path: string) {
@@ -111,6 +134,8 @@ export class DMPBundleAppConfigNext {
       pagePrivateConfig['backgroundColor'] || appWindowConfig['backgroundColor'] || '#fff');
     mergedConfig.set('navigationStyle',
       pagePrivateConfig['navigationStyle'] || appWindowConfig['navigationStyle'] || 'default');
+    mergedConfig.set('homeButton',
+      pagePrivateConfig['homeButton'] ?? appWindowConfig['homeButton'] ?? false);
     mergedConfig.set('usingComponents', pagePrivateConfig['usingComponents'] || {});
     mergedConfig.set('homeButton',
       pagePrivateConfig['homeButton'] ?? appWindowConfig['homeButton'] ?? false)

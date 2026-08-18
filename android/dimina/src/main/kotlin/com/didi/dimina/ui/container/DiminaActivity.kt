@@ -1,20 +1,26 @@
 package com.didi.dimina.ui.container
 
+import android.Manifest
+import android.app.Activity
 import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.content.Context
 import android.content.Intent
 import android.content.res.Resources
+import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.util.Log
+import android.os.SystemClock
+import android.view.MotionEvent
 import android.view.View
 import android.view.WindowInsets
 import android.view.animation.AccelerateDecelerateInterpolator
 import android.webkit.WebView
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.core.LinearEasing
@@ -43,9 +49,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -57,6 +67,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -65,12 +76,16 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -79,6 +94,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.core.graphics.toColorInt
+import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -91,7 +107,9 @@ import com.didi.dimina.bean.MiniProgram
 import com.didi.dimina.bean.PathInfo
 import com.didi.dimina.bean.TabBarConfig
 import com.didi.dimina.bean.TabBarItem
+import com.didi.dimina.common.BundledResourcePolicy
 import com.didi.dimina.common.LogUtils
+import com.didi.dimina.common.MenuButtonLayout
 import com.didi.dimina.common.PathUtils
 import com.didi.dimina.common.Utils
 import com.didi.dimina.common.VersionUtils
@@ -107,6 +125,7 @@ import com.didi.dimina.ui.view.MediaPickerRoot
 import com.didi.dimina.ui.view.MediaType
 import com.didi.dimina.ui.view.NativeComponentHost
 import com.didi.dimina.ui.view.ScanCodeLauncher
+import com.didi.dimina.ui.view.WebViewCacheManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -137,6 +156,8 @@ class DiminaActivity : ComponentActivity() {
     private val tabBarBadges = mutableStateOf<List<String>>(emptyList())
     private val tabBarRedDots = mutableStateOf<List<Boolean>>(emptyList())
     private val currentPagePath = mutableStateOf("")
+    private val homeButtonHiddenForPage = mutableStateOf(false)
+    private val homeButtonForcedByConfig = mutableStateOf(false)
     private val useTabBarContainer = mutableStateOf(false)
     private val loadedTabIndices = mutableStateOf<Set<Int>>(emptySet())
 
@@ -169,17 +190,75 @@ class DiminaActivity : ComponentActivity() {
     // Reference to the MiniApp instance
     private lateinit var miniApp: MiniApp
 
-    // Current MiniProgram
-    private lateinit var miniProgram: MiniProgram
+    // 当前小程序对象，用 Compose state 而非普通 lateinit var 承载：它会在
+    // onNewIntent/applyUpdate 里脱离 composition 被重新赋值，普通字段读取不会
+    // 建立快照订阅——依赖 miniProgram.* 的 composable 只有在同一次重组里恰好
+    // 读了别的会触发失效的 state 时才会跟着更新，这个前提并不总成立。
+    private val miniProgramState = mutableStateOf<MiniProgram?>(null)
+
+    // @JvmName 用来避开跟下面已有的 getMiniProgram() 方法（RouteApi.kt 在用）的
+    // JVM 签名冲突——不加的话 Kotlin 会给这个属性自动生成同名字节码 getter
+    private var miniProgram: MiniProgram
+        @JvmName("miniProgramValue")
+        get() = checkNotNull(miniProgramState.value) { "miniProgram accessed before initialization" }
+        set(value) {
+            miniProgramState.value = value
+        }
+    private val isMiniProgramInitialized: Boolean
+        get() = miniProgramState.value != null
 
     // Contact picker for handling contact-related operations
     private lateinit var contactPicker: ContactPicker
     private lateinit var scanCodeLauncher: ScanCodeLauncher
 
     private var imageChooseCallback: ((List<String>) -> Unit)? = null
+    private var messageFileChooseCallback: ((Boolean, List<Uri>) -> Unit)? = null
+    private val messageFilePickerLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val callback = messageFileChooseCallback ?: return@registerForActivityResult
+        messageFileChooseCallback = null
+        if (result.resultCode != Activity.RESULT_OK) {
+            callback(false, emptyList())
+            return@registerForActivityResult
+        }
+
+        val uris = buildList {
+            result.data?.clipData?.let { clipData ->
+                for (index in 0 until clipData.itemCount) {
+                    add(clipData.getItemAt(index).uri)
+                }
+            }
+            result.data?.data?.let(::add)
+        }.distinct()
+        callback(uris.isNotEmpty(), uris)
+    }
+    private val bluetoothPermissionCallbacks = mutableListOf<(Boolean) -> Unit>()
+    private var bluetoothPermissionRequestInFlight = false
+    private val bluetoothPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { result ->
+        val granted = result.values.all { it }
+        bluetoothPermissionRequestInFlight = false
+        val callbacks = bluetoothPermissionCallbacks.toList()
+        bluetoothPermissionCallbacks.clear()
+        callbacks.forEach { it(granted) }
+    }
+    private val nearbyWifiPermissionCallbacks = mutableListOf<(Boolean) -> Unit>()
+    private var nearbyWifiPermissionRequestInFlight = false
+    private val nearbyWifiPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { result ->
+        val granted = result.values.all { it }
+        nearbyWifiPermissionRequestInFlight = false
+        val callbacks = nearbyWifiPermissionCallbacks.toList()
+        nearbyWifiPermissionCallbacks.clear()
+        callbacks.forEach { it(granted) }
+    }
     
     private var adjustBottom = 0.0
-    private var updateCheckStarted = false
+    private var preserveMiniAppOnDestroy = false
+    private var pageResourcesReleased = false
 
     // 屏幕高度
     private var screenHeight = 0
@@ -196,6 +275,8 @@ class DiminaActivity : ComponentActivity() {
         val webViewReadyCallbacks: MutableList<(WebView) -> Unit> = mutableListOf(),
         var pageReadyCallback: (() -> Unit)? = null,
         var bridgeStarted: Boolean = false,
+        // wx.hideHomeButton 按页面（tab）实例记账：后台 tab 的迟到调用只影响自己
+        val homeButtonHidden: MutableState<Boolean> = mutableStateOf(false),
     )
 
 
@@ -236,6 +317,21 @@ class DiminaActivity : ComponentActivity() {
         }
     }
 
+    fun handleChooseMessageFile(
+        intent: Intent,
+        callback: (Boolean, List<Uri>) -> Unit,
+    ): Boolean {
+        if (messageFileChooseCallback != null) return false
+        messageFileChooseCallback = callback
+        return try {
+            messageFilePickerLauncher.launch(intent)
+            true
+        } catch (_: Exception) {
+            messageFileChooseCallback = null
+            false
+        }
+    }
+
     fun showActionSheet(
         options: List<String>,
         itemColor: String = "#000000",
@@ -257,6 +353,38 @@ class DiminaActivity : ComponentActivity() {
 
     fun handleScanCode(options: ScanCodeOptions, callback: (Boolean, JSONObject) -> Unit) {
         scanCodeLauncher.launch(options, callback)
+    }
+
+    fun handleBluetoothPermission(callback: (Boolean) -> Unit) {
+        val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)
+        } else {
+            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+        if (permissions.all { ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED }) {
+            callback(true)
+            return
+        }
+        bluetoothPermissionCallbacks.add(callback)
+        if (bluetoothPermissionRequestInFlight) return
+        bluetoothPermissionRequestInFlight = true
+        bluetoothPermissionLauncher.launch(permissions)
+    }
+
+    fun handleNearbyWifiPermission(callback: (Boolean) -> Unit) {
+        val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            arrayOf(Manifest.permission.NEARBY_WIFI_DEVICES, Manifest.permission.ACCESS_FINE_LOCATION)
+        } else {
+            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+        if (permissions.all { ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED }) {
+            callback(true)
+            return
+        }
+        nearbyWifiPermissionCallbacks.add(callback)
+        if (nearbyWifiPermissionRequestInFlight) return
+        nearbyWifiPermissionRequestInFlight = true
+        nearbyWifiPermissionLauncher.launch(permissions)
     }
 
     private fun openSystemGallery(type: MediaType, maxCount: Int) {
@@ -292,11 +420,6 @@ class DiminaActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        if (intent.getBooleanExtra(CLOSE_MINI_PROGRAM_KEY, false)) {
-            finish()
-            return
-        }
-        
         // 获取屏幕高度
         screenHeight = resources.displayMetrics.heightPixels
 
@@ -326,6 +449,7 @@ class DiminaActivity : ComponentActivity() {
         try {
             miniApp = MiniApp.getInstance()
             miniProgram = program
+            activityRegistry.register(miniProgram.appId, this)
             LogUtils.d(
                 tag,
                 "Successfully obtained MiniApp instance and JsCore for appId: ${miniProgram.appId}"
@@ -373,21 +497,8 @@ class DiminaActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
 
-        if (intent.getBooleanExtra(CLOSE_MINI_PROGRAM_KEY, false)) {
-            finish()
-            return
-        }
-
-        if (intent.getBooleanExtra(APPLY_UPDATE_RESTART_KEY, false)) {
-            getMiniProgramFromIntent(intent)?.let { program ->
-                DiminaActivity.launch(this, program)
-            }
-            finish()
-            return
-        }
-
         val program = getMiniProgramFromIntent(intent) ?: return
-        if (::miniProgram.isInitialized && program.appId != miniProgram.appId) {
+        if (isMiniProgramInitialized && program.appId != miniProgram.appId) {
             return
         }
 
@@ -396,6 +507,12 @@ class DiminaActivity : ComponentActivity() {
         if (!::appConfig.isInitialized) {
             return
         }
+
+        // 若这个 Activity 实例被复用（intent 落到已存在的顶层实例）：全部页面实例作废，
+        // 页面级 hideHomeButton 标记随之重置（TabPageState 会被 switchTab/updatePath 复用，
+        // 不重置会把旧页面实例的隐藏标记带进新页面）
+        homeButtonHiddenForPage.value = false
+        tabPageStates.values.forEach { it.homeButtonHidden.value = false }
 
         if (isTabBarPageUrl(url)) {
             switchTab(url)
@@ -423,38 +540,49 @@ class DiminaActivity : ComponentActivity() {
             // 1.解压小程序资源包 jsApp
             val appId = miniProgram.appId
             try {
-                // 判断是否需要更新小程序包的逻辑：
-                // 1. 是小程序首页入口
-                // 2. 如果是调试模式，只要版本号大于本地版本就解压
-                // 3. 如果是发布模式，需要应用版本已升级且小程序版本号大于本地版本才解压
+                // jsapp uses its own version and extracted-file readiness. The host-app
+                // update marker is shared with JSSDK and is therefore not a safe gate.
                 val shouldExtract = if (miniProgram.root) {
                     val localVersion = VersionUtils.getAppVersion(appId)
-                    val isDebugMode = Dimina.getInstance().isDebugMode()
-                    val appVersionUpdated = VersionUtils.isAppVersionUpdated(this@DiminaActivity)
-                    
-                    when {
-                        isDebugMode -> {
-                            // 调试模式：版本号大于本地版本就解压
-                            miniProgram.versionCode > localVersion
-                        }
-                        appVersionUpdated -> {
-                            // 发布模式且应用版本已升级：版本号大于本地版本才解压
-                            miniProgram.versionCode > localVersion
-                        }
-                        else -> false
-                    }
+                    BundledResourcePolicy.shouldExtract(
+                        bundledVersion = miniProgram.versionCode,
+                        installedVersion = localVersion,
+                        requiredResourcePresent =
+                            findAppConfigFile("jsapp/$appId") != null &&
+                                File(filesDir, "jsapp/$appId/main/logic.js").isFile,
+                    )
                 } else false
-                // 使用上面的shouldExtract变量来决定是否解压
+
                 if (shouldExtract) {
-                    if (Utils.unzipAssets(this@DiminaActivity, "jsapp/$appId/$appId.zip", "jsapp/$appId")) {
+                    if (Utils.unzipAssets(
+                            this@DiminaActivity,
+                            "jsapp/$appId/$appId.zip",
+                            "jsapp/$appId",
+                            requiredPaths = listOf(
+                                "main/app-config.json",
+                                "main/logic.js",
+                            ),
+                        )
+                    ) {
                         VersionUtils.setAppVersion(appId, miniProgram.versionCode)
                         LogUtils.d(tag, "Mini program extraction completed successfully")
                     } else {
                         LogUtils.e(tag, "Failed to extract mini program for appId: $appId")
                     }
                 }
+
+                val hasRunnablePackage =
+                    findAppConfigFile("jsapp/$appId") != null &&
+                        File(filesDir, "jsapp/$appId/main/logic.js").isFile
+                if (!hasRunnablePackage) {
+                    miniProgram = RemoteUpdateManager.installInitialPackage(
+                        applicationContext,
+                        miniProgram,
+                    )
+                    LogUtils.d(tag, "Installed initial mini program package from manifest")
+                }
             } catch (e: Exception) {
-                LogUtils.e(tag, "Error extracting mini program: ${e.message}")
+                LogUtils.e(tag, "Error preparing mini program resources: ${e.message}")
                 withContext(Dispatchers.Main) { finish() }
                 return@withContext
             }
@@ -468,6 +596,13 @@ class DiminaActivity : ComponentActivity() {
                     return@withContext
                 }
                 appConfig = config
+                // app.json's `networkTimeout.connectSocket` is this mini program's default
+                // connect timeout; the WebSocket state machine needs it before any connectSocket
+                // call can land, so it is published as soon as the config is parsed.
+                com.didi.dimina.api.network.WebSocketManager.shared.updateNetworkTimeout(
+                    appId,
+                    config.app.networkTimeout?.connectSocket,
+                )
                 LogUtils.d(tag, "Successfully loaded app config")
             } catch (e: Exception) {
                 LogUtils.e(tag, "Error reading app config: ${e.message}")
@@ -477,7 +612,8 @@ class DiminaActivity : ComponentActivity() {
 
             // 3.读取页面配置
             val entryPagePath =
-                miniProgram.path ?: getDefaultEntryPagePath() ?: run {
+                (if (appConfig.app.runtimeType == "game") null else miniProgram.path)
+                    ?: getDefaultEntryPagePath() ?: run {
                     withContext(Dispatchers.Main) { finish() }
                     return@withContext
                 }
@@ -503,14 +639,16 @@ class DiminaActivity : ComponentActivity() {
                         val entryPageBridge = createBridge(
                             BridgeOptions(
                                 pathInfo = pathInfo,
-                                scene = 1001,
+                                scene = miniProgram.scene,
                                 jscore = miniApp.getJsCore(appId, this@DiminaActivity),
                                 webview = webView,
                                 isRoot = true,
                                 root = pageConfig?.root ?: "main",
                                 appId = miniProgram.appId,
+                                runtimeType = appConfig.app.runtimeType,
                                 pages = appConfig.app.pages,
-                                configInfo = mergedPageConfig
+                                configInfo = mergedPageConfig,
+                                referrerInfo = getLaunchReferrerInfo(),
                             )
                         )
                         // Add bridge to MiniApp's bridge list for this appId
@@ -534,31 +672,19 @@ class DiminaActivity : ComponentActivity() {
         if (setAsActive) {
             this.bridge = bridge
         }
-        startUpdateCheckIfNeeded()
+        miniApp.startUpdateCheckIfNeeded(applicationContext, miniProgram)
         return bridge
-    }
-
-    private fun startUpdateCheckIfNeeded() {
-        if (updateCheckStarted) {
-            return
-        }
-        updateCheckStarted = true
-
-        CoroutineScope(Dispatchers.IO).launch {
-            RemoteUpdateManager.checkForUpdate(
-                context = applicationContext,
-                miniProgram = miniProgram,
-                notify = { event ->
-                    miniApp.postUpdateStatus(miniProgram.appId, event)
-                }
-            )
-        }
     }
 
 
     private fun setInitialStyle(config: MergedPageConfig) {
         // Set navigation bar visibility based on navigationStyle
         showNavigationBar.value = config.navigationStyle != "custom"
+
+        // hideHomeButton() 只隐藏调用它的那个页面的 home 按钮；这个 Activity 背后
+        // 的页面身份一变就会重置
+        homeButtonHiddenForPage.value = false
+        homeButtonForcedByConfig.value = config.homeButton
 
         // Set navigation bar title
         navigationBarTitle.value = config.navigationBarTitleText
@@ -626,6 +752,58 @@ class DiminaActivity : ComponentActivity() {
         return getTabBarIndex(Utils.queryPath(url).pagePath) >= 0
     }
 
+    /**
+     * 导航栏「返回首页」按钮的显示判据（微信真机实测语义）：默认导航栏 + 未被
+     * hideHomeButton 隐藏 + 当前页非应用首页 + 非 tabBar 页（这两条排除
+     * homeButton: true 也不能突破），且满足其一：页面栈栈底（自动规则），
+     * 或页面配置 homeButton: true（此时与返回箭头并存显示）
+     */
+    private fun shouldShowHomeButton(): Boolean {
+        if (!::appConfig.isInitialized) {
+            return false
+        }
+        if (!showNavigationBar.value || activePageHomeButtonHidden()) {
+            return false
+        }
+        // 归一化前导斜杠再比较：currentPagePath 可能来自宿主直启 path，
+        // entryPagePath 来自配置，两者写法不受控
+        val pagePath = currentPagePath.value.trimStart('/')
+        if (pagePath.isEmpty() || pagePath == getDefaultEntryPagePath()?.trimStart('/')) {
+            return false
+        }
+        if (getTabBarIndex(pagePath) >= 0) {
+            return false
+        }
+        return miniProgram.root || homeButtonForcedByConfig.value
+    }
+
+    /**
+     * 当前可见页面的 hideHomeButton 标记：tab 容器下读当前选中 tab 自己的标记，
+     * 非 tab 根页面读 activity 级标记（一个 Activity 只承载一个非 tab 页，
+     * redirectTo/reLaunch 换页时在 setInitialStyle 重置）
+     */
+    private fun activePageHomeButtonHidden(): Boolean {
+        if (useTabBarContainer.value) {
+            tabPageStates[selectedTabIndex.intValue]?.let { return it.homeButtonHidden.value }
+        }
+        return homeButtonHiddenForPage.value
+    }
+
+    /**
+     * 隐藏调用页的返回首页按钮（wx.hideHomeButton）。经 apiBridgeContext 归属调用方：
+     * tab 页标记在自己的 TabPageState 上——后台 tab 的迟到调用不会隐藏当前可见 tab 的按钮
+     */
+    fun hideHomeButton() {
+        val caller = apiBridgeContext
+        if (caller != null) {
+            tabPageStates.values.firstOrNull { it.bridge === caller }?.let { state ->
+                state.homeButtonHidden.value = true
+                return
+            }
+        }
+        homeButtonHiddenForPage.value = true
+    }
+
     fun switchTab(url: String): Boolean {
         if (!::appConfig.isInitialized) {
             return false
@@ -638,20 +816,24 @@ class DiminaActivity : ComponentActivity() {
         }
 
         if (!miniProgram.root) {
-            DiminaActivity.launch(
-                this,
-                MiniProgram(
-                    appId = miniProgram.appId,
-                    name = miniProgram.name,
-                    root = true,
-                    path = url,
-                    versionCode = miniProgram.versionCode,
-                    versionName = miniProgram.versionName,
-                    updateManifestUrl = miniProgram.updateManifestUrl
-                ),
-                Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-            )
-            finish()
+            // CLEAR_TOP 按 Activity 组件匹配，清不掉共享同一 DiminaActivity 类的下层
+            // 实例；改用 activityRegistry 精确找到 root 实例并同进程直接调用它的
+            // switchTab，不需要任何 Intent flag
+            val root = activityRegistry.closeAllExcept(
+                miniProgram.appId,
+                keep = { it.miniProgram.root },
+            ) { activity ->
+                activity.preserveMiniAppOnDestroy = true
+                activity.finish()
+            }
+            if (root != null) {
+                root.runOnUiThread {
+                    root.switchTab(url)
+                }
+            } else {
+                // 异常态：栈里没有 root 实例（如宿主直启非 tab 内页），退化为清栈重启
+                relaunchStack(url)
+            }
             return true
         }
 
@@ -746,6 +928,33 @@ class DiminaActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Cancels the touch stream owned by the WebView that invoked the current API.
+     *
+     * A modal can be requested while that WebView is still handling a gesture.
+     * Adding a view above it does not retarget an existing Android touch stream,
+     * so the WebView must receive ACTION_CANCEL before the modal is mounted.
+     */
+    fun cancelActiveWebViewTouch() {
+        val targetWebView = getWebViewForBridge(apiBridgeContext) ?: return
+        runOnUiThread {
+            val eventTime = SystemClock.uptimeMillis()
+            val cancelEvent = MotionEvent.obtain(
+                eventTime,
+                eventTime,
+                MotionEvent.ACTION_CANCEL,
+                0f,
+                0f,
+                0,
+            )
+            try {
+                targetWebView.dispatchTouchEvent(cancelEvent)
+            } finally {
+                cancelEvent.recycle()
+            }
+        }
+    }
+
     private fun syncTabBarState(pagePath: String) {
         currentPagePath.value = pagePath
         val tabIndex = getTabBarIndex(pagePath)
@@ -755,8 +964,11 @@ class DiminaActivity : ComponentActivity() {
     }
 
     private fun getTabBarIndex(pagePath: String): Int {
+        // 两侧都归一化前导斜杠：pagePath 可能来自宿主直启 path 或 config，
+        // tabBar.list 的 pagePath 也是配置值，写法不受控
+        val normalized = pagePath.trimStart('/')
         return appConfig.app.tabBar?.list?.indexOfFirst { item ->
-            item.pagePath == pagePath
+            item.pagePath.trimStart('/') == normalized
         } ?: -1
     }
 
@@ -977,19 +1189,13 @@ class DiminaActivity : ComponentActivity() {
      */
     private fun readAppConfig(target: String, root: String = "main"): AppConfig? {
         try {
-            // Check both possible locations for app-config.json
             val miniProgramDir = File(filesDir, target)
-            var configFile = File(miniProgramDir, "${root}/app-config.json")
-
-            // If not found in main/app-config.json, try app-config.json directly
-            if (!configFile.exists()) {
-                configFile = File(miniProgramDir, "app-config.json")
-                if (!configFile.exists()) {
-                    // Log the directory structure to help debug
-                    LogUtils.e(tag, "app-config.json not found in the package")
-                    logDirectoryStructure(miniProgramDir)
-                    return null
-                }
+            val configFile = findAppConfigFile(target, root)
+            if (configFile == null) {
+                // Log the directory structure to help debug
+                LogUtils.e(tag, "app-config.json not found in the package")
+                logDirectoryStructure(miniProgramDir)
+                return null
             }
 
             // Parse the JSON file
@@ -1006,6 +1212,14 @@ class DiminaActivity : ComponentActivity() {
             e.printStackTrace()
             return null
         }
+    }
+
+    private fun findAppConfigFile(target: String, root: String = "main"): File? {
+        val miniProgramDir = File(filesDir, target)
+        return listOf(
+            File(miniProgramDir, "$root/app-config.json"),
+            File(miniProgramDir, "app-config.json"),
+        ).firstOrNull(File::isFile)
     }
 
     /**
@@ -1039,7 +1253,7 @@ class DiminaActivity : ComponentActivity() {
                 } else {
                     webViewReadyCallbacks.add(action)
                 }
-                Log.w(tag, "Tab WebView not initialized yet, adding to callback queue")
+                LogUtils.w(tag, "Tab WebView not initialized yet, adding to callback queue")
                 false
             }
         }
@@ -1047,7 +1261,7 @@ class DiminaActivity : ComponentActivity() {
             action(it)
             true
         } ?: run {
-            Log.w(tag, "WebView not initialized yet, adding to callback queue")
+            LogUtils.w(tag, "WebView not initialized yet, adding to callback queue")
             webViewReadyCallbacks.add(action)
             false
         }
@@ -1114,14 +1328,16 @@ class DiminaActivity : ComponentActivity() {
             val tabBridge = createBridge(
                 BridgeOptions(
                     pathInfo = state.pathInfo,
-                    scene = 1001,
+                    scene = miniProgram.scene,
                     jscore = miniApp.getJsCore(miniProgram.appId, this@DiminaActivity),
                     webview = webView,
                     isRoot = index == selectedTabIndex.intValue,
                     root = state.root,
                     appId = miniProgram.appId,
+                    runtimeType = appConfig.app.runtimeType,
                     pages = appConfig.app.pages,
-                    configInfo = state.configInfo
+                    configInfo = state.configInfo,
+                    referrerInfo = getLaunchReferrerInfo(),
                 ),
                 setAsActive = index == selectedTabIndex.intValue
             )
@@ -1217,6 +1433,49 @@ class DiminaActivity : ComponentActivity() {
         }
     }
 
+    private fun releasePageResources() {
+        if (pageResourcesReleased || !isMiniProgramInitialized) return
+        pageResourcesReleased = true
+
+        val bridgesToDestroy = buildList {
+            bridge?.let { add(it) }
+            tabPageStates.values.forEach { state ->
+                state.bridge?.let { add(it) }
+            }
+        }.distinct()
+
+        bridgesToDestroy.forEach { cBridge ->
+            miniApp.removeBridge(miniProgram.appId, cBridge)?.destroy()
+        }
+        bridge = null
+        tabPageStates.values.forEach { it.bridge = null }
+
+        clearAllNativeComponents()
+        nativeComponentHost = null
+        nativeOverlay = null
+        tabPageStates.values.forEach { state ->
+            state.nativeComponentHost = null
+            state.nativeOverlay = null
+        }
+    }
+
+    private fun prepareForColdRestart() {
+        // 这批 Activity 的 onDestroy 可能晚于新 Activity 创建，由重启协调者统一
+        // clear MiniApp，避免旧页面再次清掉刚创建的新 JS 运行时。
+        preserveMiniAppOnDestroy = true
+        releasePageResources()
+
+        val ownedWebViews = buildList {
+            webView?.let { add(it) }
+            tabPageStates.values.forEach { state ->
+                state.webView?.let { add(it) }
+            }
+        }.distinct()
+        WebViewCacheManager.evictAndDestroy(ownedWebViews)
+        webView = null
+        tabPageStates.values.forEach { it.webView = null }
+    }
+
     fun onDomReady() {
         // 6.隐藏加载动画
         LogUtils.d(
@@ -1226,10 +1485,30 @@ class DiminaActivity : ComponentActivity() {
         isLoading.value = false
     }
 
+    /**
+     * WebSocket 的后台判据挂在 onStart/onStop 而不是 onResume/onPause 上：权限弹窗、系统
+     * 分享面板和对话框式的系统选择器只会让这个 Activity onPause，它仍然可见，小程序也并没有
+     * 进入后台；按 onPause 判定会在用户停留超过后台宽限期时误杀掉全部连接。真正的迁移由
+     * [visibilityTracker] 按 appId 判定，多页面小程序在自己的页面之间跳转不构成前后台变化。
+     */
+    override fun onStart() {
+        super.onStart()
+        if (isMiniProgramInitialized && visibilityTracker.onActivityVisible(miniProgram.appId, this)) {
+            com.didi.dimina.api.network.WebSocketManager.shared.setBackgrounded(miniProgram.appId, false)
+        }
+    }
+
+    override fun onStop() {
+        if (isMiniProgramInitialized && visibilityTracker.onActivityHidden(miniProgram.appId, this)) {
+            com.didi.dimina.api.network.WebSocketManager.shared.setBackgrounded(miniProgram.appId, true)
+        }
+        super.onStop()
+    }
+
     override fun onResume() {
         super.onResume()
         getActiveBridge()?.let {
-            it.appShow()
+            it.appShow(miniApp.consumePendingAppShowOptions(miniProgram.appId))
             it.pageShow()
         }
     }
@@ -1243,22 +1522,16 @@ class DiminaActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        val bridgesToDestroy = buildList {
-            bridge?.let { add(it) }
-            tabPageStates.values.forEach { state ->
-                state.bridge?.let { add(it) }
-            }
-        }.distinct()
-
-        bridgesToDestroy.forEach { cBridge ->
-            miniApp.removeBridge(miniProgram.appId, cBridge)?.destroy()
+        if (isMiniProgramInitialized) {
+            activityRegistry.unregister(miniProgram.appId, this)
         }
-        clearAllNativeComponents()
 
-        if (miniApp.isBridgeListEmpty(miniProgram.appId)) {
+        releasePageResources()
+
+        if (!preserveMiniAppOnDestroy && miniApp.isBridgeListEmpty(miniProgram.appId)) {
             // Clear resources for this specific MiniProgram
             miniApp.clear(miniProgram.appId)
-        } else if (miniApp.isBridgeListEmpty()) {
+        } else if (!preserveMiniAppOnDestroy && miniApp.isBridgeListEmpty()) {
             miniApp.clearAll()
         }
         super.onDestroy()
@@ -1310,7 +1583,7 @@ class DiminaActivity : ComponentActivity() {
             onSelected = { uris ->
                 // Convert URIs to file paths
                 val paths =
-                    uris.mapNotNull { uri -> PathUtils.uriToTempFile(this@DiminaActivity, uri) }
+                    uris.mapNotNull { uri -> PathUtils.uriToTempFile(this@DiminaActivity, uri, miniProgram.appId) }
                 // Invoke the callback with the selected image paths
                 imageChooseCallback?.invoke(paths)
                 // Reset the callback and hide the picker
@@ -1346,17 +1619,52 @@ class DiminaActivity : ComponentActivity() {
                                 containerColor = navBarBgColor
                             ),
                             navigationIcon = {
-                                IconButton(onClick = { finish() }) {
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-                                        contentDescription = "Back",
-                                        tint = navigationBarTextColor.value,
-                                        modifier = Modifier.size(30.dp)
-                                    )
+                                // 返回箭头（非栈底页面）与返回首页按钮可并存：
+                                // 页面配置 homeButton: true 的内页两者同时显示（微信实测样式）。
+                                // 两个 IconButton 默认触摸热区都比各自图标大（自带留白），
+                                // 不再额外叠加 Row 间距，否则视觉间距会远超微信原生
+                                // `.navigator-hd a+a{margin-left:10px}` 的 10dp
+                                Row {
+                                    if (!miniProgram.root) {
+                                        IconButton(onClick = { finish() }) {
+                                            Icon(
+                                                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                                                contentDescription = "Back",
+                                                tint = navigationBarTextColor.value,
+                                                modifier = Modifier.size(30.dp)
+                                            )
+                                        }
+                                    }
+                                    if (shouldShowHomeButton()) {
+                                        IconButton(onClick = { navigateHome() }) {
+                                            // 微信真机 home 图标带灰色圆形底，比返回箭头更粗更显眼；
+                                            // 圆底色随导航栏深浅切换（浅色导航栏用深灰，深色导航栏用半透明白）
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(32.dp)
+                                                    .clip(CircleShape)
+                                                    .background(
+                                                        if (navigationBarTextColor.value == Color.White) {
+                                                            Color(0x3DFFFFFF)
+                                                        } else {
+                                                            Color(0xFFD6D6D6)
+                                                        }
+                                                    ),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Filled.Home,
+                                                    contentDescription = "Home",
+                                                    tint = navigationBarTextColor.value,
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                            }
+                                        }
+                                    }
                                 }
                             },
                             actions = {
-                                Spacer(modifier = Modifier.width(97.dp))
+                                Spacer(modifier = Modifier.width(MenuButtonLayout.TRAILING_OCCUPIED_WIDTH_DP.dp))
                             }
                         )
                     }
@@ -1446,7 +1754,19 @@ class DiminaActivity : ComponentActivity() {
             }
 
             if (!isLoading.value) {
-                val menuRect = remember { Utils.getMenuButtonBoundingClientRect(this@DiminaActivity) }
+                val configuration = LocalConfiguration.current
+                val (windowInfo, menuRect) = remember(
+                    configuration.screenWidthDp,
+                    configuration.screenHeightDp,
+                    configuration.orientation,
+                    statusBarHeight,
+                ) {
+                    val currentWindowInfo = Utils.getMiniProgramSystemInfo(this@DiminaActivity)
+                    currentWindowInfo to MenuButtonLayout.calculate(
+                        windowWidth = currentWindowInfo.getInt("windowWidth"),
+                        statusBarHeight = currentWindowInfo.getInt("statusBarHeight"),
+                    )
+                }
                 MiniProgramCapsuleButton(
                     onMoreClick = {
                         showMiniProgramMenu.value = true
@@ -1455,9 +1775,8 @@ class DiminaActivity : ComponentActivity() {
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(
-                            top = menuRect.optInt("top", Utils.getStatusBarHeight(this@DiminaActivity)).dp,
-                            end = (Utils.getMiniProgramSystemInfo(this@DiminaActivity)
-                                .optInt("windowWidth") - menuRect.optInt("right", 0)).dp
+                            top = menuRect.top.dp,
+                            end = (windowInfo.getInt("windowWidth") - menuRect.right).dp
                         )
                         .zIndex(10f)
                 )
@@ -1466,34 +1785,96 @@ class DiminaActivity : ComponentActivity() {
     }
 
     private fun closeMiniProgram() {
-        val closeIntent = Intent(this, DiminaActivity::class.java).apply {
-            putExtra(MINI_PROGRAM_KEY, miniProgram.copy(root = true))
-            putExtra(CLOSE_MINI_PROGRAM_KEY, true)
-            addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        activityRegistry.closeAll(miniProgram.appId) { activity ->
+            activity.finish()
         }
-        startActivity(closeIntent)
-        finish()
+    }
+
+    /** Opens a resolved bundled mini program as a new root above this one. */
+    fun navigateToMiniProgram(target: MiniProgram) {
+        miniApp.openApp(this, target)
+    }
+
+    /**
+     * Returns to the mini program that opened this one. The Android task stack reveals the opener;
+     * [MiniApp] supplies exactly one fresh App.onShow payload when its top Activity resumes.
+     */
+    fun navigateBackMiniProgram(extraData: JSONObject): Boolean {
+        if (!queueOpenerReturn(extraData)) return false
+        closeMiniProgram()
+        return true
+    }
+
+    fun exitMiniProgram() {
+        // exit has no return extraData, but revealing a live opener is still scene 1038
+        // ("returned from another mini program"). Queue it before closing this Activity;
+        // MiniApp consumes the payload exactly once when the opener resumes.
+        queueOpenerReturn(extraData = null)
+        closeMiniProgram()
+    }
+
+    private fun queueOpenerReturn(extraData: JSONObject?): Boolean {
+        val openerAppId = miniProgram.openerAppId ?: return false
+        if (!miniApp.isRunning(openerAppId)) return false
+        val referrerInfo = JSONObject().apply {
+            put("appId", miniProgram.appId)
+            if (extraData != null) {
+                put("extraData", JSONObject(extraData.toString()))
+            }
+        }
+        miniApp.setPendingAppShowOptions(
+            openerAppId,
+            JSONObject().apply {
+                put(
+                    "scene",
+                    com.didi.dimina.api.route.MiniProgramRouteContract.SCENE_RETURNED_FROM_MINI_PROGRAM,
+                )
+                put("referrerInfo", referrerInfo)
+            },
+        )
+        return true
+    }
+
+    fun restartMiniProgram(path: String) {
+        coldRestartMiniProgram(miniProgram.copy(root = true, path = path))
     }
 
     private fun reenterMiniProgram() {
         val entryPagePath = getDefaultEntryPagePath() ?: miniProgram.path
-        DiminaActivity.launch(
-            this,
-            miniProgram.copy(root = true, path = entryPagePath),
-            Intent.FLAG_ACTIVITY_CLEAR_TOP
-        )
+        val reentryProgram = miniProgram.copy(root = true, path = entryPagePath)
+        coldRestartMiniProgram(reentryProgram)
     }
 
     fun applyUpdate() {
-        val entryPagePath = getDefaultEntryPagePath() ?: miniProgram.path
-        val updatedMiniProgram = miniProgram.copy(root = true, path = entryPagePath)
-        miniApp.clear(miniProgram.appId)
-        val intent = Intent(this, DiminaActivity::class.java).apply {
-            putExtra(MINI_PROGRAM_KEY, updatedMiniProgram)
-            putExtra(APPLY_UPDATE_RESTART_KEY, true)
-            addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        CoroutineScope(Dispatchers.IO).launch {
+            val activated = RemoteUpdateManager.activatePendingUpdate(
+                applicationContext,
+                miniProgram.appId,
+            )
+            if (!activated) {
+                miniApp.postUpdateStatus(miniProgram.appId, "updatefail")
+                return@launch
+            }
+
+            withContext(Dispatchers.Main) {
+                // Read the entry page from the newly activated app-config instead
+                // of carrying the old package's route into the new runtime.
+                val updatedMiniProgram = miniProgram.copy(root = true, path = null)
+                coldRestartMiniProgram(updatedMiniProgram)
+            }
         }
-        startActivity(intent)
+    }
+
+    private fun coldRestartMiniProgram(program: MiniProgram) {
+        // Re-enter is an app-level reload, not wx.reLaunch: destroy the shared
+        // JS runtime and transient API resources so the new root Activity runs
+        // the complete initialization and loading flow again.
+        activityRegistry.closeAll(miniProgram.appId) { activity ->
+            activity.prepareForColdRestart()
+            activity.finish()
+        }
+        miniApp.clear(miniProgram.appId)
+        DiminaActivity.launch(this, program)
     }
 
     private fun getDefaultEntryPagePath(): String? {
@@ -1501,6 +1882,53 @@ class DiminaActivity : ComponentActivity() {
             return null
         }
         return appConfig.app.entryPagePath ?: appConfig.app.pages.firstOrNull()
+    }
+
+    private fun getLaunchReferrerInfo(): JSONObject? {
+        val openerAppId = miniProgram.openerAppId ?: return null
+        val extraData = miniProgram.referrerExtraData
+            ?.let { runCatching { JSONObject(it) }.getOrNull() }
+            ?: JSONObject()
+        return JSONObject().apply {
+            put("appId", openerAppId)
+            put("extraData", extraData)
+        }
+    }
+
+    /**
+     * 清空页面栈并重新打开到 [url]，与 wx.reLaunch 行为一致
+     */
+    fun reLaunchTo(url: String) {
+        relaunchStack(url)
+    }
+
+    /**
+     * 精确关闭该小程序全部页面 Activity 实例并以新根页重启：preserve=true 因为
+     * wx.reLaunch/switchTab 找不到 root 实例时的兜底都只清页面栈，不重启 JS 实例
+     * （与 applyUpdate 的关键区别）。CLEAR_TOP 只能按 Activity 组件匹配，清不掉
+     * 共享同一 DiminaActivity 类的下层实例，所以改用 activityRegistry 精确关栈
+     */
+    private fun relaunchStack(url: String) {
+        activityRegistry.closeAll(miniProgram.appId) { activity ->
+            activity.preserveMiniAppOnDestroy = true
+            activity.finish()
+        }
+        DiminaActivity.launch(this, miniProgram.copy(root = true, path = url))
+    }
+
+    /**
+     * 返回首页（导航栏 home 按钮的唯一路由入口），终态都是只剩首页：
+     * 首页是 tab 页走 switchTab（保留其它 tab 状态并露出 tabBar，自带清非 tab 栈）；
+     * 首页非 tab 且当前是栈底，按 redirectTo 语义原地换页（updatePath）；
+     * 非栈底（homeButton: true 的内页）须清整栈，走 reLaunchTo
+     */
+    private fun navigateHome() {
+        val entryPagePath = getDefaultEntryPagePath() ?: return
+        when {
+            getTabBarIndex(entryPagePath) >= 0 -> switchTab(entryPagePath)
+            miniProgram.root -> updatePath(entryPagePath)
+            else -> reLaunchTo(entryPagePath)
+        }
     }
 
     @OptIn(ExperimentalMaterial3Api::class)
@@ -1565,18 +1993,18 @@ class DiminaActivity : ComponentActivity() {
                 ) {
                     MiniProgramMenuItem(
                         label = "重新进入\n小程序",
+                        icon = Icons.Filled.Refresh,
+                        contentDescription = "重新进入小程序",
                         onClick = onReenterClick,
                         modifier = Modifier.width(78.dp)
-                    ) {
-                        ReenterMenuIcon()
-                    }
+                    )
                     MiniProgramMenuItem(
                         label = "关闭小程序",
+                        icon = Icons.Filled.Close,
+                        contentDescription = "关闭小程序",
                         onClick = onCloseClick,
                         modifier = Modifier.width(78.dp)
-                    ) {
-                        CloseMenuIcon()
-                    }
+                    )
                 }
 
                 HorizontalDivider(color = Color(0xFFEDEDED), thickness = 1.dp)
@@ -1597,9 +2025,10 @@ class DiminaActivity : ComponentActivity() {
     @Composable
     private fun MiniProgramMenuItem(
         label: String,
+        icon: ImageVector,
+        contentDescription: String,
         onClick: () -> Unit,
-        modifier: Modifier = Modifier,
-        icon: @Composable () -> Unit
+        modifier: Modifier = Modifier
     ) {
         Column(
             modifier = modifier.clickable(onClick = onClick),
@@ -1612,7 +2041,12 @@ class DiminaActivity : ComponentActivity() {
                     .background(Color(0xFFF8F8F8)),
                 contentAlignment = Alignment.Center
             ) {
-                icon()
+                Icon(
+                    imageVector = icon,
+                    contentDescription = contentDescription,
+                    tint = Color(0xFF333333),
+                    modifier = Modifier.size(24.dp)
+                )
             }
             Text(
                 text = label,
@@ -1626,30 +2060,6 @@ class DiminaActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun ReenterMenuIcon() {
-        Text(
-            text = "↻",
-            fontSize = 24.sp,
-            lineHeight = 24.sp,
-            color = Color(0xFF333333),
-            fontWeight = FontWeight.Bold,
-            textAlign = TextAlign.Center
-        )
-    }
-
-    @Composable
-    private fun CloseMenuIcon() {
-        Text(
-            text = "×",
-            fontSize = 24.sp,
-            lineHeight = 24.sp,
-            color = Color(0xFF333333),
-            fontWeight = FontWeight.Normal,
-            textAlign = TextAlign.Center
-        )
-    }
-
-    @Composable
     private fun MiniProgramCapsuleButton(
         onMoreClick: () -> Unit,
         onCloseClick: () -> Unit,
@@ -1658,11 +2068,14 @@ class DiminaActivity : ComponentActivity() {
         val foreground = Color(0xFF1F1F1F)
         val borderColor = Color(0xFFE5E5E5)
         val separatorColor = Color(0xFFE9E9E9)
-        val shape = RoundedCornerShape(16.dp)
+        val shape = RoundedCornerShape((MenuButtonLayout.HEIGHT_DP / 2).dp)
 
         Box(
             modifier = modifier
-                .size(width = 87.dp, height = 32.dp)
+                .size(
+                    width = MenuButtonLayout.WIDTH_DP.dp,
+                    height = MenuButtonLayout.HEIGHT_DP.dp,
+                )
                 .shadow(1.dp, shape, clip = false)
                 .clip(shape)
                 .background(Color.White)
@@ -1674,7 +2087,10 @@ class DiminaActivity : ComponentActivity() {
             ) {
                 Box(
                     modifier = Modifier
-                        .size(width = 43.dp, height = 32.dp)
+                        .size(
+                            width = ((MenuButtonLayout.WIDTH_DP - 1) / 2).dp,
+                            height = MenuButtonLayout.HEIGHT_DP.dp,
+                        )
                         .clickable(onClick = onMoreClick),
                     contentAlignment = Alignment.Center
                 ) {
@@ -1698,7 +2114,10 @@ class DiminaActivity : ComponentActivity() {
 
                 Box(
                     modifier = Modifier
-                        .size(width = 43.dp, height = 32.dp)
+                        .size(
+                            width = ((MenuButtonLayout.WIDTH_DP - 1) / 2).dp,
+                            height = MenuButtonLayout.HEIGHT_DP.dp,
+                        )
                         .clickable(onClick = onCloseClick),
                     contentAlignment = Alignment.Center
                 ) {
@@ -1843,6 +2262,8 @@ class DiminaActivity : ComponentActivity() {
                     state.root = pageConfig?.root ?: "main"
                     state.configInfo = mergedPageConfig
                     state.bridgeStarted = false
+                    // 页面身份被替换，清掉上一任页面的隐藏标记，否则会跨 redirectTo 泄漏到新页面
+                    state.homeButtonHidden.value = false
                 }
 
                 currentBridge.destroy(true)
@@ -1877,8 +2298,10 @@ class DiminaActivity : ComponentActivity() {
 
     companion object {
         const val MINI_PROGRAM_KEY = "mini_program"
-        private const val CLOSE_MINI_PROGRAM_KEY = "close_mini_program"
-        private const val APPLY_UPDATE_RESTART_KEY = "apply_update_restart"
+        private val activityRegistry = MiniProgramActivityRegistry<DiminaActivity>()
+
+        /** 小程序前后台判据的唯一真相源，见 [DiminaActivity.onStart]/[DiminaActivity.onStop]。 */
+        private val visibilityTracker = MiniProgramVisibilityTracker<DiminaActivity>()
 
         fun launch(
             context: Context,

@@ -8,7 +8,20 @@ import org.json.JSONObject
 
 sealed class APIResult
 data class SyncResult(val value: JSValue) : APIResult()
-data class AsyncResult(val value: JSONObject) : APIResult()
+data class AsyncResult @JvmOverloads constructor(
+    val value: JSONObject,
+    /**
+     * App/container lifecycle work that must run only after success/fail and complete have been
+     * queued back to the service runtime. This keeps exit/restart from destroying the caller's
+     * JsCore before those callbacks are delivered.
+     */
+    val afterComplete: (() -> Unit)? = null,
+    /**
+     * Whether `complete` must receive the same result object as success/fail. Keep the default
+     * false for existing APIs whose callback shape has not opted into this contract.
+     */
+    val completeCarriesResult: Boolean = false,
+) : APIResult()
 data class NoneResult(val value: Any? = null) : APIResult()
 
 /**

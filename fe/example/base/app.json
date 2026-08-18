@@ -1,6 +1,7 @@
 {
 	"pages": [
 		"pages/index",
+		"pages/socket-test/index",
 		"pages/scroll-view/index",
 		"pages/input/index",
 		"pages/image/index",
@@ -38,6 +39,7 @@
 		"pages/ext-bridge/index",
 		"pages/canvas/index",
 		"pages/video/index",
+		"pages/web-view/index",
 		"pages/web-gl/index"
 	],
 	"subPackages": [

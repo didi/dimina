@@ -56,10 +56,13 @@ export class DMPBridges {
   static callMethodsNext(methodName: string, webViewId: number,
     params: DMPMap | number | string | boolean | object, appIndex: number,
     moduleManager: DMPModuleManager): number | string | boolean | object {
-    const callback: DMPBridgeCallback = (args: DMPMap, cbType: DMPBridgeCallbackType) => {
+    const callback: DMPBridgeCallback = (args: DMPMap, cbType: DMPBridgeCallbackType,
+      persistentCallbackId?: string) => {
       if (params instanceof DMPMap) {
-        let id = ''
-        if (cbType == DMPBridgeCallbackType.Success) {
+        let id = persistentCallbackId ?? ''
+        if (persistentCallbackId) {
+          id = persistentCallbackId
+        } else if (cbType == DMPBridgeCallbackType.Success) {
           if (!params.hasKey('success')) {
             return
           }
@@ -190,6 +193,5 @@ class DMPExtParsedEvent {
   mod: string = '';
   evt: string = '';
 }
-
 
 

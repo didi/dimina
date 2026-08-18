@@ -45,7 +45,12 @@ describe('目录组件视图编译', () => {
 		fs.writeFileSync(path.join(tempDir, 'components/nav/index.json'), JSON.stringify({
 			component: true,
 		}))
-		fs.writeFileSync(path.join(tempDir, 'components/nav/index.wxml'), '<view class="nav">nav</view>')
+		fs.writeFileSync(path.join(tempDir, 'components/nav/index.wxml'), `
+			<wxs src="./utils.wxs" module="utils" />
+			<include src="./content.wxml" />
+		`)
+		fs.writeFileSync(path.join(tempDir, 'components/nav/content.wxml'), '<view class="nav">{{utils.label("nav")}}</view>')
+		fs.writeFileSync(path.join(tempDir, 'components/nav/utils.wxs'), 'module.exports = { label: function (value) { return value } }')
 
 		const outputDir = path.join(tempDir, 'dist')
 		fs.mkdirSync(outputDir, { recursive: true })
@@ -63,5 +68,7 @@ describe('目录组件视图编译', () => {
 
 		const output = fs.readFileSync(outputPath, 'utf-8')
 		expect(output).toContain('/components/nav')
+		expect(output).toContain('components_nav_utils')
+		expect(output).toContain('nav')
 	})
 })

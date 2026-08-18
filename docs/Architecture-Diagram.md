@@ -1,256 +1,134 @@
-# Dimina 星河小程序架构图
+# Dimina 架构总览
 
-## 整体架构流程图
+[文档中心](./README.md) · [实现细节](./Architecture-Details.md) · [生命周期](./Architecture-Lifecycle.md) · [能力参考](./API-Reference.md)
 
-```mermaid
-graph TB
-    subgraph "开发阶段 Development Phase"
-        A[小程序源码<br/>Mini Program Source] --> B[DMCC 编译器<br/>Compiler]
-        A1[app.js/page.js<br/>逻辑文件] --> B
-        A2[index.wxml<br/>视图文件] --> B
-        A3[app.wxss/page.wxss<br/>样式文件] --> B
-        A4[app.json/page.json<br/>配置文件] --> B
-    end
+Dimina 的核心链路是：DMCC 把小程序源码编译成平台无关的运行时资源包，再由各平台容器提供逻辑引擎、视图容器、页面栈和原生能力。
 
-    subgraph "编译产物 Compilation Output"
-        B --> C1[logic.js<br/>逻辑代码]
-        B --> C2[view.js<br/>视图代码]
-        B --> C3[style.css<br/>样式文件]
-        B --> C4[config.json<br/>配置文件]
-    end
+## 架构总图
 
-    subgraph "跨平台部署 Cross-Platform Deployment"
-        C1 --> D1[Android 容器<br/>Android Container]
-        C2 --> D1
-        C3 --> D1
-        C4 --> D1
-        
-        C1 --> D2[iOS 容器<br/>iOS Container]
-        C2 --> D2
-        C3 --> D2
-        C4 --> D2
-        
-        C1 --> D3[Harmony 容器<br/>Harmony Container]
-        C2 --> D3
-        C3 --> D3
-        C4 --> D3
-        
-        C1 --> D4[Web 容器<br/>Web Container]
-        C2 --> D4
-        C3 --> D4
-        C4 --> D4
-    end
+![Dimina 从编译、资源发布到四端容器的完整架构](./Dimina-Architecture-Diagram.svg)
 
-    style A fill:#e1f5fe
-    style B fill:#f3e5f5
-    style D1 fill:#e8f5e8
-    style D2 fill:#e8f5e8
-    style D3 fill:#e8f5e8
-    style D4 fill:#e8f5e8
-```
-
-## 运行时架构图
+## 1. 从源码到四端容器
 
 ```mermaid
-graph TB
-    subgraph "移动端容器 Mobile Container"
-        subgraph "渲染层 Render Layer"
-            R1[WebView 1<br/>页面1]
-            R2[WebView 2<br/>页面2]
-            R3[WebView N<br/>页面N]
-            RV[Vue 渲染引擎<br/>Vue Renderer]
-        end
-        
-        subgraph "逻辑层 Logic Layer"
-            L1[JS 引擎<br/>QuickJS/JSCore]
-            L2[业务逻辑<br/>Business Logic]
-            L3[生命周期<br/>Lifecycle]
-        end
-        
-        subgraph "原生能力层 Native Layer"
-            N1[相机 Camera]
-            N2[蓝牙 Bluetooth]
-            N3[定位 Location]
-            N4[存储 Storage]
-            N5[网络 Network]
-        end
-        
-        subgraph "通信协议 Communication"
-            P1[JSON 协议<br/>JSON Protocol]
-            P2[invoke 通道<br/>Invoke Channel]
-            P3[publish 通道<br/>Publish Channel]
-        end
+flowchart LR
+    subgraph Source[小程序源码]
+        Logic["JS / TS<br/>App · Page · Component"]
+        View["WXML / DDML<br/>模板 · 组件 · WXS"]
+        Style["WXSS / DDSS<br/>Less · Sass"]
+        Config["JSON<br/>App · Page · Component"]
     end
 
-    R1 <--> P1
-    R2 <--> P1
-    R3 <--> P1
-    RV <--> P1
-    
-    P1 <--> L1
-    P1 <--> L2
-    P1 <--> L3
-    
-    P2 --> N1
-    P2 --> N2
-    P2 --> N3
-    P2 --> N4
-    P2 --> N5
+    Source --> DMCC["DMCC 编译器"]
 
-    style R1 fill:#e3f2fd
-    style L1 fill:#fff3e0
-    style N1 fill:#e8f5e8
-    style P1 fill:#fce4ec
+    subgraph Bundle[运行时资源包]
+        Main["main/<br/>app-config · logic · page assets"]
+        Sub["subpackage/<br/>logic · page assets"]
+        Static["static/<br/>图片等资源"]
+    end
+
+    DMCC --> Bundle
+    Bundle --> Package["宿主打包<br/>config.json + zip / directory"]
+
+    Package --> Android["Android<br/>QuickJS + WebView"]
+    Package --> IOS["iOS<br/>JavaScriptCore + WKWebView"]
+    Package --> Harmony["Harmony<br/>QuickJS + WebView"]
+    Package --> Web["Web<br/>Worker + Browser"]
 ```
 
-## 编译流程详细图
+同一份 DMCC 产物由不同容器加载。平台差异集中在逻辑引擎、WebView、资源加载、页面栈和原生 API 实现，不需要为每个平台重新编译一套业务源码。图中的 Service、Render、Container 和 Native 表示运行时职责；它们不要求在每个平台上对应四个独立进程或物理模块。
+
+## 2. 单个容器内部
 
 ```mermaid
-graph LR
-    subgraph "源码文件 Source Files"
-        S1[app.js]
-        S2[page.js]
-        S3[component.js]
-        S4[index.wxml]
-        S5[app.wxss]
-        S6[page.wxss]
-        S7[app.json]
-        S8[page.json]
-    end
+flowchart TB
+    Package["沙盒中的运行时资源包"] --> Loader["资源加载器"]
+    Loader --> Service["Service 逻辑层<br/>App · Page · Component · wx API"]
+    Loader --> Render["Render 渲染层<br/>Vue runtime · DOM · 内置组件"]
 
-    subgraph "编译器模块 Compiler Modules"
-        C1[逻辑编译器<br/>Logic Compiler<br/>Babel AST]
-        C2[视图编译器<br/>View Compiler<br/>HTML Parser]
-        C3[样式编译器<br/>Style Compiler<br/>PostCSS]
-        C4[配置编译器<br/>Config Compiler<br/>JSON Merger]
-    end
+    Service <-->|"publish：数据与事件"| Bridge["Container Bridge<br/>消息路由 · 页面 bridgeId · 回调"]
+    Render <-->|"publish：数据与事件"| Bridge
+    Service -->|"invoke：平台 API"| Bridge
+    Render -->|"invoke：视图/组件能力"| Bridge
 
-    subgraph "编译产物 Output"
-        O1[logic.js<br/>AMD 模块格式]
-        O2[view-*.js<br/>Vue 组件]
-        O3[style.css<br/>作用域隔离]
-        O4[config.json<br/>配置合并]
-    end
-
-    S1 --> C1
-    S2 --> C1
-    S3 --> C1
-    C1 --> O1
-
-    S4 --> C2
-    C2 --> O2
-
-    S5 --> C3
-    S6 --> C3
-    C3 --> O3
-
-    S7 --> C4
-    S8 --> C4
-    C4 --> O4
-
-    style C1 fill:#e1f5fe
-    style C2 fill:#e8f5e8
-    style C3 fill:#fff3e0
-    style C4 fill:#fce4ec
+    Bridge --> Router["页面栈与 WebView 管理"]
+    Bridge --> Native["原生能力<br/>网络 · 存储 · 相机 · 定位 · 扩展模块"]
+    Native --> Bridge
 ```
 
-## 页面生命周期和交互时序图
+逻辑层和渲染层不会直接调用彼此。容器负责所有跨层路由，因此一次业务操作可能跨越多个执行环境。
+
+## 3. 一次用户交互的数据路径
 
 ```mermaid
 sequenceDiagram
-    participant U as 用户 User
-    participant R as 渲染层 Render
-    participant C as 容器层 Container
-    participant L as 逻辑层 Logic
-    participant N as 原生层 Native
+    actor User as 用户
+    participant Render as Render 渲染层
+    participant Bridge as Container Bridge
+    participant Service as Service 逻辑层
+    participant Native as Native / Web API
 
-    Note over R,L: 页面初始化 Page Initialization
-    
-    R->>C: 渲染层初始化完成
-    C->>L: 通知逻辑层初始化
-    L->>L: 执行 onLoad/onShow
-    L->>C: setData(初始数据)
-    C->>R: 更新视图数据
-    R->>R: 渲染页面
+    User->>Render: 点击或输入
+    Render->>Bridge: publish(event, dataset)
+    Bridge->>Service: 转发到页面或组件实例
+    Service->>Service: 执行业务方法
 
-    Note over U,N: 用户交互 User Interaction
-    
-    U->>R: 触发事件(点击/输入)
-    R->>C: 发送事件数据
-    C->>L: 转发事件到逻辑层
-    L->>L: 处理业务逻辑
-    
-    alt 需要原生能力
-        L->>C: 调用原生API
-        C->>N: invoke 通道调用
-        N->>C: 返回结果
-        C->>L: 返回API结果
+    opt 调用平台能力
+        Service->>Bridge: invoke(wx API)
+        Bridge->>Native: 执行平台实现
+        Native-->>Bridge: 返回结果
+        Bridge-->>Service: success / fail / complete
     end
-    
-    L->>C: setData(更新数据)
-    C->>R: publish 通道转发
-    R->>R: Vue diff 更新视图
-    R->>U: 显示更新结果
 
-    Note over R,L: 页面销毁 Page Destroy
-    
-    U->>R: 页面跳转/返回
-    R->>C: 页面卸载事件
-    C->>L: 触发 onUnload
-    L->>L: 清理资源
+    Service->>Bridge: publish(setData patch)
+    Bridge->>Render: 更新模块状态
+    Render->>Render: Vue 计算并更新 DOM
+    Render-->>User: 显示新界面
 ```
 
-## 跨平台架构对比图
+`publish` 表示经容器转发的逻辑层/渲染层消息；`invoke` 表示调用容器或指定目标层的能力。具体实现见[通信与运行时分层](./Architecture-Details.md#3-两类消息通道)。
+
+## 4. 编译器内部
 
 ```mermaid
-graph TB
-    subgraph "统一开发体验 Unified Development"
-        DEV[小程序语法开发<br/>Mini Program Syntax]
-    end
+flowchart LR
+    Source["工程配置与源码"] --> Env["收集 appId、页面、分包、组件与文件类型"]
+    Env --> ConfigCompiler["配置编译"]
+    Env --> LogicCompiler["逻辑编译 Worker"]
+    Env --> ViewCompiler["视图编译 Worker"]
+    Env --> StyleCompiler["样式编译 Worker"]
+    Env --> NpmBuilder["小程序 npm 组件构建"]
 
-    DEV --> COMPILER[DMCC 编译器<br/>Universal Compiler]
+    LogicCompiler --> LogicOutput["main / subpackage logic.js"]
+    ViewCompiler --> ViewOutput["按页面拆分的 .js"]
+    StyleCompiler --> StyleOutput["app.css 与按页面拆分的 .css"]
+    ConfigCompiler --> AppConfig["main/app-config.json"]
+    NpmBuilder --> ViewOutput
+    NpmBuilder --> StyleOutput
 
-    COMPILER --> AND_OUT[Android 产物]
-    COMPILER --> IOS_OUT[iOS 产物]
-    COMPILER --> HAR_OUT[Harmony 产物]
-    COMPILER --> WEB_OUT[Web 产物]
-
-    subgraph "Android 环境"
-        AND_OUT --> AND_WEBVIEW[Android WebView]
-        AND_OUT --> AND_JS[QuickJS 引擎]
-        AND_OUT --> AND_API[Android Native APIs]
-        AND_WEBVIEW <--> AND_JS
-        AND_JS <--> AND_API
-    end
-
-    subgraph "iOS 环境"
-        IOS_OUT --> IOS_WEBVIEW[iOS WKWebView]
-        IOS_OUT --> IOS_JS[JavaScriptCore]
-        IOS_OUT --> IOS_API[iOS Native APIs]
-        IOS_WEBVIEW <--> IOS_JS
-        IOS_JS <--> IOS_API
-    end
-
-    subgraph "Harmony 环境"
-        HAR_OUT --> HAR_WEBVIEW[Harmony WebView]
-        HAR_OUT --> HAR_JS[QuickJS 引擎]
-        HAR_OUT --> HAR_API[Harmony Native APIs]
-        HAR_WEBVIEW <--> HAR_JS
-        HAR_JS <--> HAR_API
-    end
-
-    subgraph "Web 环境"
-        WEB_OUT --> WEB_BROWSER[浏览器 Browser]
-        WEB_OUT --> WEB_WORKER[Web Worker]
-        WEB_OUT --> WEB_API[Web APIs]
-        WEB_BROWSER <--> WEB_WORKER
-        WEB_WORKER <--> WEB_API
-    end
-
-    style DEV fill:#e1f5fe
-    style COMPILER fill:#f3e5f5
-    style AND_WEBVIEW fill:#e8f5e8
-    style IOS_WEBVIEW fill:#e8f5e8
-    style HAR_WEBVIEW fill:#e8f5e8
-    style WEB_BROWSER fill:#e8f5e8
+    LogicOutput --> Publish["发布到目标目录"]
+    ViewOutput --> Publish
+    StyleOutput --> Publish
+    AppConfig --> Publish
 ```
+
+逻辑、视图和样式任务可并行编译；主包和分包在输出阶段保持各自的运行时边界。详细的输入与文件命名规则见[源码与编译产物](./Architecture-Details.md#1-源码与编译产物)。
+
+## 5. 平台运行时对照
+
+| 平台 | Service 环境 | Render 环境 | 资源加载与页面 |
+| --- | --- | --- | --- |
+| Android | QuickJS | Android WebView | 沙盒资源映射、原生页面栈与 WebView 管理 |
+| iOS | JavaScriptCore | WKWebView | 沙盒 Bundle、原生页面栈与 WKWebView 管理 |
+| Harmony | QuickJS | Harmony WebView | 按版本目录加载、页面容器与 WebView 管理 |
+| Web | Web Worker | Browser | HTTP/静态资源、浏览器页面容器 |
+
+平台运行时共享 service 和 render 的核心语义，但原生 API 的覆盖范围可能不同。请以[能力参考](./API-Reference.md)和各端 SDK 文档为准。
+
+## 6. 关键边界
+
+- DMCC 产物是运行时资源，不是可以直接安装的原生应用包。
+- `main/app-config.json` 描述小程序运行时模块；根 `config.json` 描述宿主加载所需的 App 与版本元数据。
+- `setData()`、用户事件和生命周期跨越 service/render 边界，不能假设它们共享同一个事件循环。
+- 容器提供 API 入口不代表四个平台的行为完全一致；跨端业务需要能力检测和降级策略。
+- 远程包下载、校验和安装属于宿主更新链路，详见[小程序包更新](./MiniProgram-Update.md)。

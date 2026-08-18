@@ -13,6 +13,29 @@ final class DMPRemoteUpdateManager {
 
     private init() {}
 
+    /// Ensures a runnable package exists before the service and render runtimes
+    /// are initialized. Returns true when this call performed the first install.
+    func installInitialPackageIfNeeded(appId: String, manifestUrl: String?) async throws -> Bool {
+        if isPackageReady(appId: appId) {
+            return false
+        }
+
+        let trimmedUrl = manifestUrl?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmedUrl.isEmpty else {
+            throw RemoteUpdateError.install(
+                "mini program \(appId) has no local package or updateManifestUrl"
+            )
+        }
+
+        let manifest = try await fetchManifest(manifestUrl: trimmedUrl)
+        try validateManifestAppId(manifest, expectedAppId: appId)
+
+        let zipPath = try await downloadPackage(manifest: manifest)
+        try installPackage(manifest: manifest, zipPath: zipPath)
+        return true
+    }
+
     func checkForUpdate(app: DMPApp, manifestUrl: String) async {
         let trimmedUrl = manifestUrl.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedUrl.isEmpty else {
@@ -23,9 +46,7 @@ final class DMPRemoteUpdateManager {
         var updateAnnounced = false
         do {
             let manifest = try await fetchManifest(manifestUrl: trimmedUrl)
-            guard manifest.appId == app.getAppId() else {
-                throw RemoteUpdateError.invalidManifest("manifest appId \(manifest.appId) does not match \(app.getAppId())")
-            }
+            try validateManifestAppId(manifest, expectedAppId: app.getAppId())
 
             let currentVersion = currentVersionCode(appId: app.getAppId())
             guard manifest.versionCode > currentVersion else {
@@ -37,15 +58,30 @@ final class DMPRemoteUpdateManager {
             await app.notifyUpdateStatus(event: "updating")
 
             let zipPath = try await downloadPackage(manifest: manifest)
-            if let sha256 = manifest.sha256, !sha256.isEmpty {
-                try verifySha256(filePath: zipPath, expectedSha256: sha256)
-            }
-
             try installPackage(manifest: manifest, zipPath: zipPath)
             await app.notifyUpdateStatus(event: "updateready")
         } catch {
-            print("Remote update failed: \(error)")
+            DMPLogger.debug("Remote update failed: \(error)")
             await app.notifyUpdateStatus(event: updateAnnounced ? "updatefail" : "noupdate")
+        }
+    }
+
+    private func isPackageReady(appId: String) -> Bool {
+        let requiredFiles = [
+            DMPSandboxManager.appConfigPath(appId: appId),
+            DMPSandboxManager.appServicePath(appId: appId),
+        ]
+        return requiredFiles.allSatisfy { FileManager.default.fileExists(atPath: $0) }
+    }
+
+    private func validateManifestAppId(
+        _ manifest: RemoteUpdateManifest,
+        expectedAppId: String
+    ) throws {
+        guard manifest.appId == expectedAppId else {
+            throw RemoteUpdateError.invalidManifest(
+                "manifest appId \(manifest.appId) does not match \(expectedAppId)"
+            )
         }
     }
 
@@ -102,6 +138,9 @@ final class DMPRemoteUpdateManager {
             DMPFileUtil.removeItem(at: zipPath)
         }
 
+        if let sha256 = manifest.sha256, !sha256.isEmpty {
+            try verifySha256(filePath: zipPath, expectedSha256: sha256)
+        }
         DMPFileUtil.removeItem(at: stagingPath)
         guard DMPFileUtil.unzipFile(at: zipPath, to: stagingPath) else {
             throw RemoteUpdateError.install("failed to unzip package")

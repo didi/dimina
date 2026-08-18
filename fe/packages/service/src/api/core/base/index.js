@@ -13,6 +13,26 @@ export const env = {
 // JS 层内置支持的API列表
 const builtInAPIs = new Set([
 	'nextTick',
+	'onError',
+	'offError',
+	'onAppShow',
+	'onAppHide',
+	'offAppShow',
+	'offAppHide',
+	'onShow',
+	'offShow',
+	'onHide',
+	'offHide',
+	'createCanvas',
+	'createImage',
+	'onTouchStart',
+	'offTouchStart',
+	'onTouchMove',
+	'offTouchMove',
+	'onTouchEnd',
+	'offTouchEnd',
+	'onTouchCancel',
+	'offTouchCancel',
 	'getUpdateManager',
 	'UpdateManager',
 	...updateManagerAPINames.map(name => `UpdateManager.${name}`),
@@ -21,6 +41,16 @@ const builtInAPIs = new Set([
 	'FileSystemManager',
 	...fileSystemManagerAPINames.map(name => `FileSystemManager.${name}`),
 ])
+
+// Socket factories live in the service layer, while their actual capability is
+// provided by the native object methods. Probe a representative native method
+// so canIUse stays platform-aware (notably, it remains false on Web).
+const nativeBackedFactorySchemas = {
+	createUDPSocket: 'UDPSocket.bind',
+	UDPSocket: 'UDPSocket.bind',
+	createTCPSocket: 'TCPSocket.connect',
+	TCPSocket: 'TCPSocket.connect',
+}
 	
 /**
  * 判断小程序的API，回调，参数，组件等是否在当前版本可用。
@@ -31,7 +61,10 @@ export function canIUse(schema) {
 		return true
 	}
 	try {
-		return invokeAPI('canIUse', schema)
+		const nativeSchema = Object.hasOwn(nativeBackedFactorySchemas, schema)
+			? nativeBackedFactorySchemas[schema]
+			: schema
+		return invokeAPI('canIUse', nativeSchema) === true
 	} catch (error) {
 		console.warn(`[canIUse] check ${schema} error:`, error)
 		return false

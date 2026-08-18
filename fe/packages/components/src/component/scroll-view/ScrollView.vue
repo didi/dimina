@@ -164,6 +164,16 @@ const props = defineProps({
 		type: Boolean,
 		default: false,
 	},
+	/** 是否允许滚动（enhanced 模式能力，Web 同样遵循） */
+	scrollEnabled: {
+		type: Boolean,
+		default: true,
+	},
+	/** 是否将 scroll 事件节流到约一帧一次 */
+	throttle: {
+		type: Boolean,
+		default: true,
+	},
 })
 
 const info = useInfo()
@@ -179,15 +189,19 @@ const hideScrollBar = computed(() => {
 let lastScrollLeft = 0
 let lastScrollTop = 0
 let lastScrollToUpperTime = 0
+let lastScrollToLowerTime = 0
+let lastScrollEventTime = 0
 // 滚动事件处理
 function handleScroll(event) {
+	if (props.throttle && event.timeStamp - lastScrollEventTime < 20) return
+	lastScrollEventTime = event.timeStamp
 	const el = scrollView.value
 	const { scrollTop, scrollLeft, scrollHeight, scrollWidth, clientHeight, clientWidth } = el
 
 	// // 计算滚动的水平距离变化（deltaX）
-	const deltaX = scrollLeft - lastScrollLeft
+	const deltaX = lastScrollLeft - scrollLeft
 	// // 计算滚动的垂直距离变化（deltaY）
-	const deltaY = scrollTop - lastScrollTop
+	const deltaY = lastScrollTop - scrollTop
 
 	lastScrollLeft = scrollLeft
 	lastScrollTop = scrollTop
@@ -208,7 +222,7 @@ function handleScroll(event) {
 
 	if (props.scrollY) {
 		// 垂直滚动到顶部
-		if (scrollTop <= props.upperThreshold && deltaY < 0 && event.timeStamp - lastScrollToUpperTime > 200) {
+		if (scrollTop <= props.upperThreshold && deltaY > 0 && event.timeStamp - lastScrollToUpperTime > 200) {
 			lastScrollToUpperTime = event.timeStamp
 
 			triggerEvent('scrolltoupper', {
@@ -221,8 +235,8 @@ function handleScroll(event) {
 		}
 
 		// 垂直滚动到底部
-		if (scrollTop + clientHeight >= scrollHeight - props.lowerThreshold && deltaY > 0 && event.timeStamp - lastScrollToUpperTime > 200) {
-			lastScrollToUpperTime = event.timeStamp
+		if (scrollTop + clientHeight >= scrollHeight - props.lowerThreshold && deltaY < 0 && event.timeStamp - lastScrollToLowerTime > 200) {
+			lastScrollToLowerTime = event.timeStamp
 
 			triggerEvent('scrolltolower', {
 				event,
@@ -236,7 +250,7 @@ function handleScroll(event) {
 
 	if (props.scrollX) {
 		// 横行滚动到顶部
-		if (scrollLeft <= props.upperThreshold && deltaX < 0 && event.timeStamp - lastScrollToUpperTime > 200) {
+		if (scrollLeft <= props.upperThreshold && deltaX > 0 && event.timeStamp - lastScrollToUpperTime > 200) {
 			lastScrollToUpperTime = event.timeStamp
 
 			triggerEvent('scrolltoupper', {
@@ -249,8 +263,8 @@ function handleScroll(event) {
 		}
 
 		// 横向滚动到底部
-		if (scrollLeft + clientWidth >= scrollWidth - props.lowerThreshold && deltaX > 0 && event.timeStamp - lastScrollToUpperTime > 200) {
-			lastScrollToUpperTime = event.timeStamp
+		if (scrollLeft + clientWidth >= scrollWidth - props.lowerThreshold && deltaX < 0 && event.timeStamp - lastScrollToLowerTime > 200) {
+			lastScrollToLowerTime = event.timeStamp
 
 			triggerEvent('scrolltolower', {
 				event,
@@ -265,7 +279,7 @@ function handleScroll(event) {
 
 // 添加新的事件处理函数
 function handleTouchMove(event) {
-	if (props.scrollX || props.scrollY) {
+	if (props.scrollEnabled && (props.scrollX || props.scrollY)) {
 		// 触发自定义的 touchmove 事件
 		triggerEvent('touchmove', {
 			event,
@@ -277,26 +291,136 @@ function handleTouchMove(event) {
 	}
 }
 
+let refresherStartY
+let refresherDistance = 0
+let refreshing = false
+
+function handleTouchStart(event) {
+	if (!props.scrollEnabled) return
+	if (props.refresherEnabled && scrollView.value?.scrollTop <= 0) {
+		refresherStartY = event.touches?.[0]?.clientY
+		refresherDistance = 0
+	}
+	if (props.enhanced) {
+		triggerEvent('dragstart', { event, info, detail: getScrollDetail() })
+	}
+}
+
+function getScrollDetail(extra = {}) {
+	const element = scrollView.value
+	return {
+		scrollLeft: element?.scrollLeft || 0,
+		scrollTop: element?.scrollTop || 0,
+		...extra,
+	}
+}
+
+// A smooth initial/programmatic scroll can still be animating away from the
+// top when refresherStartY was captured at scrollTop<=0, so touchmove/touchend
+// must re-check the container is still at the top before treating this as a
+// refresher gesture rather than trusting the touchstart-time snapshot.
+function cancelRefresherGestureAwayFromTop(event) {
+	if (refresherStartY === undefined || (scrollView.value?.scrollTop ?? 0) <= 0) return
+
+	const dy = refresherDistance
+	refresherStartY = undefined
+	refresherDistance = 0
+
+	// A refresherpulling already went out for this gesture; tell the consumer
+	// it ended instead of leaving it without a matching refresh/abort event.
+	if (dy > 0) {
+		triggerEvent('refresherabort', { event, info, detail: { dy } })
+	}
+}
+
+function handleEnhancedTouchMove(event) {
+	cancelRefresherGestureAwayFromTop(event)
+	if (refresherStartY !== undefined) {
+		refresherDistance = Math.max((event.touches?.[0]?.clientY || refresherStartY) - refresherStartY, 0)
+		if (refresherDistance > 0) {
+			triggerEvent('refresherpulling', {
+				event,
+				info,
+				detail: { dy: refresherDistance },
+			})
+		}
+	}
+	if (props.enhanced) {
+		triggerEvent('dragging', { event, info, detail: getScrollDetail() })
+	}
+}
+
+function handleTouchEnd(event) {
+	cancelRefresherGestureAwayFromTop(event)
+	if (refresherStartY !== undefined) {
+		if (refresherDistance >= props.refresherThreshold) {
+			refreshing = true
+			triggerEvent('refresherrefresh', { event, info, detail: { dy: refresherDistance } })
+		}
+		else if (refresherDistance > 0) {
+			triggerEvent('refresherabort', { event, info, detail: { dy: refresherDistance } })
+		}
+		refresherStartY = undefined
+		refresherDistance = 0
+	}
+	if (props.enhanced) {
+		triggerEvent('dragend', { event, info, detail: getScrollDetail() })
+	}
+}
+
+watch(() => props.refresherTriggered, (triggered, previous) => {
+	if (triggered && !previous && !refreshing) {
+		refreshing = true
+		triggerEvent('refresherrefresh', { info, detail: { dy: props.refresherThreshold } })
+	}
+	else if (!triggered && previous && refreshing) {
+		refreshing = false
+		triggerEvent('refresherrestore', { info, detail: { dy: 0 } })
+	}
+})
+
 // 监听滚动位置的变化
 watch(
 	() => [props.scrollTop, props.scrollLeft],
 	([newScrollTop, newScrollLeft]) => {
 		if (scrollView.value) {
 			scrollView.value.scrollTo({
-				top: newScrollTop,
-				left: newScrollLeft,
-				behavior: 'instant',
+				top: newScrollTop === undefined ? scrollView.value.scrollTop : Number(newScrollTop) || 0,
+				left: newScrollLeft === undefined ? scrollView.value.scrollLeft : Number(newScrollLeft) || 0,
+				behavior: props.scrollWithAnimation ? 'smooth' : 'instant',
 			})
 		}
 	},
 	{ flush: 'post' },
 )
 
+function scrollToChild(id) {
+	if (!id || !scrollView.value) return
+	const escapedId = window.CSS?.escape ? CSS.escape(id) : id.replace(/(["'\\#.:[\],>+~*^$|=()])/g, '\\$1')
+	const target = scrollView.value.querySelector(`#${escapedId}`)
+	if (!target) return
+	const rootRect = scrollView.value.getBoundingClientRect()
+	const targetRect = target.getBoundingClientRect()
+	scrollView.value.scrollTo({
+		top: props.scrollY ? scrollView.value.scrollTop + targetRect.top - rootRect.top : scrollView.value.scrollTop,
+		left: props.scrollX ? scrollView.value.scrollLeft + targetRect.left - rootRect.left : scrollView.value.scrollLeft,
+		behavior: props.scrollWithAnimation ? 'smooth' : 'instant',
+	})
+}
+
+watch(() => props.scrollIntoView, scrollToChild, { flush: 'post' })
+
 onMounted(() => {
 	// 初始化滚动位置
 	if (scrollView.value) {
-		scrollView.value.scrollTop = props.scrollTop
-		scrollView.value.scrollLeft = props.scrollLeft
+		if (props.scrollTop !== undefined || props.scrollLeft !== undefined) {
+			scrollView.value.scrollTo({
+				top: props.scrollTop === undefined ? scrollView.value.scrollTop : Number(props.scrollTop) || 0,
+				left: props.scrollLeft === undefined ? scrollView.value.scrollLeft : Number(props.scrollLeft) || 0,
+				behavior: props.scrollWithAnimation ? 'smooth' : 'instant',
+			})
+		}
+		if (props.scrollIntoView) scrollToChild(props.scrollIntoView)
 	}
 })
 </script>
@@ -304,9 +428,10 @@ onMounted(() => {
 <template>
 	<div
 		ref="scrollView" v-bind="$attrs" class="dd-scroll-view"
-		:class="[{ 'scroll-x': Boolean(props.scrollX), 'scroll-y': Boolean(props.scrollY), 'hide-scrollbar': hideScrollBar }]"
+		:class="[{ 'scroll-x': Boolean(props.scrollX), 'scroll-y': Boolean(props.scrollY), 'scroll-disabled': !props.scrollEnabled, 'hide-scrollbar': hideScrollBar }]"
 		@scroll="handleScroll"
-		@touchmove="handleTouchMove"
+		@touchstart="handleTouchStart" @touchmove="handleTouchMove($event); handleEnhancedTouchMove($event)"
+		@touchend="handleTouchEnd" @touchcancel="handleTouchEnd"
 	>
 		<slot />
 	</div>
@@ -340,8 +465,11 @@ onMounted(() => {
 		overflow: auto;
 	}
 
+	&.scroll-disabled {
+		overflow: hidden !important;
+	}
+
 	&.hide-scrollbar {
-		scroll-behavior: smooth;
 		position: relative;
 	}
 

@@ -7,7 +7,6 @@
 
 import Foundation
 import MMKV
-import UIKit
 
 /**
  * Wrapper utility class for MMKV
@@ -15,8 +14,26 @@ import UIKit
  * Supports all functionalities required by Mini Program Storage API
  */
 public class DMPStorage {
-    // Singleton pattern
-    public static let shared = DMPStorage()
+    private static let managerQueue = DispatchQueue(label: "com.dimina.mmkv.manager")
+    private static var instances: [String: DMPStorage] = [:]
+
+    /// Legacy default namespace. Runtime APIs use `storage(for:)` so data is
+    /// never shared between mini-programs.
+    public static var shared: DMPStorage {
+        storage(for: "default")
+    }
+
+    public static func storage(for appId: String) -> DMPStorage {
+        let namespace = appId.isEmpty ? "default" : appId
+        return managerQueue.sync {
+            if let instance = instances[namespace] {
+                return instance
+            }
+            let instance = DMPStorage(appId: namespace)
+            instances[namespace] = instance
+            return instance
+        }
+    }
     
     // Queue for synchronizing cross-thread access
     private let queue = DispatchQueue(label: "com.dimina.mmkv.queue", attributes: .concurrent)
@@ -27,75 +44,42 @@ public class DMPStorage {
     // Encrypted MMKV instance
     private var encryptedMMKV: MMKV?
     
-    // Initialization status
-    private var isInitialized = false
-    
-    // Private initialization method
-    private init() {}
-    
-    // Initialize MMKV
-    public func initialize(appId: String? = nil) {
-        if isInitialized {
-            return
+    private let appId: String
+
+    private init(appId: String) {
+        self.appId = appId
+        MMKV.initialize(rootDir: nil)
+        mmkv = MMKV(mmapID: "com.dimina.storage.\(appId)")
+
+        let cryptKey = "DiminaEncryptKey"
+        if let cryptKeyData = cryptKey.data(using: .utf8) {
+            encryptedMMKV = MMKV(
+                mmapID: "com.dimina.storage.encrypted.\(appId)",
+                cryptKey: cryptKeyData
+            )
         }
-        
-        queue.sync(flags: .barrier) {
-            if !self.isInitialized {
-                // Initialize MMKV with default root directory
-                MMKV.initialize(rootDir: nil)
-                
-                // Create MMKV instance with app-specific ID
-                let mmapID = appId != nil ? "com.dimina.storage.\(appId!)" : "com.dimina.storage.default"
-                mmkv = MMKV(mmapID: mmapID)
-                
-                // Initialize encrypted MMKV instance with a fixed key
-                // In actual applications, a more secure key management approach should be used
-                let cryptKey = "DiminaEncryptKey"
-                // Convert string to Data type
-                if let cryptKeyData = cryptKey.data(using: .utf8) {
-                    let encryptedMmapID = appId != nil ? "com.dimina.storage.encrypted.\(appId!)" : "com.dimina.storage.encrypted.default"
-                    encryptedMMKV = MMKV(mmapID: encryptedMmapID, cryptKey: cryptKeyData)
-                }
-                
-                self.isInitialized = true
-                print("DMPStorage: Initialization successful for \(appId ?? "default")")
-            }
-        }
+        DMPLogger.debug("DMPStorage: Initialization successful for \(appId)")
     }
-    
+
+    @available(*, deprecated, message: "Use DMPStorage.storage(for:) to select an app namespace")
+    public func initialize(appId: String? = nil) {
+        // Instances returned by `storage(for:)` are initialized atomically.
+    }
+
     // Module initialization, should be called during app startup
     public static func setupModule(appId: String? = nil) {
-        // Register notification to clean up resources when the app exits
-        NotificationCenter.default.addObserver(
-            shared, 
-            selector: #selector(appWillTerminate), 
-            name: UIApplication.willTerminateNotification, 
-            object: nil
-        )
-        
-        // Initialize MMKV with app-specific ID
-        shared.initialize(appId: appId)
+        _ = storage(for: appId ?? "default")
     }
-    
-    // Module destruction, should be called when the app exits
-    public static func teardownModule() {
-        // Remove notification listener
-        NotificationCenter.default.removeObserver(shared)
-        
-        // Destroy MMKV instances
-        shared.destroy()
-    }
-    
-    // App termination notification handler
-    @objc private func appWillTerminate() {
-        DMPStorage.teardownModule()
+
+    // Destroy only the namespace owned by the closing mini-program.
+    public static func teardownModule(appId: String? = nil) {
+        let namespace = appId ?? "default"
+        let instance = managerQueue.sync { instances.removeValue(forKey: namespace) }
+        instance?.destroy()
     }
     
     // Get MMKV instance
     public func getInstance(encrypted: Bool = false) -> MMKV? {
-        if mmkv == nil {
-            initialize()  // This is valid because appId has a default value of nil
-        }
         return encrypted ? encryptedMMKV : mmkv
     }
     
@@ -150,7 +134,7 @@ public class DMPStorage {
                     let data = try JSONSerialization.data(withJSONObject: storageDict, options: [])
                     result = mmkv.set(data, forKey: key)
                 } catch {
-                    print("DMPStorage: Failed to store value for key \(key)")
+                    DMPLogger.debug("DMPStorage: Failed to store value for key \(key)")
                 }
             }
         }
@@ -197,7 +181,7 @@ public class DMPStorage {
                     }
                 }
             } catch {
-                print("DMPStorage: Failed to retrieve value for key \(key)")
+                DMPLogger.debug("DMPStorage: Failed to retrieve value for key \(key)")
             }
         }
         
@@ -308,8 +292,7 @@ public class DMPStorage {
         queue.sync(flags: .barrier) {
             mmkv = nil
             encryptedMMKV = nil
-            isInitialized = false
-            print("DMPStorage: Destroyed")
+            DMPLogger.debug("DMPStorage: Destroyed \(appId)")
         }
     }
 }

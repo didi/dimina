@@ -1,1 +1,5 @@
 blank_issues_enabled: false
+contact_links:
+  - name: "📖 能力范围与平台差异 / Capability Reference"
+    url: https://github.com/didi/dimina/blob/main/docs/API-Reference.md
+    about: 提交 Issue 前，请先确认相关组件、API 和平台能力的支持情况。

@@ -82,26 +82,26 @@ public class DMPRender: DMPWebViewDelegate {
 
     // DMPWebViewDelegate protocol implementation - Handle WebView load completion event
     public func webViewDidFinishLoad(webViewId: Int) {
-        print("🔴 DMPRender: WebView load completed \(webViewId)")
+        DMPLogger.debug("🔴 DMPRender: WebView load completed \(webViewId)")
         let webview = webviewsMap[webViewId]
 
         guard let webview = webview else {
-            print("🟡DMPRender: WebView (ID: \(webViewId)) not found in map")
+            DMPLogger.debug("🟡DMPRender: WebView (ID: \(webViewId)) not found in map")
             return
         }
         
         if webview.poolState != .loading {
-            print("🟡 DMPRender: WebView (ID: \(webViewId)) is not in loading state (\(webview.poolState.description)), skip resource loading")
+            DMPLogger.debug("🟡 DMPRender: WebView (ID: \(webViewId)) is not in loading state (\(webview.poolState.description)), skip resource loading")
             return
         }
         
         let currentPagePath = webview.getPagePath()
         if currentPagePath.isEmpty || currentPagePath == "resetting" {
-            print("🟡 DMPRender: WebView (ID: \(webViewId)) has invalid page path '\(currentPagePath)', skip resource loading")
+            DMPLogger.debug("🟡 DMPRender: WebView (ID: \(webViewId)) has invalid page path '\(currentPagePath)', skip resource loading")
             return
         }
         
-        print("✅ DMPRender: WebView (ID: \(webViewId)) ready for resource loading with path: \(currentPagePath)")
+        DMPLogger.debug("✅ DMPRender: WebView (ID: \(webViewId)) ready for resource loading with path: \(currentPagePath)")
         Task { [weak self, weak webview] in
             await self?.app?.container?.loadResourceService(webViewId: webViewId, pagePath: currentPagePath)
 
@@ -109,14 +109,14 @@ public class DMPRender: DMPWebViewDelegate {
                 guard let self = self, let webview = webview else { return }
                 self.app?.container?.loadResourceRender(webViewId: webViewId, pagePath: currentPagePath)
                 webview.poolState = .ready
-                print("✅ DMPRender: WebView (ID: \(webViewId)) marked as ready")
+                DMPLogger.debug("✅ DMPRender: WebView (ID: \(webViewId)) marked as ready")
             }
         }
     }
 
     // DMPWebViewDelegate protocol implementation - Handle WebView load failure event
     public func webViewDidFailLoad(webViewId: Int, error: Error) {
-        print("🔴 DMPRender: WebView load failed: \(error.localizedDescription)")
+        DMPLogger.debug("🔴 DMPRender: WebView load failed: \(error.localizedDescription)")
     }
 
     public func fromContainer(data: DMPMap, webViewId: Int) {

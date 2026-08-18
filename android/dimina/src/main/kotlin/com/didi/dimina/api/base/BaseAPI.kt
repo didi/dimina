@@ -39,7 +39,7 @@ class BaseAPI : BaseApiHandler() {
 
                 val isAvailable = checkAvailability(param)
                 LogUtils.d(TAG, "canIUse check for '$param': $isAvailable")
-                return SyncResult(JSValue.Companion.createBoolean(true))
+                return SyncResult(JSValue.Companion.createBoolean(isAvailable))
             }
         }
         return SyncResult(JSValue.Companion.createBoolean(false))
@@ -54,6 +54,6 @@ class BaseAPI : BaseApiHandler() {
     private fun checkAvailability(param: String): Boolean {
         val parts = param.split(".")
         val availableApis = MiniApp.Companion.getInstance().getAvailableApis()
-        return availableApis.contains(parts[0])
+        return availableApis.contains(param) || availableApis.contains(parts[0])
     }
 }

@@ -9,16 +9,20 @@ import android.view.ViewGroup
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -47,6 +51,8 @@ import com.didi.dimina.common.ApiUtils
 import com.didi.dimina.ui.container.DiminaActivity
 import kotlinx.coroutines.delay
 import org.json.JSONObject
+
+private const val MODAL_MAX_HEIGHT_FRACTION = 0.9f
 
 /**
  * Author: Doslin
@@ -105,6 +111,7 @@ class InteractionApi : BaseApiHandler() {
                 val confirmText = params.optString("confirmText", "确定")
                 val confirmColor = params.optString("confirmColor", "#576B95")
 
+                activity.cancelActiveWebViewTouch()
                 showModal(
                     context = activity,
                     title = title,
@@ -436,13 +443,14 @@ fun ModalContent(
     onCancel: () -> Unit,
     onConfirm: () -> Unit,
 ) {
-    Box(
-        modifier = Modifier
-            .background(Color.White, RoundedCornerShape(8.dp))
-            .padding(top = 16.dp)
-            .width(280.dp)
-    ) {
+    BoxWithConstraints {
+        val contentScrollState = rememberScrollState()
         Column(
+            modifier = Modifier
+                .width(280.dp)
+                .heightIn(max = maxHeight * MODAL_MAX_HEIGHT_FRACTION)
+                .background(Color.White, RoundedCornerShape(8.dp))
+                .padding(top = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             // Title
@@ -453,25 +461,35 @@ fun ModalContent(
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(bottom = 8.dp)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 24.dp, end = 24.dp, bottom = 8.dp)
                 )
             }
 
             // Content
             if (content.isNotEmpty()) {
-                Text(
-                    text = content,
-                    color = Color(0xFF7F7F7F),
-                    fontSize = 16.sp,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(top = 12.dp, bottom = 20.dp)
-                )
+                Box(
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .fillMaxWidth()
+                        .verticalScroll(contentScrollState)
+                        .padding(start = 24.dp, top = 12.dp, end = 24.dp, bottom = 20.dp)
+                ) {
+                    Text(
+                        text = content,
+                        color = Color(0xFF7F7F7F),
+                        fontSize = 16.sp,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
             }
 
             HorizontalDivider(
                 modifier = Modifier
                     .height(1.dp)
-                    .fillMaxHeight(),
+                    .fillMaxWidth(),
                 color = Color.LightGray
             )
 

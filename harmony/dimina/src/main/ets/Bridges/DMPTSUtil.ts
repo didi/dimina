@@ -19,6 +19,9 @@ export class DMPTSUtil {
     }
     if (originMethod.startsWith('FileSystemManager.') && obj.dispatchFileSystemManager) {
       result = obj.dispatchFileSystemManager.call(obj, originMethod, params, callback)
+    } else if ((originMethod.startsWith('UDPSocket.') || originMethod.startsWith('TCPSocket.') ||
+      originMethod.includes('LocalService')) && obj.dispatchLocalNetwork) {
+      result = obj.dispatchLocalNetwork.call(obj, originMethod, params, callback)
     } else if (webViewId > 0) {
       result = obj[originMethod].call(obj, params, callback, webViewId)
     } else {
@@ -57,4 +60,7 @@ export enum DMPBridgeCallbackType {
   Complete
 }
 
-export type DMPBridgeCallback = (args: DMPMap, cbType: DMPBridgeCallbackType) => void;
+// `callbackId` is reserved for persistent task events (progress, headers, etc.).
+// One-shot success/fail/complete calls omit it and keep their existing routing.
+export type DMPBridgeCallback = (args: DMPMap, cbType: DMPBridgeCallbackType,
+  callbackId?: string) => void;

@@ -1,14 +1,22 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import hostEnv from '../src/core/host-env.js'
 import {
 	getAppBaseInfo,
 	getDeviceInfo,
 	getSystemInfoSync,
 	getWindowInfo,
+	offThemeChange,
+	onThemeChange,
 } from '../src/api/core/base/system/index.js'
+import {
+	offMenuButtonBoundingClientRectWeightChange,
+	onMenuButtonBoundingClientRectWeightChange,
+} from '../src/api/core/ui/menu/index.js'
 
 describe('system info api', () => {
 	afterEach(() => {
+		offMenuButtonBoundingClientRectWeightChange()
+		offThemeChange()
 		hostEnv.reset()
 	})
 
@@ -66,5 +74,27 @@ describe('system info api', () => {
 			platform: 'devtools',
 			system: 'web',
 		})
+	})
+
+	it('updates host geometry and notifies menu rect listeners', () => {
+		const listener = vi.fn()
+		const menuRect = { top: 52, right: 365, bottom: 84, left: 278, width: 87, height: 32 }
+		hostEnv.init({ menuRect: null })
+		onMenuButtonBoundingClientRectWeightChange(listener)
+
+		hostEnv.update({ menuRect })
+
+		expect(hostEnv.getMenuRect()).toBe(menuRect)
+		expect(listener).toHaveBeenCalledWith(menuRect)
+	})
+
+	it('notifies theme listeners from host environment updates', () => {
+		const listener = vi.fn()
+		hostEnv.init({ systemInfo: { theme: 'light' } })
+		onThemeChange(listener)
+
+		hostEnv.update({ systemInfo: { theme: 'dark' } })
+
+		expect(listener).toHaveBeenCalledWith({ theme: 'dark' })
 	})
 })

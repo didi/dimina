@@ -46,17 +46,29 @@ public class DMPUtil {
         return try? JSONSerialization.jsonObject(with: data, options: []) as? [Any]
     }
 
+    /// 剥离路径前导斜杠，统一为无斜杠的 module-key 形态，
+    /// 与 DMPBundleAppConfig.entryPagePath / 页面栈 key 同口径
+    public static func normalizePagePath(_ path: String) -> String {
+        return String(path.drop(while: { $0 == "/" }))
+    }
+
+    /// 站内路由 URL（navigateTo/redirectTo/switchTab/reLaunch）唯一解析闸门：
+    /// pagePath 统一归一化，四个入口自动同口径，不需要各自补丁
     public static func queryPath(path: String) -> [String: Any] {
         let parts = path.components(separatedBy: "?")
-        let pagePath = parts[0]
+        let pagePath = normalizePagePath(parts[0])
         var paramsDict: [String: String] = [:]
 
-        if parts.count > 1, let paramStr = parts[1].components(separatedBy: "&").first {
+        if parts.count > 1 {
+            let paramStr = parts[1]
             for param in paramStr.components(separatedBy: "&") {
-                let keyValueArray = param.components(separatedBy: "=")
-                guard keyValueArray.count == 2 else { continue }
-                
-                let (key, value) = (keyValueArray[0], keyValueArray[1])
+                // 只按第一个 '=' 切分（对齐 Android Utils.kt split("=", limit=2) /
+                // Harmony DataTransformer.ets indexOf('=')）——value 本身含 '='
+                // （如 token/嵌套 URL）时不能被截断或整条丢弃
+                guard let equalsIndex = param.firstIndex(of: "=") else { continue }
+                let key = String(param[param.startIndex..<equalsIndex])
+                guard !key.isEmpty else { continue }
+                let value = String(param[param.index(after: equalsIndex)...])
                 paramsDict[key] = value
             }
         }

@@ -20,6 +20,9 @@ export class ComponentModule {
 
 	getProps() {
 		let props = serializeProps(this.moduleInfo.properties)
+		const builtinBehaviors = Array.isArray(this.behaviors)
+			? this.behaviors.filter(behavior => typeof behavior === 'string' && behavior.startsWith('wx://'))
+			: []
 
 		if (Array.isArray(this.moduleInfo.externalClasses) && this.moduleInfo.externalClasses.length > 0) {
 			if (!props) {
@@ -31,6 +34,10 @@ export class ComponentModule {
 					cls: true,
 				}
 			}
+		}
+		if (builtinBehaviors.length) {
+			props ||= {}
+			props.__diminaMeta = { builtinBehaviors }
 		}
 		return props
 	}

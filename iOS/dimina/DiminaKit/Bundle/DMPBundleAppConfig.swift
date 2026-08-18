@@ -17,6 +17,7 @@ public class DMPBundleAppConfig {
     var sitemapLocation: String
     var subPackages: [SubPackageConfig]
     var _entryPagePath: String
+    let runtimeType: String
     var moduleMaps: [String: ModuleConfig]
     
     init(data: [String: Any]) {
@@ -30,6 +31,7 @@ public class DMPBundleAppConfig {
         self.sitemapLocation = self.app["sitemapLocation"] as? String ?? ""
         self.subPackages = self.app["subPackages"] as? [SubPackageConfig] ?? []
         self._entryPagePath = self.app["entryPagePath"] as? String ?? ""
+        self.runtimeType = self.app["runtimeType"] as? String == "game" ? "game" : "miniProgram"
         
         // 初始化 moduleMaps
         var maps = [String: ModuleConfig]()
@@ -44,6 +46,21 @@ public class DMPBundleAppConfig {
         self.moduleMaps = maps
     }
     
+    /// app.json 的 `networkTimeout.connectSocket`，毫秒。未配置或配了非正数时是 nil，
+    /// 由调用方回落到自己的默认值。
+    var networkTimeoutConnectSocketMs: Int? {
+        guard let networkTimeout = app["networkTimeout"] as? [String: Any],
+              let boxed = networkTimeout["connectSocket"] as? NSNumber,
+              CFGetTypeID(boxed) != CFBooleanGetTypeID(),
+              boxed.doubleValue.isFinite,
+              boxed.doubleValue > 0,
+              boxed.doubleValue <= Double(0x7fffffff)
+        else {
+            return nil
+        }
+        return Int(boxed.doubleValue.rounded(.down))
+    }
+
     func getRootPackage(pagePath: String) -> String {
         return moduleMaps[pagePath]?.root ?? "main"
     }
@@ -72,7 +89,11 @@ public class DMPBundleAppConfig {
                 }
                 _entryPagePath = firstPage
             }
-            return _entryPagePath
+            // 统一输出无前导斜杠的 module-key 形态——首页判定（resolveLeftNavAction）、
+            // navigateHome、openPage 等所有读者都按 app-config key 消费同一权威值
+            return _entryPagePath.hasPrefix("/")
+                ? String(_entryPagePath.drop(while: { $0 == "/" }))
+                : _entryPagePath
         }
         set {
             _entryPagePath = newValue
@@ -92,8 +113,10 @@ public class DMPBundleAppConfig {
                        (appWindowConfig["navigationBarTextStyle"] as? String) ?? "black"
         mergedConfig["backgroundColor"] = (pagePrivateConfig["backgroundColor"] as? String) ?? 
                        (appWindowConfig["backgroundColor"] as? String) ?? "#FFFFFF"
-        mergedConfig["navigationStyle"] = (pagePrivateConfig["navigationStyle"] as? String) ?? 
+        mergedConfig["navigationStyle"] = (pagePrivateConfig["navigationStyle"] as? String) ??
                        (appWindowConfig["navigationStyle"] as? String) ?? "default"
+        mergedConfig["homeButton"] = (pagePrivateConfig["homeButton"] as? Bool) ??
+                       (appWindowConfig["homeButton"] as? Bool) ?? false
         mergedConfig["usingComponents"] = pagePrivateConfig["usingComponents"] ?? [:]
         
         return mergedConfig

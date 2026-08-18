@@ -13,7 +13,38 @@ data class MiniProgram(
     val versionCode: Int = 0,
     val versionName: String = "",
     val updateManifestUrl: String = "",
+    /** Scene delivered to App.onLaunch/App.onShow for this root runtime. */
+    val scene: Int = 1001,
+    /** The mini program that opened this one; null means the host opened it directly. */
+    val openerAppId: String? = null,
+    /** JSON object forwarded as referrerInfo.extraData on the initial launch. */
+    val referrerExtraData: String? = null,
+    /** Bundled packages currently represent the release environment only. */
+    val envVersion: String = "release",
 ) : Parcelable {
+
+    /** Keeps the original public seven-argument JVM constructor binary-compatible. */
+    constructor(
+        appId: String,
+        name: String,
+        root: Boolean,
+        path: String?,
+        versionCode: Int,
+        versionName: String,
+        updateManifestUrl: String,
+    ) : this(
+        appId = appId,
+        name = name,
+        root = root,
+        path = path,
+        versionCode = versionCode,
+        versionName = versionName,
+        updateManifestUrl = updateManifestUrl,
+        scene = 1001,
+        openerAppId = null,
+        referrerExtraData = null,
+        envVersion = "release",
+    )
 
     constructor(parcel: Parcel) : this(
         appId = parcel.readString() ?: "",
@@ -23,6 +54,10 @@ data class MiniProgram(
         versionCode = parcel.readInt(),
         versionName = parcel.readString() ?: "",
         updateManifestUrl = parcel.readString() ?: "",
+        scene = parcel.readInt(),
+        openerAppId = parcel.readString(),
+        referrerExtraData = parcel.readString(),
+        envVersion = parcel.readString() ?: "release",
     )
 
     override fun writeToParcel(parcel: Parcel, flags: Int) {
@@ -33,6 +68,10 @@ data class MiniProgram(
         parcel.writeInt(versionCode)
         parcel.writeString(versionName)
         parcel.writeString(updateManifestUrl)
+        parcel.writeInt(scene)
+        parcel.writeString(openerAppId)
+        parcel.writeString(referrerExtraData)
+        parcel.writeString(envVersion)
     }
 
     // 描述内容，通常返回 0

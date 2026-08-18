@@ -1,80 +1,161 @@
-name: "🐞 Bug 报告 (Bug Report)"
-description: 创建一个报告以帮助我们改进 (Create a report to help us improve)
-title: '[Bug] 简要描述问题 (Short description)'
-labels: [bug]
+name: "🐞 Bug 报告 / Bug Report"
+description: 报告可复现的异常，帮助我们定位并修复问题
+title: "[Bug]: "
+labels: ["bug"]
 body:
-  - type: textarea
-    id: describe
+  - type: markdown
     attributes:
-      label: 描述问题 (Describe the bug)
-      description: 请清晰简明地描述你遇到的问题。
-      placeholder: 请简要描述你遇到的问题 / Please describe the bug concisely.
+      value: |
+        感谢反馈！提交前请先搜索[已有 Issues](https://github.com/didi/dimina/issues)，并查阅[能力参考](https://github.com/didi/dimina/blob/main/docs/API-Reference.md)。
+
+        请勿上传 AppId、密钥、Token、用户数据或其他敏感信息。
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: 问题模块 / Component
+      description: 请选择最接近问题根因的模块；不确定时可选“其他”。
+      options:
+        - 编译器 / DMCC
+        - 前端运行时 / Web 容器
+        - Android SDK
+        - iOS SDK
+        - Harmony SDK
+        - 组件或 API 兼容性
+        - 构建、打包或发布
+        - 其他
     validations:
       required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Dimina 版本或提交 / Version or Commit
+      description: 请提供实际使用的 SDK、编译器版本，或源码提交哈希；不要只填写“最新版”。
+      placeholder: "例如：v1.4.1、@dimina/compiler 1.4.1、main@abc1234"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: source
+    attributes:
+      label: 使用来源 / Source
+      options:
+        - 正式发布版本 / Release
+        - main 分支源码 / Latest main
+        - 其他分支或 Fork / Other branch or fork
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platforms
+    attributes:
+      label: 相关平台 / Platforms
+      description: 可多选；编译器等与运行平台无关的问题请选择最后一项。
+      multiple: true
+      options:
+        - Android
+        - iOS
+        - Harmony
+        - Web
+        - 与具体运行平台无关 / Not platform-specific
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual-behavior
+    attributes:
+      label: 问题描述及实际行为 / Actual Behavior
+      description: 请说明发生了什么、出现频率，以及完整的错误信息。不要只填写“无法使用”或“有问题”。
+      placeholder: 清晰描述实际结果、报错和出现频率。
+    validations:
+      required: true
+
   - type: textarea
     id: steps
     attributes:
-      label: 复现步骤 (To Reproduce)
-      description: 请详细描述如何重现该问题。
+      label: 复现步骤 / Steps to Reproduce
+      description: 请从干净启动或构建开始，列出能稳定触发问题的最少步骤。
       placeholder: |
-        1. 进入 '...'
-        2. 点击 '....'
-        3. 滚动到 '....'
-        4. 看到错误
+        1. 使用……配置构建/启动……
+        2. 打开……并执行……
+        3. 观察到……
     validations:
       required: true
-  - type: input
-    id: reproduce
-    attributes:
-      label: 复现链接 (Reproduce link)
-      description: |
-        请提供可复现此问题的仓库链接。
-        Please provide a URL of the repository that reproduces the problem.
-      placeholder: 粘贴链接 / paste link here
-  - type: textarea
-    id: expected
-    attributes:
-      label: 预期行为 (Expected behavior)
-      description: 请清晰简明地描述你期望发生的事情。
-      placeholder: 请描述你期望的行为 / Please describe the expected behavior.
-    validations:
-      required: true
-  - type: textarea
-    id: screenshot
-    attributes:
-      label: 截图 (Screenshots)
-      description: 如果适用，请添加截图以帮助解释你的问题。
-      placeholder: 可拖拽图片至此 / Drag and drop images here if applicable.
-  - type: checkboxes
-    id: platform
-    attributes:
-      label: 平台 (Platform)
-      description: 请选择相关平台。
-      options:
-        - label: Android
-        - label: iOS
-        - label: Harmony
-        - label: Web
-  - type: input
-    id: os
-    attributes:
-      label: 操作系统 (OS)
-      description: 例如 macOS, Windows, Linux
-      placeholder: macOS, Windows, Linux
-  - type: input
-    id: browser
-    attributes:
-      label: 浏览器/终端 (Browser/Terminal)
-      description: 例如 Chrome, Safari, Node.js 版本等
-      placeholder: Chrome, Safari, Node.js
-  - type: textarea
-    id: env-other
-    attributes:
-      label: 其它相关环境信息 (Other info)
-      description: 其他有助于定位问题的信息。
-  - type: textarea
-    id: additional
-    attributes:
-      label: 补充信息 (Additional context)
-      description: 在此处添加关于问题的其它信息。
 
+  - type: textarea
+    id: minimal-reproduction
+    attributes:
+      label: 最小复现 / Minimal Reproduction
+      description: 请提供可访问的仓库链接、小程序包或关键代码。若无法公开，请说明原因并提供脱敏后的最小代码。
+      placeholder: 复现仓库链接、脱敏后的小程序包，或可直接复制运行的最小代码。
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: 预期行为 / Expected Behavior
+      description: 请说明你认为正确的结果；如有微信小程序官方文档或对照结果，请一并提供。
+      placeholder: 描述正确结果，以及可供对照的规范、平台或历史版本。
+    validations:
+      required: true
+
+  - type: dropdown
+    id: regression
+    attributes:
+      label: 是否为回归问题 / Regression
+      description: 如果旧版本正常，请在补充信息中写明最后一个正常版本。
+      options:
+        - 是，旧版本正常 / Yes
+        - 否，首次使用即存在 / No
+        - 不确定 / Unsure
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: 运行环境 / Environment
+      description: 请按问题类型填写设备型号、OS/API 版本、WebView/浏览器，以及 Node.js、pnpm、JDK、Xcode 或 DevEco Studio 等相关版本。
+      placeholder: |
+        设备：Pixel 8 / iPhone 16 / 模拟器 / 不适用
+        OS/API：Android 15 (API 35)
+        WebView/浏览器：Chrome 138
+        工具链：Node.js 22.22.3, pnpm 10.29.2, JDK 17
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 相关日志 / Relevant Logs
+      description: 粘贴问题发生前后的完整相关日志；内容会自动格式化为代码块。提交前请移除敏感信息。
+      render: shell
+
+  - type: upload
+    id: attachments
+    attributes:
+      label: 截图、录屏或附件 / Attachments
+      description: 可上传截图、录屏、脱敏日志或最小复现压缩包。
+    validations:
+      required: false
+      accept: ".png,.jpg,.jpeg,.gif,.webp,.mp4,.mov,.log,.txt,.json,.zip,.gz"
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: 补充信息 / Additional Context
+      description: 可补充最后一个正常版本、排查过程、临时绕过方式或其他相关 Issue。
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: 提交检查 / Checklist
+      options:
+        - label: 我已搜索现有 Issues，确认没有相同问题。
+          required: true
+        - label: 我已在上述版本或提交中确认该问题，并提供了可操作的复现信息。
+          required: true
+        - label: 我已移除 AppId、密钥、Token、用户数据等敏感信息。
+          required: true

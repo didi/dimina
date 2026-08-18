@@ -3,64 +3,59 @@
 // https://developers.weixin.qq.com/miniprogram/dev/component/canvas.html
 import { isHarmonyOS, isDesktop, isAndroid, isIOS, isEmbedEnabled } from '@dimina/common'
 import { hasEvent, invokeAPI, triggerEvent, useInfo } from '@/common/events'
-import { useTapEvents } from '@/common/useTapEvents'
 import { useTouchEvents } from '@/common/useTouchEvents'
 
 const props = defineProps({
-	id: {
-		type: String,
-		default: () => `canvas-${Math.random().toString(36).slice(2, 10)}`,
-	},
 	canvasId: {
 		type: String,
 		default: '',
-	},
-	type: {
-		type: String,
-		default: '2d',
 	},
 	disableScroll: {
 		type: Boolean,
 		default: false,
 	},
+	type: {
+		type: String,
+		default: '',
+	},
+	newTouchListener: {
+		type: Boolean,
+		default: false,
+	},
+	renderWidth: {
+		type: Number,
+		default: 300,
+	},
+	renderHeight: {
+		type: Number,
+		default: 150,
+	},
 })
 
-const rootRef = ref()
 const info = useInfo()
+const canvasRef = ref(null)
+const rootRef = ref(null)
+const isError = ref(false)
 
-// 判断是否有tap事件属性
-const hasTapEvent = hasEvent(info, 'tap')
-if (hasTapEvent) {
-	useTapEvents(rootRef, (event) => {
-		triggerEvent('tap', { event, info })
-	})
-}
-
-// 判断是否有触摸相关事件属性
-const hasTouchEvents = hasEvent(info, 'touchstart') || hasEvent(info, 'touchmove')
-	|| hasEvent(info, 'touchend') || hasEvent(info, 'touchcancel')
-	|| hasEvent(info, 'longpress')
-
+const hasTouchEvents = ['touchstart', 'touchmove', 'touchend', 'touchcancel', 'longpress', 'longtap']
+	.some(eventName => hasEvent(info, eventName))
 if (hasTouchEvents) {
 	useTouchEvents(info, rootRef)
 }
 
-// disable-scroll: 当在 canvas 中移动时且有绑定手势事件时，禁止屏幕滚动以及下拉刷新
-if (props.disableScroll && hasTouchEvents) {
-	onMounted(() => {
-		rootRef.value?.addEventListener('touchmove', (e) => {
-			e.cancelable && e.preventDefault()
-		}, { passive: false })
-	})
+function preventScroll(event) {
+	if (props.disableScroll && event.cancelable) {
+		event.preventDefault()
+	}
 }
+
 const isNativeCanvas = computed(() => isEmbedEnabled && (isAndroid || isIOS || isHarmonyOS))
-console.log('[render] [Canvas] embedEnabled=' + isEmbedEnabled + ' isAndroid=' + isAndroid + ' isIOS=' + isIOS + ' isHarmonyOS=' + isHarmonyOS + ' isNativeCanvas=' + isNativeCanvas.value)
+const canvasNodeId = computed(() => props.canvasId || `canvas-${Math.random().toString(36).slice(2, 10)}`)
+const nativeType = 'native/canvas'
+
 let syncFrameId = 0
 let lastRectKey = ''
 let resizeObserver
-
-const canvasNodeId = computed(() => props.canvasId || props.id)
-const nativeType = 'native/canvas'
 
 function getRect() {
 	const element = rootRef.value
@@ -123,11 +118,29 @@ function scheduleSyncRect() {
 }
 
 onMounted(() => {
-	const el = rootRef.value
-	console.log('[render] [Canvas] onMounted id=' + canvasNodeId.value + ' isNative=' + isNativeCanvas.value + ' tag=' + el?.tagName + ' el=' + !!el)
+	// Non-native canvas: validate canvasId
 	if (!isNativeCanvas.value) {
+		if (props.type) return
+		let errMsg
+		if (!props.canvasId) {
+			errMsg = 'canvas-id attribute is undefined'
+		}
+		else {
+			const scope = rootRef.value.closest('.dd-page') || document
+			const duplicates = Array.from(scope.querySelectorAll('canvas[canvas-id]'))
+				.filter(canvas => canvas.getAttribute('canvas-id') === props.canvasId)
+			if (duplicates.length > 1) errMsg = `canvas-id ${props.canvasId} in this page has already existed`
+		}
+		if (errMsg) {
+			isError.value = true
+			triggerEvent('error', { info, detail: { errMsg } })
+		}
 		return
 	}
+
+	// Native canvas: mount and sync rect
+	const el = rootRef.value
+	console.log('[render] [Canvas] onMounted id=' + canvasNodeId.value + ' isNative=' + isNativeCanvas.value + ' tag=' + el?.tagName + ' el=' + !!el)
 
 	nextTick(() => {
 		syncRect(true)
@@ -154,6 +167,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
+	<!-- Native canvas paths -->
 	<embed
 		v-if="isAndroid && isEmbedEnabled"
 		:id="canvasNodeId"
@@ -181,27 +195,49 @@ onBeforeUnmount(() => {
 		class="dd-canvas"
 		:type="nativeType"
 	/>
-	<canvas
-		v-else
-		:id="canvasNodeId"
-		ref="rootRef"
-		v-bind="$attrs"
-		class="dd-canvas"
-		:data-canvas-id="canvasNodeId"
-		:data-type="props.type"
-	/>
+	<!-- Web fallback canvas -->
+	<div v-else ref="rootRef" v-bind="$attrs" class="dd-canvas" :style="isError ? { display: 'none' } : undefined" @touchmove="preventScroll">
+		<canvas
+			ref="canvasRef" :canvas-id="canvasId" :data-type="type || undefined"
+			:width="renderWidth" :height="renderHeight"
+		/>
+		<div class="dd-canvas-slot">
+			<slot />
+		</div>
+	</div>
 </template>
 
 <style lang="scss">
 .dd-canvas {
-	display: inline-block;
+	display: block;
 	position: relative;
 	width: 300px;
 	height: 150px;
-	overflow: hidden;
+
+	> canvas {
+		position: absolute;
+		top: 0;
+		left: 0;
+		width: 100%;
+		height: 100%;
+	}
 
 	&[hidden] {
 		display: none;
+	}
+}
+
+.dd-canvas-slot {
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 100%;
+	height: 100%;
+	overflow: hidden;
+	pointer-events: none;
+
+	* {
+		pointer-events: auto;
 	}
 }
 </style>

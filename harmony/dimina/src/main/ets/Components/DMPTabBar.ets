@@ -128,7 +128,7 @@ export struct DMPTabBar {
           }, (item: DMPTabBarItem, index: number) => `${index}_${item.pagePath}_${item.text}`)
         }
         .width('100%')
-        .height(98)
+        .height(49)
         .backgroundColor(this.getBackgroundColor())
       }
       .width('100%')

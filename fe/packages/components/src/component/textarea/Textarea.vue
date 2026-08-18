@@ -2,8 +2,9 @@
 // 多行输入框。该组件是原生组件，使用时请注意相关限制。
 // https://developers.weixin.qq.com/miniprogram/dev/component/textarea.html
 
-import { isDesktop, sleep, transformRpx } from '@dimina/common'
+import { isDesktop, transformRpx } from '@dimina/common'
 import { invokeAPI, triggerEvent, useInfo } from '@/common/events'
+import { useKeyboardHeight } from '@/common/useKeyboardHeight'
 import { getActualBottom } from '@/common/utils'
 
 const props = defineProps({
@@ -188,6 +189,9 @@ const props = defineProps({
 		type: Boolean,
 		default: false,
 	},
+	keyboardAppearance: { type: String, default: 'default' },
+	confirm: { type: Boolean, default: true },
+	autoFill: { type: String, default: '' },
 })
 
 const emit = defineEmits(['update:value'])
@@ -248,6 +252,7 @@ const computedPlaceholderStyle = computed(() => {
 
 // 注入父组件提供的方法
 const collectFormValue = inject('collectFormValue', undefined)
+const registerFormControl = inject('registerFormControl', undefined)
 collectFormValue?.(props.name, props.value)
 
 const textareaRef = ref(null)
@@ -255,6 +260,16 @@ const keyCode = ref(null)
 
 // 处理 placeholder 显示逻辑
 const iValue = ref(props.value)
+
+const unregisterFormControl = registerFormControl?.({
+	getName: () => props.name,
+	getValue: () => iValue.value,
+	reset: () => {
+		iValue.value = ''
+		collectFormValue?.(props.name, iValue.value)
+	},
+})
+onBeforeUnmount(() => unregisterFormControl?.())
 
 const placeholderShow = computed(() => {
 	return iValue.value === undefined || iValue.value === null || iValue.value === ''
@@ -265,22 +280,30 @@ const placeholderShow = computed(() => {
  * 自定义 v-focus 指令
  */
 const vFocus = {
-	mounted: async (el) => {
-		if (!props.autoFocus) {
+	mounted: (el) => {
+		if (!props.autoFocus && !props.focus) {
 			return
 		}
-		if (isDesktop) {
-			// 兼容 web 端页面进入动画
-			await sleep(540)
-		}
 		el.focus()
+		applySelection(el)
 	},
+}
+
+function applySelection(element = textareaRef.value) {
+	if (!element?.setSelectionRange) return
+	const cursor = Number(props.cursor)
+	const start = cursor >= 0 ? cursor : Number(props.selectionStart)
+	const end = cursor >= 0 ? cursor : Number(props.selectionEnd)
+	if (start >= 0) element.setSelectionRange(start, end >= 0 ? end : start)
 }
 
 watch(
 	[() => props.focus, () => props.value],
 	([nF, nV], [, preV]) => {
-		nF && textareaRef.value.focus()
+		if (nF) {
+			textareaRef.value.focus()
+			applySelection()
+		}
 		if (preV !== nV) {
 			iValue.value = nV
 		}
@@ -289,6 +312,9 @@ watch(
 
 const wrapperRef = ref(null)
 const info = useInfo()
+const keyboardAccessoryVisible = ref(false)
+provide('keyboardAccessoryVisible', keyboardAccessoryVisible)
+useKeyboardHeight(info, keyboardAccessoryVisible)
 
 function handleKeydown(event) {
 	keyCode.value = event.keyCode
@@ -305,6 +331,37 @@ function handleKeydown(event) {
 		})
 	}
 }
+
+let lastLineCount
+function updateLineInfo(event) {
+	const element = textareaRef.value
+	if (!element) return
+	const style = window.getComputedStyle(element)
+	const fontSize = Number.parseFloat(style.fontSize) || 16
+	const lineHeight = Number.parseFloat(style.lineHeight) || fontSize * 1.2
+	const height = Math.max(element.scrollHeight, lineHeight)
+	const lineCount = Math.max(Math.floor(height / lineHeight), 1)
+	if (props.autoHeight) wrapperRef.value.style.height = `${height}px`
+	if (lineCount !== lastLineCount) {
+		lastLineCount = lineCount
+		triggerEvent('linechange', {
+			event,
+			info,
+			detail: {
+				height,
+				heightRpx: height * 750 / Math.max(window.innerWidth, 1),
+				lineCount,
+			},
+		})
+	}
+}
+
+onMounted(() => nextTick(() => updateLineInfo()))
+
+watch(
+	() => [props.value, props.autoHeight],
+	() => nextTick(() => updateLineInfo()),
+)
 
 // 添加新的统一事件处理函数
 function handleWrapperEvent(event) {
@@ -337,9 +394,12 @@ function handleWrapperEvent(event) {
 					emit('update:value', data.value ?? data)
 				},
 			})
+			updateLineInfo(event)
 			break
 
 		case 'focusin':
+			keyboardAccessoryVisible.value = true
+			applySelection(event.target)
 			triggerEvent('focus', {
 				event,
 				info,
@@ -363,6 +423,7 @@ function handleWrapperEvent(event) {
 			break
 
 		case 'focusout':
+			keyboardAccessoryVisible.value = false
 			triggerEvent('blur', {
 				event,
 				info,
@@ -371,6 +432,10 @@ function handleWrapperEvent(event) {
 					cursor: event.target.selectionEnd,
 				},
 			})
+			break
+
+		case 'change':
+			triggerEvent('change', { event, info, detail: { value } })
 			break
 	}
 }
@@ -384,9 +449,10 @@ const wrapperClass = computed(() => {
 </script>
 
 <template>
-	<div ref="wrapperRef" v-bind="$attrs" :class="wrapperClass" role="textbox" @input="handleWrapperEvent" @focusin="handleWrapperEvent" @focusout="handleWrapperEvent">
+	<div ref="wrapperRef" v-bind="$attrs" :class="wrapperClass" role="textbox" data-dd-label-target @input="handleWrapperEvent" @focusin="handleWrapperEvent" @focusout="handleWrapperEvent" @change="handleWrapperEvent">
 		<textarea
 			:id="id" ref="textareaRef" v-focus class="dd-textarea" :value="iValue" :disabled="disabled"
+			:maxlength="maxlength" :autocomplete="autoFill || undefined"
 			@keydown="handleKeydown"
 		/>
 		<div
@@ -395,6 +461,7 @@ const wrapperClass = computed(() => {
 		>
 			{{ placeholder }}
 		</div>
+		<slot />
 	</div>
 </template>
 

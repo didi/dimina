@@ -34,7 +34,10 @@ export default defineConfig(({ mode }) => {
 				eslintrc: {
 					enabled: false,
 				},
-				imports: ['vue'],
+				imports: [
+					'vue',
+					{ vue: ['cloneVNode'] },
+				],
 				dts: false,
 			}),
 		],

@@ -101,6 +101,18 @@ export class DMPMap {
     return this.get(key) != undefined
   }
 
+  /**
+   * True key-presence check (distinguishes a missing key from a present
+   * key whose value happens to be `null`/`undefined`), unlike `hasKey`
+   * above which is a truthiness-ish check on the value. Added specifically
+   * for callers that need wire-contract "does the field exist" routing
+   * (e.g. WebSocket's task-vs-legacy-mode dispatch on `socketId`) without
+   * changing `hasKey`'s existing semantics for its other ~20 call sites.
+   */
+  hasOwnKey(key: string): boolean {
+    return Object.prototype.hasOwnProperty.call(this._entry, key)
+  }
+
   getString(key: string): string | undefined {
     return this.get(key);
   }

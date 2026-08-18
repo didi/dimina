@@ -3,12 +3,15 @@ import process from 'node:process'
 import fs from 'node:fs'
 import { getAppId, getTargetPath } from '../env.js'
 
-function createDist() {
+function createDist(seedPath) {
 	const distPath = getTargetPath()
 	if (fs.existsSync(distPath)) {
 		fs.rmSync(distPath, { recursive: true, force: true })
 	}
 	fs.mkdirSync(distPath, { recursive: true })
+	if (seedPath && fs.existsSync(seedPath)) {
+		fs.cpSync(seedPath, distPath, { recursive: true })
+	}
 }
 /**
  * 发布到指定目录

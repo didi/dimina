@@ -20,14 +20,14 @@ public class DMPWebViewPublish {
         webview.registerJSHandler(handlerName: "publishHandler") { [weak self] data in
             guard let self = self else { return }
             
-            print("🔴 DiminaRenderBridge.publish: \(data)")
+            DMPLogger.debug("🔴 DiminaRenderBridge.publish: \(data)")
             
             if let message = data as? String {   
                 Task {
                     await DMPChannelProxy.renderToService(msg: message, app: self.render?.getApp())
                 }
             } else {
-                print("publish消息格式不正确，期望字符串类型: \(data)")
+                DMPLogger.debug("publish消息格式不正确，期望字符串类型: \(data)")
             }
         }
     }
@@ -50,7 +50,7 @@ public class DMPWebViewPublish {
                 window.webkit.messageHandlers.publishHandler.postMessage(msg);
             };
         })();
-        """, injectionTime: .atDocumentStart, forMainFrameOnly: false)
+        """, injectionTime: .atDocumentStart, forMainFrameOnly: true)
 
         webview.getWebView().configuration.userContentController.addUserScript(publishScript)
     }    

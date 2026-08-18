@@ -697,7 +697,7 @@ class DMPMediaPickerController: UIViewController, UINavigationControllerDelegate
                                     self?.selectedMedia.append(.video(tempURL))
                                 }
                             } catch {
-                                print("Failed to copy video: \(error)")
+                                DMPLogger.debug("Failed to copy video: \(error)")
                             }
                         }
                     }

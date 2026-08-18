@@ -3,9 +3,18 @@
 // 通过这个节点可以获得类似于调用 wx.setBackgroundTextStyle wx.setBackgroundColor 等接口调用的效果。
 // https://developers.weixin.qq.com/miniprogram/dev/component/page-meta.html
 
-import { invokeAPI, useInfo } from '@/common/events'
+import { transformRpx } from '@dimina/common'
+import { invokeAPI, invokeAPIWithCallback, triggerEvent, useInfo } from '@/common/events'
 
 const props = defineProps({
+	/**
+	 * 编译器注入的 rpx 传输单位标记，用于兼容历史 rem 产物。
+	 */
+	diminaRpxUnit: {
+		type: String,
+		default: '',
+		required: false,
+	},
 	/**
 	 * 下拉背景字体、loading 图的样式，仅支持 dark 和 light
 	 */
@@ -77,10 +86,23 @@ const props = defineProps({
 		default: '',
 		required: false,
 	},
+	scrollTop: {
+		type: [Number, String],
+		default: '',
+	},
+	scrollDuration: {
+		type: Number,
+		default: 300,
+	},
 })
 
 const info = useInfo()
-onMounted(() => {
+let pageElement
+let originalPageStyle
+let originalRootFontSize
+let originalRootBackgroundColor
+
+function updateBackground() {
 	invokeAPI('setBackgroundTextStyle', {
 		bridgeId: info.bridgeId,
 		params: { textStyle: props.backgroundTextStyle },
@@ -94,6 +116,92 @@ onMounted(() => {
 			backgroundColorBottom: props.backgroundColorBottom,
 		},
 	})
+}
+
+function normalizeFontSize(value) {
+	if (!value) return ''
+	if (value === 'system') {
+		return `${window.__fontSizeSetting__ || 16}px`
+	}
+	return transformRpx(value)
+}
+
+function updatePageStyle() {
+	if (!pageElement) return
+	pageElement.style.cssText = props.pageStyle || ''
+	if (props.pageFontSize) {
+		pageElement.style.fontSize = normalizeFontSize(props.pageFontSize)
+	}
+	if (props.diminaRpxUnit === 'vw') {
+		document.documentElement.style.fontSize = normalizeFontSize(props.rootFontSize)
+	}
+	document.documentElement.style.backgroundColor = props.rootBackgroundColor || ''
+}
+
+function scrollPage() {
+	if (props.scrollTop === '' || props.scrollTop === undefined || props.scrollTop === null) return
+	invokeAPIWithCallback('pageScrollTo', {
+		bridgeId: info.bridgeId,
+		params: {
+			duration: props.scrollDuration,
+			scrollTop: Number(props.scrollTop) || 0,
+		},
+		success: () => triggerEvent('scrolldone', { info, detail: {} }),
+	})
+}
+
+function handleResize(event) {
+	triggerEvent('resize', {
+		event,
+		info,
+		detail: {
+			size: {
+				windowWidth: window.innerWidth,
+				windowHeight: window.innerHeight,
+			},
+		},
+	})
+}
+
+function handleScroll(event) {
+	triggerEvent('scroll', {
+		event,
+		info,
+		detail: { scrollTop: window.scrollY },
+	})
+}
+
+watch(
+	() => [props.backgroundTextStyle, props.backgroundColor, props.backgroundColorTop, props.backgroundColorBottom],
+	updateBackground,
+)
+watch(
+	() => [props.diminaRpxUnit, props.pageStyle, props.pageFontSize, props.rootFontSize, props.rootBackgroundColor],
+	updatePageStyle,
+)
+watch(() => [props.scrollTop, props.scrollDuration], scrollPage)
+
+onMounted(() => {
+	pageElement = document.querySelector('.dd-page')
+	originalPageStyle = pageElement?.getAttribute('style')
+	originalRootFontSize = document.documentElement.style.fontSize
+	originalRootBackgroundColor = document.documentElement.style.backgroundColor
+	updateBackground()
+	updatePageStyle()
+	scrollPage()
+	window.addEventListener('resize', handleResize)
+	window.addEventListener('scroll', handleScroll, { passive: true })
+})
+
+onBeforeUnmount(() => {
+	window.removeEventListener('resize', handleResize)
+	window.removeEventListener('scroll', handleScroll)
+	if (pageElement) {
+		if (originalPageStyle === null) pageElement.removeAttribute('style')
+		else pageElement.setAttribute('style', originalPageStyle)
+	}
+	document.documentElement.style.fontSize = originalRootFontSize
+	document.documentElement.style.backgroundColor = originalRootBackgroundColor
 })
 </script>
 

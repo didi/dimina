@@ -18,6 +18,18 @@ class Router {
 		}
 	}
 
+	remove(pageId) {
+		// 页面卸载可能晚于后续页面入栈，必须按页面身份移除，不能直接弹出当前页
+		for (let i = this.#stacks.length - 1; i >= 0; i--) {
+			const pages = this.#stacks[i].pages
+			const pageIndex = pages.findIndex(page => page.id === pageId)
+			if (pageIndex !== -1) {
+				pages.splice(pageIndex, 1)
+				return
+			}
+		}
+	}
+
 	getPageInfo() {
 		// 获取最上面子数组的最后页面信息
 		const pages = this.stack()

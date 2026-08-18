@@ -1,4 +1,5 @@
 import diminaNative from 'libdimina.so'
+import { DMPLogger } from '../EventTrack/DMPLogger'
 
 
 export class DMPJSEngine {
@@ -12,7 +13,7 @@ export class DMPJSEngine {
     if (this.isRun) {
       diminaNative.dispatchJsTask(this.appIndex, script)
     } else {
-      console.log('js engine is destroy')
+      DMPLogger.w('', 'js engine is destroy')
     }
   }
 
@@ -20,7 +21,7 @@ export class DMPJSEngine {
     if (this.isRun) {
       diminaNative.dispatchJsTaskAb(this.appIndex, ab)
     } else {
-      console.log('js engine is destroy')
+      DMPLogger.w('', 'js engine is destroy')
     }
   }
 
@@ -28,7 +29,7 @@ export class DMPJSEngine {
     if (this.isRun) {
       diminaNative.dispatchJsTaskPath(this.appIndex, path)
     } else {
-      console.log('js engine is destroy')
+      DMPLogger.w('', 'js engine is destroy')
     }
   }
 
@@ -50,4 +51,3 @@ export class DMPJSEngine {
     }, isDebugMode)
   }
 }
-

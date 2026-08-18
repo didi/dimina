@@ -8,6 +8,7 @@ import android.content.pm.ApplicationInfo
 import android.content.res.Configuration
 import android.os.Handler
 import android.os.Looper
+import android.view.ViewGroup
 import android.webkit.MimeTypeMap
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -20,6 +21,7 @@ import com.didi.dimina.common.PathUtils
 import com.didi.dimina.common.VersionUtils
 import java.io.File
 import java.lang.ref.WeakReference
+import java.net.URI
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.LinkedBlockingQueue
 
@@ -196,27 +198,58 @@ object WebViewCacheManager : ComponentCallbacks2 {
     /**
      * 释放WebView实例到缓存池
      */
-    fun releaseWebView(identifier: String) {
+    fun releaseWebView(identifier: String, expectedWebView: WebView? = null) {
         mainHandler.post {
-            activeWebViews.remove(identifier)?.let { webView ->
-                LogUtils.d(TAG, "Releasing WebView to cache: $identifier")
-                
-                // 清理WebView状态
-                cleanWebView(webView)
-                
-                // 检查缓存池大小
-                if (idleWebViews.size >= MAX_CACHE_SIZE) {
-                    // 移除最老的实例
-                    val oldestCached = idleWebViews.poll()
-                    oldestCached?.let {
-                        LogUtils.d(TAG, "Destroying oldest cached WebView")
-                        destroyWebView(it.webView)
-                    }
-                }
-                
-                // 添加到空闲池
-                idleWebViews.offer(CachedWebView(webView))
+            val activeWebView = activeWebViews[identifier] ?: return@post
+            if (expectedWebView != null && activeWebView !== expectedWebView) {
+                LogUtils.d(TAG, "Ignoring stale WebView release for: $identifier")
+                return@post
             }
+            if (!activeWebViews.remove(identifier, activeWebView)) {
+                return@post
+            }
+
+            LogUtils.d(TAG, "Releasing WebView to cache: $identifier")
+
+            // AndroidView 可能尚未执行 holder 的 child 移除；入池前先确保解绑。
+            detachFromParent(activeWebView)
+            cleanWebView(activeWebView)
+
+            // 检查缓存池大小
+            if (idleWebViews.size >= MAX_CACHE_SIZE) {
+                // 移除最老的实例
+                val oldestCached = idleWebViews.poll()
+                oldestCached?.let {
+                    LogUtils.d(TAG, "Destroying oldest cached WebView")
+                    destroyWebView(it.webView)
+                }
+            }
+
+            // 添加到空闲池
+            idleWebViews.offer(CachedWebView(activeWebView))
+        }
+    }
+
+    /**
+     * 同步清除某批页面正在持有的 WebView。
+     *
+     * 用于小程序冷重启：新 Activity 会复用相同的 tab identifier，必须在它创建
+     * AndroidViewHolder 前，把旧 holder 中的 child 解绑并销毁。
+     */
+    fun evictAndDestroy(webViews: Collection<WebView>) {
+        if (webViews.isEmpty()) return
+
+        mainHandler.runOnUiThread {
+            val targets = webViews.toSet()
+
+            activeWebViews.entries
+                .filter { it.value in targets }
+                .forEach { activeWebViews.remove(it.key, it.value) }
+            removeCachedWebViews(idleWebViews, targets)
+            removeCachedWebViews(preCreatedWebViews, targets)
+
+            targets.forEach(::destroyWebView)
+            LogUtils.d(TAG, "Evicted and destroyed ${targets.size} active WebViews")
         }
     }
     
@@ -267,6 +300,8 @@ object WebViewCacheManager : ComponentCallbacks2 {
      */
     private fun resetWebView(webView: WebView, onPageLoadFinished: () -> Unit, appId: String = "") {
         try {
+            detachFromParent(webView)
+
             // 停止加载
             webView.stopLoading()
             
@@ -304,6 +339,7 @@ object WebViewCacheManager : ComponentCallbacks2 {
      */
     private fun destroyWebView(webView: WebView) {
         try {
+            detachFromParent(webView)
             webView.stopLoading()
             webView.loadUrl("about:blank")
             webView.clearHistory()
@@ -313,6 +349,22 @@ object WebViewCacheManager : ComponentCallbacks2 {
         } catch (e: Exception) {
             LogUtils.e(TAG, "Failed to destroy WebView", e)
         }
+    }
+
+    private fun removeCachedWebViews(
+        cache: LinkedBlockingQueue<CachedWebView>,
+        targets: Set<WebView>,
+    ) {
+        val iterator = cache.iterator()
+        while (iterator.hasNext()) {
+            if (iterator.next().webView in targets) {
+                iterator.remove()
+            }
+        }
+    }
+
+    private fun detachFromParent(webView: WebView) {
+        (webView.parent as? ViewGroup)?.removeView(webView)
     }
     
     /**
@@ -551,6 +603,23 @@ internal fun createWebViewClientWithInterceptor(
 ): WebViewClient {
     val assetLoader = createWebViewAssetLoader(context)
     return object : WebViewClient() {
+		override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+			val allowed = isTrustedRenderNavigation(request.url.toString())
+			if (!allowed) {
+				LogUtils.w(WEBVIEW_TAG, "Blocked untrusted WebView navigation")
+			}
+			return !allowed
+		}
+
+		@Suppress("DEPRECATION")
+		override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean {
+			val allowed = isTrustedRenderNavigation(url)
+			if (!allowed) {
+				LogUtils.w(WEBVIEW_TAG, "Blocked untrusted WebView navigation")
+			}
+			return !allowed
+		}
+
         override fun onPageFinished(view: WebView, url: String) {
             super.onPageFinished(view, url)
             LogUtils.d(WEBVIEW_TAG, "WebView page finished loading: $url")
@@ -571,12 +640,27 @@ internal fun createWebViewClientWithInterceptor(
     }
 }
 
+internal fun isTrustedRenderNavigation(rawUrl: String): Boolean {
+	if (rawUrl == "about:blank") return true
+
+	return try {
+		val uri = URI(rawUrl)
+		val path = uri.rawPath ?: return false
+		uri.scheme.equals("https", ignoreCase = true)
+			&& uri.host.equals(PathUtils.WEBVIEW_ASSET_DOMAIN, ignoreCase = true)
+			&& uri.port == -1
+			&& Regex("^/jssdk/(?!\\.{1,2}/)[A-Za-z0-9._-]+/main/pageFrame\\.html$").matches(path)
+	} catch (_: Exception) {
+		false
+	}
+}
+
 private fun handleVirtualFileRequest(context: Context, uri: android.net.Uri, appId: String): WebResourceResponse? {
     return try {
         val appContext = context.applicationContext
         val targetFile = File(PathUtils.pathToReal(appContext, uri.toString(), appId)).canonicalFile
-        val cacheRoot = appContext.cacheDir.canonicalFile
-        val filesRoot = appContext.filesDir.canonicalFile
+        val cacheRoot = PathUtils.appTempRoot(appContext, appId).canonicalFile
+        val filesRoot = PathUtils.appUserRoot(appContext, appId).canonicalFile
         if (!isUnderRoot(targetFile, cacheRoot) && !isUnderRoot(targetFile, filesRoot)) {
             return null
         }
@@ -619,12 +703,13 @@ internal fun createWebView(context: Context, onPageLoadFinished: () -> Unit, app
         settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
-            allowFileAccess = true
-            allowContentAccess = true
+            allowFileAccess = false
+            allowContentAccess = false
+            javaScriptCanOpenWindowsAutomatically = false
             loadWithOverviewMode = true
             useWideViewPort = true
             cacheMode = WebSettings.LOAD_NO_CACHE
-            mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+            mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
         }
 
         if (0 != (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE)) {
@@ -640,8 +725,8 @@ internal fun createWebView(context: Context, onPageLoadFinished: () -> Unit, app
 /**
  * 辅助函数：手动释放WebView到缓存池
  */
-fun releaseWebViewToCache(identifier: String) {
-    WebViewCacheManager.releaseWebView(identifier)
+fun releaseWebViewToCache(identifier: String, expectedWebView: WebView? = null) {
+    WebViewCacheManager.releaseWebView(identifier, expectedWebView)
 }
 
 /**

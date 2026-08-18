@@ -94,21 +94,21 @@ class SelectorQuery {
 	 * @param {Function} callback
 	 */
 	exec(callback) {
-		const self = this
+		const that = this
 		const bridgeId = getCurrentBridgeId()
 		const data = {
 			tasks: this.__taskQueue,
 			success: (res) => {
 				const hydratedRes = hydrateSelectorQueryResult(res, bridgeId) || []
 				hydratedRes.forEach((nodeInfo, index) => {
-					const cb = self.__cbQueue[index]
+					const cb = that.__cbQueue[index]
 					if (isFunction(cb)) {
-						cb.call(self, nodeInfo)
+						cb.call(that, nodeInfo)
 					}
 				})
 
 				if (isFunction(callback)) {
-					callback.call(self, hydratedRes)
+					callback.call(that, hydratedRes)
 				}
 			},
 		}

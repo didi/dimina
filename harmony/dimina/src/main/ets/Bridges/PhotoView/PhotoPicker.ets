@@ -3,6 +3,7 @@ import photoAccessHelper from '@ohos.file.photoAccessHelper';
 import common from '@ohos.app.ability.common';
 import { AssetModel } from './AssetModel';
 import { PickHelper } from './PickHelper';
+import { DMPLogger } from '../../EventTrack/DMPLogger';
 
 export class PhotoPicker {
   /**
@@ -28,7 +29,7 @@ export class PhotoPicker {
         return models;
       })
       .catch((err: BusinessError) => {
-        console.error(`PhotoViewPicker.select failed with err: ${err.code}, ${err.message}`);
+        DMPLogger.e('', `PhotoViewPicker.select failed with err: ${err.code}, ${err.message}`);
         return null
       });
   }
@@ -56,7 +57,7 @@ export class PhotoPicker {
         return models;
       })
       .catch((err: BusinessError) => {
-        console.error(`PhotoViewPicker.select failed with err: ${err.code}, ${err.message}`);
+        DMPLogger.e('', `PhotoViewPicker.select failed with err: ${err.code}, ${err.message}`);
         return null
       });
   }

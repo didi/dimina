@@ -26,7 +26,7 @@ class DMPResourceManager {
             let versionCodeNew = configBundle?["versionCode"] as? Int ?? 0
 
             if versionCodeOld >= versionCodeNew {
-                print("App 目标路径已存在，跳过复制操作")
+                DMPLogger.debug("App 目标路径已存在，跳过复制操作")
                 return
             }
         }
@@ -39,9 +39,9 @@ class DMPResourceManager {
                     to: bundlePath,
                     excludeItems: ["\(appId).zip"]
                 ) {
-                    print("成功复制JSApp资源到沙盒路径: \(bundlePath)")
+                    DMPLogger.debug("成功复制JSApp资源到沙盒路径: \(bundlePath)")
                 } else {
-                    print("复制JSApp资源失败")
+                    DMPLogger.debug("复制JSApp资源失败")
                 }
 
                 // 再检查是否存在对应应用的zip文件并解压
@@ -51,16 +51,16 @@ class DMPResourceManager {
                 if FileManager.default.fileExists(atPath: appZipPath) {
                     // 解压应用zip到目标路径
                     if DMPFileUtil.unzipFile(at: appZipPath, to: bundlePath) {
-                        print("成功解压\(appId).zip到沙盒路径: \(bundlePath)")
+                        DMPLogger.debug("成功解压\(appId).zip到沙盒路径: \(bundlePath)")
                     } else {
-                        print("解压\(appId).zip失败")
+                        DMPLogger.debug("解压\(appId).zip失败")
                     }
                 }
             } else {
-                print("无法获取JSApp Bundle资源路径")
+                DMPLogger.debug("无法获取JSApp Bundle资源路径")
             }
         } else {
-            print("创建目标目录失败: \(bundlePath)")
+            DMPLogger.debug("创建目标目录失败: \(bundlePath)")
         }
     }
 
@@ -81,7 +81,7 @@ class DMPResourceManager {
 
                 // 比较版本号
                 if versionCodeOld >= versionCodeNew {
-                    print("SDK目标路径已存在，跳过复制操作")
+                    DMPLogger.debug("SDK目标路径已存在，跳过复制操作")
                     return
                 }
             }
@@ -94,9 +94,9 @@ class DMPResourceManager {
                 // 先复制其他资源文件（排除main.zip）
                 if DMPFileUtil.copyContents(from: resourcePath, to: sdkBundlePath, excludeItems: ["main.zip"])
                 {
-                    print("成功复制JSSDK资源到沙盒路径: \(sdkBundlePath)")
+                    DMPLogger.debug("成功复制JSSDK资源到沙盒路径: \(sdkBundlePath)")
                 } else {
-                    print("复制JSSDK资源失败")
+                    DMPLogger.debug("复制JSSDK资源失败")
                 }
 
                 // 再检查是否存在main.zip文件并解压
@@ -104,9 +104,9 @@ class DMPResourceManager {
                 if FileManager.default.fileExists(atPath: mainZipPath) {
                     // 解压main.zip到目标路径
                     if DMPFileUtil.unzipFile(at: mainZipPath, to: sdkBundlePath) {
-                        print("成功解压main.zip到沙盒路径: \(sdkBundlePath)")
+                        DMPLogger.debug("成功解压main.zip到沙盒路径: \(sdkBundlePath)")
                     } else {
-                        print("解压main.zip失败")
+                        DMPLogger.debug("解压main.zip失败")
                     }
                 }
 
@@ -118,16 +118,16 @@ class DMPResourceManager {
 //                {
 //                    let mainPath = sdkBundlePath + "/main"
 //                    if DMPFileUtil.copyContents(from: mainPath, to: sandboxPath) {
-//                        print("成功复制main目录内容到沙盒路径: \(sandboxPath)")
+//                        DMPLogger.debug("成功复制main目录内容到沙盒路径: \(sandboxPath)")
 //                    } else {
-//                        print("复制main目录内容失败")
+//                        DMPLogger.debug("复制main目录内容失败")
 //                    }
 //                }
             } else {
-                print("无法获取JSSDK Bundle资源路径")
+                DMPLogger.debug("无法获取JSSDK Bundle资源路径")
             }
         } else {
-            print("创建目标目录失败: \(sdkBundlePath)")
+            DMPLogger.debug("创建目标目录失败: \(sdkBundlePath)")
         }
     }
 
@@ -236,9 +236,20 @@ class DMPResourceManager {
                 }
             }
         } catch {
-            print("读取JSAppBundle目录失败: \(error)")
+            DMPLogger.debug("读取JSAppBundle目录失败: \(error)")
         }
 
         return appItems
+    }
+
+    /// Resolve a launchable mini program from the app bundle. Cross-app
+    /// navigation deliberately uses this source of truth instead of inventing
+    /// a config from the caller-provided appId.
+    static func getDMPAppConfig(appId: String) -> DMPAppConfig? {
+        let normalizedAppId = appId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedAppId.isEmpty else {
+            return nil
+        }
+        return getDMPAppConfigs().first(where: { $0.appId == normalizedAppId })
     }
 }

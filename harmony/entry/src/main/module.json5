@@ -50,6 +50,14 @@
     ],
     "requestPermissions": [
       {
+        "name": "ohos.permission.ACCESS_BLUETOOTH",
+        "reason": "$string:EntryAbility_label",
+        "usedScene": {
+          "abilities": ["EntryAbility"],
+          "when": "inuse"
+        }
+      },
+      {
         "name": "ohos.permission.INTERNET",
         "reason": "$string:EntryAbility_label",
         "usedScene": {

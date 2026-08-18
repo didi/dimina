@@ -5,6 +5,7 @@ import { DMPAppManager } from '../DApp/DMPAppManager';
 import { DMPApp } from '../DApp/DMPApp';
 import { buffer, util } from '@kit.ArkTS';
 import { http } from '@kit.NetworkKit';
+import { DMPLogger } from '../EventTrack/DMPLogger';
 
 
 export class DMPService {
@@ -37,11 +38,11 @@ export class DMPService {
   public async loadFileUri(uri: string) {
     // debug 模式放在 worker 加载还是有时序问题，就还是放在主线程阻塞加载
     if (uri.startsWith("http")) {
-      console.info(`evalJSByUri 1 ${uri}`);
+      DMPLogger.i('', `evalJSByUri 1 ${uri}`);
       let httpRequest = http.createHttp();
       const data: http.HttpResponse = await httpRequest.request(uri);
       const c: string = data.result as string;
-      console.info(`evalJSByUri 2 ${uri}`);
+      DMPLogger.i('', `evalJSByUri 2 ${uri}`);
       this.executeScript(c);
     } else {
       this.ww.evalJSByUri(uri);
@@ -66,6 +67,11 @@ export class DMPService {
     const script: string = `DiminaServiceBridge.onMessage(${dataString})`
     // this.ww.evalJS(script)
     this.executeScript(script)
+  }
+
+  /** Wait until the service Worker has executed every script queued so far. */
+  public flush(): Promise<void> {
+    return this.ww.flush()
   }
 
   public updateWorkerAppData() {

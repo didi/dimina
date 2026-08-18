@@ -22,8 +22,8 @@ class Render {
 	init() {
 		// 资源加载消息
 		this.message.on('loadResource', (msg) => {
-			const { bridgeId, appId, pagePath, root = '.', baseUrl = '/' } = msg
-			loader.loadResource({ bridgeId, appId, pagePath, root, baseUrl })
+			const { bridgeId, appId, pagePath, root = '.', baseUrl = '/', resourceLoadId, runtimeType } = msg
+			loader.loadResource({ bridgeId, appId, pagePath, root, baseUrl, resourceLoadId, runtimeType })
 		})
 
 		// 数据初始化消息

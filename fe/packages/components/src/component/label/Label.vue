@@ -13,10 +13,47 @@ const props = defineProps({
 		type: String,
 	},
 })
+
+const labelRef = ref(null)
+const targetSelector = '[data-dd-label-target], input, textarea'
+
+function isLabelTarget(element) {
+	return element instanceof Element && Boolean(element.closest(targetSelector))
+}
+
+function findTarget() {
+	if (props.for) {
+		return document.getElementById(props.for)
+	}
+	return labelRef.value?.querySelector(targetSelector)
+}
+
+function handleClick(event) {
+	// A tap originating from a control must not activate it a second time.
+	if (isLabelTarget(event.target)) {
+		return
+	}
+
+	const target = findTarget()
+	if (!target || target === labelRef.value) {
+		return
+	}
+
+	// Native label activation already handles actual form elements referenced by for.
+	if (props.for && target.matches('input, textarea, button, select')) {
+		return
+	}
+
+	event.preventDefault()
+	target.click()
+	if (target.matches('input, textarea')) {
+		target.focus()
+	}
+}
 </script>
 
 <template>
-	<label v-bind="$attrs" :for="props.for">
+	<label ref="labelRef" v-bind="$attrs" :for="props.for" @click="handleClick">
 		<slot />
 	</label>
 </template>

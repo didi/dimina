@@ -1,72 +1,119 @@
+import http from 'node:http'
+import https from 'node:https'
+import { fileURLToPath } from 'node:url'
+
 import axios from 'axios'
 import cors from 'cors'
 import express from 'express'
 
-const app = express()
+import {
+	assertSafeTarget,
+	createSafeLookup,
+	isAllowedBrowserOrigin,
+	sanitizeRequestHeaders,
+} from './security.js'
 
-// 使用cors中间件来允许所有跨域请求
-// 注意：在实际生产环境中，你应该更具体地配置CORS策略
-app.use(cors())
-app.use(express.json())
+const MAX_REQUEST_BODY_BYTES = 1024 * 1024
+const MAX_RESPONSE_BODY_BYTES = 10 * 1024 * 1024
+const ALLOWED_METHODS = new Set(['GET', 'POST', 'PUT', 'DELETE', 'PATCH'])
+const ALLOWED_RESPONSE_TYPES = new Set(['json', 'text', 'arraybuffer'])
 
-app.post('/proxy', async (req, res) => {
-	try {
-		// Input validation
-		const { url, data, header = {}, timeout = 30000, method = 'GET', responseType = 'json' } = req.body
+export function createProxyApp({ allowedOrigins = process.env.DIMINA_PROXY_ALLOWED_ORIGINS } = {}) {
+	const app = express()
 
-		if (!url) {
-			return res.status(400).json({ error: 'URL is required' })
+	app.use(cors({
+		origin(origin, callback) {
+			callback(null, isAllowedBrowserOrigin(origin, allowedOrigins))
+		},
+	}))
+	app.use(express.json({ limit: MAX_REQUEST_BODY_BYTES }))
+
+	const safeLookup = createSafeLookup()
+	const httpAgent = new http.Agent({ lookup: safeLookup })
+	const httpsAgent = new https.Agent({ lookup: safeLookup })
+
+	app.post('/proxy', async (req, res) => {
+		try {
+			const {
+				url,
+				data,
+				header = {},
+				timeout = 30000,
+				method = 'GET',
+				responseType = 'json',
+			} = req.body ?? {}
+
+			const normalizedMethod = String(method).toUpperCase()
+			if (!ALLOWED_METHODS.has(normalizedMethod)) {
+				return res.status(400).json({ error: 'Invalid HTTP method' })
+			}
+			if (!ALLOWED_RESPONSE_TYPES.has(responseType)) {
+				return res.status(400).json({ error: 'Invalid response type' })
+			}
+
+			const target = await assertSafeTarget(url)
+			const parsedTimeout = Number.parseInt(timeout, 10)
+			const boundedTimeout = Number.isFinite(parsedTimeout)
+				? Math.min(Math.max(parsedTimeout, 1), 30000)
+				: 30000
+
+			const response = await axios({
+				method: normalizedMethod,
+				url: target.href,
+				timeout: boundedTimeout,
+				headers: {
+					'Content-Type': 'application/json',
+					...sanitizeRequestHeaders(header),
+				},
+				...(normalizedMethod !== 'GET' && { data }),
+				...(normalizedMethod === 'GET' && data && { params: data }),
+				responseType,
+				validateStatus: () => true,
+				// Redirects must be validated independently; disabling them prevents
+				// a public endpoint from redirecting the proxy into a private network.
+				maxRedirects: 0,
+				maxContentLength: MAX_RESPONSE_BODY_BYTES,
+				maxBodyLength: MAX_REQUEST_BODY_BYTES,
+				proxy: false,
+				httpAgent,
+				httpsAgent,
+			})
+
+			if (responseType === 'arraybuffer') {
+				const contentType = response.headers['content-type'] || 'application/octet-stream'
+				res.set('Content-Type', contentType)
+				res.status(response.status).send(response.data)
+			}
+			else if (responseType === 'text') {
+				const contentType = response.headers['content-type'] || 'text/plain; charset=utf-8'
+				res.set('Content-Type', contentType)
+				res.status(response.status).send(response.data)
+			}
+			else {
+				res.set('Content-Type', 'application/json')
+				res.status(response.status).json(response.data)
+			}
 		}
-		if (!['GET', 'POST', 'PUT', 'DELETE', 'PATCH'].includes(method.toUpperCase())) {
-			return res.status(400).json({ error: 'Invalid HTTP method' })
+		catch (error) {
+			const statusCode = error.response?.status || (error.code === 'DIMINA_UNSAFE_TARGET' ? 403 : 500)
+			const errorMessage = error.response?.data?.message || error.message || 'Internal Server Error'
+
+			res.status(statusCode).json({
+				error: errorMessage,
+				status: statusCode,
+				timestamp: new Date().toISOString(),
+			})
 		}
+	})
 
-		// Build request config
-		const axiosConfig = {
-			method: method.toUpperCase(),
-			url,
-			timeout: Number.parseInt(timeout, 10) || 30000,
-			headers: {
-				'Content-Type': 'application/json',
-				...header,
-			},
-			// Only include data for non-GET requests
-			...(method.toUpperCase() !== 'GET' && { data }),
-			// For GET requests, move data to params
-			...(method.toUpperCase() === 'GET' && data && { params: data }),
-			responseType,
-			validateStatus: () => true, // Ensure we get the response even for error status codes
-		}
+	return app
+}
 
-		// Send request to target service
-		const response = await axios(axiosConfig)
-
-		// Set appropriate content type based on response type
-		if (responseType === 'arraybuffer') {
-			// For arraybuffer responses, set appropriate content type from response headers or default to application/octet-stream
-			const contentType = response.headers['content-type'] || 'application/octet-stream'
-			res.set('Content-Type', contentType)
-			res.status(response.status).send(response.data)
-		}
-		else {
-			// For JSON responses, ensure we have proper content type
-			res.set('Content-Type', 'application/json')
-			res.status(response.status).json(response.data)
-		}
-	}
-	catch (error) {
-		console.error('Error forwarding request:', error.message)
-		const statusCode = error.response?.status || 500
-		const errorMessage = error.response?.data?.message || error.message || 'Internal Server Error'
-
-		res.status(statusCode).json({
-			error: errorMessage,
-			status: statusCode,
-			timestamp: new Date().toISOString(),
-		})
-	}
-})
-
-app.listen(7788, () => {
-	console.log('Server is running on port 7788')
-})
+const isEntrypoint = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]
+if (isEntrypoint) {
+	const host = process.env.DIMINA_PROXY_HOST || '127.0.0.1'
+	const port = Number.parseInt(process.env.DIMINA_PROXY_PORT || '7788', 10)
+	createProxyApp().listen(port, host, () => {
+		console.log(`Dimina proxy is listening on http://${host}:${port}`)
+	})
+}

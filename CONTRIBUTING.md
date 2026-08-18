@@ -1,42 +1,46 @@
-# Contribution Guidelines
+<p align="right">
+  <a href="./CONTRIBUTING_EN.md">English →</a>
+</p>
 
-Thanks for your interest in contributing to Dimina. Issues, pull requests, and design discussions are all welcome.
+# 贡献指南
 
-## Pull Requests
+感谢你有兴趣为 Dimina 做出贡献。我们欢迎提交 Issue、Pull Request，也欢迎参与设计讨论。
 
-Before sending a pull request, please follow these guidelines:
+## Pull Request
 
-1. Base branch: open pull requests against the `main` branch.
-2. Scope: keep each pull request focused on one bug fix, feature, or documentation change.
-3. Coding style: follow the existing style in the package or platform module you are changing.
-4. Commit message: use clear English and check spelling.
-5. Tests: run the relevant tests or sample build before submitting.
+提交 Pull Request 前，请遵循以下指南：
 
-When the change affects runtime behavior, include the platform, device model, OS/API version, related logs, screenshots or screen recordings, and the commands you used for verification.
+1. 基础分支：请向 `main` 分支提交 Pull Request。
+2. 变更范围：每个 Pull Request 应聚焦于一个错误修复、功能或文档变更。
+3. 编码风格：请遵循所修改软件包或平台模块的现有代码风格。
+4. 提交信息：请使用清晰的英文，并检查拼写。
+5. 测试：提交前请运行相关测试或示例构建。
 
-Common verification commands:
+如果变更会影响运行时行为，请提供平台、设备型号、操作系统或 API 版本、相关日志、截图或屏幕录制，以及用于验证的命令。
+
+常用验证命令：
 
 ```sh
-# Frontend packages
+# 前端软件包
 cd fe
 pnpm test
 
-# Android sample and SDK modules
+# Android 示例与 SDK 模块
 cd android
 ./gradlew build
 ```
 
-NOTE: We assume all contributions can be licensed under the [Apache License 2.0](https://github.com/didi/dimina/blob/main/LICENSE).
+注意：我们默认所有贡献均可依据 [Apache License 2.0](https://github.com/didi/dimina/blob/main/LICENSE) 获得许可。
 
-## Issues
+## Issue
 
-We love clearly described issues.
+我们欢迎描述清晰的 Issue。
 
-The following information can help us resolve the issue faster:
+提供以下信息有助于我们更快地解决问题：
 
-- Platform and device model
-- OS/API version
-- Dimina SDK or compiler version
-- Steps to reproduce
-- Expected behavior and actual behavior
-- Logs, screenshots, or a minimal reproduction project
+- 平台和设备型号
+- 操作系统或 API 版本
+- Dimina SDK 或编译器版本
+- 复现步骤
+- 预期行为与实际行为
+- 日志、截图或最小复现项目

@@ -1,4 +1,16 @@
 import { invokeAPI } from '@/api/common'
+import { isFunction } from '@dimina/common'
+import hostEnv from '@/core/host-env'
+
+const themeChangeCallbacks = new Set()
+
+hostEnv.onUpdate((patch) => {
+	const theme = patch.systemInfo?.theme
+	if (!theme) {
+		return
+	}
+	themeChangeCallbacks.forEach(callback => callback({ theme }))
+})
 
 /**
  * 跳转系统蓝牙设置页。仅支持安卓
@@ -53,4 +65,19 @@ export function getAppBaseInfo() {
 
 export function getDeviceInfo() {
 	return invokeAPI('getDeviceInfo')
+}
+
+export function onThemeChange(callback) {
+	if (isFunction(callback)) {
+		themeChangeCallbacks.add(callback)
+	}
+}
+
+export function offThemeChange(callback) {
+	if (isFunction(callback)) {
+		themeChangeCallbacks.delete(callback)
+	}
+	else {
+		themeChangeCallbacks.clear()
+	}
 }

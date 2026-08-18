@@ -20,14 +20,16 @@
 		"dev": "vite build",
 		"build": "vite build",
 		"test": "vitest run",
-		"test:dev": "vitest"
+		"test:dev": "vitest",
+		"coverage": "vitest run --coverage"
 	},
 	"dependencies": {
 		"@dimina/common": "workspace:^",
-		"vue": "^3.5.34"
+		"dompurify": "^3.4.13",
+		"vue": "^3.5.41"
 	},
 	"devDependencies": {
-		"@vitejs/plugin-vue": "^6.0.6",
-		"unplugin-auto-import": "^21.0.0"
+		"@vitejs/plugin-vue": "^6.0.8",
+		"unplugin-auto-import": "^21.1.0"
 	}
 }

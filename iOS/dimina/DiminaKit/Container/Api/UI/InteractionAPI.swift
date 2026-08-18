@@ -81,6 +81,8 @@ public class InteractionAPI: DMPContainerApi {
         
         // 在主线程上显示对话框
         DispatchQueue.main.async {
+            InteractionAPI.cancelActiveWebViewGesture(env: env)
+
             // 调用 ModalManager 显示对话框
             ModalManager.shared.showModal(
                 title: title,
@@ -100,6 +102,28 @@ public class InteractionAPI: DMPContainerApi {
             }
         }
         return DMPAsyncResult()
+    }
+
+    /// Presenting another window does not retarget an in-flight touch sequence.
+    /// Cancel the caller's scroll gesture first so WKWebView cannot continue to
+    /// receive move events behind the modal.
+    private static func cancelActiveWebViewGesture(env: DMPBridgeEnv) {
+        guard let app = DMPAppManager.sharedInstance().getApp(appIndex: env.appIndex),
+              let webView = app.render?.getWebView(byId: env.webViewId)?.getWebView() else {
+            return
+        }
+
+        let scrollView = webView.scrollView
+        scrollView.setContentOffset(scrollView.contentOffset, animated: false)
+
+        let wasUserInteractionEnabled = webView.isUserInteractionEnabled
+        webView.isUserInteractionEnabled = false
+        webView.isUserInteractionEnabled = wasUserInteractionEnabled
+
+        let panGesture = scrollView.panGestureRecognizer
+        let wasEnabled = panGesture.isEnabled
+        panGesture.isEnabled = false
+        panGesture.isEnabled = wasEnabled
     }
     
     // Show loading

@@ -5,6 +5,7 @@ import { DMPChannelProxyNext } from '../Service/DMPChannelProxyNext';
 import { DMPLogger } from '../EventTrack/DMPLogger';
 import { Tags } from '../EventTrack/Tags';
 import { DMPMap } from '../Utils/DMPMap';
+import { DMPWebSocketManager } from '../Bridges/Network/DMPWebSocketManager';
 
 export class DMPAppLifecycle {
   constructor() {
@@ -27,17 +28,16 @@ export class DMPAppLifecycle {
   // 基础 / 小程序 / 应用级事件 / wx.onAppShow
   // https://developers.weixin.qq.com/miniprogram/dev/api/base/app/app-event/wx.onAppShow.html
   static onAppShow() {
-    DMPAppManager.sharedInstance().appPools.forEach((app) => {
-      if (app) {
-        const msg: DMPMap = new DMPMap({
-          type: 'appShow',
-          body: {
-            bridgeId: app.currentWebViewId
-          }
-        })
-        DMPChannelProxyNext.ContainerToService(msg, app.appIndex)
-      }
-    })
+    const app = DMPAppManager.sharedInstance().getPresentedApp()
+    if (app) {
+      const msg: DMPMap = new DMPMap({
+        type: 'appShow',
+        body: {
+          bridgeId: app.currentWebViewId
+        }
+      })
+      DMPChannelProxyNext.ContainerToService(msg, app.appIndex)
+    }
   }
 
   // 框架接口 / 小程序 App / App
@@ -49,24 +49,23 @@ export class DMPAppLifecycle {
   // 基础 / 小程序 / 应用级事件 / wx.onAppHide
   // https://developers.weixin.qq.com/miniprogram/dev/api/base/app/app-event/wx.onAppHide.html
   static onAppHide() {
-    DMPAppManager.sharedInstance().appPools.forEach((app) => {
-      if (app) {
-        const msg: DMPMap = new DMPMap({
-          type: 'appHide',
-          body: {
-            bridgeId: app.currentWebViewId
-          }
-        })
-        DMPChannelProxyNext.ContainerToService(msg, app.appIndex)
-      }
-    })
+    const app = DMPAppManager.sharedInstance().getPresentedApp()
+    if (app) {
+      const msg: DMPMap = new DMPMap({
+        type: 'appHide',
+        body: {
+          bridgeId: app.currentWebViewId
+        }
+      })
+      DMPChannelProxyNext.ContainerToService(msg, app.appIndex)
+    }
   }
 
 
   static onWindowStageEvent(stageEventType: window.WindowStageEventType) {
     switch (stageEventType) {
       case window.WindowStageEventType.SHOWN: // 切到前台
-        DMPAppLifecycle.onAppShow()
+        DMPWebSocketManager.sharedInstance().setAllBackgrounded(false)
         DMPAppLifecycle.onShow()
         DMPLogger.i(Tags.APP_LIFECYCLE, 'windowStage foreground.');
         break;
@@ -77,7 +76,7 @@ export class DMPAppLifecycle {
         DMPLogger.i(Tags.APP_LIFECYCLE, 'windowStage inactive.');
         break;
       case window.WindowStageEventType.HIDDEN: // 切到后台
-        DMPAppLifecycle.onAppHide()
+        DMPWebSocketManager.sharedInstance().setAllBackgrounded(true)
         DMPAppLifecycle.onHide()
         DMPLogger.i(Tags.APP_LIFECYCLE, 'windowStage background.');
         break;

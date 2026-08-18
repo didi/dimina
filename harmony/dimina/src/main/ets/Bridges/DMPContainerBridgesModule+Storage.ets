@@ -5,6 +5,11 @@ import { DMPMMKVManager } from '../Bundle/Util/DMPMMKVManager'
 import { DMPMap } from '../Utils/DMPMap';
 
 export class DMPContainerBridgesModuleStorage extends DMPContainerBridgesModule {
+  private getStorageManager(): DMPMMKVManager {
+    const appId = this.appData.appId || this.app?.appConfig?.appId || 'default';
+    return DMPMMKVManager.sharedInstance(appId);
+  }
+
   getExportMethods(): string[] {
     return [
       'setStorageSync',
@@ -21,7 +26,7 @@ export class DMPContainerBridgesModuleStorage extends DMPContainerBridgesModule 
   }
 
   setStorage(data: DMPMap, callback: DMPBridgeCallback) {
-    const mgr = DMPMMKVManager.sharedInstance()
+    const mgr = this.getStorageManager()
     const value: number | string | boolean | Date | object = data.get('data')
     const key: string = data.get('key')
     const success = mgr.encode(key, value)
@@ -38,7 +43,7 @@ export class DMPContainerBridgesModuleStorage extends DMPContainerBridgesModule 
     const params: object = data.toObject()
     const key: string = params[0]
     const value: number | string | boolean | Date | object = params[1]
-    const mgr = DMPMMKVManager.sharedInstance()
+    const mgr = this.getStorageManager()
     return mgr.encode(key, value)
   }
 
@@ -55,13 +60,13 @@ export class DMPContainerBridgesModuleStorage extends DMPContainerBridgesModule 
 
   removeStorageSync(data: string | DMPMap, callback: DMPBridgeCallback): boolean {
     const key: string = this._getKey(data)
-    const mgr = DMPMMKVManager.sharedInstance()
+    const mgr = this.getStorageManager()
     return mgr.remove(key)
   }
 
   removeStorage(data: DMPMap, callback: DMPBridgeCallback) {
     const key: string = this._getKey(data)
-    const mgr = DMPMMKVManager.sharedInstance()
+    const mgr = this.getStorageManager()
     if (mgr.remove(key)) {
       this.invokeSuccessCallback(callback, null);
     } else {
@@ -70,18 +75,18 @@ export class DMPContainerBridgesModuleStorage extends DMPContainerBridgesModule 
   }
 
   clearStorageSync(data: DMPMap, callback: DMPBridgeCallback): boolean {
-    const mgr = DMPMMKVManager.sharedInstance()
+    const mgr = this.getStorageManager()
     mgr.clear()
     return true
   }
 
   clearStorage(data: DMPMap, callback: DMPBridgeCallback) {
-    const mgr = DMPMMKVManager.sharedInstance()
+    const mgr = this.getStorageManager()
     mgr.clear()
   }
 
   _getStorage(key: string): number | string | boolean | Date | object {
-    const mgr = DMPMMKVManager.sharedInstance()
+    const mgr = this.getStorageManager()
     return mgr.decode(key).get('value');
   }
 
@@ -102,7 +107,7 @@ export class DMPContainerBridgesModuleStorage extends DMPContainerBridgesModule 
   }
 
   _getStorageInfo(): DMPMap {
-    const mgr = DMPMMKVManager.sharedInstance()
+    const mgr = this.getStorageManager()
 
     const currentSize = mgr.totalSize()
     const keys = mgr.keys() as Array<string>

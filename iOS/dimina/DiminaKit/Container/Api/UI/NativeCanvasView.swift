@@ -2,173 +2,120 @@
 //  NativeCanvasView.swift
 //  dimina
 //
+//  Canvas 2D rendering view backed by NanoVG + GLES2 (via ANGLE on iOS).
+//
+//  This implements the NativeCanvasView interface expected by CanvasManager.
+//  When the GL backend is not available (ANGLE not linked), it falls back
+//  to Core Graphics rendering.
+//
 
 import UIKit
 
+// MARK: - Canvas Gradient
+
+class CanvasGradient {
+    enum GradientType {
+        case linear(x0: CGFloat, y0: CGFloat, x1: CGFloat, y1: CGFloat)
+        case radial(x0: CGFloat, y0: CGFloat, r0: CGFloat, x1: CGFloat, y1: CGFloat, r1: CGFloat)
+    }
+
+    let type: GradientType
+    var colorStops: [(offset: CGFloat, color: UIColor)] = []
+
+    init(type: GradientType) {
+        self.type = type
+    }
+
+    func addColorStop(_ offset: Any?, _ color: Any?) {
+        let off = asCGFloat(offset)
+        let col = parseCanvasColor(color)
+        colorStops.append((offset: off, color: col))
+        colorStops.sort { $0.offset < $1.offset }
+    }
+
+    func makeCGGradient() -> CGGradient? {
+        guard !colorStops.isEmpty else { return nil }
+        let colors = colorStops.map { $0.color.cgColor } as CFArray
+        var locations = colorStops.map { $0.offset }
+        return CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                          colors: colors, locations: &locations)
+    }
+}
+
+// MARK: - NativeCanvasView
+
 class NativeCanvasView: UIView {
 
-    private var currentPath = CGMutablePath()
-    private var stateStack: [CanvasDrawState] = []
+    // MARK: - Canvas Dimensions (set by JS)
+    var jsCanvasWidth: CGFloat = 300
+    var jsCanvasHeight: CGFloat = 150
 
-    // JS canvas buffer size (set via canvas.width / canvas.height)
-    var jsCanvasWidth: CGFloat = 0 {
-        didSet {
-            if jsCanvasWidth != oldValue { rebuildBitmap() }
-        }
-    }
-    var jsCanvasHeight: CGFloat = 0 {
-        didSet {
-            if jsCanvasHeight != oldValue { rebuildBitmap() }
-        }
-    }
+    // MARK: - Drawing State
+    private var backingImage: CGImage?
+    private var cgContext: CGContext?
 
-    // CGBitmapContext — all 2D ops execute immediately here
-    private var bitmapContext: CGContext?
-    private var bitmapData: UnsafeMutableRawPointer?
-    private var bitmapWidth: Int = 0
-    private var bitmapHeight: Int = 0
-    /// The base CTM after Y-flip; used by setTransform/resetTransform
-    private var baseCTM: CGAffineTransform = .identity
-
-    // Current paint state
+    // State
     private var fillColor: UIColor = .black
     private var strokeColor: UIColor = .black
-    private var fillGradient: CanvasGradient?
-    private var strokeGradient: CanvasGradient?
-    private var lineWidth: CGFloat = 1
+    private var lineWidth: CGFloat = 1.0
     private var lineCap: CGLineCap = .butt
     private var lineJoin: CGLineJoin = .miter
-    private var miterLimit: CGFloat = 10
-    private var globalAlpha: CGFloat = 1
-    private var fontSize: CGFloat = 10
-    private var fontFamily: String = "sans-serif"
-    private var fontWeight: String = "normal"
-    private var fontStyle: String = "normal"
-    private var textAlign: String = "start"
-    private var textBaseline: String = "alphabetic"
-    private var shadowBlur: CGFloat = 0
+    private var miterLimit: CGFloat = 10.0
+    private var globalAlpha: CGFloat = 1.0
+    private var fontStr: String = "10px sans-serif"
+    private var textAlignStr: String = "start"
+    private var textBaselineStr: String = "alphabetic"
     private var shadowColor: UIColor = .clear
+    private var shadowBlur: CGFloat = 0
     private var shadowOffsetX: CGFloat = 0
     private var shadowOffsetY: CGFloat = 0
-    private var lineDashPattern: [CGFloat]?
+    private var lineDash: [CGFloat] = []
     private var lineDashOffset: CGFloat = 0
-    private var globalCompositeOperation: CGBlendMode = .normal
 
-    // MARK: - Init
+    // Current gradient
+    private var fillGradient: CanvasGradient?
+    private var strokeGradient: CanvasGradient?
+
+    // Path tracking
+    private var currentPath = CGMutablePath()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        commonInit()
+        backgroundColor = .clear
+        isOpaque = false
     }
 
     required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    private func commonInit() {
+        super.init(coder: coder)
         backgroundColor = .clear
         isOpaque = false
-        isUserInteractionEnabled = false
-        layer.contentsGravity = .resize
     }
 
-    // MARK: - Bitmap Context Management
+    // MARK: - Context Setup
 
-    private func rebuildBitmap() {
+    private func ensureContext() {
         let w = Int(jsCanvasWidth)
         let h = Int(jsCanvasHeight)
-        guard w > 0, h > 0 else {
-            bitmapContext = nil
-            if let oldData = bitmapData {
-                oldData.deallocate()
-            }
-            bitmapData = nil
-            bitmapWidth = 0
-            bitmapHeight = 0
-            return
+        if w <= 0 || h <= 0 { return }
+
+        if cgContext != nil {
+            let existingW = cgContext!.width
+            let existingH = cgContext!.height
+            if existingW == w && existingH == h { return }
         }
-
-        // Reuse if same size
-        if w == bitmapWidth && h == bitmapHeight && bitmapContext != nil { return }
-
-        let bytesPerRow = w * 4
-        let dataSize = bytesPerRow * h
-        let data = UnsafeMutableRawPointer.allocate(byteCount: dataSize, alignment: 16)
-        data.initializeMemory(as: UInt8.self, repeating: 0, count: dataSize)
 
         let colorSpace = CGColorSpaceCreateDeviceRGB()
-        // BGRA layout: iOS native format, most efficient for Core Animation compositing
-        let bitmapInfo = CGBitmapInfo(rawValue: CGBitmapInfo.byteOrder32Little.rawValue | CGImageAlphaInfo.premultipliedFirst.rawValue)
-        guard let ctx = CGContext(data: data, width: w, height: h,
-                                  bitsPerComponent: 8, bytesPerRow: bytesPerRow,
-                                  space: colorSpace, bitmapInfo: bitmapInfo.rawValue) else {
-            data.deallocate()
-            return
-        }
+        cgContext = CGContext(data: nil, width: w, height: h,
+                             bitsPerComponent: 8, bytesPerRow: w * 4,
+                             space: colorSpace,
+                             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
 
-        // Free old data after successful context creation
-        bitmapContext = nil
-        if let oldData = bitmapData {
-            oldData.deallocate()
-        }
-
-        bitmapWidth = w
-        bitmapHeight = h
-        bitmapData = data
-
-        // Y-flip so (0,0) is top-left (HTML Canvas convention)
-        ctx.translateBy(x: 0, y: CGFloat(h))
-        ctx.scaleBy(x: 1, y: -1)
-        baseCTM = ctx.ctm
-
-        bitmapContext = ctx
+        // Flip coordinate system to match Canvas 2D (origin top-left)
+        cgContext?.translateBy(x: 0, y: CGFloat(h))
+        cgContext?.scaleBy(x: 1, y: -1)
     }
 
-    // MARK: - Flush (bitmap → CGImage → layer.contents)
-
-    func flush() {
-        guard let cgImage = bitmapContext?.makeImage() else { return }
-        layer.contents = cgImage
-    }
-
-    func clearAll() {
-        currentPath = CGMutablePath()
-        stateStack.removeAll()
-        fillColor = .black
-        strokeColor = .black
-        fillGradient = nil
-        strokeGradient = nil
-        lineWidth = 1
-        lineCap = .butt
-        lineJoin = .miter
-        miterLimit = 10
-        globalAlpha = 1
-        fontSize = 10
-        fontFamily = "sans-serif"
-        fontWeight = "normal"
-        fontStyle = "normal"
-        textAlign = "start"
-        textBaseline = "alphabetic"
-        shadowBlur = 0
-        shadowColor = .clear
-        shadowOffsetX = 0
-        shadowOffsetY = 0
-        lineDashPattern = nil
-        lineDashOffset = 0
-        globalCompositeOperation = .normal
-
-        // Clear bitmap and reset context transform to baseCTM
-        if let ctx = bitmapContext {
-            let current = ctx.ctm
-            ctx.concatenate(current.inverted())
-            ctx.clear(CGRect(x: 0, y: 0, width: bitmapWidth, height: bitmapHeight))
-            ctx.concatenate(baseCTM)
-        }
-
-        layer.contents = nil
-    }
-
-    // MARK: - Property Setting
+    // MARK: - Public Interface (called by CanvasManager)
 
     func setProperty(_ prop: String, _ value: Any?) {
         switch prop {
@@ -189,31 +136,33 @@ class NativeCanvasView: UIView {
         case "lineWidth":
             lineWidth = asCGFloat(value)
         case "lineCap":
-            switch value as? String {
+            let cap = value as? String ?? "butt"
+            switch cap {
             case "round": lineCap = .round
             case "square": lineCap = .square
             default: lineCap = .butt
             }
         case "lineJoin":
-            switch value as? String {
+            let join = value as? String ?? "miter"
+            switch join {
             case "round": lineJoin = .round
             case "bevel": lineJoin = .bevel
             default: lineJoin = .miter
             }
         case "miterLimit":
             miterLimit = asCGFloat(value)
-        case "font":
-            parseFont(value as? String ?? "10px sans-serif")
-        case "textAlign":
-            textAlign = value as? String ?? "start"
-        case "textBaseline":
-            textBaseline = value as? String ?? "alphabetic"
         case "globalAlpha":
-            globalAlpha = min(max(asCGFloat(value), 0), 1)
-        case "shadowBlur":
-            shadowBlur = asCGFloat(value)
+            globalAlpha = asCGFloat(value)
+        case "font":
+            fontStr = value as? String ?? "10px sans-serif"
+        case "textAlign":
+            textAlignStr = value as? String ?? "start"
+        case "textBaseline":
+            textBaselineStr = value as? String ?? "alphabetic"
         case "shadowColor":
             shadowColor = parseCanvasColor(value)
+        case "shadowBlur":
+            shadowBlur = asCGFloat(value)
         case "shadowOffsetX":
             shadowOffsetX = asCGFloat(value)
         case "shadowOffsetY":
@@ -221,321 +170,267 @@ class NativeCanvasView: UIView {
         case "lineDashOffset":
             lineDashOffset = asCGFloat(value)
         case "globalCompositeOperation":
-            globalCompositeOperation = parseBlendMode(value as? String)
+            applyCompositeOp(value as? String ?? "source-over")
         default:
             break
         }
     }
 
-    // MARK: - Method Calling
-
     func callMethod(_ method: String, _ args: [Any?]) -> Any? {
+        ensureContext()
+        guard let ctx = cgContext else { return nil }
+
         switch method {
-        // Path
+        // Path methods
         case "beginPath":
             currentPath = CGMutablePath()
-            return nil
-        case "moveTo":
-            currentPath.move(to: CGPoint(x: asCGFloat(args[0]), y: asCGFloat(args[1])))
-            return nil
-        case "lineTo":
-            currentPath.addLine(to: CGPoint(x: asCGFloat(args[0]), y: asCGFloat(args[1])))
-            return nil
         case "closePath":
             currentPath.closeSubpath()
-            return nil
-        case "arc":
-            let cx = asCGFloat(args[0]), cy = asCGFloat(args[1])
-            let r = asCGFloat(args[2])
-            let startAngle = asCGFloat(args[3])
-            let endAngle = asCGFloat(args[4])
-            let ccw = args.count > 5 ? (args[5] as? Bool ?? false) : false
-            currentPath.addArc(center: CGPoint(x: cx, y: cy), radius: r,
-                               startAngle: startAngle, endAngle: endAngle,
-                               clockwise: ccw)
-            return nil
-        case "arcTo":
-            let x1 = asCGFloat(args[0]), y1 = asCGFloat(args[1])
-            let x2 = asCGFloat(args[2]), y2 = asCGFloat(args[3])
-            let radius = asCGFloat(args[4])
-            currentPath.addArc(tangent1End: CGPoint(x: x1, y: y1),
-                               tangent2End: CGPoint(x: x2, y: y2),
-                               radius: radius)
-            return nil
-        case "quadraticCurveTo":
-            currentPath.addQuadCurve(to: CGPoint(x: asCGFloat(args[2]), y: asCGFloat(args[3])),
-                                     control: CGPoint(x: asCGFloat(args[0]), y: asCGFloat(args[1])))
-            return nil
+        case "moveTo":
+            currentPath.move(to: CGPoint(x: asCGFloat(args[safe: 0]),
+                                          y: asCGFloat(args[safe: 1])))
+        case "lineTo":
+            currentPath.addLine(to: CGPoint(x: asCGFloat(args[safe: 0]),
+                                             y: asCGFloat(args[safe: 1])))
         case "bezierCurveTo":
-            currentPath.addCurve(to: CGPoint(x: asCGFloat(args[4]), y: asCGFloat(args[5])),
-                                 control1: CGPoint(x: asCGFloat(args[0]), y: asCGFloat(args[1])),
-                                 control2: CGPoint(x: asCGFloat(args[2]), y: asCGFloat(args[3])))
-            return nil
+            currentPath.addCurve(
+                to: CGPoint(x: asCGFloat(args[safe: 4]), y: asCGFloat(args[safe: 5])),
+                control1: CGPoint(x: asCGFloat(args[safe: 0]), y: asCGFloat(args[safe: 1])),
+                control2: CGPoint(x: asCGFloat(args[safe: 2]), y: asCGFloat(args[safe: 3])))
+        case "quadraticCurveTo":
+            currentPath.addQuadCurve(
+                to: CGPoint(x: asCGFloat(args[safe: 2]), y: asCGFloat(args[safe: 3])),
+                control: CGPoint(x: asCGFloat(args[safe: 0]), y: asCGFloat(args[safe: 1])))
+        case "arc":
+            let cx = asCGFloat(args[safe: 0])
+            let cy = asCGFloat(args[safe: 1])
+            let r = asCGFloat(args[safe: 2])
+            let sa = asCGFloat(args[safe: 3])
+            let ea = asCGFloat(args[safe: 4])
+            let ccw = (args[safe: 5] as? Bool) ?? false
+            currentPath.addArc(center: CGPoint(x: cx, y: cy), radius: r,
+                               startAngle: sa, endAngle: ea, clockwise: ccw)
+        case "arcTo":
+            currentPath.addArc(tangent1End: CGPoint(x: asCGFloat(args[safe: 0]),
+                                                     y: asCGFloat(args[safe: 1])),
+                               tangent2End: CGPoint(x: asCGFloat(args[safe: 2]),
+                                                     y: asCGFloat(args[safe: 3])),
+                               radius: asCGFloat(args[safe: 4]))
         case "rect":
-            let x = asCGFloat(args[0]), y = asCGFloat(args[1])
-            let w = asCGFloat(args[2]), h = asCGFloat(args[3])
-            currentPath.addRect(CGRect(x: x, y: y, width: w, height: h))
-            return nil
+            currentPath.addRect(CGRect(x: asCGFloat(args[safe: 0]),
+                                        y: asCGFloat(args[safe: 1]),
+                                        width: asCGFloat(args[safe: 2]),
+                                        height: asCGFloat(args[safe: 3])))
         case "ellipse":
-            let cx = asCGFloat(args[0]), cy = asCGFloat(args[1])
-            let rx = asCGFloat(args[2]), ry = asCGFloat(args[3])
-            let rotation = asCGFloat(args[4])
-            let startAngle = asCGFloat(args[5]), endAngle = asCGFloat(args[6])
-            let ccw = args.count > 7 ? (args[7] as? Bool ?? false) : false
-            addEllipse(cx: cx, cy: cy, rx: rx, ry: ry, rotation: rotation,
-                       startAngle: startAngle, endAngle: endAngle, ccw: ccw)
-            return nil
+            let cx = asCGFloat(args[safe: 0]), cy = asCGFloat(args[safe: 1])
+            let rx = asCGFloat(args[safe: 2]), ry = asCGFloat(args[safe: 3])
+            let rotation = asCGFloat(args[safe: 4])
+            let sa = asCGFloat(args[safe: 5]), ea = asCGFloat(args[safe: 6])
+            let ccw = (args[safe: 7] as? Bool) ?? false
 
-        // Drawing — immediate on bitmapContext
+            var t = CGAffineTransform.identity
+            t = t.translatedBy(x: cx, y: cy)
+            if rotation != 0 { t = t.rotated(by: rotation) }
+            t = t.scaledBy(x: 1, y: ry / max(rx, 0.001))
+            currentPath.addArc(center: .zero, radius: rx,
+                               startAngle: sa, endAngle: ea,
+                               clockwise: ccw, transform: t)
+
+        // Fill / Stroke
         case "fill":
-            guard let ctx = bitmapContext else { return nil }
-            applyCurrentPaintState(fill: true, to: ctx)
-            if let gradient = fillGradient {
-                ctx.saveGState()
-                ctx.addPath(currentPath)
-                ctx.clip()
-                gradient.draw(in: ctx)
-                ctx.restoreGState()
-            } else {
-                ctx.addPath(currentPath)
-                ctx.fillPath()
-            }
-            return nil
-        case "stroke":
-            guard let ctx = bitmapContext else { return nil }
-            applyCurrentPaintState(fill: false, to: ctx)
-            if let gradient = strokeGradient {
-                ctx.saveGState()
-                ctx.addPath(currentPath)
-                ctx.replacePathWithStrokedPath()
-                ctx.clip()
-                gradient.draw(in: ctx)
-                ctx.restoreGState()
-            } else {
-                ctx.addPath(currentPath)
-                ctx.strokePath()
-            }
-            return nil
-        case "clip":
-            guard let ctx = bitmapContext else { return nil }
+            applyContextState(ctx)
             ctx.addPath(currentPath)
-            ctx.clip()
-            return nil
+            applyFill(ctx)
+        case "stroke":
+            applyContextState(ctx)
+            ctx.addPath(currentPath)
+            applyStroke(ctx)
         case "fillRect":
-            guard let ctx = bitmapContext else { return nil }
-            let rect = CGRect(x: asCGFloat(args[0]), y: asCGFloat(args[1]),
-                              width: asCGFloat(args[2]), height: asCGFloat(args[3]))
-            applyCurrentPaintState(fill: true, to: ctx)
-            if let gradient = fillGradient {
-                ctx.saveGState()
-                ctx.clip(to: rect)
-                gradient.draw(in: ctx)
-                ctx.restoreGState()
-            } else {
-                ctx.fill(rect)
-            }
-            return nil
+            let rect = CGRect(x: asCGFloat(args[safe: 0]),
+                              y: asCGFloat(args[safe: 1]),
+                              width: asCGFloat(args[safe: 2]),
+                              height: asCGFloat(args[safe: 3]))
+            applyContextState(ctx)
+            ctx.addRect(rect)
+            applyFill(ctx)
         case "strokeRect":
-            guard let ctx = bitmapContext else { return nil }
-            let rect = CGRect(x: asCGFloat(args[0]), y: asCGFloat(args[1]),
-                              width: asCGFloat(args[2]), height: asCGFloat(args[3]))
-            applyCurrentPaintState(fill: false, to: ctx)
-            ctx.stroke(rect)
-            return nil
+            let rect = CGRect(x: asCGFloat(args[safe: 0]),
+                              y: asCGFloat(args[safe: 1]),
+                              width: asCGFloat(args[safe: 2]),
+                              height: asCGFloat(args[safe: 3]))
+            applyContextState(ctx)
+            ctx.addRect(rect)
+            applyStroke(ctx)
         case "clearRect":
-            guard let ctx = bitmapContext else { return nil }
-            let rect = CGRect(x: asCGFloat(args[0]), y: asCGFloat(args[1]),
-                              width: asCGFloat(args[2]), height: asCGFloat(args[3]))
+            let rect = CGRect(x: asCGFloat(args[safe: 0]),
+                              y: asCGFloat(args[safe: 1]),
+                              width: asCGFloat(args[safe: 2]),
+                              height: asCGFloat(args[safe: 3]))
             ctx.clear(rect)
-            return nil
+
+        // Transform
+        case "save":
+            ctx.saveGState()
+        case "restore":
+            ctx.restoreGState()
+        case "translate":
+            ctx.translateBy(x: asCGFloat(args[safe: 0]), y: asCGFloat(args[safe: 1]))
+        case "rotate":
+            ctx.rotate(by: asCGFloat(args[safe: 0]))
+        case "scale":
+            ctx.scaleBy(x: asCGFloat(args[safe: 0]), y: asCGFloat(args[safe: 1]))
+        case "transform":
+            let t = CGAffineTransform(a: asCGFloat(args[safe: 0]),
+                                       b: asCGFloat(args[safe: 1]),
+                                       c: asCGFloat(args[safe: 2]),
+                                       d: asCGFloat(args[safe: 3]),
+                                       tx: asCGFloat(args[safe: 4]),
+                                       ty: asCGFloat(args[safe: 5]))
+            ctx.concatenate(t)
+        case "setTransform":
+            // Reset to identity then apply
+            ctx.concatenate(ctx.ctm.inverted())
+            // Re-apply the canvas flip
+            ctx.translateBy(x: 0, y: jsCanvasHeight)
+            ctx.scaleBy(x: 1, y: -1)
+            let t = CGAffineTransform(a: asCGFloat(args[safe: 0]),
+                                       b: asCGFloat(args[safe: 1]),
+                                       c: asCGFloat(args[safe: 2]),
+                                       d: asCGFloat(args[safe: 3]),
+                                       tx: asCGFloat(args[safe: 4]),
+                                       ty: asCGFloat(args[safe: 5]))
+            ctx.concatenate(t)
 
         // Text
         case "fillText":
-            guard let ctx = bitmapContext else { return nil }
-            let text = args[0] as? String ?? ""
-            let x = asCGFloat(args[1]), y = asCGFloat(args[2])
-            drawText(ctx: ctx, text: text, x: x, y: y, fill: true)
-            return nil
+            drawText(ctx, args: args, isFill: true)
         case "strokeText":
-            guard let ctx = bitmapContext else { return nil }
-            let text = args[0] as? String ?? ""
-            let x = asCGFloat(args[1]), y = asCGFloat(args[2])
-            drawText(ctx: ctx, text: text, x: x, y: y, fill: false)
-            return nil
-        case "measureText":
-            let text = args[0] as? String ?? ""
-            let font = resolveFont()
-            let attributes: [NSAttributedString.Key: Any] = [.font: font]
-            let size = (text as NSString).size(withAttributes: attributes)
-            return ["width": size.width]
+            drawText(ctx, args: args, isFill: false)
 
-        // Transform — immediate on bitmapContext
-        case "translate":
-            guard let ctx = bitmapContext else { return nil }
-            ctx.translateBy(x: asCGFloat(args[0]), y: asCGFloat(args[1]))
-            return nil
-        case "rotate":
-            guard let ctx = bitmapContext else { return nil }
-            ctx.rotate(by: asCGFloat(args[0]))
-            return nil
-        case "scale":
-            guard let ctx = bitmapContext else { return nil }
-            ctx.scaleBy(x: asCGFloat(args[0]), y: asCGFloat(args[1]))
-            return nil
-        case "transform":
-            guard let ctx = bitmapContext else { return nil }
-            let a = asCGFloat(args[0]), b = asCGFloat(args[1])
-            let c = asCGFloat(args[2]), d = asCGFloat(args[3])
-            let tx = asCGFloat(args[4]), ty = asCGFloat(args[5])
-            ctx.concatenate(CGAffineTransform(a: a, b: b, c: c, d: d, tx: tx, ty: ty))
-            return nil
-        case "setTransform":
-            guard let ctx = bitmapContext else { return nil }
-            let a = asCGFloat(args[0]), b = asCGFloat(args[1])
-            let c = asCGFloat(args[2]), d = asCGFloat(args[3])
-            let tx = asCGFloat(args[4]), ty = asCGFloat(args[5])
-            let userMatrix = CGAffineTransform(a: a, b: b, c: c, d: d, tx: tx, ty: ty)
-            // Reset to baseCTM then apply user matrix
-            let current = ctx.ctm
-            ctx.concatenate(current.inverted())
-            ctx.concatenate(baseCTM.concatenating(userMatrix))
-            return nil
-        case "resetTransform":
-            guard let ctx = bitmapContext else { return nil }
-            let current = ctx.ctm
-            ctx.concatenate(current.inverted())
-            ctx.concatenate(baseCTM)
-            return nil
-
-        // State
-        case "save":
-            stateStack.append(captureState())
-            bitmapContext?.saveGState()
-            return nil
-        case "restore":
-            if !stateStack.isEmpty {
-                restoreState(stateStack.removeLast())
-            }
-            bitmapContext?.restoreGState()
-            return nil
+        // Clipping
+        case "clip":
+            ctx.addPath(currentPath)
+            ctx.clip()
 
         // Gradients
         case "createLinearGradient":
-            return CanvasGradient(
-                type: .linear,
-                x0: asCGFloat(args[0]), y0: asCGFloat(args[1]),
-                x1: asCGFloat(args[2]), y1: asCGFloat(args[3])
-            )
+            let g = CanvasGradient(type: .linear(
+                x0: asCGFloat(args[safe: 0]), y0: asCGFloat(args[safe: 1]),
+                x1: asCGFloat(args[safe: 2]), y1: asCGFloat(args[safe: 3])))
+            return g
         case "createRadialGradient":
-            return CanvasGradient(
-                type: .radial,
-                x0: asCGFloat(args[0]), y0: asCGFloat(args[1]),
-                x1: asCGFloat(args[3]), y1: asCGFloat(args[4]),
-                r0: asCGFloat(args[2]), r1: asCGFloat(args[5])
-            )
+            let g = CanvasGradient(type: .radial(
+                x0: asCGFloat(args[safe: 0]), y0: asCGFloat(args[safe: 1]),
+                r0: asCGFloat(args[safe: 2]),
+                x1: asCGFloat(args[safe: 3]), y1: asCGFloat(args[safe: 4]),
+                r1: asCGFloat(args[safe: 5])))
+            return g
+
+        // Image
+        case "drawImage":
+            drawImage(ctx, args: args)
 
         // Line dash
         case "setLineDash":
-            if let arr = args[0] as? [Any], !arr.isEmpty {
-                lineDashPattern = arr.map { asCGFloat($0) }
-            } else {
-                lineDashPattern = nil
+            if let dashArray = args[safe: 0] as? [Any] {
+                lineDash = dashArray.map { asCGFloat($0) }
             }
-            return nil
-        case "getLineDash":
-            return lineDashPattern ?? []
-
-        // drawImage — immediate
-        case "drawImage":
-            guard let ctx = bitmapContext, let image = args[0] as? UIImage else { return nil }
-            applyCurrentPaintState(fill: true, to: ctx)
-            UIGraphicsPushContext(ctx)
-            if args.count >= 9 {
-                // drawImage(image, sx, sy, sw, sh, dx, dy, dw, dh)
-                let sx = asCGFloat(args[1]), sy = asCGFloat(args[2])
-                let sw = asCGFloat(args[3]), sh = asCGFloat(args[4])
-                let dx = asCGFloat(args[5]), dy = asCGFloat(args[6])
-                let dw = asCGFloat(args[7]), dh = asCGFloat(args[8])
-                ctx.saveGState()
-                let destRect = CGRect(x: dx, y: dy, width: dw, height: dh)
-                ctx.clip(to: destRect)
-                if let cgImage = image.cgImage, sw > 0, sh > 0 {
-                    let scaleX = CGFloat(cgImage.width)
-                    let scaleY = CGFloat(cgImage.height)
-                    let sourceRect = CGRect(
-                        x: sx / image.size.width * scaleX,
-                        y: sy / image.size.height * scaleY,
-                        width: sw / image.size.width * scaleX,
-                        height: sh / image.size.height * scaleY
-                    )
-                    if let cropped = cgImage.cropping(to: sourceRect) {
-                        let croppedImage = UIImage(cgImage: cropped)
-                        croppedImage.draw(in: destRect)
-                    }
-                }
-                ctx.restoreGState()
-            } else if args.count >= 5 {
-                // drawImage(image, dx, dy, dw, dh)
-                let dx = asCGFloat(args[1]), dy = asCGFloat(args[2])
-                let dw = asCGFloat(args[3]), dh = asCGFloat(args[4])
-                image.draw(in: CGRect(x: dx, y: dy, width: dw, height: dh))
-            } else {
-                // drawImage(image, dx, dy)
-                let dx = asCGFloat(args[1]), dy = asCGFloat(args[2])
-                image.draw(at: CGPoint(x: dx, y: dy))
-            }
-            UIGraphicsPopContext()
-            return nil
-
-        // Pixel manipulation
-        case "getImageData":
-            return getImageData(args)
-        case "putImageData":
-            putImageData(args)
-            return nil
 
         default:
-            return nil
+            break
         }
+        return nil
     }
 
-    // MARK: - Rendering to Image
-
-    func renderToImage(size: CGSize? = nil) -> UIImage? {
-        guard let cgImage = bitmapContext?.makeImage() else { return nil }
-        let image = UIImage(cgImage: cgImage)
-        guard let targetSize = size, targetSize.width > 0, targetSize.height > 0,
-              targetSize != image.size else {
-            return image
-        }
-        let renderer = UIGraphicsImageRenderer(size: targetSize)
-        return renderer.image { _ in
-            image.draw(in: CGRect(origin: .zero, size: targetSize))
-        }
+    func flush() {
+        guard let ctx = cgContext else { return }
+        backingImage = ctx.makeImage()
+        setNeedsDisplay()
     }
 
-    // MARK: - Cleanup
+    override func draw(_ rect: CGRect) {
+        guard let backingImage = backingImage,
+              let drawCtx = UIGraphicsGetCurrentContext() else { return }
+        drawCtx.saveGState()
+        drawCtx.translateBy(x: 0, y: bounds.height)
+        drawCtx.scaleBy(x: 1, y: -1)
+        let scaleX = bounds.width / jsCanvasWidth
+        let scaleY = bounds.height / jsCanvasHeight
+        drawCtx.scaleBy(x: scaleX, y: scaleY)
+        drawCtx.draw(backingImage, in: CGRect(x: 0, y: 0,
+                                               width: jsCanvasWidth,
+                                               height: jsCanvasHeight))
+        drawCtx.restoreGState()
+    }
 
-    deinit {
-        bitmapData?.deallocate()
+    // MARK: - Pixel Operations
+
+    func getImageData(x: Int, y: Int, width: Int, height: Int) -> [Int]? {
+        guard let ctx = cgContext, let image = ctx.makeImage(),
+              let dataProvider = image.dataProvider,
+              let data = dataProvider.data else { return nil }
+
+        let ptr = CFDataGetBytePtr(data)!
+        let bytesPerRow = ctx.bytesPerRow
+        var result: [Int] = []
+
+        for row in y..<min(y + height, ctx.height) {
+            for col in x..<min(x + width, ctx.width) {
+                // Flip Y: canvas is flipped
+                let flippedRow = ctx.height - 1 - row
+                let offset = flippedRow * bytesPerRow + col * 4
+                result.append(Int(ptr[offset]))     // R
+                result.append(Int(ptr[offset + 1])) // G
+                result.append(Int(ptr[offset + 2])) // B
+                result.append(Int(ptr[offset + 3])) // A
+            }
+        }
+        return result
+    }
+
+    func toDataURL(mimeType: String, quality: Double) -> String? {
+        guard let image = renderToImage() else { return nil }
+        let data: Data?
+        if mimeType == "image/jpeg" {
+            data = image.jpegData(compressionQuality: CGFloat(quality))
+        } else {
+            data = image.pngData()
+        }
+        guard let imageData = data else { return nil }
+        let base64 = imageData.base64EncodedString()
+        return "data:\(mimeType);base64,\(base64)"
+    }
+
+    func measureText(text: String, font: String) -> [String: Any]? {
+        let parsedFont = parseUIFont(from: font)
+        let attrs: [NSAttributedString.Key: Any] = [.font: parsedFont]
+        let size = (text as NSString).size(withAttributes: attrs)
+        return [
+            "width": size.width,
+            "actualBoundingBoxAscent": parsedFont.ascender,
+            "actualBoundingBoxDescent": -parsedFont.descender
+        ]
+    }
+
+    func renderToImage() -> UIImage? {
+        guard let ctx = cgContext, let cgImage = ctx.makeImage() else { return nil }
+        return UIImage(cgImage: cgImage)
     }
 
     // MARK: - Private Helpers
 
-    private func applyCurrentPaintState(fill: Bool, to ctx: CGContext) {
-        let color: UIColor
-        if fill {
-            color = fillColor.withAlphaComponent(globalAlpha)
-            ctx.setFillColor(color.cgColor)
-        } else {
-            color = strokeColor.withAlphaComponent(globalAlpha)
-            ctx.setStrokeColor(color.cgColor)
-        }
+    private func applyContextState(_ ctx: CGContext) {
         ctx.setLineWidth(lineWidth)
         ctx.setLineCap(lineCap)
         ctx.setLineJoin(lineJoin)
         ctx.setMiterLimit(miterLimit)
-        ctx.setBlendMode(globalCompositeOperation)
+        ctx.setAlpha(globalAlpha)
+
+        if !lineDash.isEmpty {
+            ctx.setLineDash(phase: lineDashOffset, lengths: lineDash)
+        } else {
+            ctx.setLineDash(phase: 0, lengths: [])
+        }
 
         if shadowBlur > 0 || shadowOffsetX != 0 || shadowOffsetY != 0 {
             ctx.setShadow(offset: CGSize(width: shadowOffsetX, height: shadowOffsetY),
@@ -543,379 +438,315 @@ class NativeCanvasView: UIView {
         } else {
             ctx.setShadow(offset: .zero, blur: 0, color: nil)
         }
+    }
 
-        if let dash = lineDashPattern, !dash.isEmpty {
-            ctx.setLineDash(phase: lineDashOffset, lengths: dash)
+    private func applyFill(_ ctx: CGContext) {
+        if let gradient = fillGradient, let cgGradient = gradient.makeCGGradient() {
+            ctx.saveGState()
+            ctx.clip()
+            drawGradient(ctx, gradient: gradient, cgGradient: cgGradient)
+            ctx.restoreGState()
         } else {
-            ctx.setLineDash(phase: 0, lengths: [])
+            ctx.setFillColor(fillColor.cgColor)
+            ctx.fillPath()
         }
     }
 
-    private func addEllipse(cx: CGFloat, cy: CGFloat, rx: CGFloat, ry: CGFloat,
-                            rotation: CGFloat, startAngle: CGFloat, endAngle: CGFloat, ccw: Bool) {
-        let ellipsePath = CGMutablePath()
-        var transform = CGAffineTransform.identity
-        transform = transform.translatedBy(x: cx, y: cy)
-        transform = transform.rotated(by: rotation)
-        transform = transform.scaledBy(x: rx, y: ry)
-        ellipsePath.addArc(center: .zero, radius: 1,
-                           startAngle: startAngle, endAngle: endAngle,
-                           clockwise: ccw, transform: transform)
-        currentPath.addPath(ellipsePath)
-    }
-
-    private func parseFont(_ fontString: String) {
-        let parts = fontString.trimmingCharacters(in: .whitespaces).components(separatedBy: .whitespaces)
-        var idx = 0
-
-        if idx < parts.count && (parts[idx] == "italic" || parts[idx] == "oblique") {
-            fontStyle = parts[idx]
-            idx += 1
+    private func applyStroke(_ ctx: CGContext) {
+        if let gradient = strokeGradient, let cgGradient = gradient.makeCGGradient() {
+            ctx.saveGState()
+            ctx.replacePathWithStrokedPath()
+            ctx.clip()
+            drawGradient(ctx, gradient: gradient, cgGradient: cgGradient)
+            ctx.restoreGState()
         } else {
-            fontStyle = "normal"
-        }
-
-        if idx < parts.count {
-            let w = parts[idx]
-            if w == "bold" || w == "bolder" || w == "lighter" || Int(w) != nil {
-                fontWeight = w
-                idx += 1
-            } else {
-                fontWeight = "normal"
-            }
-        }
-
-        if idx < parts.count {
-            fontSize = CGFloat(Float(parts[idx].replacingOccurrences(of: "px", with: "")) ?? 10)
-            idx += 1
-        }
-
-        if idx < parts.count {
-            fontFamily = parts[idx...].joined(separator: " ")
-                .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+            ctx.setStrokeColor(strokeColor.cgColor)
+            ctx.strokePath()
         }
     }
 
-    private func resolveFont() -> UIFont {
-        let isBold = fontWeight == "bold" || fontWeight == "bolder" ||
-            (Int(fontWeight) ?? 0) >= 600
-        let isItalic = fontStyle == "italic" || fontStyle == "oblique"
-
-        var traits: UIFontDescriptor.SymbolicTraits = []
-        if isBold { traits.insert(.traitBold) }
-        if isItalic { traits.insert(.traitItalic) }
-
-        let baseFont = UIFont.systemFont(ofSize: fontSize)
-        if let descriptor = baseFont.fontDescriptor.withSymbolicTraits(traits) {
-            return UIFont(descriptor: descriptor, size: fontSize)
-        }
-        return baseFont
-    }
-
-    // MARK: - Text Drawing (immediate)
-
-    private func drawText(ctx: CGContext, text: String, x: CGFloat, y: CGFloat, fill: Bool) {
-        let font = resolveFont()
-        let color = (fill ? fillColor : strokeColor).withAlphaComponent(globalAlpha)
-
-        var attributes: [NSAttributedString.Key: Any] = [
-            .font: font,
-            .foregroundColor: color,
-        ]
-        if !fill {
-            attributes[.strokeColor] = color
-            attributes[.strokeWidth] = lineWidth
-            attributes[.foregroundColor] = UIColor.clear
-        }
-
-        let textSize = (text as NSString).size(withAttributes: attributes)
-        let drawX = adjustTextX(x, textWidth: textSize.width, align: textAlign)
-        let drawY = adjustTextY(y, font: font, baseline: textBaseline)
-
-        applyCurrentPaintState(fill: fill, to: ctx)
-
-        UIGraphicsPushContext(ctx)
-        (text as NSString).draw(at: CGPoint(x: drawX, y: drawY), withAttributes: attributes)
-        UIGraphicsPopContext()
-    }
-
-    private func adjustTextX(_ x: CGFloat, textWidth: CGFloat, align: String) -> CGFloat {
-        switch align {
-        case "center": return x - textWidth / 2
-        case "right", "end": return x - textWidth
-        default: return x
-        }
-    }
-
-    private func adjustTextY(_ y: CGFloat, font: UIFont, baseline: String) -> CGFloat {
-        switch baseline {
-        case "top", "hanging":
-            return y
-        case "middle":
-            return y - font.capHeight / 2
-        case "bottom":
-            return y - (font.ascender - font.descender)
-        case "alphabetic":
-            return y - font.ascender
-        default:
-            return y - font.ascender
-        }
-    }
-
-    // MARK: - Pixel Manipulation
-
-    private func getImageData(_ args: [Any?]) -> Any? {
-        guard let data = bitmapData else { return nil }
-        let sx = Int(asCGFloat(args[0]))
-        let sy = Int(asCGFloat(args[1]))
-        let sw = Int(asCGFloat(args[2]))
-        let sh = Int(asCGFloat(args[3]))
-        guard sw > 0, sh > 0 else { return nil }
-
-        var result: [UInt8] = []
-        result.reserveCapacity(sw * sh * 4)
-        let bytesPerRow = bitmapWidth * 4
-        let ptr = data.assumingMemoryBound(to: UInt8.self)
-
-        for row in sy..<(sy + sh) {
-            for col in sx..<(sx + sw) {
-                if row >= 0, row < bitmapHeight, col >= 0, col < bitmapWidth {
-                    // Bitmap is BGRA premultiplied; convert to RGBA unpremultiplied
-                    let offset = row * bytesPerRow + col * 4
-                    let b = ptr[offset]
-                    let g = ptr[offset + 1]
-                    let r = ptr[offset + 2]
-                    let a = ptr[offset + 3]
-                    if a > 0 && a < 255 {
-                        let af = Float(a)
-                        result.append(UInt8(min(Float(r) * 255.0 / af, 255)))
-                        result.append(UInt8(min(Float(g) * 255.0 / af, 255)))
-                        result.append(UInt8(min(Float(b) * 255.0 / af, 255)))
-                    } else {
-                        result.append(r)
-                        result.append(g)
-                        result.append(b)
-                    }
-                    result.append(a)
-                } else {
-                    result.append(contentsOf: [0, 0, 0, 0])
-                }
-            }
-        }
-        return ["width": sw, "height": sh, "data": result]
-    }
-
-    private func putImageData(_ args: [Any?]) {
-        guard let data = bitmapData else { return }
-        guard let imageData = args[0] as? [String: Any],
-              let pixels = imageData["data"] as? [Any] else { return }
-        let dx = Int(asCGFloat(args[1]))
-        let dy = Int(asCGFloat(args[2]))
-        let iw = imageData["width"] as? Int ?? 0
-        let ih = imageData["height"] as? Int ?? 0
-        guard iw > 0, ih > 0 else { return }
-
-        let bytesPerRow = bitmapWidth * 4
-        let ptr = data.assumingMemoryBound(to: UInt8.self)
-
-        for row in 0..<ih {
-            for col in 0..<iw {
-                let targetX = dx + col
-                let targetY = dy + row
-                guard targetX >= 0, targetX < bitmapWidth, targetY >= 0, targetY < bitmapHeight else { continue }
-                let srcIdx = (row * iw + col) * 4
-                guard srcIdx + 3 < pixels.count else { continue }
-
-                let r = UInt8(clamping: Int(asCGFloat(pixels[srcIdx])))
-                let g = UInt8(clamping: Int(asCGFloat(pixels[srcIdx + 1])))
-                let b = UInt8(clamping: Int(asCGFloat(pixels[srcIdx + 2])))
-                let a = UInt8(clamping: Int(asCGFloat(pixels[srcIdx + 3])))
-
-                // Convert RGBA to BGRA premultiplied
-                let offset = targetY * bytesPerRow + targetX * 4
-                if a == 255 {
-                    ptr[offset] = b
-                    ptr[offset + 1] = g
-                    ptr[offset + 2] = r
-                    ptr[offset + 3] = a
-                } else if a == 0 {
-                    ptr[offset] = 0
-                    ptr[offset + 1] = 0
-                    ptr[offset + 2] = 0
-                    ptr[offset + 3] = 0
-                } else {
-                    let af = Float(a) / 255.0
-                    ptr[offset] = UInt8(Float(b) * af)
-                    ptr[offset + 1] = UInt8(Float(g) * af)
-                    ptr[offset + 2] = UInt8(Float(r) * af)
-                    ptr[offset + 3] = a
-                }
-            }
-        }
-    }
-
-    // MARK: - Blend Mode
-
-    private func parseBlendMode(_ value: String?) -> CGBlendMode {
-        switch value {
-        case "source-over": return .normal
-        case "source-atop": return .sourceAtop
-        case "source-in": return .sourceIn
-        case "source-out": return .sourceOut
-        case "destination-over": return .destinationOver
-        case "destination-atop": return .destinationAtop
-        case "destination-in": return .destinationIn
-        case "destination-out": return .destinationOut
-        case "lighter": return .plusLighter
-        case "copy": return .copy
-        case "xor": return .xor
-        case "multiply": return .multiply
-        case "screen": return .screen
-        case "overlay": return .overlay
-        case "darken": return .darken
-        case "lighten": return .lighten
-        case "color-dodge": return .colorDodge
-        case "color-burn": return .colorBurn
-        case "hard-light": return .hardLight
-        case "soft-light": return .softLight
-        case "difference": return .difference
-        case "exclusion": return .exclusion
-        case "hue": return .hue
-        case "saturation": return .saturation
-        case "color": return .color
-        case "luminosity": return .luminosity
-        default: return .normal
-        }
-    }
-
-    // MARK: - State Save/Restore
-
-    private struct CanvasDrawState {
-        let fillColor: UIColor
-        let strokeColor: UIColor
-        let fillGradient: CanvasGradient?
-        let strokeGradient: CanvasGradient?
-        let lineWidth: CGFloat
-        let lineCap: CGLineCap
-        let lineJoin: CGLineJoin
-        let miterLimit: CGFloat
-        let globalAlpha: CGFloat
-        let fontSize: CGFloat
-        let fontFamily: String
-        let fontWeight: String
-        let fontStyle: String
-        let textAlign: String
-        let textBaseline: String
-        let shadowBlur: CGFloat
-        let shadowColor: UIColor
-        let shadowOffsetX: CGFloat
-        let shadowOffsetY: CGFloat
-        let lineDashPattern: [CGFloat]?
-        let lineDashOffset: CGFloat
-        let globalCompositeOperation: CGBlendMode
-    }
-
-    private func captureState() -> CanvasDrawState {
-        return CanvasDrawState(
-            fillColor: fillColor, strokeColor: strokeColor,
-            fillGradient: fillGradient, strokeGradient: strokeGradient,
-            lineWidth: lineWidth,
-            lineCap: lineCap, lineJoin: lineJoin, miterLimit: miterLimit,
-            globalAlpha: globalAlpha, fontSize: fontSize, fontFamily: fontFamily,
-            fontWeight: fontWeight, fontStyle: fontStyle, textAlign: textAlign,
-            textBaseline: textBaseline, shadowBlur: shadowBlur, shadowColor: shadowColor,
-            shadowOffsetX: shadowOffsetX, shadowOffsetY: shadowOffsetY,
-            lineDashPattern: lineDashPattern, lineDashOffset: lineDashOffset,
-            globalCompositeOperation: globalCompositeOperation
-        )
-    }
-
-    private func restoreState(_ state: CanvasDrawState) {
-        fillColor = state.fillColor
-        strokeColor = state.strokeColor
-        fillGradient = state.fillGradient
-        strokeGradient = state.strokeGradient
-        lineWidth = state.lineWidth
-        lineCap = state.lineCap
-        lineJoin = state.lineJoin
-        miterLimit = state.miterLimit
-        globalAlpha = state.globalAlpha
-        fontSize = state.fontSize
-        fontFamily = state.fontFamily
-        fontWeight = state.fontWeight
-        fontStyle = state.fontStyle
-        textAlign = state.textAlign
-        textBaseline = state.textBaseline
-        shadowBlur = state.shadowBlur
-        shadowColor = state.shadowColor
-        shadowOffsetX = state.shadowOffsetX
-        shadowOffsetY = state.shadowOffsetY
-        lineDashPattern = state.lineDashPattern
-        lineDashOffset = state.lineDashOffset
-        globalCompositeOperation = state.globalCompositeOperation
-    }
-}
-
-// MARK: - CanvasGradient
-
-class CanvasGradient {
-    enum GradientType { case linear, radial }
-
-    let type: GradientType
-    let x0: CGFloat
-    let y0: CGFloat
-    let x1: CGFloat
-    let y1: CGFloat
-    let r0: CGFloat
-    let r1: CGFloat
-    private var stops: [(CGFloat, UIColor)] = []
-
-    init(type: GradientType,
-         x0: CGFloat = 0, y0: CGFloat = 0,
-         x1: CGFloat = 0, y1: CGFloat = 0,
-         r0: CGFloat = 0, r1: CGFloat = 0) {
-        self.type = type
-        self.x0 = x0
-        self.y0 = y0
-        self.x1 = x1
-        self.y1 = y1
-        self.r0 = r0
-        self.r1 = r1
-    }
-
-    func addColorStop(_ offset: CGFloat, _ color: UIColor) {
-        stops.append((offset, color))
-        stops.sort { $0.0 < $1.0 }
-    }
-
-    func draw(in ctx: CGContext) {
-        guard stops.count >= 2 else { return }
-        let colorSpace = CGColorSpaceCreateDeviceRGB()
-        var cgColors: [CGColor] = []
-        var locations: [CGFloat] = []
-        for (offset, color) in stops {
-            cgColors.append(color.cgColor)
-            locations.append(offset)
-        }
-        guard let gradient = CGGradient(colorsSpace: colorSpace,
-                                        colors: cgColors as CFArray,
-                                        locations: locations) else { return }
-        switch type {
-        case .linear:
-            ctx.drawLinearGradient(gradient,
+    private func drawGradient(_ ctx: CGContext, gradient: CanvasGradient,
+                               cgGradient: CGGradient) {
+        switch gradient.type {
+        case .linear(let x0, let y0, let x1, let y1):
+            ctx.drawLinearGradient(cgGradient,
                                    start: CGPoint(x: x0, y: y0),
                                    end: CGPoint(x: x1, y: y1),
                                    options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
-        case .radial:
-            ctx.drawRadialGradient(gradient,
+        case .radial(let x0, let y0, let r0, let x1, let y1, let r1):
+            ctx.drawRadialGradient(cgGradient,
                                     startCenter: CGPoint(x: x0, y: y0), startRadius: r0,
                                     endCenter: CGPoint(x: x1, y: y1), endRadius: r1,
                                     options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
         }
     }
+
+    private func drawText(_ ctx: CGContext, args: [Any?], isFill: Bool) {
+        let text = args[safe: 0] as? String ?? ""
+        let x = asCGFloat(args[safe: 1])
+        let y = asCGFloat(args[safe: 2])
+
+        let uiFont = parseUIFont(from: fontStr)
+        let color = isFill ? fillColor : strokeColor
+
+        var attrs: [NSAttributedString.Key: Any] = [
+            .font: uiFont,
+            .foregroundColor: color
+        ]
+
+        if !isFill {
+            attrs[.strokeColor] = color
+            attrs[.strokeWidth] = lineWidth
+        }
+
+        let attrStr = NSAttributedString(string: text, attributes: attrs)
+        let size = attrStr.size()
+
+        // Calculate position based on textAlign and textBaseline
+        var drawX = x
+        var drawY = y
+
+        switch textAlignStr {
+        case "center": drawX -= size.width / 2
+        case "right", "end": drawX -= size.width
+        default: break
+        }
+
+        switch textBaselineStr {
+        case "top", "hanging": break
+        case "middle": drawY -= size.height / 2
+        case "bottom", "ideographic": drawY -= size.height
+        default: drawY -= uiFont.ascender // "alphabetic"
+        }
+
+        // CoreGraphics draws text with origin at bottom-left, flipped
+        ctx.saveGState()
+        // Undo the canvas flip for text drawing
+        ctx.translateBy(x: drawX, y: drawY + size.height)
+        ctx.scaleBy(x: 1, y: -1)
+        let line = CTLineCreateWithAttributedString(attrStr)
+        ctx.textPosition = .zero
+        CTLineDraw(line, ctx)
+        ctx.restoreGState()
+    }
+
+    private func drawImage(_ ctx: CGContext, args: [Any?]) {
+        guard let image = args[safe: 0] as? UIImage,
+              let cgImage = image.cgImage else { return }
+
+        let argc = args.count
+        let imgW = CGFloat(cgImage.width)
+        let imgH = CGFloat(cgImage.height)
+
+        var sx: CGFloat = 0, sy: CGFloat = 0, sw = imgW, sh = imgH
+        var dx: CGFloat, dy: CGFloat, dw: CGFloat, dh: CGFloat
+
+        if argc >= 10 {
+            sx = asCGFloat(args[safe: 1]); sy = asCGFloat(args[safe: 2])
+            sw = asCGFloat(args[safe: 3]); sh = asCGFloat(args[safe: 4])
+            dx = asCGFloat(args[safe: 5]); dy = asCGFloat(args[safe: 6])
+            dw = asCGFloat(args[safe: 7]); dh = asCGFloat(args[safe: 8])
+        } else if argc >= 6 {
+            dx = asCGFloat(args[safe: 1]); dy = asCGFloat(args[safe: 2])
+            dw = asCGFloat(args[safe: 3]); dh = asCGFloat(args[safe: 4])
+        } else {
+            dx = asCGFloat(args[safe: 1]); dy = asCGFloat(args[safe: 2])
+            dw = imgW; dh = imgH
+        }
+
+        ctx.saveGState()
+
+        if sx != 0 || sy != 0 || sw != imgW || sh != imgH {
+            // Source rect cropping
+            if let cropped = cgImage.cropping(to: CGRect(x: sx, y: sy,
+                                                          width: sw, height: sh)) {
+                // Flip for drawImage
+                ctx.translateBy(x: dx, y: dy + dh)
+                ctx.scaleBy(x: 1, y: -1)
+                ctx.draw(cropped, in: CGRect(x: 0, y: 0, width: dw, height: dh))
+            }
+        } else {
+            ctx.translateBy(x: dx, y: dy + dh)
+            ctx.scaleBy(x: 1, y: -1)
+            ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: dw, height: dh))
+        }
+
+        ctx.restoreGState()
+    }
+
+    private func parseUIFont(from fontStr: String) -> UIFont {
+        var size: CGFloat = 10
+        var family = "sans-serif"
+        var isBold = false
+        var isItalic = false
+
+        let tokens = fontStr.split(separator: " ").map(String.init)
+        var idx = 0
+
+        while idx < tokens.count {
+            let t = tokens[idx].lowercased()
+            if t == "bold" { isBold = true; idx += 1 }
+            else if t == "italic" { isItalic = true; idx += 1 }
+            else if t == "normal" { idx += 1 }
+            else { break }
+        }
+
+        if idx < tokens.count {
+            let sizeToken = tokens[idx].replacingOccurrences(of: "px", with: "")
+                .replacingOccurrences(of: "pt", with: "")
+            if let s = Double(sizeToken) {
+                size = CGFloat(s)
+            }
+            idx += 1
+        }
+
+        if idx < tokens.count {
+            family = tokens[idx...].joined(separator: " ")
+                .trimmingCharacters(in: .punctuationCharacters)
+        }
+
+        // Map family names
+        var fontName: String
+        switch family.lowercased() {
+        case "sans-serif", "arial", "helvetica":
+            fontName = "Helvetica"
+        case "serif", "times", "times new roman":
+            fontName = "TimesNewRomanPSMT"
+        case "monospace", "courier", "courier new":
+            fontName = "Courier"
+        default:
+            fontName = family
+        }
+
+        if isBold && isItalic {
+            fontName += "-BoldOblique"
+        } else if isBold {
+            fontName += "-Bold"
+        } else if isItalic {
+            fontName += "-Oblique"
+        }
+
+        if let font = UIFont(name: fontName, size: size) {
+            return font
+        }
+
+        // Fallback
+        var traits: UIFontDescriptor.SymbolicTraits = []
+        if isBold { traits.insert(.traitBold) }
+        if isItalic { traits.insert(.traitItalic) }
+
+        let descriptor = UIFontDescriptor.preferredFontDescriptor(withTextStyle: .body)
+            .withSymbolicTraits(traits) ?? UIFontDescriptor.preferredFontDescriptor(withTextStyle: .body)
+        return UIFont(descriptor: descriptor, size: size)
+    }
+
+    private func applyCompositeOp(_ op: String) {
+        guard let ctx = cgContext else { return }
+        switch op {
+        case "source-over": ctx.setBlendMode(.normal)
+        case "source-in": ctx.setBlendMode(.sourceIn)
+        case "source-out": ctx.setBlendMode(.sourceOut)
+        case "source-atop": ctx.setBlendMode(.sourceAtop)
+        case "destination-over": ctx.setBlendMode(.destinationOver)
+        case "destination-in": ctx.setBlendMode(.destinationIn)
+        case "destination-out": ctx.setBlendMode(.destinationOut)
+        case "destination-atop": ctx.setBlendMode(.destinationAtop)
+        case "lighter": ctx.setBlendMode(.plusLighter)
+        case "copy": ctx.setBlendMode(.copy)
+        case "xor": ctx.setBlendMode(.xor)
+        case "multiply": ctx.setBlendMode(.multiply)
+        case "screen": ctx.setBlendMode(.screen)
+        case "overlay": ctx.setBlendMode(.overlay)
+        case "darken": ctx.setBlendMode(.darken)
+        case "lighten": ctx.setBlendMode(.lighten)
+        default: ctx.setBlendMode(.normal)
+        }
+    }
 }
 
-// MARK: - Utility
+// MARK: - Color Parsing
+
+func parseCanvasColor(_ value: Any?) -> UIColor {
+    guard let str = value as? String else { return .black }
+    let s = str.trimmingCharacters(in: .whitespaces).lowercased()
+
+    if s.isEmpty { return .black }
+
+    // Named colors
+    switch s {
+    case "transparent": return .clear
+    case "black": return .black
+    case "white": return .white
+    case "red": return .red
+    case "green": return UIColor(red: 0, green: 0.5, blue: 0, alpha: 1)
+    case "blue": return .blue
+    case "yellow": return .yellow
+    case "cyan", "aqua": return .cyan
+    case "magenta", "fuchsia": return .magenta
+    case "orange": return .orange
+    case "purple": return .purple
+    case "gray", "grey": return .gray
+    default: break
+    }
+
+    // Hex
+    if s.hasPrefix("#") {
+        let hex = String(s.dropFirst())
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 1
+
+        switch hex.count {
+        case 3:
+            let chars = Array(hex)
+            r = hexVal(chars[0]) / 15.0
+            g = hexVal(chars[1]) / 15.0
+            b = hexVal(chars[2]) / 15.0
+        case 4:
+            let chars = Array(hex)
+            r = hexVal(chars[0]) / 15.0
+            g = hexVal(chars[1]) / 15.0
+            b = hexVal(chars[2]) / 15.0
+            a = hexVal(chars[3]) / 15.0
+        case 6:
+            let chars = Array(hex)
+            r = (hexVal(chars[0]) * 16 + hexVal(chars[1])) / 255.0
+            g = (hexVal(chars[2]) * 16 + hexVal(chars[3])) / 255.0
+            b = (hexVal(chars[4]) * 16 + hexVal(chars[5])) / 255.0
+        case 8:
+            let chars = Array(hex)
+            r = (hexVal(chars[0]) * 16 + hexVal(chars[1])) / 255.0
+            g = (hexVal(chars[2]) * 16 + hexVal(chars[3])) / 255.0
+            b = (hexVal(chars[4]) * 16 + hexVal(chars[5])) / 255.0
+            a = (hexVal(chars[6]) * 16 + hexVal(chars[7])) / 255.0
+        default: break
+        }
+        return UIColor(red: r, green: g, blue: b, alpha: a)
+    }
+
+    // rgb/rgba
+    if s.hasPrefix("rgb") {
+        let inner = s.replacingOccurrences(of: "rgba(", with: "")
+            .replacingOccurrences(of: "rgb(", with: "")
+            .replacingOccurrences(of: ")", with: "")
+        let parts = inner.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+        if parts.count >= 3 {
+            let r = CGFloat(Double(parts[0]) ?? 0) / 255.0
+            let g = CGFloat(Double(parts[1]) ?? 0) / 255.0
+            let b = CGFloat(Double(parts[2]) ?? 0) / 255.0
+            let a = parts.count >= 4 ? CGFloat(Double(parts[3]) ?? 1) : 1
+            return UIColor(red: r, green: g, blue: b, alpha: a)
+        }
+    }
+
+    return .black
+}
+
+private func hexVal(_ c: Character) -> CGFloat {
+    switch c {
+    case "0"..."9": return CGFloat(c.asciiValue! - Character("0").asciiValue!)
+    case "a"..."f": return CGFloat(c.asciiValue! - Character("a").asciiValue! + 10)
+    default: return 0
+    }
+}
 
 private func asCGFloat(_ value: Any?) -> CGFloat {
     switch value {
@@ -926,77 +757,6 @@ private func asCGFloat(_ value: Any?) -> CGFloat {
     case let s as String: return CGFloat(Double(s) ?? 0)
     default: return 0
     }
-}
-
-func parseCanvasColor(_ value: Any?) -> UIColor {
-    guard let str = value as? String else { return .black }
-    let color = str.trimmingCharacters(in: .whitespaces).lowercased()
-
-    if color == "transparent" { return .clear }
-
-    // Named colors
-    let namedColors: [String: UIColor] = [
-        "black": .black, "white": .white, "red": .red, "green": UIColor(red: 0, green: 0.502, blue: 0, alpha: 1),
-        "blue": .blue, "yellow": .yellow, "cyan": .cyan, "magenta": .magenta,
-        "gray": .gray, "grey": .gray, "orange": .orange, "purple": .purple, "brown": .brown,
-    ]
-    if let named = namedColors[color] { return named }
-
-    // #hex
-    if color.hasPrefix("#") {
-        return parseHexColor(color)
-    }
-
-    // rgba() / rgb()
-    if color.hasPrefix("rgba(") || color.hasPrefix("rgb(") {
-        return parseRgbColor(color)
-    }
-
-    return .black
-}
-
-private func parseHexColor(_ hex: String) -> UIColor {
-    var hexStr = String(hex.dropFirst()) // remove #
-    if hexStr.count == 3 {
-        hexStr = hexStr.map { "\($0)\($0)" }.joined()
-    } else if hexStr.count == 4 {
-        let chars = Array(hexStr)
-        hexStr = "\(chars[0])\(chars[0])\(chars[1])\(chars[1])\(chars[2])\(chars[2])\(chars[3])\(chars[3])"
-    }
-
-    var rgbValue: UInt64 = 0
-    Scanner(string: hexStr).scanHexInt64(&rgbValue)
-
-    if hexStr.count == 8 {
-        let r = CGFloat((rgbValue >> 24) & 0xFF) / 255
-        let g = CGFloat((rgbValue >> 16) & 0xFF) / 255
-        let b = CGFloat((rgbValue >> 8) & 0xFF) / 255
-        let a = CGFloat(rgbValue & 0xFF) / 255
-        return UIColor(red: r, green: g, blue: b, alpha: a)
-    } else {
-        let r = CGFloat((rgbValue >> 16) & 0xFF) / 255
-        let g = CGFloat((rgbValue >> 8) & 0xFF) / 255
-        let b = CGFloat(rgbValue & 0xFF) / 255
-        return UIColor(red: r, green: g, blue: b, alpha: 1)
-    }
-}
-
-private func parseRgbColor(_ color: String) -> UIColor {
-    let values = color
-        .components(separatedBy: "(").last?
-        .components(separatedBy: ")").first?
-        .components(separatedBy: ",")
-        .map { $0.trimmingCharacters(in: .whitespaces) } ?? []
-
-    let r = CGFloat(Float(values[safe: 0] ?? "0") ?? 0) / 255
-    let g = CGFloat(Float(values[safe: 1] ?? "0") ?? 0) / 255
-    let b = CGFloat(Float(values[safe: 2] ?? "0") ?? 0) / 255
-    var a: CGFloat = 1
-    if let aStr = values[safe: 3], let aVal = Float(aStr) {
-        a = CGFloat(aVal <= 1 ? aVal : aVal / 255)
-    }
-    return UIColor(red: min(max(r, 0), 1), green: min(max(g, 0), 1),
-                   blue: min(max(b, 0), 1), alpha: min(max(a, 0), 1))
 }
 
 private extension Array {

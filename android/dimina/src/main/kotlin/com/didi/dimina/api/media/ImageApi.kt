@@ -2,6 +2,11 @@ package com.didi.dimina.api.media
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.content.Intent
+import android.provider.DocumentsContract
+import android.provider.OpenableColumns
+import android.webkit.MimeTypeMap
+import androidx.lifecycle.lifecycleScope
 import com.didi.dimina.api.APIResult
 import com.didi.dimina.api.AsyncResult
 import com.didi.dimina.api.BaseApiHandler
@@ -16,6 +21,10 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
+import java.util.UUID
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Author: Doslin
@@ -26,10 +35,11 @@ class ImageApi : BaseApiHandler() {
         const val PREVIEW_IMAGE = "previewImage"
         const val COMPRESS_IMAGE = "compressImage"
         const val CHOOSE_IMAGE = "chooseImage"
+        const val CHOOSE_MESSAGE_FILE = "chooseMessageFile"
     }
 
     override val apiNames =
-        setOf(SAVE_IMAGE_TO_PHOTOS_ALBUM, PREVIEW_IMAGE, COMPRESS_IMAGE, CHOOSE_IMAGE)
+        setOf(SAVE_IMAGE_TO_PHOTOS_ALBUM, PREVIEW_IMAGE, COMPRESS_IMAGE, CHOOSE_IMAGE, CHOOSE_MESSAGE_FILE)
 
     override fun handleAction(
         activity: DiminaActivity,
@@ -81,7 +91,7 @@ class ImageApi : BaseApiHandler() {
                     val compressedFile = File.createTempFile(
                         "IMG_${System.currentTimeMillis()}",
                         ".jpg",
-                        activity.cacheDir
+                        PathUtils.appTempRoot(activity, appId)
                     )
                     val outputStream = FileOutputStream(compressedFile)
                     bitmap.compress(Bitmap.CompressFormat.JPEG, quality, outputStream)
@@ -150,9 +160,190 @@ class ImageApi : BaseApiHandler() {
                 NoneResult()
             }
 
+            CHOOSE_MESSAGE_FILE -> chooseMessageFile(activity, appId, params, responseCallback)
+
             else ->
                 super.handleAction(activity, appId, apiName, params, responseCallback)
         }
+    }
+
+    private fun chooseMessageFile(
+        activity: DiminaActivity,
+        appId: String,
+        params: JSONObject,
+        responseCallback: (String) -> Unit,
+    ): APIResult {
+        val countValue = params.opt("count") as? Number
+        if (countValue == null || countValue.toDouble() % 1.0 != 0.0) {
+            return completeMessageFileFailure(params, responseCallback, "invalid count")
+        }
+        val count = countValue.toInt()
+        if (count !in 0..ChooseMessageFileContract.MAX_COUNT) {
+            return completeMessageFileFailure(params, responseCallback, "invalid count")
+        }
+
+        val requestedType = params.optString("type", "all")
+        if (requestedType !in ChooseMessageFileContract.supportedTypes) {
+            return completeMessageFileFailure(params, responseCallback, "invalid type")
+        }
+
+        val extensionValues = params.optJSONArray("extension")
+        val extensions = mutableSetOf<String>()
+        if (requestedType == "file" && params.has("extension") && extensionValues == null) {
+            return completeMessageFileFailure(params, responseCallback, "invalid extension")
+        }
+        if (requestedType == "file" && extensionValues != null) {
+            for (index in 0 until extensionValues.length()) {
+                val rawExtension = extensionValues.opt(index) as? String
+                    ?: return completeMessageFileFailure(params, responseCallback, "invalid extension")
+                val extension = ChooseMessageFileContract.normalizeExtension(rawExtension)
+                if (extension.isEmpty()) {
+                    return completeMessageFileFailure(params, responseCallback, "invalid extension")
+                }
+                extensions.add(extension)
+            }
+        }
+
+        if (count == 0) {
+            return completeMessageFileSuccess(params, responseCallback, JSONArray())
+        }
+
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = when (requestedType) {
+                "image" -> "image/*"
+                "video" -> "video/*"
+                else -> "*/*"
+            }
+            putExtra(Intent.EXTRA_ALLOW_MULTIPLE, count > 1)
+
+            if (requestedType == "file" && extensions.isNotEmpty()) {
+                val mimeTypes = extensions.mapNotNull { extension ->
+                    MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension)
+                }.distinct()
+                if (mimeTypes.isNotEmpty()) {
+                    putExtra(Intent.EXTRA_MIME_TYPES, mimeTypes.toTypedArray())
+                }
+            }
+        }
+
+        val launched = activity.handleChooseMessageFile(intent) { selected, uris ->
+            if (!selected) {
+                completeMessageFileFailure(params, responseCallback, "cancel")
+                return@handleChooseMessageFile
+            }
+
+            activity.lifecycleScope.launch(Dispatchers.IO) {
+                val copiedFiles = mutableListOf<File>()
+                val outcome = runCatching {
+                    val tempFiles = JSONArray()
+                    uris.take(count).forEach { uri ->
+                        val metadata = queryMessageFileMetadata(activity, uri)
+                        if (!ChooseMessageFileContract.accepts(requestedType, extensions, metadata.mimeType, metadata.name)) {
+                            return@forEach
+                        }
+
+                        val extension = ChooseMessageFileContract.extensionOf(metadata.name)
+                            .take(20)
+                            .takeIf(String::isNotEmpty)
+                            ?.let { ".$it" }
+                            .orEmpty()
+                        val destination = File(
+                            PathUtils.appTempRoot(activity, appId),
+                            "${UUID.randomUUID()}$extension",
+                        )
+                        activity.contentResolver.openInputStream(uri).use { input ->
+                            requireNotNull(input) { "cannot open selected file" }
+                            destination.outputStream().use { output -> input.copyTo(output) }
+                        }
+                        copiedFiles.add(destination)
+
+                        tempFiles.put(JSONObject().apply {
+                            put("name", metadata.name)
+                            put("path", PathUtils.pathToVirtual(destination))
+                            put("size", destination.length())
+                            put("time", metadata.timeSeconds)
+                            put("type", ChooseMessageFileContract.classify(metadata.mimeType, metadata.name))
+                        })
+                    }
+                    require(tempFiles.length() > 0) { "no supported file selected" }
+                    tempFiles
+                }
+
+                withContext(Dispatchers.Main) {
+                    outcome.fold(
+                        onSuccess = { tempFiles -> completeMessageFileSuccess(params, responseCallback, tempFiles) },
+                        onFailure = { error ->
+                            copiedFiles.forEach(File::delete)
+                            completeMessageFileFailure(
+                                params,
+                                responseCallback,
+                                error.message ?: "cannot read selected file",
+                            )
+                        },
+                    )
+                }
+            }
+        }
+
+        if (!launched) {
+            return completeMessageFileFailure(params, responseCallback, "picker is busy")
+        }
+        return NoneResult()
+    }
+
+    private data class MessageFileMetadata(
+        val name: String,
+        val mimeType: String?,
+        val timeSeconds: Long,
+    )
+
+    private fun queryMessageFileMetadata(activity: DiminaActivity, uri: android.net.Uri): MessageFileMetadata {
+        var name = uri.lastPathSegment?.substringAfterLast('/') ?: "file"
+        var lastModifiedMillis = 0L
+        activity.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME).takeIf { it >= 0 }?.let { index ->
+                    name = cursor.getString(index) ?: name
+                }
+                cursor.getColumnIndex(DocumentsContract.Document.COLUMN_LAST_MODIFIED).takeIf { it >= 0 }?.let { index ->
+                    lastModifiedMillis = cursor.getLong(index)
+                }
+            }
+        }
+        val timeSeconds = if (lastModifiedMillis > 0) {
+            lastModifiedMillis / 1000
+        } else {
+            System.currentTimeMillis() / 1000
+        }
+        return MessageFileMetadata(name, activity.contentResolver.getType(uri), timeSeconds)
+    }
+
+    private fun completeMessageFileSuccess(
+        params: JSONObject,
+        responseCallback: (String) -> Unit,
+        tempFiles: JSONArray,
+    ): NoneResult {
+        val result = JSONObject().apply {
+            put("tempFiles", tempFiles)
+            put("errMsg", "$CHOOSE_MESSAGE_FILE:ok")
+        }
+        ApiUtils.invokeSuccess(params, result, responseCallback)
+        ApiUtils.invokeComplete(params, responseCallback, result)
+        return NoneResult()
+    }
+
+    private fun completeMessageFileFailure(
+        params: JSONObject,
+        responseCallback: (String) -> Unit,
+        message: String,
+    ): NoneResult {
+        val result = JSONObject().apply {
+            put("errMsg", "$CHOOSE_MESSAGE_FILE:fail $message")
+        }
+        ApiUtils.invokeFail(params, result, responseCallback)
+        ApiUtils.invokeComplete(params, responseCallback, result)
+        return NoneResult()
     }
 
 

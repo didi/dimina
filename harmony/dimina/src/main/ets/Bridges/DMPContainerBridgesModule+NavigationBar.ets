@@ -80,12 +80,17 @@ export class DMPContainerBridgesModuleNavigationBar extends DMPContainerBridgesM
     this.invokeSuccessCallback(callback, null)
   }
 
+  // 微信语义：仅支持隐藏，无对应的显示 API；隐藏后该页面实例生命周期内不再恢复
   hideHomeButton(data: DMPMap, callback: DMPBridgeCallback, webViewId: number) {
-    const navStyle =
-      DMPMap.createFromDMPMap(this.app.navigatorManager.getPageRecordById(webViewId)!.pageStyle?.navStyle)
+    // 页面销毁 / reLaunch 清栈后的迟到调用按 fail 返回，不崩容器
+    const record = this.app.navigatorManager.getPageRecordById(webViewId)
+    if (!record) {
+      this.invokeFailureCallback(callback, null, 'hideHomeButton:fail page not found')
+      return
+    }
+    const navStyle = DMPMap.createFromDMPMap(record.pageStyle?.navStyle)
     navStyle.set('hideHomeButton', true)
-    this.app.navigatorManager.getPageRecordById(webViewId)!.pageStyle =
-      new DMPPageStyle(navStyle ?? new DMPMap(), this.app.appIndex)
+    record.pageStyle = new DMPPageStyle(navStyle ?? new DMPMap(), this.app.appIndex)
     this.invokeSuccessCallback(callback, null)
   }
 

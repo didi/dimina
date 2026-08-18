@@ -57,12 +57,14 @@ const props = defineProps({
 })
 
 const info = useInfo()
-onMounted(() => {
+function updateTitle() {
 	invokeAPI('setNavigationBarTitle', {
 		bridgeId: info.bridgeId,
 		params: { title: props.title },
 	})
+}
 
+function updateColor() {
 	invokeAPI('setNavigationBarColor', {
 		bridgeId: info.bridgeId,
 		params: {
@@ -74,7 +76,22 @@ onMounted(() => {
 			},
 		},
 	})
-})
+}
+
+function updateLoading() {
+	invokeAPI(props.loading ? 'showNavigationBarLoading' : 'hideNavigationBarLoading', {
+		bridgeId: info.bridgeId,
+		params: {},
+	})
+}
+
+watch(() => props.title, updateTitle, { immediate: true })
+watch(
+	() => [props.frontColor, props.backgroundColor, props.colorAnimationDuration, props.colorAnimationTimingFunc],
+	updateColor,
+	{ immediate: true },
+)
+watch(() => props.loading, updateLoading, { immediate: true })
 </script>
 
 <template>

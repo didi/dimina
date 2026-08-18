@@ -5,6 +5,11 @@ import { useTapEvents } from '@/common/useTapEvents'
 // https://developers.weixin.qq.com/miniprogram/dev/component/text.html
 
 const props = defineProps({
+	/** @deprecated 请使用 user-select */
+	selectable: {
+		type: Boolean,
+		default: false,
+	},
 	/**
 	 * 文本是否可选，该属性会使文本节点显示为 inline-block
 	 */
@@ -38,22 +43,21 @@ const textRef = ref(null)
 
 function htmlDecode(e) {
 	// 处理空格替换
-	if (props.space) {
-		if (props.space === 'nbsp') {
-			e = e.replace(/ /g, ' ')
-		} else if (props.space === 'ensp') {
-			e = e.replace(/ /g, ' ')
-		} else if (props.space === 'emsp') {
-			e = e.replace(/ /g, ' ')
-		}
+	const spaces = {
+		nbsp: '\u00A0',
+		ensp: '\u2002',
+		emsp: '\u2003',
+	}
+	if (spaces[props.space]) {
+		e = e.replace(/ /g, spaces[props.space])
 	}
 
 	// 处理解码
 	if (props.decode) {
 		e = e
-			.replace(/&nbsp;/g, ' ')
-			.replace(/&ensp;/g, ' ')
-			.replace(/&emsp;/g, ' ')
+			.replace(/&nbsp;/g, '\u00A0')
+			.replace(/&ensp;/g, '\u2002')
+			.replace(/&emsp;/g, '\u2003')
 			.replace(/&lt;/g, '<')
 			.replace(/&gt;/g, '>')
 			.replace(/&quot;/g, '"')
@@ -64,28 +68,31 @@ function htmlDecode(e) {
 	return e
 }
 
-onMounted(() => {
+function transformTextNodes() {
 	if (textRef.value) {
-		const nodes = textRef.value.childNodes
-		for (let i = 0; i < nodes.length; i++) {
-			const node = nodes[i]
-			// 检查节点是否是文本节点
-			if (node.nodeType === Node.TEXT_NODE) {
+		const walker = document.createTreeWalker(textRef.value, NodeFilter.SHOW_TEXT)
+		const nodes = []
+		let node = walker.nextNode()
+		while (node) {
+			nodes.push(node)
+			node = walker.nextNode()
+		}
+		for (const textNode of nodes) {
 				// 获取文本内容
-				const text = node.nodeValue
+				const text = textNode.nodeValue
 				// 解码文本内容
 				const decodedText = htmlDecode(text)
 				const splitText = decodedText.split('\\n')
 				// 存在换行符
 				if (splitText.length > 1) {
 					const newNode = document.createDocumentFragment()
-					for (i = 0; i < splitText.length; i++) {
+					for (let i = 0; i < splitText.length; i++) {
 						newNode.appendChild(document.createTextNode(splitText[i]))
 						if (i < splitText.length - 1) {
 							newNode.appendChild(document.createElement('br'))
 						}
 					}
-					node.parentNode.replaceChild(newNode, node)
+					textNode.parentNode.replaceChild(newNode, textNode)
 				}
 				else {
 					// 如果解码后的文本不同，则替换原始文本节点
@@ -93,13 +100,15 @@ onMounted(() => {
 						// 创建一个新的文本节点
 						const newNode = document.createTextNode(decodedText)
 						// 替换原始文本节点
-						node.parentNode.replaceChild(newNode, node)
+						textNode.parentNode.replaceChild(newNode, textNode)
 					}
 				}
-			}
 		}
 	}
-})
+}
+
+onMounted(transformTextNodes)
+onUpdated(transformTextNodes)
 
 const info = useInfo()
 
@@ -107,19 +116,16 @@ const info = useInfo()
 const hasTapEvent = hasEvent(info, 'tap')
 if (hasTapEvent) {
 	useTapEvents(textRef, (event) => {
-		if (!props.disabled) {
-			if (props.hoverStopPropagation) {
-				event.stopPropagation()
-			}
-			triggerEvent('tap', { event, info })
-		}
+		triggerEvent('tap', { event, info })
 	})
 }
+
+const canSelect = computed(() => props.userSelect || props.selectable)
 </script>
 
 <template>
 	<span
-		ref="textRef" v-bind="$attrs" class="dd-text" :class="{ 'dd-text-selectable': userSelect }"
+		ref="textRef" v-bind="$attrs" class="dd-text" :class="{ 'dd-text-selectable': canSelect }"
 	>
 		<slot />
 	</span>

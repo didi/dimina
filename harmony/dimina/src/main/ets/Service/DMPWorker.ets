@@ -11,6 +11,8 @@ import {
   EvalPayload,
   initPayload,
   WorkerAppData,
+  WorkerFlushRequest,
+  WorkerFlushResponse,
   WorkerRequest,
   WorkerResponse
 } from './DMPSendableObjects';
@@ -49,10 +51,13 @@ const serviceToContainer = (t: number, wid: number, msg: string, ab: ArrayBuffer
         if (rawParams !== undefined && rawParams !== null) {
           params = typeof rawParams === 'object' ? DMPMap.createFromObject(rawParams as Object) : rawParams;
         }
-        const callback: DMPBridgeCallback = (args: DMPMap, cbType: DMPBridgeCallbackType) => {
+        const callback: DMPBridgeCallback = (args: DMPMap, cbType: DMPBridgeCallbackType,
+          persistentCallbackId?: string) => {
           if (params instanceof DMPMap) {
-            let id = ''
-            if (cbType == DMPBridgeCallbackType.Success) {
+            let id = persistentCallbackId ?? ''
+            if (persistentCallbackId) {
+              id = persistentCallbackId
+            } else if (cbType == DMPBridgeCallbackType.Success) {
               if (!params.hasKey('success')) {
                 return
               }
@@ -147,6 +152,13 @@ workerPort.onmessage = async (e: MessageEvents) => {
       case 'evalJSAb': {
         let request: AbPayload = e.data as AbPayload;
         jsEngine.evalJSAb(request.ab);
+      }
+        break;
+      case 'flush': {
+        // Worker messages are FIFO. Reaching this command guarantees all previously posted
+        // triggerCallback/page lifecycle scripts have already executed in QuickJS.
+        const flushRequest = e.data as WorkerFlushRequest;
+        workerPort.postMessage(new WorkerFlushResponse(flushRequest.requestId));
       }
         break;
       case 'destroy': {

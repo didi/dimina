@@ -1,4 +1,4 @@
-import { deepEqual, getDataAttributes, set, uuid } from '@dimina/common'
+import { deepEqual, getDataAttributes, normalizePropertyValues as normalizeMiniProgramPropertyValues, set, uuid } from '@dimina/common'
 import { Components, deepToRaw, triggerEvent } from '@dimina/components'
 import {
 	createApp,
@@ -6,9 +6,9 @@ import {
 	createCommentVNode,
 	createElementBlock,
 	createElementVNode,
-	createSlots,
 	createTextVNode,
 	createVNode,
+	cloneVNode,
 	Fragment,
 	getCurrentInstance,
 	h,
@@ -35,6 +35,262 @@ import {
 } from 'vue'
 import loader from './loader'
 import message from './message'
+import { createMiniProgramSlots } from './slots'
+
+const COMPONENT_HOST_ATTRIBUTE = 'data-dd-component-host'
+const STYLE_ISOLATION_ATTRIBUTE = 'data-dd-style-isolation'
+const STYLE_HOST_ATTRIBUTE = 'data-dd-style-host'
+const WXML_STYLE_PROP = 'diminaWxmlStyle'
+
+// 小程序 data 允许在运行期新增顶层字段。让 Vue 将尚不存在的公开字段视为可读，
+// 既能在首次访问时建立响应式依赖，也不会产生“未定义实例属性”的无效告警。
+function createTemplateData() {
+	const data = reactive({})
+	const templateData = new Proxy(data, {
+		getOwnPropertyDescriptor(target, key) {
+			return Reflect.getOwnPropertyDescriptor(target, key) || (
+				typeof key === 'string' && !key.startsWith('$') && !key.startsWith('_')
+					? { configurable: true, enumerable: false, value: undefined }
+					: undefined
+			)
+		},
+	})
+	return { data, templateData }
+}
+
+function normalizeStyleIsolation(value) {
+	if (value === 'shared') {
+		return 'shared'
+	}
+	if (value === 'apply-shared') {
+		return 'apply-shared'
+	}
+	return 'isolated'
+}
+
+function acceptsGlobalStyles(styleIsolation) {
+	return styleIsolation === 'apply-shared' || styleIsolation === 'shared'
+}
+
+function markComponentHost(vnode, styleIsolation, styleScopeId) {
+	if (!vnode || typeof vnode !== 'object') {
+		return vnode
+	}
+	return cloneVNode(vnode, {
+		[COMPONENT_HOST_ATTRIBUTE]: '',
+		[STYLE_ISOLATION_ATTRIBUTE]: styleIsolation,
+		[STYLE_HOST_ATTRIBUTE]: styleScopeId,
+	})
+}
+
+function addStyleHostToken(element, styleScopeId) {
+	const tokens = new Set((element.getAttribute(STYLE_HOST_ATTRIBUTE) || '').split(/\s+/).filter(Boolean))
+	tokens.add(styleScopeId)
+	element.setAttribute(STYLE_HOST_ATTRIBUTE, [...tokens].join(' '))
+}
+
+function normalizeEventAttributes(attrs = {}) {
+	const eventAttr = {}
+	for (const [attrName, handler] of Object.entries(attrs)) {
+		const match = attrName.match(/^(capture-)?(bind|catch)(?::)?(.+)$/)
+		if (!match || handler === undefined || handler === null || handler === '') {
+			continue
+		}
+
+		const [, capture, listenerType, eventType] = match
+		const bindingType = capture
+			? (listenerType === 'catch' ? 'captureCatch' : 'captureBind')
+			: listenerType
+		eventAttr[eventType] = eventAttr[eventType] || {}
+		eventAttr[eventType][bindingType] = handler
+	}
+	return eventAttr
+}
+
+function orderEventBindingRecords(records = []) {
+	const remaining = [...records]
+	const ordered = []
+	while (remaining.length > 0) {
+		// 多个 Vue 组件可能共用一个根 DOM。若 A.owner === B.target，
+		// A 在 B 的组件内部，冒泡时应先于 B 执行。
+		const innerIndex = remaining.findIndex(candidate => !remaining.some(other => (
+			other !== candidate && other.owner === candidate.target
+		)))
+		ordered.push(...remaining.splice(innerIndex >= 0 ? innerIndex : 0, 1))
+	}
+	return ordered
+}
+
+function isElementNode(node) {
+	return node?.nodeType === 1 && typeof node.setAttribute === 'function'
+}
+
+function applyStyleScopeAttributes(root, scopeIds, inheritedAccess, pageScopeId) {
+	if (!isElementNode(root)) {
+		return
+	}
+
+	const visit = (element, canReceiveInheritedStyles) => {
+		const isComponentHost = element.hasAttribute(COMPONENT_HOST_ATTRIBUTE)
+		const hostAcceptsGlobalStyles = isComponentHost
+			&& acceptsGlobalStyles(normalizeStyleIsolation(element.getAttribute(STYLE_ISOLATION_ATTRIBUTE)))
+		const isPageOwnedNode = pageScopeId && element.hasAttribute(pageScopeId)
+		const receivesGlobalStyles = canReceiveInheritedStyles || hostAcceptsGlobalStyles || isPageOwnedNode
+		if (receivesGlobalStyles) {
+			for (const scopeId of scopeIds) {
+				element.setAttribute(scopeId, '')
+			}
+		}
+		const childAccess = isComponentHost ? hostAcceptsGlobalStyles : receivesGlobalStyles
+		for (const child of element.children) {
+			visit(child, childAccess)
+		}
+	}
+
+	visit(root, inheritedAccess)
+}
+
+function canReceiveStylesFromParent(node, ownerRoot, pageScopeId) {
+	let current = node.parentElement
+	while (current) {
+		if (current.hasAttribute(COMPONENT_HOST_ATTRIBUTE)) {
+			return acceptsGlobalStyles(
+				normalizeStyleIsolation(current.getAttribute(STYLE_ISOLATION_ATTRIBUTE)),
+			)
+		}
+		if (pageScopeId && current.hasAttribute(pageScopeId)) {
+			return true
+		}
+		if (current === ownerRoot) {
+			return true
+		}
+		current = current.parentElement
+	}
+	return false
+}
+
+function observeStyleScopeRoot(root, scopeIds, pageScopeId) {
+	if (!isElementNode(root) || scopeIds.length === 0) {
+		return null
+	}
+	applyStyleScopeAttributes(root, scopeIds, true, pageScopeId)
+
+	const observer = new MutationObserver((records) => {
+		for (const record of records) {
+			for (const node of record.addedNodes) {
+				if (!isElementNode(node)) {
+					continue
+				}
+				applyStyleScopeAttributes(
+					node,
+					scopeIds,
+					canReceiveStylesFromParent(node, root, pageScopeId),
+					pageScopeId,
+				)
+			}
+		}
+	})
+	observer.observe(root, { childList: true, subtree: true })
+	return observer
+}
+
+function collectVNodeRootElements(vnode, result = []) {
+	if (!vnode) {
+		return result
+	}
+	if (Array.isArray(vnode)) {
+		for (const child of vnode) collectVNodeRootElements(child, result)
+		return result
+	}
+	if (vnode.component?.subTree) {
+		return collectVNodeRootElements(vnode.component.subTree, result)
+	}
+	if (vnode.suspense?.activeBranch) {
+		return collectVNodeRootElements(vnode.suspense.activeBranch, result)
+	}
+	if (vnode.type === Fragment) {
+		return collectVNodeRootElements(vnode.children, result)
+	}
+	if (isElementNode(vnode.el) && !result.includes(vnode.el)) {
+		result.push(vnode.el)
+	}
+	return result
+}
+
+function installStyleScopeSync(roots, scopeIds, pageScopeId) {
+	const normalizedScopeIds = [...new Set(scopeIds.filter(Boolean))]
+	const observers = roots
+		.map(root => observeStyleScopeRoot(root, normalizedScopeIds, pageScopeId))
+		.filter(Boolean)
+	return () => observers.forEach(observer => observer.disconnect())
+}
+
+function installPageFrameStyleScopes(scopeIds) {
+	const pageFrame = document.body?.classList.contains('dd-page') ? document.body : null
+	if (!pageFrame) {
+		return () => {}
+	}
+
+	const addedScopeIds = [...new Set(scopeIds.filter(Boolean))]
+		.filter((scopeId) => {
+			if (pageFrame.hasAttribute(scopeId)) {
+				return false
+			}
+			pageFrame.setAttribute(scopeId, '')
+			return true
+		})
+
+	return () => {
+		for (const scopeId of addedScopeIds) {
+			pageFrame.removeAttribute(scopeId)
+		}
+	}
+}
+
+function hasVNodeProp(vnodeProps, name) {
+	if (!vnodeProps) return false
+	if (Object.prototype.hasOwnProperty.call(vnodeProps, name)) return true
+	const kebabName = name.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`)
+	return Object.prototype.hasOwnProperty.call(vnodeProps, kebabName)
+}
+
+function getVNodeProp(vnodeProps, name) {
+	if (!vnodeProps) return undefined
+	if (Object.prototype.hasOwnProperty.call(vnodeProps, name)) return vnodeProps[name]
+	const kebabName = name.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`)
+	return vnodeProps[kebabName]
+}
+
+export function applyWxmlStyleProperty(propertySchemas, values, vnode) {
+	const normalizedValues = { ...values }
+	if (propertySchemas?.style && hasVNodeProp(vnode?.props, WXML_STYLE_PROP)) {
+		normalizedValues.style = getVNodeProp(vnode.props, WXML_STYLE_PROP)
+	}
+	delete normalizedValues[WXML_STYLE_PROP]
+	return normalizedValues
+}
+
+export function normalizeStaticBooleanAttributes(propertySchemas, values, vnode) {
+	const normalizedValues = { ...values }
+	const dynamicProps = new Set(vnode?.dynamicProps || [])
+
+	for (const [name, schema] of Object.entries(propertySchemas || {})) {
+		if (schema.type !== Boolean || normalizedValues[name] !== '' || !hasVNodeProp(vnode?.props, name)) {
+			continue
+		}
+
+		const kebabName = name.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`)
+		if (!dynamicProps.has(name) && !dynamicProps.has(kebabName)) {
+			// Vue compiles a valueless custom-component attribute (for example
+			// <t-button loading>) to an empty string. WXML treats the static
+			// presence of a declared Boolean property as true. Dynamic bindings
+			// still use normal mini-program type conversion, where '' is false.
+			normalizedValues[name] = true
+		}
+	}
+
+	return normalizedValues
+}
 
 // Keep these aliases in sync with @vue/compiler-core helperNameMap/aliasHelper output.
 const VUE_RUNTIME_HELPERS = {
@@ -45,7 +301,7 @@ const VUE_RUNTIME_HELPERS = {
 	_createCommentVNode: createCommentVNode,
 	_createElementBlock: createElementBlock,
 	_createElementVNode: createElementVNode,
-	_createSlots: createSlots,
+	_createSlots: createMiniProgramSlots,
 	_normalizeClass: normalizeClass,
 	_normalizeStyle: normalizeStyle,
 	_openBlock: openBlock,
@@ -70,6 +326,234 @@ const TYPED_ARRAY_CTORS = {
 	Uint32Array,
 	Float32Array,
 	Float64Array,
+}
+
+const WEBGL_PARAMETER_NAMES = [
+	'VERSION',
+	'SHADING_LANGUAGE_VERSION',
+	'VENDOR',
+	'RENDERER',
+	'MAX_VIEWPORT_DIMS',
+	'ALIASED_POINT_SIZE_RANGE',
+	'ALIASED_LINE_WIDTH_RANGE',
+	'COMPRESSED_TEXTURE_FORMATS',
+	'MAX_TEXTURE_SIZE',
+	'MAX_CUBE_MAP_TEXTURE_SIZE',
+	'MAX_RENDERBUFFER_SIZE',
+	'MAX_VERTEX_ATTRIBS',
+	'MAX_TEXTURE_IMAGE_UNITS',
+	'MAX_VERTEX_TEXTURE_IMAGE_UNITS',
+	'MAX_COMBINED_TEXTURE_IMAGE_UNITS',
+	'MAX_VERTEX_UNIFORM_VECTORS',
+	'MAX_FRAGMENT_UNIFORM_VECTORS',
+	'MAX_VARYING_VECTORS',
+	'RED_BITS',
+	'GREEN_BITS',
+	'BLUE_BITS',
+	'ALPHA_BITS',
+	'DEPTH_BITS',
+	'STENCIL_BITS',
+	'SUBPIXEL_BITS',
+	'SAMPLE_BUFFERS',
+	'SAMPLES',
+	'MAX_3D_TEXTURE_SIZE',
+	'MAX_ARRAY_TEXTURE_LAYERS',
+	'MAX_COLOR_ATTACHMENTS',
+	'MAX_DRAW_BUFFERS',
+	'MAX_ELEMENT_INDEX',
+	'MAX_ELEMENTS_INDICES',
+	'MAX_ELEMENTS_VERTICES',
+	'MAX_FRAGMENT_INPUT_COMPONENTS',
+	'MAX_SAMPLES',
+	'MAX_SERVER_WAIT_TIMEOUT',
+	'MAX_TEXTURE_LOD_BIAS',
+	'MAX_TRANSFORM_FEEDBACK_INTERLEAVED_COMPONENTS',
+	'MAX_TRANSFORM_FEEDBACK_SEPARATE_ATTRIBS',
+	'MAX_TRANSFORM_FEEDBACK_SEPARATE_COMPONENTS',
+	'MAX_UNIFORM_BLOCK_SIZE',
+	'MAX_UNIFORM_BUFFER_BINDINGS',
+	'MAX_VARYING_COMPONENTS',
+	'MAX_VERTEX_OUTPUT_COMPONENTS',
+	'UNIFORM_BUFFER_OFFSET_ALIGNMENT',
+]
+
+const WEBGL_PRECISION_NAMES = [
+	'LOW_FLOAT',
+	'MEDIUM_FLOAT',
+	'HIGH_FLOAT',
+	'LOW_INT',
+	'MEDIUM_INT',
+	'HIGH_INT',
+]
+
+function collectNumericConstants(value) {
+	const constants = {}
+	const visited = new Set()
+	for (let current = value; current && current !== Object.prototype; current = Object.getPrototypeOf(current)) {
+		for (const name of Object.getOwnPropertyNames(current)) {
+			if (visited.has(name) || !/^[A-Z][A-Z0-9_]*$/.test(name)) {
+				continue
+			}
+			visited.add(name)
+			try {
+				if (typeof value[name] === 'number') {
+					constants[name] = value[name]
+				}
+			}
+			catch {
+				// Ignore host object properties that cannot be read in this WebView.
+			}
+		}
+	}
+	return constants
+}
+
+function serializeCanvasResult(value, resolveResourceId) {
+	if (value === null || value === undefined || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+		return value
+	}
+	const resourceId = resolveResourceId?.(value)
+	if (resourceId) {
+		return { __canvasResourceId: resourceId }
+	}
+	if (ArrayBuffer.isView(value)) {
+		return {
+			__canvasTypedArray: value.constructor.name,
+			data: Array.from(value),
+		}
+	}
+	if (Array.isArray(value)) {
+		return value.map(item => serializeCanvasResult(item, resolveResourceId))
+	}
+	if (typeof value === 'object') {
+		const result = {}
+		const keys = new Set(Object.keys(value))
+		for (const key of ['alpha', 'antialias', 'depth', 'desynchronized', 'failIfMajorPerformanceCaveat', 'powerPreference', 'premultipliedAlpha', 'preserveDrawingBuffer', 'stencil', 'name', 'precision', 'rangeMax', 'rangeMin', 'size', 'type']) {
+			if (key in value) {
+				keys.add(key)
+			}
+		}
+		for (const key of keys) {
+			const serialized = serializeCanvasResult(value[key], resolveResourceId)
+			if (serialized !== undefined) {
+				result[key] = serialized
+			}
+		}
+		return result
+	}
+	return undefined
+}
+
+function describeWebGLContext(context, includeExtensionConstants = true) {
+	if (!context) {
+		return null
+	}
+	const constants = collectNumericConstants(context)
+	const parameters = {}
+	for (const name of WEBGL_PARAMETER_NAMES) {
+		const pname = context[name]
+		if (typeof pname !== 'number') {
+			continue
+		}
+		try {
+			parameters[pname] = serializeCanvasResult(context.getParameter(pname))
+		}
+		catch {
+			// A capability is optional when the current WebGL version does not expose it.
+		}
+	}
+
+	let supportedExtensions = []
+	try {
+		supportedExtensions = context.getSupportedExtensions?.() || []
+	}
+	catch {
+		// Treat an unavailable extension list as empty.
+	}
+	const extensions = {}
+	for (const name of supportedExtensions) {
+		if (!includeExtensionConstants) {
+			extensions[name] = { constants: {} }
+			continue
+		}
+		try {
+			const extension = context.getExtension(name)
+			extensions[name] = {
+				constants: extension ? collectNumericConstants(extension) : {},
+			}
+		}
+		catch {
+			extensions[name] = { constants: {} }
+		}
+	}
+
+	const shaderPrecisionFormats = {}
+	for (const shaderName of ['VERTEX_SHADER', 'FRAGMENT_SHADER']) {
+		for (const precisionName of WEBGL_PRECISION_NAMES) {
+			const shaderType = context[shaderName]
+			const precisionType = context[precisionName]
+			if (typeof shaderType !== 'number' || typeof precisionType !== 'number') {
+				continue
+			}
+			try {
+				const format = context.getShaderPrecisionFormat(shaderType, precisionType)
+				if (format) {
+					shaderPrecisionFormats[`${shaderType}:${precisionType}`] = serializeCanvasResult(format)
+				}
+			}
+			catch {
+				// Keep unsupported precision combinations out of the snapshot.
+			}
+		}
+	}
+
+	let contextAttributes = null
+	try {
+		contextAttributes = serializeCanvasResult(context.getContextAttributes?.())
+	}
+	catch {
+		// Context attributes remain unknown if the host does not expose them.
+	}
+
+	return {
+		supported: true,
+		constants,
+		parameters,
+		contextAttributes,
+		supportedExtensions,
+		extensions,
+		shaderPrecisionFormats,
+		drawingBufferWidth: context.drawingBufferWidth,
+		drawingBufferHeight: context.drawingBufferHeight,
+		contextLost: Boolean(context.isContextLost?.()),
+	}
+}
+
+function probeWebGLCapabilities() {
+	const capabilities = {}
+	for (const contextType of ['webgl', 'webgl2']) {
+		const canvas = document.createElement('canvas')
+		canvas.width = 1
+		canvas.height = 1
+		let context = null
+		try {
+			context = canvas.getContext(contextType)
+			if (!context && contextType === 'webgl') {
+				context = canvas.getContext('experimental-webgl')
+			}
+		}
+		catch {
+			// WebGL can be disabled by the WebView or device policy.
+		}
+		capabilities[contextType] = context ? describeWebGLContext(context) : { supported: false }
+		try {
+			context?.getExtension?.('WEBGL_lose_context')?.loseContext?.()
+		}
+		catch {
+			// The temporary probe context will be reclaimed normally.
+		}
+	}
+	return capabilities
 }
 
 function isCanvasElement(element) {
@@ -97,13 +581,18 @@ class Runtime {
 		this.pageId = null
 		this.instance = new Map()
 		this.moduleIds = new WeakMap()
+		this.moduleRootIds = new WeakMap()
 		this.setupData = new Map()
 		this.initializedModules = new Set()
 		this.preInitUpdates = new Map()
 		this.intersectionObservers = new Map()
+		this.mediaQueryObservers = new Map()
+		this.componentAnimations = new Map()
+		this.performanceObservers = new Map()
 		this.canvasNodes = new Map()
 		this.canvasResources = new Map()
 		this.canvasRafIds = new Map()
+		this.canvasCapabilities = null
 		// 追踪"mC 已发出但 service 侧 created 尚未完成"的组件 setup
 		// key: moduleId, value: Promise（created 完成时 resolve）
 		this._pendingSetups = new Map()
@@ -127,6 +616,26 @@ class Runtime {
 			}
 			this.intersectionObservers.clear()
 		}
+		for (const { mediaQueryList, listener } of this.mediaQueryObservers.values()) {
+			mediaQueryList.removeEventListener?.('change', listener)
+			mediaQueryList.removeListener?.(listener)
+		}
+		this.mediaQueryObservers.clear()
+		for (const animations of this.componentAnimations.values()) {
+			animations.forEach(animation => animation.cancel())
+		}
+		this.componentAnimations.clear()
+		for (const observer of this.performanceObservers.values()) {
+			observer.disconnect()
+		}
+		this.performanceObservers.clear()
+		for (const node of this.canvasNodes.values()) {
+			node.cleanup?.()
+		}
+		for (const frameId of this.canvasRafIds.values()) {
+			cancelAnimationFrame(frameId)
+		}
+		this.canvasRafIds.clear()
 	}
 
 	syncReactiveState(state, nextState = {}) {
@@ -177,8 +686,8 @@ class Runtime {
 			return
 		}
 
-		const { id, tplComponents = {}, usingComponents = {} } = module.moduleInfo
-		const components = this.createComponent(path, bridgeId, usingComponents)
+		const { id, tplComponents = {}, usingComponents = {}, componentPlaceholder = {} } = module.moduleInfo
+		const components = this.createComponent(path, bridgeId, usingComponents, new Map(), componentPlaceholder)
 		for (const [tplName, render] of Object.entries(tplComponents)) {
 			this.app.component(`dd-${tplName}`, this.createTplComponent({
 				id,
@@ -200,16 +709,7 @@ class Runtime {
 				data: Object,
 			},
 			setup(props) {
-				const state = reactive({})
-				const stateProxy = new Proxy(state, {
-					getOwnPropertyDescriptor(target, key) {
-						return Reflect.getOwnPropertyDescriptor(target, key) || (
-							typeof key === 'string' && !key.startsWith('$') && !key.startsWith('_')
-								? { configurable: true, enumerable: false, value: undefined }
-								: undefined
-						)
-					},
-				})
+				const { data: state, templateData } = createTemplateData()
 				watchEffect(() => {
 					const newData = props.data || {}
 					for (const key in state) {
@@ -217,7 +717,7 @@ class Runtime {
 					}
 					Object.assign(state, newData)
 				})
-				return stateProxy
+				return templateData
 			},
 			render,
 		}
@@ -228,12 +728,29 @@ class Runtime {
 	makeOptions(opts) {
 		const { path, bridgeId, pageId } = opts
 		const pageModule = loader.getModuleByPath(path)
-		const { id, usingComponents, tplComponents } = pageModule.moduleInfo
+		const {
+			id,
+			appStyleScopeId,
+			sharedStyleScopeIds = [],
+			usingComponents,
+			componentPlaceholder = {},
+			tplComponents,
+			customTabBar,
+		} = pageModule.moduleInfo
+		const pageRender = pageModule.moduleInfo.render
+		const customTabBarComponentName = customTabBar?.componentName
+		const hasCustomTabBar = typeof customTabBarComponentName === 'string'
+			&& Object.prototype.hasOwnProperty.call(usingComponents || {}, customTabBarComponentName)
 		this.pageId = pageId
-		const components = this.createComponent(path, bridgeId, usingComponents)
-		const self = this
+		const that = this
 		const rootCom = 'dd-page'
 		const sId = `data-v-${id}`
+		const globalStyleScopeIds = [
+			appStyleScopeId ? `data-v-${appStyleScopeId}` : null,
+			sId,
+			...sharedStyleScopeIds.map(scopeId => `data-v-${scopeId}`),
+		].filter(Boolean)
+		const components = this.createComponent(path, bridgeId, usingComponents, new Map(), componentPlaceholder)
 		return {
 			id,
 			tplComponents,
@@ -251,27 +768,31 @@ class Runtime {
 							})
 						},
 					}, {
-						default: () => h(_component_dd_page, { class: 'dd-page' }),
+						default: () => h(_component_dd_page),
 						// fallback: () => h('div', 'Loading...'),
 					})
 				},
 				components: {
 					[rootCom]: {
+						name: path,
 						__scopeId: sId,
 						async setup(_props, { expose }) {
 							expose()
+							const vueInstance = getCurrentInstance()
 							provide('bridgeId', bridgeId)
 							provide('path', path)
 							provide(path, {
-								id: self.pageId,
+								id: that.pageId,
 							})
 							provide('info', {
-								id: self.pageId,
+								id: that.pageId,
 								sId,
 							})
-							const instance = getCurrentInstance().proxy
+							const instance = vueInstance.proxy
 							instance.__page__ = true
-							self.setModuleInstance(self.pageId, instance)
+							that.setModuleInstance(that.pageId, instance)
+							let stopStyleScopeSync = () => {}
+							let clearPageFrameStyleScopes = () => {}
 
 							let ticking = false
 							const handleScroll = () => {
@@ -282,7 +803,7 @@ class Runtime {
 											target: 'service',
 											body: {
 												bridgeId,
-												moduleId: self.pageId,
+												moduleId: that.pageId,
 												scrollTop: window.scrollY,
 											},
 										})
@@ -293,6 +814,12 @@ class Runtime {
 							}
 
 							onMounted(() => {
+								clearPageFrameStyleScopes = installPageFrameStyleScopes(globalStyleScopeIds)
+								stopStyleScopeSync = installStyleScopeSync(
+									collectVNodeRootElements(vueInstance.subTree),
+									globalStyleScopeIds,
+									sId,
+								)
 								window.addEventListener('scroll', handleScroll, { passive: true })
 								nextTick(() => {
 									message.send({
@@ -300,24 +827,32 @@ class Runtime {
 										target: 'service',
 										body: {
 											bridgeId,
-											moduleId: self.pageId,
+											moduleId: that.pageId,
 										},
 									})
 								})
 							})
 
 							onUnmounted(() => {
+								stopStyleScopeSync()
+								clearPageFrameStyleScopes()
 								window.removeEventListener('scroll', handleScroll)
 							})
 
-						const data = reactive({})
-						self.setupData.set(self.pageId, data)
-						const initData = await message.wait(self.pageId)
-						self.applyInitialData(self.pageId, data, initData)
-						return data
+						const { data, templateData } = createTemplateData()
+						that.setupData.set(that.pageId, data)
+						const initData = await message.wait(that.pageId)
+						that.applyInitialData(that.pageId, data, initData)
+						return templateData
 					},
 					components,
-					render: pageModule.moduleInfo.render,
+					render: hasCustomTabBar
+						? function (...args) {
+							const pageVNode = pageRender.apply(this, args)
+							const CustomTabBar = resolveComponent(`dd-${customTabBarComponentName}`)
+							return h(Fragment, null, [pageVNode, h(CustomTabBar)])
+						}
+						: pageRender,
 					},
 				},
 
@@ -345,8 +880,16 @@ class Runtime {
 
 		const pendingUpdate = this.preInitUpdates.get(moduleId)
 		if (pendingUpdate) {
-			for (const [key, value] of Object.entries(pendingUpdate)) {
-				set(data, key, value)
+			const pendingData = pendingUpdate.data || pendingUpdate
+			if ((pendingUpdate.changes || []).length > 0) {
+				for (const change of pendingUpdate.changes) {
+					set(data, change.path, change.value)
+				}
+			}
+			else {
+				for (const [key, value] of Object.entries(pendingData)) {
+					set(data, key, value)
+				}
 			}
 			this.preInitUpdates.delete(moduleId)
 		}
@@ -395,62 +938,194 @@ class Runtime {
 		this.instance.delete(moduleId)
 	}
 
-	createComponent(path, bridgeId, usingComponents, depthChain = []) {
+	registerModuleRoots(moduleId, roots) {
+		for (const root of roots) {
+			const moduleIds = this.moduleRootIds.get(root) || []
+			if (!moduleIds.includes(moduleId)) {
+				moduleIds.push(moduleId)
+				this.moduleRootIds.set(root, moduleIds)
+			}
+		}
+	}
+
+	unregisterModuleRoots(moduleId, roots) {
+		for (const root of roots) {
+			const moduleIds = this.moduleRootIds.get(root)
+			if (!moduleIds) {
+				continue
+			}
+			const nextModuleIds = moduleIds.filter(id => id !== moduleId)
+			if (nextModuleIds.length > 0) {
+				this.moduleRootIds.set(root, nextModuleIds)
+			}
+			else {
+				this.moduleRootIds.delete(root)
+			}
+		}
+	}
+
+	getRenderParentModuleId(roots, moduleId) {
+		for (const root of roots) {
+			let element = root.parentElement
+			while (element) {
+				const moduleIds = this.moduleRootIds.get(element) || []
+				const parentId = moduleIds.findLast(id => id !== moduleId)
+				if (parentId) {
+					return parentId
+				}
+				element = element.parentElement
+			}
+		}
+	}
+
+	collectCustomEventPath(root, targetModuleId) {
+		const eventPath = []
+		let element = root
+		while (element) {
+			for (const record of orderEventBindingRecords(element._ddEventBindings)) {
+				const moduleId = this.moduleIds.get(record.owner)
+				const nodeModuleId = this.moduleIds.get(record.target)
+				if (!moduleId) {
+					continue
+				}
+
+				const isComponentHost = record.nodeType === 'component'
+				// Vue 会把组件宿主与组件内部的单根节点折叠到同一 DOM
+				// 元素上。事件从宿主节点开始，不应反向进入目标组件自身的内部根节点。
+				if (element === root && !isComponentHost && moduleId === targetModuleId) {
+					continue
+				}
+				// 目标组件宿主的绑定已通过 mC 传入 service，这里只保留祖先路径。
+				if (isComponentHost && nodeModuleId === targetModuleId) {
+					continue
+				}
+
+				eventPath.push({
+					moduleId,
+					nodeModuleId,
+					isComponentHost,
+					eventAttr: record.eventAttr,
+					targetInfo: {
+						id: element.id,
+						dataset: { ...element.dataset, ...element._ds },
+					},
+				})
+			}
+			element = element.parentElement
+		}
+		return eventPath
+	}
+
+	createComponent(path, bridgeId, usingComponents, componentCache = new Map(), componentPlaceholder = {}) {
 		if (!usingComponents || Object.keys(usingComponents).length === 0) {
 			return
 		}
 
 		const components = {}
-		const self = this
-		const newDepthChain = [...depthChain, path]
+		const that = this
 
 		for (const [componentName, componentPath] of Object.entries(usingComponents)) {
-			// 循环依赖检测（A -> B -> A）
-			if (newDepthChain.includes(componentPath)) {
+			let resolvedComponentPath = componentPath
+			let cacheKey = `${path}\0${resolvedComponentPath}`
+			let cachedComponent = componentCache.get(cacheKey)
+			if (cachedComponent) {
+				components[`dd-${componentName}`] = cachedComponent
 				continue
 			}
 
-			const module = loader.getModuleByPath(componentPath)
+			let module = loader.getModuleByPath(resolvedComponentPath)
+			if (!module?.moduleInfo) {
+				const placeholderName = componentPlaceholder[componentName]
+				const placeholderPath = placeholderName && usingComponents[placeholderName]
+				if (placeholderPath) {
+					resolvedComponentPath = placeholderPath
+					cacheKey = `${path}\0${resolvedComponentPath}`
+					cachedComponent = componentCache.get(cacheKey)
+					if (cachedComponent) {
+						components[`dd-${componentName}`] = cachedComponent
+						continue
+					}
+					module = loader.getModuleByPath(resolvedComponentPath)
+				}
+			}
+
+			// Cache component options by declaring path and resolved target/placeholder path. Registering
+			// the option before walking its children closes self and mutual cycles,
+			// while retaining the lexical declaring path used by setup below.
 			if (!module?.moduleInfo) {
 				continue
 			}
 
-			const { id, usingComponents: subUsing } = module.moduleInfo
-			const subComponents = this.createComponent(componentPath, bridgeId, subUsing, newDepthChain)
+			const {
+				id,
+				usingComponents: subUsing,
+				componentPlaceholder: subPlaceholder = {},
+				customTabBar,
+			} = module.moduleInfo
 			const sId = `data-v-${id}`
+			const styleIsolation = normalizeStyleIsolation(module.moduleInfo.styleIsolation)
 
 			// setup -> beforeCreate -> beforeMount
-			components[`dd-${componentName}`] = {
+			const componentOptions = {
+				name: resolvedComponentPath,
 				__scopeId: sId,
-				components: subComponents,
-				props: module.props,
+				components: undefined,
+				props: {
+					...module.props,
+					[WXML_STYLE_PROP]: { type: null },
+				},
 				async setup(props, { attrs, expose }) {
 					const parentInfo = inject('info')
+					const parentPath = inject('path')
+					const vueInstance = getCurrentInstance()
+					// External classes belong to the component that lexically declared the
+					// child vnode. Slots can change the nearest Vue parent, so prefer the
+					// vnode scope over the injected render-parent scope.
+					const externalClassScopeId = vueInstance.vnode.scopeId || parentInfo.sId
 
 					expose({
 						props,
-						sId: parentInfo.sId,
+						sId: externalClassScopeId,
 					})
-					const vueInstance = getCurrentInstance()
-					const vueParentId = self.getParentModuleId(vueInstance)
+					const vueParentId = that.getParentModuleId(vueInstance)
 					const parentId = vueParentId || parentInfo.id
-					const pageInfo = inject(path)
-					const pageId = pageInfo.id
+					const pageInfo = inject(path, null)
+					// Slot content keeps the lexical event owner from the component that
+					// declared it, even when Vue renders it below a different component.
+					// A globally reused template may not have that lexical provider, so only
+					// then fall back to the nearest runtime component/page instance.
+					const pageId = pageInfo?.id || parentId
+					const pagePath = pageInfo ? path : parentPath
 					const moduleId = `${id}_${uuid()}`
 					provide('info', {
 						id: moduleId,
 						sId,
 					})
-					provide('path', componentPath)
-					provide(componentPath, {
+					provide('path', resolvedComponentPath)
+					provide(resolvedComponentPath, {
 						id: moduleId,
-						pagePath: path, // 引入该组件的页面信息
+						pagePath, // 声明该组件的页面或组件路径
 						pageId,
 					})
 					const instance = vueInstance.proxy
-					self.setModuleInstance(moduleId, instance)
+					that.setModuleInstance(moduleId, instance)
+					const normalizeCurrentProperties = () => normalizeMiniProgramPropertyValues(
+						module.propertySchemas,
+						normalizeStaticBooleanAttributes(
+							module.propertySchemas,
+							applyWxmlStyleProperty(module.propertySchemas, deepToRaw(props), vueInstance.vnode),
+							vueInstance.vnode,
+						),
+						{
+							isAbsent: name => (
+								!hasVNodeProp(vueInstance.vnode.props, name)
+								&& !(name === 'style' && hasVNodeProp(vueInstance.vnode.props, WXML_STYLE_PROP))
+							),
+							warn: warning => console.warn('[system]', '[render]', warning),
+						},
+					)
 
-				const externalClasses = []
+					const externalClasses = []
 					for (const [k, v] of Object.entries(module.props ?? {})) {
 						if (v.cls) {
 							// 自定义组件的外部样式类，通过 v-c-class 自定义指令处理
@@ -459,50 +1134,75 @@ class Runtime {
 					}
 					provide('externalClasses', externalClasses)
 
-				const eventAttr = {}
-				for (const attrName in attrs) {
-					if (attrName.startsWith('bind') || attrName.startsWith('catch')) {
-						eventAttr[attrName.replace(/^(?:bind:|bind|catch:|catch)/, '')] = attrs[attrName]
-					}
-				}
+					const eventAttr = normalizeEventAttributes(attrs)
 
-			message.send({
-					type: 'mC', // createInstance + componentAttached
-					target: 'service',
-					body: {
-						bridgeId,
-						moduleId,
-						path: componentPath,
-						pageId,
-						parentId,
-						eventAttr,
-						targetInfo: {
-							dataset: getDataAttributes(attrs, deepToRaw),
-							id: attrs.id,
-							class: attrs.class,
+					const initialProperties = normalizeCurrentProperties()
+					const propertyNames = Object.keys(module.propertySchemas || {}).filter(name => (
+						hasVNodeProp(vueInstance.vnode.props, name)
+						|| (name === 'style' && hasVNodeProp(vueInstance.vnode.props, WXML_STYLE_PROP))
+					))
+
+					// Service lifecycle dispatch is synchronous. Register the one-shot data
+					// listener before mC so a same-stack response cannot be lost.
+					const initDataPromise = message.waitAndSend(moduleId, {
+						type: 'mC', // createInstance + componentCreated
+						target: 'service',
+						body: {
+							bridgeId,
+							moduleId,
+							path: resolvedComponentPath,
+							isCustomTabBar: customTabBar === true,
+							pageId,
+							parentId,
+							eventAttr,
+							targetInfo: {
+								dataset: getDataAttributes(attrs, deepToRaw),
+								id: attrs.id,
+								class: attrs.class,
+							},
+							properties: initialProperties,
+							propertyNames,
+							propBindings: null, // 初始化时为 null，稍后从 DOM 元素读取
 						},
-						properties: deepToRaw(props),
-						propBindings: null, // 初始化时为 null，稍后从 DOM 元素读取
-					},
-				})
+					})
 
-				// mC 发出，service 侧开始异步执行 created；记录此 moduleId 为 pending 状态，
-				// message.wait 解除后（service created 完成）才从 pending 中移除
-				let _pendingResolved = false
-				let _resolvePending
-				const _pendingResolve = () => {
-					if (_pendingResolved) {
-						return
+					// Track the component until its initial data has returned from service.
+					let _pendingResolved = false
+					let _resolvePending
+					const _pendingResolve = () => {
+						if (_pendingResolved) {
+							return
+						}
+						_pendingResolved = true
+						_resolvePending?.()
 					}
-					_pendingResolved = true
-					_resolvePending?.()
-				}
-				self._pendingSetups.set(moduleId, new Promise(r => (_resolvePending = r)))
+					that._pendingSetups.set(moduleId, new Promise(r => (_resolvePending = r)))
 
-				onMounted(() => {
+					onMounted(() => {
+						const roots = collectVNodeRootElements(vueInstance.subTree)
+						that.registerModuleRoots(moduleId, roots)
+						for (const root of roots) {
+							root.setAttribute(COMPONENT_HOST_ATTRIBUTE, '')
+							root.setAttribute(STYLE_ISOLATION_ATTRIBUTE, styleIsolation)
+							addStyleHostToken(root, id)
+						}
 						nextTick(() => {
+							// Slot content keeps its lexical Vue parent, while mini-program
+							// relations follow the rendered component tree. Resolve the
+							// physical parent after every mounted hook has registered roots.
+							const renderParentId = that.getRenderParentModuleId(roots, moduleId)
+							message.send({
+								type: 'mA',
+								target: 'service',
+								body: {
+									bridgeId,
+									moduleId,
+									parentId: renderParentId || parentId,
+								},
+							})
 							// 从 DOM 元素读取属性绑定信息
 							const propBindings = instance.$el?._propBindings
+							const eventPath = that.collectCustomEventPath(instance.$el, moduleId)
 
 							message.send({
 								type: 'mR',
@@ -511,6 +1211,7 @@ class Runtime {
 									bridgeId,
 									moduleId,
 									propBindings, // 传递从指令中读取的绑定信息
+									eventPath,
 								},
 							})
 						})
@@ -529,77 +1230,103 @@ class Runtime {
 						}
 					})
 
-				onUnmounted(() => {
-					message.send({
-						type: 'mU',
-						target: 'service',
-						body: {
-							bridgeId,
-							moduleId,
-						},
+					let unregisterFormControl
+					onUnmounted(() => {
+						unregisterFormControl?.()
+						const roots = collectVNodeRootElements(vueInstance.subTree)
+						that.unregisterModuleRoots(moduleId, roots)
+						message.send({
+							type: 'mU',
+							target: 'service',
+							body: {
+								bridgeId,
+								moduleId,
+							},
+						})
+						that.deleteModuleInstance(moduleId)
+						that.setupData.delete(moduleId)
+						that.initializedModules.delete(moduleId)
+						that.preInitUpdates.delete(moduleId)
+						that._pendingSetups.delete(moduleId)
+						_pendingResolve()
 					})
-					self.deleteModuleInstance(moduleId)
-					self.setupData.delete(moduleId)
-					self.initializedModules.delete(moduleId)
-					self.preInitUpdates.delete(moduleId)
-					self._pendingSetups.delete(moduleId)
-					_pendingResolve()
-				})
 
-			const data = reactive({})
-			self.setupData.set(moduleId, data)
-			let skipInitialPropsNotify = true
-			
-		watch(
-				() => deepToRaw(props),
-				(newProps, oldProps = {}) => {
-					Object.assign(data, newProps)
-					if (skipInitialPropsNotify) {
-						skipInitialPropsNotify = false
-						return
+					const { data, templateData } = createTemplateData()
+					that.setupData.set(moduleId, data)
+					if (module.builtinBehaviors?.has('wx://form-field')) {
+						unregisterFormControl = inject('registerFormControl', undefined)?.({
+							getName: () => Object.prototype.hasOwnProperty.call(data, 'name') ? data.name : props.name,
+							getValue: () => Object.prototype.hasOwnProperty.call(data, 'value') ? data.value : props.value,
+						})
 					}
+					let previousNormalizedProps = initialProperties
+					let isInitialPropsWatch = true
 
-					const changedProps = Object.entries(newProps).reduce((acc, [key, value]) => {
-						if (!deepEqual(value, oldProps[key])) {
-							acc[key] = value
-						}
-						return acc
-					}, {})
+					watch(
+						() => deepToRaw(props),
+						() => {
+							const newProps = isInitialPropsWatch
+								? initialProperties
+								: normalizeCurrentProperties()
+							Object.assign(data, newProps)
+							if (isInitialPropsWatch) {
+								isInitialPropsWatch = false
+								return
+							}
 
-					if (Object.keys(changedProps).length === 0) {
-						return
-					}
+							const changedProps = Object.entries(newProps).reduce((acc, [key, value]) => {
+								if (!deepEqual(value, previousNormalizedProps[key])) {
+									acc[key] = value
+								}
+								return acc
+							}, {})
+							previousNormalizedProps = newProps
 
-					message.send({
-						type: 't',
-						target: 'service',
-						body: {
-							bridgeId,
-							moduleId,
-							methodName: 'tO', // triggerObserver
-							event: changedProps,
+							if (Object.keys(changedProps).length === 0) {
+								return
+							}
+
+							message.send({
+								type: 't',
+								target: 'service',
+								body: {
+									bridgeId,
+									moduleId,
+									methodName: 'tO', // triggerObserver
+									event: changedProps,
+								},
+							})
 						},
-					})
-				},
-				{
-					immediate: true,
-				}
-			)
-					
-					const initData = await message.wait(moduleId)
-					self._pendingSetups.delete(moduleId)
+						{
+							immediate: true,
+						},
+					)
+
+					const initData = await initDataPromise
+					that._pendingSetups.delete(moduleId)
 					_pendingResolve()
-					self.applyInitialData(moduleId, data, initData)
-					return data
+					that.applyInitialData(moduleId, data, initData)
+					return templateData
 				},
-				render: module.moduleInfo.render,
+				render(...args) {
+					return markComponentHost(module.moduleInfo.render.apply(this, args), styleIsolation, id)
+				},
 			}
+			componentCache.set(cacheKey, componentOptions)
+			componentOptions.components = this.createComponent(
+				resolvedComponentPath,
+				bridgeId,
+				subUsing,
+				componentCache,
+				subPlaceholder,
+			)
+			components[`dd-${componentName}`] = componentOptions
 		}
 		return components
 	}
 
 	updateModule(opts) {
-		const { moduleId, data } = opts
+		const { moduleId, data, changes = [] } = opts
 		const setupData = this.setupData.get(moduleId)
 
 		if (setupData) {
@@ -607,16 +1334,27 @@ class Runtime {
 			const newKeys = {}
 
 			if (!this.initializedModules.has(moduleId)) {
-				const pendingUpdate = this.preInitUpdates.get(moduleId) || {}
-				Object.assign(pendingUpdate, data)
+				const pendingUpdate = this.preInitUpdates.get(moduleId) || { data: {}, changes: [] }
+				Object.assign(pendingUpdate.data, data)
+				pendingUpdate.changes.push(...changes)
 				this.preInitUpdates.set(moduleId, pendingUpdate)
 			}
-			for (const key in data) {
-				if (!Object.prototype.hasOwnProperty.call(setupData, key)) {
-					hasNewReactiveKey = true
-					newKeys[key] = data[key]
+			if (changes.length === 0) {
+				for (const key in data) {
+					if (!Object.prototype.hasOwnProperty.call(setupData, key)) {
+						hasNewReactiveKey = true
+						newKeys[key] = data[key]
+					}
+					set(setupData, key, data[key])
 				}
-				set(setupData, key, data[key])
+			}
+			for (const change of changes) {
+				const rootKey = change.path[0]
+				if (!Object.prototype.hasOwnProperty.call(setupData, rootKey)) {
+					hasNewReactiveKey = true
+				}
+				set(setupData, change.path, change.value)
+				newKeys[rootKey] = setupData[rootKey]
 			}
 			if (hasNewReactiveKey) {
 				this.refreshProxyAccess(moduleId, newKeys)
@@ -770,6 +1508,24 @@ class Runtime {
 		return canvas.__diminaCanvasNodeId
 	}
 
+	getCanvasCapabilities() {
+		if (!this.canvasCapabilities) {
+			this.canvasCapabilities = probeWebGLCapabilities()
+		}
+		return this.canvasCapabilities
+	}
+
+	publishCanvasCapabilities(bridgeId) {
+		message.send({
+			type: 'canvasCapabilities',
+			target: 'service',
+			body: {
+				bridgeId,
+				capabilities: this.getCanvasCapabilities(),
+			},
+		})
+	}
+
 	registerCanvasNode(canvas, type = canvas.getAttribute?.('type') || '2d') {
 		const nodeId = this.getCanvasNodeId(canvas)
 		const isNativeCanvas = (canvas.tagName?.toLowerCase() === 'embed' && canvas.type === 'native/canvas') ||
@@ -808,12 +1564,13 @@ class Runtime {
 			type,
 			width: canvas.width || width || 300,
 			height: canvas.height || height || 150,
+			webglCapabilities: this.getCanvasCapabilities(),
 		}
 		console.log('[render] registerCanvasNode result:', JSON.stringify(result))
 		return result
 	}
 
-	createOffscreenCanvas({ params }) {
+	createOffscreenCanvas({ bridgeId, params }) {
 		const { nodeId, width = 300, height = 150, type = '2d' } = params
 		const canvas = document.createElement('canvas')
 		canvas.width = width
@@ -823,6 +1580,124 @@ class Runtime {
 			type,
 			contexts: new Map(),
 		})
+		if (type === 'webgl' || type === 'experimental-webgl' || type === 'webgl2') {
+			this.publishCanvasCapabilities(bridgeId)
+		}
+	}
+
+	createGameCanvas({ bridgeId, params }) {
+		const { nodeId, width = 300, height = 150, type = '2d' } = params
+		const existing = this.canvasNodes.get(nodeId)
+		if (existing) {
+			return
+		}
+
+		const canvas = document.createElement('canvas')
+		canvas.width = width
+		canvas.height = height
+		canvas.setAttribute('data-dimina-game-canvas', '')
+		Object.assign(canvas.style, {
+			display: 'block',
+			position: 'fixed',
+			inset: '0',
+			width: '100%',
+			height: '100%',
+			touchAction: 'none',
+		})
+
+		const serializeTouch = (touch) => ({
+			identifier: touch.identifier,
+			clientX: touch.clientX,
+			clientY: touch.clientY,
+			pageX: touch.pageX,
+			pageY: touch.pageY,
+			force: Number.isFinite(touch.force) ? touch.force : 0,
+		})
+		const handlers = new Map()
+		const sendGameTouch = (eventType, touches, changedTouches, timeStamp) => {
+			message.send({
+				type: 'gameTouch',
+				target: 'service',
+				body: {
+					bridgeId,
+					eventType,
+					touches,
+					changedTouches,
+					timeStamp,
+				},
+			})
+		}
+		for (const eventType of ['touchstart', 'touchmove', 'touchend', 'touchcancel']) {
+			const handler = (event) => {
+				if (event.cancelable) {
+					event.preventDefault()
+				}
+				sendGameTouch(
+					eventType,
+					Array.from(event.touches || [], serializeTouch),
+					Array.from(event.changedTouches || [], serializeTouch),
+					event.timeStamp,
+				)
+			}
+			handlers.set(eventType, handler)
+			canvas.addEventListener(eventType, handler, { passive: false })
+		}
+
+		// 微信开发者工具会把模拟器里的鼠标操作转换成小游戏触摸事件。
+		// Web 容器做同样的兼容。触摸处理器已经 preventDefault，因此移动端
+		// 不会再派发兼容 mouse 事件，也就不会产生一触双发。
+		let mouseActive = false
+		let mouseHoverEnabled = false
+		const mouseEventTypes = {
+			mousedown: 'touchstart',
+			mousemove: 'touchmove',
+			mouseup: 'touchend',
+			mouseleave: 'touchcancel',
+		}
+		for (const [mouseType, touchType] of Object.entries(mouseEventTypes)) {
+			const handler = (event) => {
+				if (mouseType === 'mousedown') {
+					if (event.button !== 0) return
+					mouseActive = true
+					mouseHoverEnabled = true
+				}
+				else if (mouseType === 'mousemove' && !mouseHoverEnabled) {
+					return
+				}
+				else if (mouseType !== 'mousemove' && !mouseActive) {
+					return
+				}
+
+				if (event.cancelable) event.preventDefault()
+				const touch = serializeTouch({
+					identifier: 0,
+					clientX: event.clientX,
+					clientY: event.clientY,
+					pageX: event.pageX,
+					pageY: event.pageY,
+					force: mouseActive ? 0.5 : 0,
+				})
+				const ended = touchType === 'touchend' || touchType === 'touchcancel'
+				sendGameTouch(touchType, ended ? [] : [touch], [touch], event.timeStamp)
+				if (ended) mouseActive = false
+			}
+			handlers.set(mouseType, handler)
+			canvas.addEventListener(mouseType, handler, { passive: false })
+		}
+
+		document.body.append(canvas)
+		this.canvasNodes.set(nodeId, {
+			canvas,
+			type,
+			contexts: new Map(),
+			cleanup: () => {
+				for (const [eventType, handler] of handlers) {
+					canvas.removeEventListener(eventType, handler)
+				}
+				canvas.remove()
+			},
+		})
+		this.publishCanvasCapabilities(bridgeId)
 	}
 
 	resolveCanvasArg(value) {
@@ -871,6 +1746,18 @@ class Runtime {
 		return this.canvasResources.get(id)
 	}
 
+	getCanvasResourceId(value) {
+		if (value === null || value === undefined) {
+			return null
+		}
+		for (const [id, resource] of this.canvasResources) {
+			if (resource === value) {
+				return id
+			}
+		}
+		return null
+	}
+
 	setCanvasResource(id, value) {
 		if (id) {
 			this.canvasResources.set(id, value)
@@ -881,6 +1768,7 @@ class Runtime {
 		let image = this.getCanvasResource(imageId)
 		if (!image) {
 			image = new Image()
+			image.crossOrigin = "anonymous";
 			this.setCanvasResource(imageId, image)
 		}
 		return image
@@ -893,37 +1781,156 @@ class Runtime {
 				node.canvas[operation.prop] = operation.value
 				break
 			case 'getContext': {
-				console.log('[render] executeOp getContext type=' + operation.contextType + ' contextId=' + operation.contextId + ' isNative=' + !!node.nativeCanvas)
-				const context = node.canvas.getContext(operation.contextType, this.resolveCanvasArg(operation.attributes))
-				if (!context) {
-					console.error('[render] executeOp getContext FAILED: returned null for type=' + operation.contextType + ' canvas tag=' + node.canvas?.tagName)
+				let context = null
+				let statusMessage
+				try {
+					context = node.canvas.getContext(
+						operation.contextType,
+						this.resolveCanvasArg(operation.attributes),
+					)
+				}
+				catch (error) {
+					statusMessage = error instanceof Error ? error.message : String(error)
 				}
 				node.contexts.set(operation.contextId, context)
 				this.setCanvasResource(operation.contextId, context)
-				break
+				const isWebGL = operation.contextType === 'webgl'
+					|| operation.contextType === 'experimental-webgl'
+					|| operation.contextType === 'webgl2'
+				return {
+					contextId: operation.contextId,
+					context: context
+						? {
+							success: true,
+							capabilities: isWebGL ? describeWebGLContext(context, false) : null,
+						}
+						: {
+							success: false,
+							statusMessage: statusMessage || `getContext(${operation.contextType}) returned null`,
+						},
+				}
 			}
 			case 'contextSetProperty': {
 				const context = this.getCanvasResource(operation.contextId)
-				if (!context) {
-					console.error('[render] executeOp contextSetProperty: context NOT FOUND contextId=' + operation.contextId)
-				} else {
-					context[operation.prop] = this.resolveCanvasArg(operation.value)
+				if (context) {
+					try {
+						context[operation.prop] = this.resolveCanvasArg(operation.value)
+					}
+					catch (error) {
+						console.warn('[system]', '[render]', `Canvas context property ${operation.prop} failed: ${error}`)
+					}
 				}
 				break
 			}
 			case 'contextCall': {
 				const context = this.getCanvasResource(operation.contextId)
-				if (!context) {
-					console.error('[render] executeOp contextCall: context NOT FOUND contextId=' + operation.contextId + ' method=' + operation.method)
-					break
-				}
 				const method = context?.[operation.method]
 				if (typeof method !== 'function') {
-					console.error('[render] executeOp contextCall: method NOT FOUND method=' + operation.method + ' on context type=' + typeof context)
 					break
 				}
-				const result = method.apply(context, (operation.args || []).map(arg => this.resolveCanvasArg(arg)))
-				this.setCanvasResource(operation.resultId, result)
+				const args = (operation.args || []).map(arg => this.resolveCanvasArg(arg))
+				try {
+					const result = method.apply(context, args)
+					this.setCanvasResource(operation.resultId, result)
+				}
+				catch (error) {
+					console.warn('[system]', '[render]', `Canvas context call ${operation.method} failed: ${error}`)
+				}
+
+				const feedback = {
+					contextId: operation.contextId,
+				}
+				if (operation.feedback === 'shader') {
+					const shader = args[0]
+					let metadata = { compileStatus: false, infoLog: '' }
+					try {
+						metadata = {
+							shaderType: context.getShaderParameter(shader, context.SHADER_TYPE),
+							compileStatus: context.getShaderParameter(shader, context.COMPILE_STATUS),
+							infoLog: context.getShaderInfoLog(shader) || '',
+						}
+					}
+					catch {
+						// Resource creation can legitimately fail and return null.
+					}
+					feedback.resource = {
+						resourceId: operation.args?.[0]?.__canvasResourceId,
+						metadata,
+					}
+				}
+				else if (operation.feedback === 'program') {
+					const program = args[0]
+					let metadata = { linkStatus: false, validateStatus: false, infoLog: '' }
+					try {
+						metadata = {
+							linkStatus: context.getProgramParameter(program, context.LINK_STATUS),
+							validateStatus: context.getProgramParameter(program, context.VALIDATE_STATUS),
+							infoLog: context.getProgramInfoLog(program) || '',
+						}
+					}
+					catch {
+						// Resource creation can legitimately fail and return null.
+					}
+					feedback.resource = {
+						resourceId: operation.args?.[0]?.__canvasResourceId,
+						metadata,
+					}
+				}
+				if (operation.typedArrayUpdateId && Number.isInteger(operation.typedArrayArgIndex)) {
+					feedback.typedArray = {
+						id: operation.typedArrayUpdateId,
+						value: serializeCanvasResult(args[operation.typedArrayArgIndex]),
+					}
+				}
+				return feedback
+			}
+			case 'contextQuery': {
+				const context = this.getCanvasResource(operation.contextId)
+				const method = context?.[operation.method]
+				if (typeof method !== 'function') {
+					break
+				}
+				let value = null
+				try {
+					value = method.apply(context, (operation.args || []).map(arg => this.resolveCanvasArg(arg)))
+				}
+				catch (error) {
+					console.warn('[system]', '[render]', `Canvas context query ${operation.method} failed: ${error}`)
+				}
+				return {
+					contextId: operation.contextId,
+					query: {
+						key: operation.key,
+						value: serializeCanvasResult(value, item => this.getCanvasResourceId(item)),
+					},
+				}
+			}
+			case 'contextFeedback':
+				break
+			case 'getExtension': {
+				const context = this.getCanvasResource(operation.contextId)
+				let extension = null
+				try {
+					extension = context?.getExtension?.(operation.name) || null
+				}
+				catch (error) {
+					console.warn('[system]', '[render]', `Canvas extension ${operation.name} failed: ${error}`)
+				}
+				this.setCanvasResource(operation.extensionId, extension)
+				break
+			}
+			case 'extensionCall': {
+				const extension = this.getCanvasResource(operation.extensionId)
+				const method = extension?.[operation.method]
+				if (typeof method === 'function') {
+					try {
+						const result = method.apply(extension, (operation.args || []).map(arg => this.resolveCanvasArg(arg)))
+						this.setCanvasResource(operation.resultId, result)
+					}
+					catch (error) {
+						console.warn('[system]', '[render]', `Canvas extension call ${operation.method} failed: ${error}`)
+					}
+				}
 				break
 			}
 			case 'resourceCall': {
@@ -960,6 +1967,26 @@ class Runtime {
 				image.src = operation.src
 				break
 			}
+			case 'getImageData': {
+				const context = this.getCanvasResource(operation.contextId)
+				if (context) {
+					const imageData = context.getImageData(operation.x, operation.y, operation.width, operation.height)
+					this.triggerCallback(bridgeId, operation.callback, {
+						data: Array.from(imageData.data),
+						width: imageData.width,
+						height: imageData.height,
+					})
+				}
+				break
+			}
+			case 'toDataURL': {
+				const mimeType = operation.mimeType || 'image/png'
+				const dataURL = operation.quality !== undefined
+					? node.canvas.toDataURL(mimeType, operation.quality)
+					: node.canvas.toDataURL(mimeType)
+				this.triggerCallback(bridgeId, operation.callback, dataURL)
+				break
+			}
 			default:
 				console.warn('[system]', '[render]', `Unsupported canvas node operation: ${operation.op}`)
 		}
@@ -968,16 +1995,66 @@ class Runtime {
 	canvasNodeFlush({ bridgeId, params }) {
 		const node = this.canvasNodes.get(params.nodeId)
 		if (!node) {
-			console.error('[render] canvasNodeFlush: node NOT FOUND nodeId=' + params.nodeId + ' registered nodes: [' + Array.from(this.canvasNodes.keys()).join(', ') + ']')
+			console.warn('[system]', '[render]', `canvas node ${params.nodeId} not found`)
+			this.triggerCallback(bridgeId, params.feedback, {})
 			return
 		}
 		const ops = params.operations || []
 		const opSummary = ops.map(o => o.op + (o.method ? ':' + o.method : o.prop ? ':' + o.prop : ''))
 		console.log('[render] canvasNodeFlush nodeId=' + params.nodeId + ' isNative=' + !!node.nativeCanvas + ' ops(' + ops.length + '):', JSON.stringify(opSummary))
 
-		for (const operation of ops) {
-			this.executeCanvasOperation(node, operation, bridgeId)
+		const feedback = {
+			contexts: {},
+			typedArrays: [],
 		}
+		const touchedContexts = new Set()
+		for (const operation of params.operations || []) {
+			if (operation.contextId) {
+				touchedContexts.add(operation.contextId)
+			}
+			const result = this.executeCanvasOperation(node, operation, bridgeId)
+			if (!result) {
+				continue
+			}
+			if (result.contextId) {
+				feedback.contexts[result.contextId] ||= {}
+				if (result.context) {
+					Object.assign(feedback.contexts[result.contextId], result.context)
+				}
+				if (result.resource?.resourceId) {
+					feedback.contexts[result.contextId].resources ||= []
+					feedback.contexts[result.contextId].resources.push(result.resource)
+				}
+				if (result.query) {
+					feedback.contexts[result.contextId].queries ||= []
+					feedback.contexts[result.contextId].queries.push(result.query)
+				}
+			}
+			if (result.typedArray) {
+				feedback.typedArrays.push(result.typedArray)
+			}
+		}
+
+		for (const contextId of params.feedback ? touchedContexts : []) {
+			const context = this.getCanvasResource(contextId)
+			if (!context || typeof context.getError !== 'function') {
+				continue
+			}
+			feedback.contexts[contextId] ||= {}
+			feedback.contexts[contextId].contextLost = Boolean(context.isContextLost?.())
+			const errors = []
+			for (let i = 0; i < 32; i++) {
+				const error = context.getError()
+				if (error === context.NO_ERROR) {
+					break
+				}
+				errors.push(error)
+			}
+			if (errors.length > 0) {
+				feedback.contexts[contextId].errors = errors
+			}
+		}
+		this.triggerCallback(bridgeId, params.feedback, feedback)
 	}
 
 	canvasNodeRequestAnimationFrame({ bridgeId, params }) {
@@ -1366,34 +2443,74 @@ class Runtime {
 		}
 
 		try {
-			this.ensureCanvasResolution(canvas)
-			const exportWidth = width || canvas.width
-			const exportHeight = height || canvas.height
-			const outputCanvas = document.createElement('canvas')
-			outputCanvas.width = destWidth || exportWidth
-			outputCanvas.height = destHeight || exportHeight
-			const outputContext = outputCanvas.getContext('2d')
-			outputContext.drawImage(
-				canvas,
-				x,
-				y,
-				exportWidth,
-				exportHeight,
-				0,
-				0,
-				outputCanvas.width,
-				outputCanvas.height,
-			)
+            const exportWidth = width || canvas.width;
+            const exportHeight = height || canvas.height;
+            const outputCanvas = document.createElement("canvas");
+            outputCanvas.width = destWidth || exportWidth;
+            outputCanvas.height = destHeight || exportHeight;
+            const outputContext = outputCanvas.getContext("2d");
+            outputContext.drawImage(
+                canvas,
+                x,
+                y,
+                exportWidth,
+                exportHeight,
+                0,
+                0,
+                outputCanvas.width,
+                outputCanvas.height,
+            );
 
-			const mimeType = fileType === 'jpg' || fileType === 'jpeg' ? 'image/jpeg' : 'image/png'
-			const tempFilePath = outputCanvas.toDataURL(mimeType, quality)
-			const result = {
-				errMsg: 'canvasToTempFilePath:ok',
-				tempFilePath,
-			}
-			this.triggerCallback(bridgeId, params.success, [result], result)
-			this.triggerCallback(bridgeId, params.complete, [result], result)
-		}
+            const mimeType =
+                fileType === "jpg" || fileType === "jpeg"
+                    ? "image/jpeg"
+                    : "image/png";
+            const dataURL = outputCanvas.toDataURL(mimeType, quality);
+
+            // TODO: 添加一个 H5 的容器标识在 userAgent
+            // const byteString = atob(dataURL.split(",")[1]);
+            // const ab = new ArrayBuffer(byteString.length);
+            // const ia = new Uint8Array(ab);
+            // for (let i = 0; i < byteString.length; i++) {
+            //     ia[i] = byteString.charCodeAt(i);
+            // }
+            // const blob = new Blob([ab], { type: mimeType });
+            // const tempFilePath = URL.createObjectURL(blob);
+
+            // const result = {
+            //     tempFilePath,
+            //     errMsg: "canvasToTempFilePath:ok",
+            // };
+            // this.triggerCallback(
+            //     bridgeId,
+            //     params.success,
+            //     [result],
+            //     result,
+            // );
+            // this.triggerCallback(
+            //     bridgeId,
+            //     params.complete,
+            //     [result],
+            //     result,
+            // );
+
+            // Forward to Container to write base64 to a temp file and return a real file path
+            message.invoke({
+                type: "invokeAPI",
+                target: "container",
+                body: {
+                    name: "saveCanvasTempFile",
+                    bridgeId,
+                    params: {
+                        dataURL,
+                        fileType,
+                        success: params.success,
+                        fail: params.fail,
+                        complete: params.complete,
+                    },
+                },
+            });
+        }
 		catch (error) {
 			this.triggerCanvasFailure(bridgeId, params, `canvasToTempFilePath:fail ${error.message}`)
 		}
@@ -1482,7 +2599,7 @@ class Runtime {
 				return
 			}
 
-			// 目标 DOM 已出现，等待所有 pending setup 完成（service 侧 created/attached 执行完毕），
+			// 目标 DOM 已出现，等待所有 pending setup 完成（service 侧 created 与初始数据握手完毕），
 			// 但排除 observer 调用方自身（moduleId），避免在 created/onLoad 内调用时产生循环等待。
 			// 这保证了：IntersectionObserver 首次回调到达 service 时，目标 DOM 内子组件的
 			// 生命周期钩子（如 EventBus.once 注册）已就绪。
@@ -1569,8 +2686,145 @@ class Runtime {
 		}
 	}
 
-	addPerformanceObserver() {
-		// TODO: 性能观察对象
+	addMediaQueryObserver({ bridgeId, params }) {
+		const { condition = {}, success } = params
+		const mediaFeatures = {
+			minWidth: 'min-width',
+			maxWidth: 'max-width',
+			width: 'width',
+			minHeight: 'min-height',
+			maxHeight: 'max-height',
+			height: 'height',
+		}
+		const clauses = []
+		for (const [key, feature] of Object.entries(mediaFeatures)) {
+			if (Number.isFinite(condition[key]) && condition[key] >= 0) {
+				clauses.push(`(${feature}: ${condition[key]}px)`)
+			}
+		}
+		if (condition.orientation) {
+			clauses.push(`(orientation: ${condition.orientation})`)
+		}
+
+		const mediaQueryList = window.matchMedia(clauses.join(' and ') || 'all')
+		const observerId = uuid()
+		const listener = event => this.triggerCallback(bridgeId, success, {
+			observerId,
+			matches: event.matches,
+		})
+		if (mediaQueryList.addEventListener) {
+			mediaQueryList.addEventListener('change', listener)
+		}
+		else {
+			mediaQueryList.addListener?.(listener)
+		}
+		this.mediaQueryObservers.set(observerId, { mediaQueryList, listener })
+		this.triggerCallback(bridgeId, success, {
+			observerId,
+			matches: mediaQueryList.matches,
+		})
+	}
+
+	removeMediaQueryObserver({ params: { observerId } }) {
+		const observer = this.mediaQueryObservers.get(observerId)
+		if (!observer) {
+			return
+		}
+		if (observer.mediaQueryList.removeEventListener) {
+			observer.mediaQueryList.removeEventListener('change', observer.listener)
+		}
+		else {
+			observer.mediaQueryList.removeListener?.(observer.listener)
+		}
+		this.mediaQueryObservers.delete(observerId)
+	}
+
+	async componentAnimate({ bridgeId, params }) {
+		const { moduleId, selector, keyframes = [], duration = 0, success } = params
+		const root = await this.waitForEl(this.instance.get(moduleId))
+		const elements = root?.querySelectorAll?.(selector) || []
+		const animationKey = `${moduleId}:${selector}`
+		const previousAnimations = this.componentAnimations.get(animationKey)
+		previousAnimations?.forEach(animation => animation.cancel())
+
+		const normalizedKeyframes = Array.from(keyframes, (keyframe) => {
+			const normalized = { ...keyframe }
+			if (normalized.ease && !normalized.easing) {
+				normalized.easing = normalized.ease
+				delete normalized.ease
+			}
+			return normalized
+		})
+		const animations = Array.from(elements, element => element.animate(normalizedKeyframes, {
+			duration: Math.max(Number(duration) || 0, 0),
+			fill: 'forwards',
+		}))
+		const animationSet = new Set(animations)
+		this.componentAnimations.set(animationKey, animationSet)
+		await Promise.allSettled(animations.map(animation => animation.finished))
+		if (this.componentAnimations.get(animationKey) === animationSet) {
+			this.componentAnimations.delete(animationKey)
+		}
+		this.triggerCallback(bridgeId, success)
+	}
+
+	async componentClearAnimation({ bridgeId, params }) {
+		const { moduleId, selector, options = {}, success } = params
+		const animationKey = `${moduleId}:${selector}`
+		const animations = this.componentAnimations.get(animationKey) || []
+		for (const animation of animations) {
+			if (options.final) {
+				try {
+					animation.finish()
+					animation.commitStyles?.()
+				}
+				catch {
+					// An idle or scroll-driven animation cannot always be finished.
+				}
+			}
+			animation.cancel()
+		}
+		this.componentAnimations.delete(animationKey)
+		this.triggerCallback(bridgeId, success)
+	}
+
+	addPerformanceObserver({ bridgeId, params }) {
+		const { entryTypes = [], success } = params
+		const observerId = uuid()
+		if (typeof PerformanceObserver === 'undefined') {
+			this.triggerCallback(bridgeId, success, { observerId, unsupported: true })
+			return
+		}
+
+		const supportedTypes = new Set(PerformanceObserver.supportedEntryTypes || [])
+		const normalizedTypes = entryTypes.filter(type => supportedTypes.size === 0 || supportedTypes.has(type))
+		const observer = new PerformanceObserver((list) => {
+			const entries = list.getEntries().map(entry => (
+				typeof entry.toJSON === 'function'
+					? entry.toJSON()
+					: {
+						name: entry.name,
+						entryType: entry.entryType,
+						startTime: entry.startTime,
+						duration: entry.duration,
+					}
+			))
+			this.triggerCallback(bridgeId, success, {
+				observerId,
+				data: { entryList: JSON.stringify(entries) },
+			})
+		})
+		if (normalizedTypes.length > 0) {
+			observer.observe({ entryTypes: normalizedTypes })
+		}
+		this.performanceObservers.set(observerId, observer)
+		this.triggerCallback(bridgeId, success, { observerId })
+	}
+
+	removePerformanceObserver({ params: { observerId } }) {
+		const observer = this.performanceObservers.get(observerId)
+		observer?.disconnect()
+		this.performanceObservers.delete(observerId)
 	}
 }
 

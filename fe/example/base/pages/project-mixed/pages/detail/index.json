@@ -1,7 +1,7 @@
 {
-  "navigationBarBackgroundColor": "#5bc0a5",
-  "navigationBarTextStyle": "white",
-  "navigationBarTitleText": "详情页",
-  "backgroundColor": "#fff",
+  "navigationBarBackgroundColor": "#f3f5f9",
+  "navigationBarTextStyle": "black",
+  "navigationBarTitleText": "模板与模块能力",
+  "backgroundColor": "#f3f5f9",
   "usingComponents": {}
 }

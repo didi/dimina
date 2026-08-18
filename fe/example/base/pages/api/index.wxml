@@ -41,6 +41,11 @@
 <button type="primary" bindtap="compressImage">compressImage</button>
 <button type="primary" bindtap="chooseImage">chooseImage</button>
 <button type="primary" bindtap="chooseMedia">chooseMedia</button>
+<button type="primary" bindtap="chooseMessageFileAll">chooseMessageFile(all)</button>
+<button type="primary" bindtap="chooseMessageFileImage">chooseMessageFile(image)</button>
+<button type="primary" bindtap="chooseMessageFileVideo">chooseMessageFile(video)</button>
+<button type="primary" bindtap="chooseMessageFileByExtension">chooseMessageFile(file + extension)</button>
+<button type="primary" bindtap="chooseMessageFilePromise">chooseMessageFile(Promise)</button>
 
 <button type="primary" bindtap="chooseContact">chooseContact</button>
 <button type="primary" bindtap="addPhoneContact">addPhoneContact</button>

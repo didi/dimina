@@ -1,5 +1,6 @@
 import tpl from './device.html?raw'
 import './device.scss'
+import diminaLogo from '@/assets/dimina-logo.png'
 
 export class Device {
 	constructor() {
@@ -12,11 +13,13 @@ export class Device {
 
 	init() {
 		this.root.innerHTML = tpl
+		this.root.querySelector('.device-stage__logo')?.setAttribute('src', diminaLogo)
 
 		this.appContainer = this.root.querySelector('.iphone__apps')
-		this.updateDeviceBarColor('black')
+		this.updateStatusBarColor('black')
 		this.updateStatusBarTime()
-		this.outerGlow()
+		this.bindDynamicIsland()
+		this.bindStageGlow()
 		this.bindPowerButton()
 	}
 
@@ -37,7 +40,7 @@ export class Device {
 		setInterval(updateTime, 60000)
 	}
 
-	outerGlow() {
+	bindDynamicIsland() {
 		const island = this.root.querySelector('.iphone__screen_dynamic-island')
 		island.addEventListener('click', () => {
 			window.open('https://github.com/didi/dimina', '_blank')
@@ -54,7 +57,10 @@ export class Device {
 			// 移除CSS类来恢复大小
 			island.classList.remove('island-hover')
 		})
+	}
 
+	bindStageGlow() {
+		const stage = this.root.querySelector('.device-stage')
 		let pendingPointer = null
 		let pointerFrame = 0
 		const syncPointer = ({ x: pointerX, y: pointerY }) => {
@@ -67,16 +73,12 @@ export class Device {
 				const { pointerX, pointerY } = pendingPointer
 				const x = pointerX.toFixed(2)
 				const y = pointerY.toFixed(2)
-				const xp = (pointerX / window.innerWidth).toFixed(2)
-				const yp = (pointerY / window.innerHeight).toFixed(2)
-				document.documentElement.style.setProperty('--x', x)
-				document.documentElement.style.setProperty('--xp', xp)
-				document.documentElement.style.setProperty('--y', y)
-				document.documentElement.style.setProperty('--yp', yp)
+				stage.style.setProperty('--x', x)
+				stage.style.setProperty('--y', y)
 				pointerFrame = 0
 			})
 		}
-		document.body.addEventListener('pointermove', syncPointer)
+		this.root.addEventListener('pointermove', syncPointer)
 	}
 
 	bindPowerButton() {
@@ -129,7 +131,8 @@ export class Device {
 	}
 
 	// black white
-	updateDeviceBarColor(color) {
+	// 实现 container-sdk 的 shell.updateStatusBarColor 接口（见 createContainer 契约）
+	updateStatusBarColor(color) {
 		const statusBar = this.root.querySelector('.iphone__status-bar')
 
 		if (color === 'black') {
@@ -142,9 +145,14 @@ export class Device {
 		}
 	}
 
+	// 实现 container-sdk 的 shell.getStatusBarRect 接口（见 createContainer 契约）
+	getStatusBarRect() {
+		return this.root.querySelector('.iphone__status-bar').getBoundingClientRect()
+	}
+
+	// 只记录当前承载的 Application 实例，供锁屏/亮屏时联动挂起/恢复视图使用；
+	// DOM 挂载由 createContainer({ mount: device.appContainer }) 负责，这里不重复处理。
 	open(app) {
 		this.application = app
-		app.parent = this
-		this.appContainer.appendChild(app.el)
 	}
 }

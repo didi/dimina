@@ -408,14 +408,17 @@ export function parsePath(currPath, url) {
 	return newUrl
 }
 
-// TODO: 合并 compiler 下的 transformRpx
+// Keep rpx independent from the document root font size. page-meta can change
+// root-font-size for real rem values, so using rem as an rpx transport makes
+// every rpx declaration jump to the system font size.
 const rpxRegex = /([+-]?\d+(?:\.\d+)?)rpx/g
 export function transformRpx(styleText) {
 	if (!isString(styleText)) {
 		return styleText
 	}
 	return styleText.replace(rpxRegex, (match, pixel) => {
-		return `${Number(pixel)}rem`
+		const viewportWidth = Number((Number(pixel) / 7.5).toFixed(6))
+		return `${Object.is(viewportWidth, -0) ? 0 : viewportWidth}vw`
 	})
 }
 

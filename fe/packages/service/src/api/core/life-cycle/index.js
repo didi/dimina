@@ -5,7 +5,7 @@ import runtime from '@/core/runtime'
  * https://developers.weixin.qq.com/miniprogram/dev/api/base/app/life-cycle/wx.getLaunchOptionsSync.html
  */
 export function getLaunchOptionsSync() {
-	return runtime.app?.options
+	return runtime.getAppLaunchOptions()
 }
 
 /**
@@ -13,5 +13,5 @@ export function getLaunchOptionsSync() {
  * https://developers.weixin.qq.com/miniprogram/dev/api/base/app/life-cycle/wx.getEnterOptionsSync.html
  */
 export function getEnterOptionsSync() {
-	return runtime.app?.options
+	return runtime.getAppEnterOptions()
 }

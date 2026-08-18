@@ -31,3 +31,11 @@ export function setNavigationBarColor(opts) {
 export function hideNavigationBarLoading(opts) {
 	return invokeAPI('hideNavigationBarLoading', opts)
 }
+
+/**
+ * 隐藏当前页面导航条左侧的返回首页按钮
+ * https://developers.weixin.qq.com/miniprogram/dev/api/ui/navigation-bar/wx.hideHomeButton.html
+ */
+export function hideHomeButton(opts) {
+	return invokeAPI('hideHomeButton', opts)
+}

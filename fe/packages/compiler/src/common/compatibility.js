@@ -1,9 +1,71 @@
 import { Parser } from 'htmlparser2'
-import { getViewScriptTags } from '../env.js'
+import { isHTMLTag } from '@vue/shared'
+import { isMainThread } from 'node:worker_threads'
+import { getTemplateDirectivePrefixes, getViewScriptTags } from '../env.js'
 import { supportedBuiltinComponents, supportedWxApis } from './compatibility-reference.js'
+import { miniProgramBuiltinTags, tagWhiteList } from './utils.js'
 
 let cachedReference = null
 const warnedItems = new Set()
+const pendingWarnings = []
+const TEMPLATE_DIRECTIVE_NAMES = new Set([
+	'if',
+	'elif',
+	'else',
+	'for',
+	'for-items',
+	'for-item',
+	'for-index',
+	'key',
+])
+const KNOWN_NON_TEMPLATE_PREFIXES = new Set([
+	'model',
+	'change',
+	'worklet',
+	'data',
+	'class',
+	'style',
+	'bind',
+	'mut-bind',
+	'catch',
+	'capture-bind',
+	'capture-mut-bind',
+	'capture-catch',
+	'mark',
+	'generic',
+	'extra-attr',
+	'slot',
+	'let',
+])
+
+function splitAttributePrefix(attributeName) {
+	const segments = attributeName.split(':')
+	if (segments.length !== 2 || !segments[0] || !segments[1]) {
+		return null
+	}
+	return { prefix: segments[0], name: segments[1] }
+}
+
+function getTemplateDirectiveName(attributeName) {
+	const attribute = splitAttributePrefix(attributeName)
+	if (!attribute || !getTemplateDirectivePrefixes().includes(attribute.prefix)) {
+		return null
+	}
+	return TEMPLATE_DIRECTIVE_NAMES.has(attribute.name) ? attribute.name : null
+}
+
+function getInvalidAttributePrefix(attributeName) {
+	const attribute = splitAttributePrefix(attributeName)
+	if (!attribute) return null
+	const templatePrefixes = getTemplateDirectivePrefixes()
+	if (templatePrefixes.includes(attribute.prefix)) {
+		return TEMPLATE_DIRECTIVE_NAMES.has(attribute.name) ? null : attribute.prefix
+	}
+	if (KNOWN_NON_TEMPLATE_PREFIXES.has(attribute.prefix)) {
+		return null
+	}
+	return attribute.prefix
+}
 
 function loadReference() {
 	if (cachedReference) {
@@ -128,7 +190,19 @@ function warnUnsupportedComponent(tagName, filePath, line) {
 	const { supportedBuiltinComponents } = loadReference()
 	// 视图脚本标签（wxs、dds 及自定义标签）不是组件，需动态豁免。
 	// 兼容性清单仅包含 wxs，因此还需在此放行 dds 和自定义标签，避免误报。
-	if (!tagName || supportedBuiltinComponents.has(tagName) || getViewScriptTags().includes(tagName)) {
+	if (
+		!tagName
+		|| supportedBuiltinComponents.has(tagName)
+		|| tagWhiteList.includes(tagName)
+		|| getViewScriptTags().includes(tagName)
+	) {
+		return
+	}
+
+	// glass-easel resolves registered mini-program components first, then falls
+	// back to a native node for undeclared tags. Standard HTML follows that native
+	// path, but known mini-program built-ins still need an unsupported warning.
+	if (!miniProgramBuiltinTags.has(tagName) && isHTMLTag(tagName)) {
 		return
 	}
 
@@ -140,16 +214,33 @@ function checkTemplateCompatibility(content, filePath, components = {}) {
 	let parser
 	parser = new Parser(
 		{
-			onopentag(tagName) {
+			onopentag(tagName, attrs) {
+				const line = getLineByIndex(content, parser.startIndex)
+				for (const attributeName of Object.keys(attrs)) {
+					const invalidPrefix = getInvalidAttributePrefix(attributeName)
+					if (invalidPrefix) {
+						const location = formatLocation(filePath, line)
+						warnOnce(
+							'template-prefix',
+							attributeName,
+							location,
+							`[compat] Invalid template attribute prefix: ${invalidPrefix}: (${attributeName})${location}`,
+						)
+					}
+				}
 				if (components?.[tagName]) {
 					return
 				}
 
-				const line = getLineByIndex(content, parser.startIndex)
 				warnUnsupportedComponent(tagName, filePath, line)
 			},
 			onerror(error) {
-				console.warn('[compat]', `Failed to parse template for compatibility diagnostics: ${filePath}`, error.message)
+				warnOnce(
+					'parse',
+					filePath,
+					error.message,
+					`[compat] Failed to parse template for compatibility diagnostics: ${filePath} ${error.message}`,
+				)
 			},
 		},
 		{
@@ -191,13 +282,24 @@ function warnOnce(type, name, location, message) {
 		return
 	}
 	warnedItems.add(key)
-	console.warn(message)
+	if (isMainThread) {
+		console.warn(message)
+	}
+	else {
+		pendingWarnings.push(message)
+	}
+}
+
+function takeCompatibilityWarnings() {
+	return pendingWarnings.splice(0)
 }
 
 export {
 	checkTemplateCompatibility,
+	getTemplateDirectiveName,
 	getWxMemberName,
 	loadReference,
 	parseApiReference,
+	takeCompatibilityWarnings,
 	warnUnsupportedWxApi,
 }

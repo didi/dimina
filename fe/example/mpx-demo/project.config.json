@@ -1,0 +1,15 @@
+{
+  "setting": {
+    "newFeature": true,
+    "urlCheck": false,
+    "es6": false,
+    "postcss": true,
+    "minified": false,
+    "checkSiteMap": false,
+    "autoAudits": false
+  },
+  "appid": "wx6d707864656d6f01",
+  "projectname": "Mpx 兼容性示例",
+  "description": "Mpx compatibility demo for Dimina",
+  "condition": {}
+}

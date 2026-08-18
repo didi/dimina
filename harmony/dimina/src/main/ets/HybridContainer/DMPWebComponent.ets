@@ -13,6 +13,7 @@ import { DMPPageRecord } from '../Navigator/DMPPageRecord'
 import { NumberUtils } from '../Utils/DMPNumberUtils'
 import { DMPMap } from '../Utils/DMPMap'
 import { systemDateTime } from '@kit.BasicServicesKit'
+import { DMPContextUtils } from '../Utils/DMPContextUtils'
 
 
 @Component
@@ -27,13 +28,16 @@ export struct DMPWebComponent {
   // 同层渲染用到
   private sameLayerNodeControllerMap: Map<string, DMPNodeController> = new Map();
   @State componentIdArr: Array<string> = [];
+  @State modalInteractionBlocked: boolean = false
+  private modalInteractionBlockCount: number = 0
   private requestCallback: RequestCallback = new RequestCallback(this.appIndex);
   startTime: number = 0
   endTime: number = 0
 
   aboutToAppear(): void {
-    // 配置Web开启调试模式
-    web_webview.WebviewController.setWebDebuggingAccess(true);
+    // Remote WebView inspection must follow the host build type, not a
+    // mini-program supplied debug flag.
+    web_webview.WebviewController.setWebDebuggingAccess(DMPContextUtils.debugMode);
     this.controller.webContainer = this;
     this.startTime = systemDateTime.getTime()
     DMPLogger.i(Tags.DMP_WEB_COMPONENT, "aboutToAppear")
@@ -56,6 +60,15 @@ export struct DMPWebComponent {
 
   }
 
+  setModalInteractionBlocked(blocked: boolean) {
+    if (blocked) {
+      this.modalInteractionBlockCount++
+    } else {
+      this.modalInteractionBlockCount = Math.max(0, this.modalInteractionBlockCount - 1)
+    }
+    this.modalInteractionBlocked = this.modalInteractionBlockCount > 0
+  }
+
   @Builder
   content() {
     Stack() {
@@ -72,7 +85,7 @@ export struct DMPWebComponent {
           return false
         })
         .cacheMode(CacheMode.Online)
-        .fileAccess(true)
+        .fileAccess(DMPContextUtils.debugMode)
         .zoomAccess(false)
         .verticalScrollBarAccess(false)
         .domStorageAccess(true)
@@ -109,8 +122,11 @@ export struct DMPWebComponent {
         })
         .onInterceptRequest(this.requestCallback.callback.bind(this.requestCallback))
         .onLoadIntercept((event) => {
-          DMPLogger.d('onLoadIntercept', `url:${event.data.getRequestUrl()}`, `isMainFrame:${event.data.isMainFrame()}`,
-            `isRedirect:${event.data.isRedirect()}`, `isRequestGesture:${event.data.isRequestGesture()}`)
+          const requestUrl = event.data.getRequestUrl()
+          if (event.data.isMainFrame() && !this.isTrustedMainFrameUrl(requestUrl)) {
+            DMPLogger.w(Tags.DMP_WEB_COMPONENT, 'Blocked untrusted WebView navigation')
+            return true
+          }
           return false
         })
         .enableNativeEmbedMode(true)// 获取embed标签的生命周期变化数据。
@@ -142,6 +158,7 @@ export struct DMPWebComponent {
         .expandSafeArea([SafeAreaType.KEYBOARD])
 
     }
+    .enabled(!this.modalInteractionBlocked)
   }
 
   private createSameLayerNode(embed: NativeEmbedDataInfo, componentId: string) {
@@ -271,6 +288,15 @@ export struct DMPWebComponent {
           break
       }
     }
+  }
+
+  private isTrustedMainFrameUrl(requestUrl: string): boolean {
+    if (requestUrl === 'about:blank') return true
+    const withoutQuery = (value: string): string => value.split('#')[0].split('?')[0]
+    const trustedUrl = withoutQuery(this.controller.loadPath())
+    const normalizedRequestUrl = withoutQuery(requestUrl)
+    return normalizedRequestUrl === trustedUrl
+      || (trustedUrl.startsWith('/') && normalizedRequestUrl === `file://${trustedUrl}`)
   }
 
   build() {

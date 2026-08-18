@@ -1,6 +1,6 @@
 import { invokeAPI } from '@/api/common'
 import router from '@/core/router'
-export { createOffscreenCanvas } from './native-node'
+export { createCanvas, createOffscreenCanvas } from './canvas-node'
 
 /**
  * 创建绘图上下文

@@ -1,14 +1,19 @@
 
 import { DMPNetServiceNext } from '../../HttpManager/DMPNetServiceNext';
 import { DMPContainerBridgesModule } from '../DMPContainerBridgesModule';
-import { DMPBridgeCallback, isMainThread } from '../DMPTSUtil';
+import { DMPBridgeCallback, DMPBridgeCallbackType } from '../DMPTSUtil';
 import { BusinessError, request } from '@kit.BasicServicesKit';
+import { http } from '@kit.NetworkKit';
 import { DMPMap } from '@didi-dimina/dimina/ets/Utils/DMPMap';
 import { DMPContextUtils } from '../../Utils/DMPContextUtils';
 import { DMPFileUrlConvertor } from '../../Bundle/Util/DMPFileUrlConvertor';
 export class DMPContainerBridgesModuleHttp extends DMPContainerBridgesModule {
+  private uploadTasks: Map<string, http.HttpRequest> = new Map();
+  private uploadCallbacks: Map<string, DMPBridgeCallback> = new Map();
+  private settledUploadTasks: Set<string> = new Set();
+
   getExportMethods(): string[] {
-    return ['request','downloadFile','uploadFile'];
+    return ['request','downloadFile','uploadFile','uploadFileTaskAbort'];
   }
 
   request(data: DMPMap, callback: DMPBridgeCallback) {
@@ -81,50 +86,146 @@ export class DMPContainerBridgesModuleHttp extends DMPContainerBridgesModule {
 
   }
 
-  async uploadFile(param: DMPMap, callback: DMPBridgeCallback) {
-    const url: string = param.getString('url')!;
-    let filePath: string = param.getString('filePath')!;
-    filePath = DMPFileUrlConvertor.localPathFromVPath(filePath)
-    const formData: object = param.get('formData');
-    const header: object = param.get('header');
-    const fileName = this.getNameFromFile(filePath)
+  uploadFile(param: DMPMap, callback: DMPBridgeCallback): void {
+    const url = param.getString('url') ?? '';
+    const virtualFilePath = param.getString('filePath') ?? '';
+    const name = param.getString('name') ?? '';
+    const taskId = param.getString('taskId') ?? `${Date.now()}`;
+    const progressCallbackId = param.getString('progressCallback') ?? '';
+    const headersCallbackId = param.getString('headersCallback') ?? '';
+    const requestedTimeout = param.getNumber('timeout') ?? 60000;
+    const timeout = requestedTimeout > 0 ? requestedTimeout : 60000;
 
-    const uri =  DMPFileUrlConvertor.uri2UploadImageFilePath(filePath)
-
-    // 上传任务配置项
-    let files: Array<request.File> = [
-      { filename: fileName, name: 'file', uri: uri, type: 'application/octet-stream' }
-    ]
-    const data: Array<request.RequestData> = [];
-    const formDataMap = new DMPMap(formData)
-    formDataMap.toMap<string,string>().forEach((v,k,map)=>{
-      data.push({name:k,value:v})
-    })
-    let uploadConfig: request.UploadConfig = {
-      url: url,
-      header: header,
-      method: 'POST',
-      files: files,
-      data: data
+    this.uploadCallbacks.set(taskId, callback);
+    if (!url || !virtualFilePath || !name) {
+      this.finishUpload(taskId, callback, false, 'uploadFile:fail missing required parameters');
+      return;
     }
-    // 将本地应用文件上传至网络服务器
+
     try {
-      request.uploadFile(DMPContextUtils.getUIAbilityContext(), uploadConfig)
-        .then((uploadTask: request.UploadTask) => {
-          uploadTask.on('complete', (taskStates: Array<request.TaskState>) => {
-            for (let i = 0; i < taskStates.length; i++) {
-              console.info(`upload complete taskState: ${JSON.stringify(taskStates[i])}`);
-               this.invokeSuccessCallback(callback,new DMPMap({"statusCode":taskStates[i]['responseCode'],"data":taskStates[i]['path']}))
-            }
+      const filePath = DMPFileUrlConvertor.localPathFromVPath(virtualFilePath);
+      const fileName = this.getNameFromFile(filePath);
+      const multiFormDataList: Array<http.MultiFormData> = [];
+      const rawFormData: object | undefined = param.getObject('formData');
+      if (rawFormData) {
+        DMPMap.toMap<string, object>(rawFormData).forEach((value: object, key: string) => {
+          multiFormDataList.push({
+            name: key,
+            contentType: 'text/plain; charset=utf-8',
+            data: String(value)
           });
-        })
-        .catch((err: BusinessError) => {
-          this.invokeFailureCallback(callback,null,'上传失败')
-        })
-    } catch (error) {
-      this.invokeFailureCallback(callback,null,'上传失败')
-    }
+        });
+      }
+      multiFormDataList.push({
+        name: name,
+        contentType: 'application/octet-stream',
+        remoteFileName: fileName,
+        filePath: filePath
+      });
 
+      const headerMap = new DMPMap(param.getObject('header'));
+      let hasContentType = false;
+      headerMap.toMap<string, string>().forEach((_value: string, key: string) => {
+        if (key.toLowerCase() === 'content-type') {
+          hasContentType = true;
+          headerMap.set(key, 'multipart/form-data');
+        }
+      });
+      if (!hasContentType) {
+        headerMap.set('Content-Type', 'multipart/form-data');
+      }
+
+      const uploadRequest = http.createHttp();
+      this.uploadTasks.set(taskId, uploadRequest);
+      uploadRequest.on('dataSendProgress', (progressInfo: http.DataSendProgressInfo) => {
+        if (this.settledUploadTasks.has(taskId)) {
+          return;
+        }
+        const progress = progressInfo.totalSize > 0
+          ? Math.min(100, Math.max(0, Math.floor(progressInfo.sendSize * 100 / progressInfo.totalSize)))
+          : 0;
+        this.emitUploadEvent(callback, progressCallbackId, new DMPMap({
+          progress: progress,
+          totalBytesSent: progressInfo.sendSize,
+          totalBytesExpectedToSend: progressInfo.totalSize
+        }));
+      });
+      uploadRequest.on('headersReceive', (headers: object) => {
+        if (!this.settledUploadTasks.has(taskId)) {
+          this.emitUploadEvent(callback, headersCallbackId, new DMPMap({ header: headers }));
+        }
+      });
+
+      const uploadOptions: http.HttpRequestOptions = {
+        method: http.RequestMethod.POST,
+        header: headerMap.toObject<object>(),
+        multiFormDataList: multiFormDataList,
+        expectDataType: http.HttpDataType.STRING,
+        usingCache: false,
+        readTimeout: timeout,
+        connectTimeout: timeout
+      };
+      uploadRequest.request(url, uploadOptions)
+        .then((response: http.HttpResponse) => {
+          const responseData = typeof response.result === 'string'
+            ? response.result
+            : String(response.result);
+          this.finishUpload(taskId, callback, true, 'uploadFile:ok',
+            Number(response.responseCode), responseData);
+        })
+        .catch((error: BusinessError) => {
+          if (this.settledUploadTasks.has(taskId)) {
+            this.settledUploadTasks.delete(taskId);
+            return;
+          }
+          this.finishUpload(taskId, callback, false, `uploadFile:fail ${error.message}`);
+        });
+    } catch (error) {
+      this.finishUpload(taskId, callback, false, `uploadFile:fail ${String(error)}`);
+    }
   }
 
+  uploadFileTaskAbort(param: DMPMap, _callback: DMPBridgeCallback): void {
+    const taskId = param.getString('taskId') ?? '';
+    if (!taskId || this.settledUploadTasks.has(taskId)) {
+      return;
+    }
+    const task = this.uploadTasks.get(taskId);
+    const callback = this.uploadCallbacks.get(taskId);
+    if (callback) {
+      this.finishUpload(taskId, callback, false, 'uploadFile:fail abort', 0, '', true);
+    }
+    task?.destroy();
+    setTimeout(() => this.settledUploadTasks.delete(taskId), 5000);
+  }
+
+  private emitUploadEvent(callback: DMPBridgeCallback, callbackId: string, payload: DMPMap): void {
+    if (callbackId) {
+      callback(payload, DMPBridgeCallbackType.Success, callbackId);
+    }
+  }
+
+  private finishUpload(taskId: string, callback: DMPBridgeCallback, success: boolean, errMsg: string,
+    statusCode: number = 0, responseData: string = '', keepSettled: boolean = false): void {
+    if (this.settledUploadTasks.has(taskId)) {
+      return;
+    }
+    this.settledUploadTasks.add(taskId);
+    const task = this.uploadTasks.get(taskId);
+    this.uploadTasks.delete(taskId);
+    this.uploadCallbacks.delete(taskId);
+
+    const result = success
+      ? new DMPMap({ data: responseData, statusCode: statusCode, errMsg: errMsg })
+      : new DMPMap({ errMsg: errMsg });
+    callback(result, success ? DMPBridgeCallbackType.Success : DMPBridgeCallbackType.Fail);
+    callback(result, DMPBridgeCallbackType.Complete);
+    if (!keepSettled) {
+      task?.destroy();
+    }
+
+    if (!keepSettled) {
+      Promise.resolve(true).then(() => this.settledUploadTasks.delete(taskId));
+    }
+  }
 }

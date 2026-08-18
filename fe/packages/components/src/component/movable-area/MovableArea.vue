@@ -4,7 +4,7 @@
 
 import { triggerEvent, useInfo } from '@/common/events'
 
-defineProps({
+const props = defineProps({
 	/**
 	 * 当里面的movable-view设置为支持双指缩放时，设置此值可将缩放手势生效区域修改为整个movable-area
 	 */
@@ -16,6 +16,17 @@ defineProps({
 })
 
 const info = useInfo()
+const movableViews = new Set()
+provide('registerMovableView', (handlers) => {
+	movableViews.add(handlers)
+	return () => movableViews.delete(handlers)
+})
+
+function handleScaleGesture(event, phase) {
+	if (!props.scaleArea || event.target.closest?.('.dd-movable-view')) return
+	if (phase !== 'end' && event.touches?.length < 2) return
+	for (const handlers of movableViews) handlers[phase]?.(event)
+}
 
 function onClicked(event) {
 	triggerEvent('tap', { event, info })
@@ -23,7 +34,11 @@ function onClicked(event) {
 </script>
 
 <template>
-	<div v-bind="$attrs" class="dd-movable-area" @click="onClicked">
+	<div
+		v-bind="$attrs" class="dd-movable-area" @click="onClicked"
+		@touchstart="handleScaleGesture($event, 'start')" @touchmove="handleScaleGesture($event, 'move')"
+		@touchend="handleScaleGesture($event, 'end')" @touchcancel="handleScaleGesture($event, 'end')"
+	>
 		<slot />
 	</div>
 </template>

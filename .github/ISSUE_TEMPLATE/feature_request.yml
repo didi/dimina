@@ -1,41 +1,123 @@
-name: "✨ 功能需求 (Feature Request)"
-description: 为项目提出一个新需求 (Suggest an idea for this project)
-title: '[Feature] 简要描述需求 (Short description)'
-labels: [enhancement]
+name: "✨ 功能建议 / Feature Request"
+description: 提议新的能力、兼容特性或工程改进
+title: "[Feature]: "
+labels: ["enhancement"]
 body:
-  - type: textarea
-    id: related
+  - type: markdown
     attributes:
-      label: 你的需求是否与某个问题相关？ (Is your feature request related to a problem?)
-      description: 请简明描述问题或需求的背景。
-      placeholder: 请描述相关问题或背景 / Please describe the related problem or background.
-  - type: textarea
-    id: solution
+      value: |
+        感谢建议！提交前请先搜索[已有 Issues](https://github.com/didi/dimina/issues)，并查阅[能力参考](https://github.com/didi/dimina/blob/main/docs/API-Reference.md)。
+
+        Issue 应描述要解决的问题和可验证的目标，而不只是给出一段实现代码。
+
+  - type: dropdown
+    id: component
     attributes:
-      label: 描述你想要的解决方案 (Describe the solution you'd like)
-      description: 请清晰简要地描述你希望实现的功能。
-      placeholder: 请描述你希望实现的功能 / Please describe the solution you'd like.
+      label: 目标模块 / Component
+      description: 请选择此建议主要影响的模块。
+      options:
+        - 编译器 / DMCC
+        - 前端运行时 / Web 容器
+        - Android SDK
+        - iOS SDK
+        - Harmony SDK
+        - 组件或 API 兼容性
+        - 构建、打包或发布
+        - 其他
     validations:
       required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 背景与问题 / Problem
+      description: 请描述具体使用场景、当前限制和受影响的用户。若与已有 Issue 相关，请添加链接。
+      placeholder: 在……场景下，当前……，导致……
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 建议方案 / Proposed Solution
+      description: 描述期望的 API、行为或交互，以及它如何解决上述问题。
+      placeholder: 希望 Dimina 能够……；调用或使用方式为……
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: 使用示例与验收标准 / Use Case and Acceptance Criteria
+      description: 给出典型使用示例，并说明怎样判断该能力已正确实现。
+      placeholder: |
+        使用示例：……
+        验收标准：
+        1. ……
+        2. ……
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platforms
+    attributes:
+      label: 目标平台 / Target Platforms
+      description: 可多选；与运行平台无关的建议请选择最后一项。
+      multiple: true
+      options:
+        - Android
+        - iOS
+        - Harmony
+        - Web
+        - 与具体运行平台无关 / Not platform-specific
+    validations:
+      required: true
+
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: 兼容性与影响 / Compatibility and Impact
+      description: 请说明微信小程序对应语义、平台差异、现有 API 兼容性或潜在破坏性变更；不确定可填写“不确定”。
+      placeholder: 对应的微信小程序文档、各端差异、兼容策略或迁移成本。
+    validations:
+      required: true
+
   - type: textarea
     id: alternatives
     attributes:
-      label: 描述你考虑过的替代方案 (Describe alternatives you've considered)
-      description: 请简要描述你考虑过的其它解决方案或替代方案。
-      placeholder: 其它可行的替代方案 / Other alternatives considered.
-  - type: checkboxes
-    id: platform
+      label: 替代方案 / Alternatives
+      description: 描述已经尝试或考虑过的方案，以及它们为什么不能满足需求。
+
+  - type: dropdown
+    id: contribution
     attributes:
-      label: 平台 (Platform)
-      description: 请选择需求相关的平台。
+      label: 是否愿意参与实现 / Contribution
       options:
-        - label: Android
-        - label: iOS
-        - label: Harmony
-        - label: Web
-  - type: textarea
-    id: additional
+        - 愿意提交 Pull Request
+        - 可以协助测试或提供复现项目
+        - 暂时无法参与实现
+
+  - type: upload
+    id: attachments
     attributes:
-      label: 补充信息 (Additional context)
-      description: 在此处添加关于需求的其它信息。
-      placeholder: 其它有助于理解需求的补充信息 / Additional context or information.
+      label: 参考资料或附件 / References
+      description: 可上传原型、截图、录屏或脱敏后的示例文件。
+    validations:
+      required: false
+      accept: ".png,.jpg,.jpeg,.gif,.webp,.svg,.mp4,.mov,.pdf,.txt,.json,.zip"
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: 补充信息 / Additional Context
+      description: 添加相关规范、竞品参考、Issue 或 Pull Request 链接。
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: 提交检查 / Checklist
+      options:
+        - label: 我已搜索现有 Issues，确认没有相同建议。
+          required: true
+        - label: 这是一项明确的功能建议，而不是使用咨询或故障报告。
+          required: true

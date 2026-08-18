@@ -17,14 +17,13 @@ set(NATIVERENDER_ROOT_PATH ${CMAKE_CURRENT_SOURCE_DIR})
 # Include FetchContent for downloading dependencies
 include(FetchContent)
 
-option(DIMINA_UPDATE_QUICKJS_ON_BUILD "Update QuickJS from origin/master before each native build" ON)
+include("${CMAKE_CURRENT_LIST_DIR}/../../../../../cmake/DependencyVersions.cmake")
 
 # Download QuickJS from GitHub
 FetchContent_Declare(
     quickjs
     GIT_REPOSITORY https://github.com/bellard/quickjs.git
-    GIT_TAG master
-    GIT_SHALLOW TRUE
+    GIT_TAG ${DIMINA_QUICKJS_GIT_TAG}
 )
 FetchContent_MakeAvailable(quickjs)
 
@@ -32,8 +31,7 @@ FetchContent_MakeAvailable(quickjs)
 FetchContent_Declare(
     libuv
     GIT_REPOSITORY https://github.com/libuv/libuv.git
-    GIT_TAG master
-    GIT_SHALLOW TRUE
+    GIT_TAG ${DIMINA_LIBUV_GIT_TAG}
 )
 
 # Only the static libuv target is linked into libdimina.so. Keeping libuv's
@@ -89,12 +87,19 @@ add_compile_options(
         -flto            # 启用链接时优化
 )
 
+# ─── Canvas 2D shared library (NanoVG + GLES2) ───
+set(CANVAS2D_DIR "${CMAKE_CURRENT_LIST_DIR}/../../../../../shared/canvas2d")
+if(EXISTS "${CANVAS2D_DIR}/CMakeLists.txt")
+    add_subdirectory(${CANVAS2D_DIR} ${CMAKE_CURRENT_BINARY_DIR}/canvas2d)
+endif()
+
 # Include directories
 include_directories(
         ${NATIVERENDER_ROOT_PATH}
         ${NATIVERENDER_ROOT_PATH}/include
         ${QUICKJS_PUBLIC_INCLUDE_DIR}  # Avoid exposing QuickJS's "version" file as <version>
         ${libuv_SOURCE_DIR}/include  # Include libuv headers
+        ${CANVAS2D_DIR}/include  # Canvas 2D public API
 )
 
 # Explicitly list source files for better control
@@ -126,17 +131,6 @@ set(QUICKJS_SOURCES
 # used in the AndroidManifest.xml file.
 add_library(dimina SHARED ${sources} ${QUICKJS_SOURCES})
 
-if(DIMINA_UPDATE_QUICKJS_ON_BUILD)
-    find_package(Git REQUIRED)
-    add_custom_target(update_quickjs_latest
-        COMMAND ${GIT_EXECUTABLE} fetch --depth=1 origin master
-        COMMAND ${GIT_EXECUTABLE} reset --hard FETCH_HEAD
-        WORKING_DIRECTORY ${quickjs_SOURCE_DIR}
-        COMMENT "Updating QuickJS to latest origin/master"
-    )
-    add_dependencies(dimina update_quickjs_latest)
-endif()
-
 # Add linker option for 16KB page size compatibility
 # This helps ensure the .so is compatible with systems using 16KB page sizes,
 # especially when targeting older Android API levels where this isn't automatic.
@@ -150,7 +144,10 @@ target_link_libraries(dimina
         android
         log
         m
-        uv_a)  # Link libuv static library
+        uv_a       # Link libuv static library
+        EGL
+        GLESv2
+        dimina_canvas2d)  # Canvas 2D NanoVG renderer
 
 # Additional target properties for Release mode
 if(CMAKE_BUILD_TYPE STREQUAL "Release")

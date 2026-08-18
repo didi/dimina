@@ -1,5 +1,5 @@
 <script setup>
-import { isDesktop, sleep } from '@dimina/common'
+import { triggerEvent, useInfo } from '@/common/events'
 
 // 进度条。组件属性的长度单位默认为px
 // https://developers.weixin.qq.com/miniprogram/dev/component/progress.html
@@ -95,29 +95,73 @@ const props = defineProps({
 	},
 })
 
-const percentParsed = computed(() => {
-	return props.active ? 0 : `${props.percent}%`
-})
+const info = useInfo()
+const currentPercent = ref(0)
+let animationTimer
+let previousTarget = 0
 
-const durationParsed = computed(() => {
-	return `${Number(props.duration) * Number(props.percent)}ms`
-})
+function normalizePercent(value) {
+	const number = Number(value)
+	return Number.isFinite(number) ? Math.min(Math.max(number, 0), 100) : 0
+}
 
-const progressRef = ref(null)
-
-onMounted(async () => {
-	if (props.active) {
-		if (isDesktop) {
-			// 兼容 web 端页面进入动画
-			await sleep(540)
-		}
-		progressRef.value.style.setProperty('--percent', `${props.percent}%`)
+function clearAnimation() {
+	if (animationTimer !== undefined) {
+		clearInterval(animationTimer)
+		animationTimer = undefined
 	}
+}
+
+function runAnimation() {
+	clearAnimation()
+	const target = normalizePercent(props.percent)
+	if (!props.active) {
+		currentPercent.value = target
+		previousTarget = target
+		return
+	}
+
+	currentPercent.value = props.activeMode === 'forwards' ? previousTarget : 0
+	const tick = () => {
+		if (target <= currentPercent.value + 1) {
+			currentPercent.value = target
+			previousTarget = target
+			clearAnimation()
+			triggerEvent('activeend', {
+				info,
+				detail: { curPercent: currentPercent.value },
+			})
+			return
+		}
+		currentPercent.value += 1
+	}
+
+	tick()
+	if (currentPercent.value < target) {
+		animationTimer = setInterval(tick, Math.max(Number(props.duration) || 0, 0))
+	}
+}
+
+watch(
+	[() => props.percent, () => props.active, () => props.activeMode, () => props.duration],
+	runAnimation,
+	{ immediate: true },
+)
+onBeforeUnmount(clearAnimation)
+
+const progressColor = computed(() => {
+	const attrs = info.attrs || {}
+	if ('activeColor' in attrs || 'active-color' in attrs) return props.activeColor
+	if ('color' in attrs) return props.color
+	return props.activeColor
 })
 </script>
 
 <template>
-	<div v-bind="$attrs" class="dd-progress">
+<div
+	v-bind="$attrs" class="dd-progress" role="progressbar"
+	:aria-valuenow="currentPercent" aria-valuemin="0" aria-valuemax="100"
+>
 		<div
 			class="dd-progress-bar" aria-label="" :aria-valuenow="`${percent}%`" :style="{
 				borderRadius: `${borderRadius}px`,
@@ -126,12 +170,12 @@ onMounted(async () => {
 			}"
 		>
 			<div
-				ref="progressRef" class="dd-progress-inner-bar"
-				:style="{ '--percent': percentParsed, '--duration': durationParsed, 'backgroundColor': activeColor || color }"
+				class="dd-progress-inner-bar"
+				:style="{ width: `${currentPercent}%`, backgroundColor: progressColor }"
 			/>
 		</div>
 		<p class="dd-progress-info" :style="{ fontSize }" :hidden="!showInfo">
-			{{ percent }}%
+			{{ currentPercent }}%
 		</p>
 	</div>
 </template>
@@ -151,12 +195,8 @@ onMounted(async () => {
 	}
 
 	.dd-progress-inner-bar {
-		--percent: 0;
-		--duration: 0ms;
-		width: var(--percent);
+		width: 0;
 		height: 100%;
-		transition-duration: var(--duration);
-		transition-property: width;
 	}
 
 	.dd-progress-info {

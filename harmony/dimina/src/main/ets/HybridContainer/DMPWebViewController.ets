@@ -64,7 +64,7 @@ export class DMPWebViewController extends web_webview.WebviewController {
   loadPath(): string {
     let app: DMPApp = this.app;
     let path: string = '';
-    const vConsoleQuery = (app.appConfig.isDebugMode || DMPContextUtils.debugMode) ? '?vconsole=1' : '';
+    const vConsoleQuery = DMPContextUtils.debugMode ? '?vconsole=1' : '';
 
     if (app.appConfig.launchAppType === DMPLaunchType.DebugUrl) {
       const mainPkgPath = app.bundleManager.getCurrentJSSdkDir();

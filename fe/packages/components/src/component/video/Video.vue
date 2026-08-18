@@ -25,7 +25,7 @@ const props = defineProps({
 	 */
 	duration: {
 		type: Number,
-		required: false,
+		default: 0,
 	},
 	/**
 	 * 是否显示默认播放控件（播放/暂停按钮、播放进度、时间）
@@ -65,6 +65,7 @@ const props = defineProps({
 	},
 	direction: {
 		type: [Number, String],
+		default: -1,
 	},
 	showProgress: {
 		type: Boolean,
@@ -122,9 +123,73 @@ const props = defineProps({
 		type: String,
 		default: '',
 	},
+	unitId: {
+		type: String,
+		default: '',
+	},
+	adPlayTime: {
+		type: Number,
+		default: 0,
+	},
+	danmuBtn: {
+		type: Boolean,
+		default: false,
+	},
+	enableDanmu: {
+		type: Boolean,
+		default: false,
+	},
+	danmuList: {
+		type: Array,
+		default: () => [],
+	},
+	live: {
+		type: [Number, Boolean],
+		default: false,
+	},
+	customCache: {
+		type: Boolean,
+		default: true,
+	},
+	blockSize: {
+		type: Number,
+		default: 0,
+	},
+	posterForCrawler: {
+		type: String,
+		default: '',
+	},
+	showLiveBtn: {
+		type: Boolean,
+		default: true,
+	},
+	showBottomProgress: {
+		type: Boolean,
+		default: true,
+	},
+	showCenterProgressDuration: {
+		type: Boolean,
+		default: false,
+	},
+	showVolumeBtn: {
+		type: Boolean,
+		default: false,
+	},
+	showCastingButton: {
+		type: Boolean,
+		default: false,
+	},
+	seekType: {
+		type: String,
+		default: 'accurate',
+	},
 	pictureInPictureMode: {
 		type: [Array, String],
-		default: () => [],
+		default: '',
+	},
+	pictureInPictureShowProgress: {
+		type: Boolean,
+		default: false,
 	},
 	enableAutoRotation: {
 		type: Boolean,
@@ -150,6 +215,26 @@ const props = defineProps({
 		type: String,
 		default: 'no-referrer',
 	},
+	isDrm: {
+		type: Boolean,
+		default: false,
+	},
+	provisionUrl: {
+		type: String,
+		default: '',
+	},
+	certificateUrl: {
+		type: String,
+		default: '',
+	},
+	licenseUrl: {
+		type: String,
+		default: '',
+	},
+	preferredPeakBitRate: {
+		type: Number,
+		default: -1,
+	},
 })
 
 const rootRef = ref()
@@ -160,6 +245,7 @@ let syncFrameId = 0
 let lastRectKey = ''
 const nativeEventOffs = []
 let resizeObserver
+let nativeMounted = false
 
 function getRect() {
 	const element = rootRef.value
@@ -186,6 +272,7 @@ function getNativeParams() {
 		type,
 		id: props.id,
 		src: props.src,
+		duration: props.duration,
 		controls: props.controls,
 		autoplay: props.autoplay,
 		loop: props.loop,
@@ -209,13 +296,34 @@ function getNativeParams() {
 		vslideGesture: props.vslideGesture,
 		vslideGestureInFullscreen: props.vslideGestureInFullscreen,
 		adUnitId: props.adUnitId,
+		unitId: props.unitId,
+		adPlayTime: props.adPlayTime,
+		danmuBtn: props.danmuBtn,
+		enableDanmu: props.enableDanmu,
+		danmuList: props.danmuList,
+		live: props.live,
+		customCache: props.customCache,
+		blockSize: props.blockSize,
+		posterForCrawler: props.posterForCrawler,
+		showLiveBtn: props.showLiveBtn,
+		showBottomProgress: props.showBottomProgress,
+		showCenterProgressDuration: props.showCenterProgressDuration,
+		showVolumeBtn: props.showVolumeBtn,
+		showCastingButton: props.showCastingButton,
+		seekType: props.seekType,
 		pictureInPictureMode: props.pictureInPictureMode,
+		pictureInPictureShowProgress: props.pictureInPictureShowProgress,
 		enableAutoRotation: props.enableAutoRotation,
 		showScreenLockButton: props.showScreenLockButton,
 		showSnapshotButton: props.showSnapshotButton,
 		showBackgroundPlaybackButton: props.showBackgroundPlaybackButton,
 		backgroundPoster: props.backgroundPoster,
 		referrerPolicy: props.referrerPolicy,
+		isDrm: props.isDrm,
+		provisionUrl: props.provisionUrl,
+		certificateUrl: props.certificateUrl,
+		licenseUrl: props.licenseUrl,
+		preferredPeakBitRate: props.preferredPeakBitRate,
 		hidden: rootRef.value?.hasAttribute('hidden') || false,
 		rect: getRect(),
 	}
@@ -225,6 +333,7 @@ function invokeNative(apiName) {
 	if (!isNativeVideo.value) {
 		return
 	}
+	if (apiName === 'propsUpdate' && !nativeMounted) return
 	invokeAPI(apiName, {
 		bridgeId: info.bridgeId,
 		params: getNativeParams(),
@@ -335,6 +444,23 @@ function triggerVideoEvent(type, event, detail = {}) {
 	})
 }
 
+function handleLoadedMetadata(event) {
+	const video = event.target
+	if (props.initialTime > 0 && Number.isFinite(video.duration)) {
+		video.currentTime = Math.min(props.initialTime, video.duration)
+	}
+	triggerVideoEvent('loadedmetadata', event, { duration: video.duration || 0 })
+}
+
+function handleProgress(event) {
+	const video = event.target
+	const buffered = video.buffered
+	triggerVideoEvent('progress', event, {
+		buffered: buffered?.length ? buffered.end(buffered.length - 1) : 0,
+		duration: video.duration || 0,
+	})
+}
+
 onMounted(() => {
 	bindVideoContextEvent()
 
@@ -350,21 +476,32 @@ onMounted(() => {
 	bindNativeEvent('bindended', 'ended')
 	bindNativeEvent('bindwaiting', 'waiting')
 	bindNativeEvent('binderror', 'error')
+	bindNativeEvent('bindloadeddata', 'loadeddata')
+	bindNativeEvent('bindloadstart', 'loadstart')
 	bindNativeEvent('bindloadedmetadata', 'loadedmetadata')
 	bindNativeEvent('bindfullscreenchange', 'fullscreenchange')
 	bindNativeEvent('bindprogress', 'progress')
+	bindNativeEvent('bindseeking', 'seeking')
+	bindNativeEvent('bindseeked', 'seeked')
 	bindNativeEvent('bindcontrolstoggle', 'controlstoggle')
 	bindNativeEvent('bindenterpictureinpicture', 'enterpictureinpicture')
 	bindNativeEvent('bindleavepictureinpicture', 'leavepictureinpicture')
+	bindNativeEvent('bindpreloadedmetadata', 'preloadedmetadata')
+	bindNativeEvent('bindrendererror', 'rendererror')
+	bindNativeEvent('bindseekcomplete', 'seekcomplete')
+	bindNativeEvent('bindinsertweblayerfailed', 'insertweblayerfailed')
+	bindNativeEvent('bindinsertweblayersuccess', 'insertweblayersuccess')
 	bindNativeEvent('bindtimeupdate', 'timeupdate', msg => ({
 		currentTime: msg.currentTime,
 		duration: msg.duration,
 	}))
 
 	nextTick(() => {
-		syncRect(true)
+		nativeMounted = true
 		invokeNative('componentMount')
+		lastRectKey = JSON.stringify({ ...getRect(), hidden: rootRef.value?.hasAttribute('hidden') || false })
 		window.addEventListener('resize', scheduleSyncRect)
+		window.addEventListener('scroll', scheduleSyncRect, true)
 		if (window.ResizeObserver && rootRef.value) {
 			resizeObserver = new ResizeObserver(scheduleSyncRect)
 			resizeObserver.observe(rootRef.value)
@@ -373,40 +510,9 @@ onMounted(() => {
 })
 
 watch(
-	() => [
-		props.src,
-		props.controls,
-		props.autoplay,
-		props.loop,
-		props.muted,
-		props.initialTime,
-		props.objectFit,
-		props.poster,
-		props.pageGesture,
-		props.direction,
-		props.showProgress,
-		props.showFullscreenBtn,
-		props.showPlayBtn,
-		props.showCenterPlayBtn,
-		props.enableProgressGesture,
-		props.showMuteBtn,
-		props.title,
-		props.playBtnPosition,
-		props.enablePlayGesture,
-		props.autoPauseIfNavigate,
-		props.autoPauseIfOpenNative,
-		props.vslideGesture,
-		props.vslideGestureInFullscreen,
-		props.adUnitId,
-		props.pictureInPictureMode,
-		props.enableAutoRotation,
-		props.showScreenLockButton,
-		props.showSnapshotButton,
-		props.showBackgroundPlaybackButton,
-		props.backgroundPoster,
-		props.referrerPolicy,
-	],
+	() => getNativeParams(),
 	() => invokeNative('propsUpdate'),
+	{ deep: true },
 )
 
 onBeforeUnmount(() => {
@@ -415,7 +521,9 @@ onBeforeUnmount(() => {
 	}
 	resizeObserver?.disconnect()
 	window.removeEventListener('resize', scheduleSyncRect)
+	window.removeEventListener('scroll', scheduleSyncRect, true)
 	invokeNative('componentUnmount')
+	nativeMounted = false
 	nativeEventOffs.splice(0).forEach(off => off())
 })
 </script>
@@ -460,7 +568,8 @@ onBeforeUnmount(() => {
 		:autoplay="autoplay"
 		:loop="loop"
 		:muted="muted"
-		:poster="poster"
+		:poster="poster || posterForCrawler"
+		:referrerpolicy="referrerPolicy"
 		:playsinline="true"
 		:webkit-playsinline="true"
 		:style="{ objectFit }"
@@ -469,7 +578,15 @@ onBeforeUnmount(() => {
 		@ended="triggerVideoEvent('ended', $event)"
 		@waiting="triggerVideoEvent('waiting', $event)"
 		@error="triggerVideoEvent('error', $event, { errMsg: $event.target?.error?.message || 'video error' })"
-		@loadedmetadata="triggerVideoEvent('loadedmetadata', $event, { duration: $event.target?.duration || 0 })"
+		@loadstart="triggerVideoEvent('loadstart', $event)"
+		@loadeddata="triggerVideoEvent('loadeddata', $event)"
+		@loadedmetadata="handleLoadedMetadata"
+		@progress="handleProgress"
+		@seeking="triggerVideoEvent('seeking', $event, { currentTime: $event.target?.currentTime || 0 })"
+		@seeked="triggerVideoEvent('seeked', $event, { currentTime: $event.target?.currentTime || 0 })"
+		@fullscreenchange="triggerVideoEvent('fullscreenchange', $event, { fullScreen: Boolean(document.fullscreenElement), direction })"
+		@enterpictureinpicture="triggerVideoEvent('enterpictureinpicture', $event)"
+		@leavepictureinpicture="triggerVideoEvent('leavepictureinpicture', $event)"
 		@timeupdate="triggerVideoEvent('timeupdate', $event, { currentTime: $event.target?.currentTime || 0, duration: $event.target?.duration || 0 })"
 	/>
 	<div v-else v-bind="$attrs" class="dd-video dd-video-placeholder">

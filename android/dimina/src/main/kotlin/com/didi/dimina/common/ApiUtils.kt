@@ -72,12 +72,29 @@ object ApiUtils {
         }
     }
 
-    fun invokeComplete(params: JSONObject, responseCallback: (String) -> Unit) {
+    /**
+     * Triggers the caller's `complete` callback.
+     *
+     * [resultData] is the result object `complete` receives, and must be the same one that was
+     * handed to whichever of [invokeSuccess]/[invokeFail] ran: mini programs read `res.errMsg`
+     * inside `complete`, so invoking it with no result hands them `undefined` and
+     * `complete: res => res.errMsg` throws instead of running.
+     *
+     * It stays optional so that APIs which have not yet been given a result to mirror keep their
+     * existing no-argument behavior rather than silently changing shape.
+     */
+    @JvmOverloads
+    fun invokeComplete(
+        params: JSONObject,
+        responseCallback: (String) -> Unit,
+        resultData: JSONObject? = null,
+    ) {
         val completeCallBack = params.optString("complete", "")
         if (completeCallBack.isNotEmpty()) {
             responseCallback(
                 createCallbackResponse(
-                    completeCallBack
+                    completeCallBack,
+                    resultData
                 )
             )
         }

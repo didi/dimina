@@ -166,7 +166,7 @@ public class ActionSheetManager {
         mainStackView.addArrangedSubview(optionsStackView)
         
         // Debug print
-        print("Creating action sheet with \(itemList.count) items")
+        DMPLogger.debug("Creating action sheet with \(itemList.count) items")
         
         // Add item buttons
         for (index, item) in itemList.enumerated() {

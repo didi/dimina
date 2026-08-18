@@ -2,155 +2,152 @@
 // 承载网页的容器
 // https://developers.weixin.qq.com/miniprogram/dev/component/web-view.html
 import { isDesktop } from '@dimina/common'
-import { invokeAPI, offEvent, onEvent, triggerEvent, useInfo } from '@/common/events'
+import { invokeAPI, onEvent, triggerEvent, useInfo } from '@/common/events'
 
 const props = defineProps({
-	/**
-	 * webview id
-	 */
-	id: {
-		type: String,
-		default: () => `webview-${useId()}`,
-	},
-	/**
-	 * webview 指向网页的链接
-	 */
-	src: {
-		type: String,
-	},
+	id: { type: String, default: () => `webview-${useId()}` },
+	src: { type: String, default: '' },
 })
 
 const ENCODE_CHARS_REGEXP = /(?:[^\x21\x25\x26-\x3B\x3D\x3F-\x5B\x5D\x5F\x7E]|%(?:[^0-9A-F]|[0-9A-F][^0-9A-F]|$))+/gi
-
 const UNMATCHED_SURROGATE_PAIR_REGEXP = /(^|[^\uD800-\uDBFF])[\uDC00-\uDFFF]|[\uD800-\uDBFF]([^\uDC00-\uDFFF]|$)/g
-
 const UNMATCHED_SURROGATE_PAIR_REPLACE = '$1\uFFFD$2'
 
-const url = computed(() => {
-	return String(props.src)
-		.replace(UNMATCHED_SURROGATE_PAIR_REGEXP, UNMATCHED_SURROGATE_PAIR_REPLACE)
-		.replace(ENCODE_CHARS_REGEXP, encodeURI)
-})
-
+const rootRef = ref()
+const url = computed(() => props.src
+	.replace(UNMATCHED_SURROGATE_PAIR_REGEXP, UNMATCHED_SURROGATE_PAIR_REPLACE)
+	.replace(ENCODE_CHARS_REGEXP, encodeURI))
 const type = 'native/webview'
 const info = useInfo()
-const attrs = info.attrs
+const nativeEventOffs = []
 
 function getEventAttrs() {
 	const eventAttrs = {}
-	for (const attrName in attrs) {
+	for (const attrName in info.attrs) {
 		if (attrName.startsWith('bind') || attrName.startsWith('catch')) {
-			eventAttrs[attrName.replace(/^(?:bind:|bind|catch:|catch)/, '')] = attrs[attrName]
+			eventAttrs[attrName.replace(/^(?:bind:|bind|catch:|catch)/, '')] = info.attrs[attrName]
 		}
 	}
 	return eventAttrs
 }
 
-watch(
-	[
-		() => props.src,
-		() => props.id,
-	],
-	(
-		[newSrc, newId],
-	) => {
-		invokeAPI('propsUpdate', {
-			bridgeId: info.bridgeId,
-			params: {
-				type,
-				src: newSrc,
-				id: newId,
-			},
-		})
-	},
-)
-
-onBeforeMount(() => {
-	onEvent('bindmessage', (msg) => {
-		triggerEvent('message', {
-			type: 'message',
-			info,
-			detail: {
-				data: msg.data,
-			},
-		})
-	})
-
-	onEvent('bindload', (msg) => {
-		triggerEvent('load', {
-			type: 'load',
-			info,
-			detail: {
-				src: msg.src,
-				id: msg.id,
-			},
-		})
-	})
-
-	onEvent('binderror', (msg) => {
-		triggerEvent('error', {
-			type: 'error',
-			info,
-			detail: {
-				url: msg.url,
-				fullUrl: msg.fullUrl,
-				id: msg.id,
-			},
-		})
-	})
-
-	invokeAPI('componentMount', {
-		bridgeId: info.bridgeId,
-		params: {
-			type,
-			url: url.value,
-			id: props.id,
-			attributes: {
-				moduleId: info.moduleId,
-				attrs: getEventAttrs(),
-				src: url.value,
-				javascript: `
-					function handleSdkFn(){
-						window.__wxjs_environment = 'miniprogram';
-						var sdk = document.createElement('script');
-						sdk.onload = () => {
-							window.dispatchEvent(new Event('didiJsBridgeLoaded'))
-						};
-						sdk.src = 'https://dpubstatic.udache.com/static/dpubimg/UBi0mvYdYcbwXv5qZ9ANw_jdimina_next.js?' + Date.now();
-						document.getElementsByTagName('html')[0].appendChild(sdk);
-						return (typeof document.getElementsByTagName('html')[0]);
-					};
-					handleSdkFn()`,
-			},
+function getNativeParams() {
+	return {
+		type,
+		url: url.value,
+		src: url.value,
+		id: props.id,
+		attributes: {
+			moduleId: info.moduleId,
+			attrs: getEventAttrs(),
+			src: url.value,
+			javascript: `
+				function handleSdkFn(){
+					window.__wxjs_environment = 'miniprogram';
+					var sdk = document.createElement('script');
+					sdk.onload = function(){ window.dispatchEvent(new Event('didiJsBridgeLoaded')); };
+					sdk.src = 'https://dpubstatic.udache.com/static/dpubimg/UBi0mvYdYcbwXv5qZ9ANw_jdimina_next.js?' + Date.now();
+					document.getElementsByTagName('html')[0].appendChild(sdk);
+				}
+				handleSdkFn();`,
 		},
+	}
+}
+
+function invokeNative(apiName) {
+	if (isDesktop) return
+	invokeAPI(apiName, { bridgeId: info.bridgeId, params: getNativeParams() })
+}
+
+function bindNativeEvent(nativeEvent, eventType, detailFactory = msg => msg) {
+	const off = onEvent(nativeEvent, (msg) => {
+		if (msg.id !== undefined && msg.id !== props.id && msg.webviewId !== props.id) return
+		triggerEvent(eventType, {
+			type: eventType,
+			info,
+			detail: detailFactory(msg),
+		})
 	})
+	nativeEventOffs.push(off)
+}
+
+function handleDesktopMessage(event) {
+	if (event.source !== rootRef.value?.contentWindow) return
+	triggerEvent('message', {
+		type: 'message',
+		info,
+		detail: { data: event.data },
+	})
+}
+
+function handleDesktopLoad(event) {
+	triggerEvent('load', {
+		type: 'load',
+		event,
+		info,
+		detail: { src: url.value },
+	})
+}
+
+function handleDesktopError(event) {
+	triggerEvent('error', {
+		type: 'error',
+		event,
+		info,
+		detail: { url: url.value, fullUrl: url.value },
+	})
+}
+
+onMounted(() => {
+	if (isDesktop) {
+		window.addEventListener('message', handleDesktopMessage)
+		return
+	}
+
+	bindNativeEvent('bindmessage', 'message', msg => ({ data: msg.data }))
+	bindNativeEvent('bindload', 'load', msg => ({ src: msg.src || msg.url, id: msg.id }))
+	bindNativeEvent('binderror', 'error', msg => ({
+		url: msg.url,
+		fullUrl: msg.fullUrl,
+		id: msg.id,
+	}))
+	invokeNative('componentMount')
 })
 
+watch(
+	() => [props.id, url.value],
+	() => invokeNative('propsUpdate'),
+)
+
 onBeforeUnmount(() => {
-	invokeAPI('componentUnmount', {
-		bridgeId: info.bridgeId,
-		params: {
-			type,
-			url: url.value,
-			id: props.id,
-		},
-	})
-	offEvent('bindmessage')
-	offEvent('bindload')
-	offEvent('binderror')
+	window.removeEventListener('message', handleDesktopMessage)
+	invokeNative('componentUnmount')
+	nativeEventOffs.splice(0).forEach(off => off())
 })
 </script>
 
 <template>
-	<iframe v-if="isDesktop" v-bind="$attrs" class="dd-web-view dd-web-view-pc" :type="type" :src="url" />
-	<embed v-else :id="id" v-bind="$attrs" class="dd-web-view" :type="type" />
+	<iframe
+		v-if="isDesktop"
+		:id="id"
+		ref="rootRef"
+		v-bind="$attrs"
+		class="dd-web-view dd-web-view-pc"
+		:src="url"
+		@load="handleDesktopLoad"
+		@error="handleDesktopError"
+	/>
+	<embed v-else :id="id" ref="rootRef" v-bind="$attrs" class="dd-web-view" :type="type" />
 </template>
 
 <style lang="scss">
-// 宽高属性设置100%在鸿蒙收到为0，因此使用100vh和100vw
+// 宽高属性设置 100% 在鸿蒙收到为 0，因此原生层使用视口单位。
 .dd-web-view {
+	display: block;
 	width: 100vw;
 	height: 100vh;
+
+	&[hidden] { display: none; }
 }
 
 .dd-web-view-pc {

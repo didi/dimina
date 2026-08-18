@@ -71,7 +71,7 @@ class Dimina private constructor(context: Context) {
      * @return 是否为调试模式
      */
     fun isDebugMode(): Boolean {
-        return config.debugMode
+        return BuildConfig.DEBUG && config.debugMode
     }
 
     fun getApiNamespaces(): List<String> = config.apiNamespaces
@@ -93,17 +93,9 @@ class Dimina private constructor(context: Context) {
     private fun applyConfig(config: DiminaConfig) {
         // 存储配置到类属性
         this.config = config
-        
-        // 根据配置调整 SDK 行为
-        if (config.debugMode) {
-            enableDebugLogging()
-        }
-    }
 
-    // 配置相关方法
-    private fun enableDebugLogging() {
-        // 开启调试日志
-        LogUtils.initialize(true)
+		// A mini-program setting must never enable host logs in a release build.
+		LogUtils.initialize(isDebugMode())
     }
 
     /**

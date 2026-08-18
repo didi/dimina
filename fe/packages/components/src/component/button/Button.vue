@@ -3,8 +3,8 @@
 // https://developers.weixin.qq.com/miniprogram/dev/component/button.html
 // https://github.com/Tencent/weui/blob/master/src/example/button/button_default.html
 
-import { sleep } from '@dimina/common'
-import { triggerEvent, useInfo } from '@/common/events'
+import { invokeAPIWithCallback, triggerEvent, useInfo } from '@/common/events'
+import { useHover } from '@/common/useHover'
 
 const props = defineProps({
 	/**
@@ -86,12 +86,31 @@ const props = defineProps({
 			].includes(value)
 		},
 	},
+	appParameter: { type: String, default: '' },
+	launchAppid: { type: String, default: '' },
+	withCredentials: { type: Boolean, default: true },
+	lang: { type: String, default: 'en' },
+	sessionFrom: { type: String, default: 'wxapp' },
+	businessId: { type: String, default: '' },
+	sendMessageTitle: { type: String, default: '' },
+	sendMessagePath: { type: String, default: '' },
+	sendMessageImg: { type: String, default: '' },
+	showMessageCard: { type: Boolean, default: false },
+	categoryId: { type: Array, default: () => [] },
+	needPhoneNumber: { type: Boolean, default: false },
+	native: { type: Boolean, default: false },
+	phoneNumber: { type: String, default: '' },
+	smsType: { type: Number, default: 0 },
 	/**
 	 * 指定按钮按下去的样式类。当 hover-class="none" 时，没有点击态效果
 	 */
 	hoverClass: {
 		type: String,
 		default: 'button-hover',
+	},
+	hover: {
+		type: Boolean,
+		default: false,
 	},
 	/**
 	 * 指定是否阻止本节点的祖先节点出现点击态
@@ -130,50 +149,63 @@ const loadingParsed = computed(() => {
 	return Boolean(props.loading) === true ? true : undefined
 })
 
-const isActive = ref(false)
+const { isHover, onHoverCancel, onHoverEnd, onHoverStart } = useHover(props)
 const info = useInfo()
 const handleFormEvent = inject('formEvent', undefined)
 function handleClicked(event) {
 	if (!props.disabled) {
-		if (props.hoverStopPropagation) {
-			event.stopPropagation()
-		}
 		if (props.formType) {
 			handleFormEvent?.(event, props.formType)
 		}
 		else {
 			triggerEvent('tap', { event, info })
+			handleOpenType(event)
 		}
 	}
 }
 
-async function handleDown() {
-	if (!props.disabled) {
-		await sleep(props.hoverStartTime)
-		isActive.value = true
+function invokeOpenTypeAPI(apiName, eventName, event, params = {}) {
+	const preservedEvent = { ...event, currentTarget: event.currentTarget, target: event.target }
+	invokeAPIWithCallback(apiName, {
+		bridgeId: info.bridgeId,
+		params,
+		success: (result = {}) => triggerEvent(eventName, { event: preservedEvent, info, detail: result }),
+		fail: (result = {}) => triggerEvent(eventName, { event: preservedEvent, info, detail: result }),
+	})
+}
+
+function handleOpenType(event) {
+	switch (props.openType) {
+		case 'openSetting':
+			invokeOpenTypeAPI('openSetting', 'opensetting', event)
+			break
+		case 'getUserInfo':
+			invokeOpenTypeAPI('getUserInfo', 'getuserinfo', event, {
+				lang: props.lang,
+				withCredentials: props.withCredentials,
+			})
+			break
 	}
 }
 
-async function handleUp() {
-	if (!props.disabled) {
-		await sleep(props.hoverStayTime)
-		isActive.value = false
-	}
-}
 </script>
 
 <template>
 	<span
-		:id="id" v-bind="$attrs" class="dd-button" :type="type" :size="size" :loading="loadingParsed"
+		:id="id" v-bind="$attrs" class="dd-button" data-dd-label-target role="button" :tabindex="disabled ? -1 : 0"
+		:aria-disabled="disabled" :type="type" :size="size" :loading="loadingParsed"
 		:plain="plainParsed" :disabled="disabledParsed" :class="[
 			`dd-button--${type}`,
 			size === 'mini' && 'dd-button--mini',
 			plainParsed && 'dd-button--plain',
 			disabledParsed && 'dd-button--disabled',
 			loadingParsed && 'dd-button--loading',
-			isActive ? hoverClass : undefined,
+			isHover ? hoverClass : undefined,
 		]"
-		@click="handleClicked" @mousedown="handleDown" @mouseup="handleUp"
+		@click="handleClicked"
+		@keydown.enter.prevent="handleClicked" @keydown.space.prevent="handleClicked"
+		@touchstart="onHoverStart" @touchend="onHoverEnd" @touchcancel="onHoverCancel"
+		@mousedown="onHoverStart" @mouseup="onHoverEnd" @mouseleave="onHoverCancel"
 	>
 		<slot />
 	</span>

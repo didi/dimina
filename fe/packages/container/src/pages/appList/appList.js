@@ -1,11 +1,28 @@
-import { AppManager } from '@/core/appManager'
 import { getAppList, getMiniAppInfo } from '@/services'
-import { closest } from '@/utils/util'
 import tpl from './appList.html?raw'
 import './appList.scss'
 
+// 简单 DOM 向上查找，避免为这一处用法依赖 SDK 内部工具（container-sdk 不对 demo 暴露 utils）。
+function closest(node, className) {
+	let current = node
+
+	while (current?.classList && !current.classList.contains(className)) {
+		current = current.parentNode
+	}
+
+	if (current === document) {
+		return null
+	}
+
+	return current
+}
+
 export class AppList {
-	constructor() {
+	/**
+	 * @param {ReturnType<typeof import('@dimina/fe-container-sdk').createContainer>} container
+	 */
+	constructor(container) {
+		this.container = container
 		this.parent = null
 		this.el = document.createElement('div')
 		this.el.classList.add('dimina-native-view')
@@ -63,12 +80,12 @@ export class AppList {
 
 			// 场景值含义
 			// https://developers.weixin.qq.com/miniprogram/dev/reference/scene-list.html
-			AppManager.openApp({
+			this.container.openApp({
 				appId,
 				path: appInfo.path,
 				scene: 1001,
 				destroy: true, // 关闭之前的小程序
-			}, this.parent)
+			})
 		}
 	}
 

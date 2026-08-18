@@ -27,9 +27,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
-import java.io.FileOutputStream
-import java.io.IOException
-import java.util.zip.ZipInputStream
 import kotlin.math.absoluteValue
 import kotlin.math.roundToInt
 
@@ -51,9 +48,11 @@ object Utils {
             return PathInfo("", null)
         }
 
-        // 分离路径和查询字符串
+        // 分离路径和查询字符串。pagePath 统一去除前导斜杠：宿主直启 path（扫码/
+        // 分享）与 wx.* 路由的 "/pages/x/y" 写法都归一到 app-config modules key
+        // 的形态（无前导斜杠），保证 tabBar / 首页判定与页面配置查找不因写法发散
         val parts = url.split("?", limit = 2)
-        val pagePath = parts[0].trim() // 去除首尾空白
+        val pagePath = parts[0].trim().trimStart('/')
 
         // 如果没有查询字符串，返回只有 pagePath 的结果
         if (parts.size == 1) {
@@ -106,6 +105,8 @@ object Utils {
                 ?: appWindowConfig.backgroundColor ?: "#fff",
             navigationStyle = pagePrivateConfig.navigationStyle
                 ?: appWindowConfig.navigationStyle ?: "default",
+            homeButton = pagePrivateConfig.homeButton
+                ?: appWindowConfig.homeButton ?: false,
             usingComponents = pagePrivateConfig.usingComponents ?: emptyMap()
         )
     }
@@ -134,67 +135,29 @@ object Utils {
      * @param keep Whether to keep the existing files in the target directory
      * @return true if extraction was successful, false otherwise
      */
-    fun unzipAssets(context: Context, zipFileName: String, target: String, keep: Boolean = false): Boolean {
-        // Create directory for the mini program if it doesn't exist
+    fun unzipAssets(
+        context: Context,
+        zipFileName: String,
+        target: String,
+        keep: Boolean = false,
+        requiredPaths: List<String> = emptyList(),
+    ): Boolean {
         val miniProgramDir = File(context.filesDir, target)
-        if (miniProgramDir.exists()) {
-            if (keep) {
-                LogUtils.d(TAG, "Existing directory for mini program: $zipFileName")
-                return false
-            } else {
-                miniProgramDir.deleteRecursively() // Clean up existing files
-            }
+        if (miniProgramDir.exists() && keep) {
+            LogUtils.d(TAG, "Existing directory for mini program: $zipFileName")
+            return false
         }
-        miniProgramDir.mkdirs()
 
-        // Get the zip file from assets
         LogUtils.d(TAG, "Extracting from assets: $zipFileName")
-
-        try {
-            // Open the zip file from assets
-            context.assets.open(zipFileName).use { inputStream ->
-                ZipInputStream(inputStream).use { zipInputStream ->
-                    var zipEntry = zipInputStream.nextEntry
-                    val buffer = ByteArray(1024)
-
-                    // Extract all files from the zip
-                    while (zipEntry != null) {
-                        val entryName = zipEntry.name
-                        val newFile = File(miniProgramDir, entryName)
-
-                        // Create directories if needed
-                        if (zipEntry.isDirectory) {
-                            newFile.mkdirs()
-                        } else {
-                            // Create parent directories if they don't exist
-                            newFile.parentFile?.mkdirs()
-
-                            // Extract the file
-                            FileOutputStream(newFile).use { fileOutputStream ->
-                                var len: Int
-                                while (zipInputStream.read(buffer).also { len = it } > 0) {
-                                    fileOutputStream.write(buffer, 0, len)
-                                }
-                            }
-                        }
-
-                        zipInputStream.closeEntry()
-                        zipEntry = zipInputStream.nextEntry
-                    }
-                }
-            }
-
-            return true
-
-        } catch (e: IOException) {
-            LogUtils.e(TAG, "Error extracting: ${e.message}")
-            e.printStackTrace()
-            return false
-        } catch (e: Exception) {
-            LogUtils.e(TAG, "Unexpected error: ${e.message}")
-            e.printStackTrace()
-            return false
+        val installed = AtomicZipInstaller.install(
+            inputProvider = { context.assets.open(zipFileName) },
+            targetDir = miniProgramDir,
+            requiredPaths = requiredPaths,
+        )
+        if (!installed) {
+            LogUtils.e(TAG, "Failed to extract and validate asset: $zipFileName")
         }
+        return installed
     }
 
     // Mini program system APIs expect CSS/logical px, not Android physical px.
@@ -239,10 +202,17 @@ object Utils {
         val displayMetrics = currentActivity.resources.displayMetrics
         val screenWidth = pxToDpInt(displayMetrics.widthPixels, currentActivity)
         val screenHeight = pxToDpInt(displayMetrics.heightPixels, currentActivity)
+        val windowBounds = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            currentActivity.windowManager.currentWindowMetrics.bounds
+        } else {
+            null
+        }
+        val windowWidth = windowBounds?.width()?.let { pxToDpInt(it, currentActivity) } ?: screenWidth
+        val fullWindowHeight = windowBounds?.height()?.let { pxToDpInt(it, currentActivity) } ?: screenHeight
         val statusBarHeight = getStatusBarHeight(currentActivity)
         val navigationBarHeight = getNavigationBarHeight(currentActivity)
         val safeAreaTop = statusBarHeight
-        val safeAreaBottom = (screenHeight - navigationBarHeight).coerceAtLeast(safeAreaTop)
+        val safeAreaBottom = (fullWindowHeight - navigationBarHeight).coerceAtLeast(safeAreaTop)
         val safeAreaHeight = (safeAreaBottom - safeAreaTop).coerceAtLeast(0)
 
         return JSONObject().apply {
@@ -251,16 +221,16 @@ object Utils {
             put("pixelRatio", displayMetrics.density)
             put("screenWidth", screenWidth)
             put("screenHeight", screenHeight)
-            put("windowWidth", screenWidth)
+            put("windowWidth", windowWidth)
             put("windowHeight", safeAreaHeight)
             put("statusBarHeight", statusBarHeight)
             put("screenTop", statusBarHeight)
             put("safeArea", JSONObject().apply {
                 put("left", 0)
-                put("right", screenWidth)
+                put("right", windowWidth)
                 put("top", safeAreaTop)
                 put("bottom", safeAreaBottom)
-                put("width", screenWidth)
+                put("width", windowWidth)
                 put("height", safeAreaHeight)
             })
             put("language", currentActivity.resources.configuration.locale.language)
@@ -280,23 +250,20 @@ object Utils {
 
     fun getMenuButtonBoundingClientRect(currentActivity: Activity): JSONObject {
         val systemInfo = getMiniProgramSystemInfo(currentActivity)
-        val width = 87
-        val height = 32
-        val navigationBarContentHeight = 64
-        val top = systemInfo.getInt("statusBarHeight") + (navigationBarContentHeight - height) / 2
-        val right = systemInfo.getInt("windowWidth") - 10
-        val left = right - width
-        val bottom = top + height
+        val rect = MenuButtonLayout.calculate(
+            windowWidth = systemInfo.getInt("windowWidth"),
+            statusBarHeight = systemInfo.getInt("statusBarHeight"),
+        )
 
         return JSONObject().apply {
-            put("width", width)
-            put("height", height)
-            put("top", top)
-            put("right", right)
-            put("bottom", bottom)
-            put("left", left)
-            put("x", left)
-            put("y", top)
+            put("width", rect.width)
+            put("height", rect.height)
+            put("top", rect.top)
+            put("right", rect.right)
+            put("bottom", rect.bottom)
+            put("left", rect.left)
+            put("x", rect.left)
+            put("y", rect.top)
         }
     }
 

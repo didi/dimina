@@ -55,9 +55,15 @@ public protocol DMPWebViewDelegate: AnyObject {
 }
 
 public class DMPWebview: NSObject, WKNavigationDelegate, WKScriptMessageHandler, ObservableObject {
+    private struct LoadingStateObserver {
+        let ownerToken: UUID?
+        let handler: (Bool) -> Void
+    }
+
     private var webView: WKWebView
     private weak var delegate: DMPWebViewDelegate?
     internal var jsBridgeCallbacks: [String: (Any) -> Void] = [:]
+    private var loadingStateObserver: LoadingStateObserver?
 
     // Add WebViewLogger member variable
     internal var logger: DMPWebViewLogger?
@@ -80,14 +86,43 @@ public class DMPWebview: NSObject, WKNavigationDelegate, WKScriptMessageHandler,
     }
 
     public var appName: String
-    public var onLoadingStateChanged: ((Bool) -> Void)?
+    public var onLoadingStateChanged: ((Bool) -> Void)? {
+        get {
+            loadingStateObserver?.handler
+        }
+        set {
+            loadingStateObserver = newValue.map {
+                LoadingStateObserver(ownerToken: nil, handler: $0)
+            }
+        }
+    }
+
+    /// Register a loading observer owned by one page-controller generation.
+    /// A released WebView can be acquired again before the old controller is
+    /// deallocated, so observer cleanup must not affect the new owner.
+    internal func setLoadingStateObserver(
+        ownerToken: UUID,
+        handler: @escaping (Bool) -> Void
+    ) {
+        loadingStateObserver = LoadingStateObserver(
+            ownerToken: ownerToken,
+            handler: handler
+        )
+    }
+
+    internal func clearLoadingStateObserver(ownerToken: UUID) {
+        guard loadingStateObserver?.ownerToken == ownerToken else {
+            return
+        }
+        loadingStateObserver = nil
+    }
     
     // Publish notification when state changes
     @Published public var poolState: DMPWebViewState = .available {
         didSet {
             // When the state changes, trigger UI update
             objectWillChange.send()
-            onLoadingStateChanged?(poolState.isLoading)
+            loadingStateObserver?.handler(poolState.isLoading)
         }
     }
     
@@ -101,9 +136,11 @@ public class DMPWebview: NSObject, WKNavigationDelegate, WKScriptMessageHandler,
         let config = DMPWebview.defaultConfiguration(appId: appId, processPool: processPool)
 
         self.webView = WKWebView(frame: .zero, configuration: config)
+        #if DEBUG
         if #available(iOS 16.4, *) {
             self.webView.isInspectable = true
         }
+        #endif
         self.delegate = delegate
         self.webViewId = DMPIdProvider.generateWebViewId()
         self.appId = appId
@@ -117,8 +154,10 @@ public class DMPWebview: NSObject, WKNavigationDelegate, WKScriptMessageHandler,
         // Apply WebView instance optimization
         DMPWebViewOptimizer.shared.optimizeWebViewInstance(self.webView)
 
-        // Initialize log recorder
+        // Web console and bridge payload logging is debug-build-only.
+        #if DEBUG
         self.logger = DMPWebViewLogger(webView: self.webView, webViewId: self.webViewId)
+        #endif
     }
 
     // Set delegate method
@@ -195,7 +234,7 @@ public class DMPWebview: NSObject, WKNavigationDelegate, WKScriptMessageHandler,
                 value: true
             });
         })();
-        """, injectionTime: .atDocumentStart, forMainFrameOnly: false)
+        """, injectionTime: .atDocumentStart, forMainFrameOnly: true)
 
         webView.configuration.userContentController.addUserScript(bootstrapScript)
     }
@@ -204,7 +243,7 @@ public class DMPWebview: NSObject, WKNavigationDelegate, WKScriptMessageHandler,
     public func loadPageFrame(enableVConsole: Bool = false) {
         let pageFramePath = enableVConsole ? "dimina:///pageFrame.html?vconsole=1" : "dimina:///pageFrame.html"
         guard let pageFrameURL = URL(string: pageFramePath) else {
-            print("❌ Invalid pageFrame URL")
+            DMPLogger.debug("❌ Invalid pageFrame URL")
             return
         }
 
@@ -214,20 +253,20 @@ public class DMPWebview: NSObject, WKNavigationDelegate, WKScriptMessageHandler,
 
     // Register a JS message handler to allow JS to call native methods
     public func registerJSHandler(handlerName: String, callback: @escaping (Any) -> Void) {
-        print("🔧 WebView (ID: \(getWebViewId())) trying to register handler: \(handlerName)")
+        DMPLogger.debug("🔧 WebView (ID: \(getWebViewId())) trying to register handler: \(handlerName)")
         
         // Check if this handler is already registered
         if jsBridgeCallbacks[handlerName] != nil {
-            print("⚠️ WebView (ID: \(getWebViewId())) handler \(handlerName) already exists, clean first then re-register")
+            DMPLogger.debug("⚠️ WebView (ID: \(getWebViewId())) handler \(handlerName) already exists, clean first then re-register")
             // Remove existing handler first
             webView.configuration.userContentController.removeScriptMessageHandler(forName: handlerName)
-            print("🧹 WebView (ID: \(getWebViewId())) cleaned handler: \(handlerName)")
+            DMPLogger.debug("🧹 WebView (ID: \(getWebViewId())) cleaned handler: \(handlerName)")
         }
         
         // Use safe way to register handler to prevent system-level duplicate registration exceptions
         webView.configuration.userContentController.add(self, name: handlerName)
         jsBridgeCallbacks[handlerName] = callback
-        print("✅ WebView (ID: \(getWebViewId())) successfully registered handler: \(handlerName)")
+        DMPLogger.debug("✅ WebView (ID: \(getWebViewId())) successfully registered handler: \(handlerName)")
     }
 
     // Execute JavaScript code
@@ -243,6 +282,10 @@ public class DMPWebview: NSObject, WKNavigationDelegate, WKScriptMessageHandler,
 
     // WKScriptMessageHandler implementation
     public func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard isTrustedBridgeMessage(message) else {
+            DMPLogger.debug("Blocked bridge message from an untrusted frame")
+            return
+        }
         if let callback = jsBridgeCallbacks[message.name] {
             callback(message.body)
         }
@@ -250,13 +293,13 @@ public class DMPWebview: NSObject, WKNavigationDelegate, WKScriptMessageHandler,
 
     // WKNavigationDelegate implementation - Use delegate pattern instead of direct dependency
     public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        print("🔴 DMPWebview: Web page load completed \(webViewId)")
+        DMPLogger.debug("🔴 DMPWebview: Web page load completed \(webViewId)")
         // Notify web page load completion through delegate callback
         delegate?.webViewDidFinishLoad(webViewId: self.webViewId)
     }
 
     public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-        print("Web page load failed: \(error.localizedDescription)")
+        DMPLogger.debug("Web page load failed: \(error.localizedDescription)")
         // Add detailed error information logging
         let errorInfo: [String: Any] = [
             "message": error.localizedDescription,
@@ -265,15 +308,33 @@ public class DMPWebview: NSObject, WKNavigationDelegate, WKScriptMessageHandler,
             "userInfo": (error as NSError).userInfo,
             "webViewId": self.webViewId
         ]
-        print("Detailed error information: \(errorInfo)")
+        DMPLogger.debug("Detailed error information: \(errorInfo)")
         // Notify web page load failure through delegate callback
         delegate?.webViewDidFailLoad(webViewId: self.webViewId, error: error)
     }
 
     // Use custom URL scheme to handle resource loading
     public func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-        // Empty implementation, allow all navigation requests
-        decisionHandler(.allow)
+        let allowed = isTrustedNavigation(navigationAction.request.url)
+        if !allowed {
+            DMPLogger.debug("Blocked untrusted WebView navigation")
+        }
+        decisionHandler(allowed ? .allow : .cancel)
+    }
+
+    private func isTrustedBridgeMessage(_ message: WKScriptMessage) -> Bool {
+        guard message.frameInfo.isMainFrame else { return false }
+        return isTrustedNavigation(message.frameInfo.request.url)
+    }
+
+    private func isTrustedNavigation(_ url: URL?) -> Bool {
+        guard let url else { return false }
+        if url.absoluteString == "about:blank" { return true }
+        return url.scheme?.lowercased() == "dimina"
+            && (url.host == nil || url.host?.isEmpty == true)
+            && url.path == "/pageFrame.html"
+            && url.user == nil
+            && url.password == nil
     }
 
     // Get underlying WKWebView

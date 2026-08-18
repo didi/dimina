@@ -45,12 +45,17 @@ const props = defineProps({
 		type: String,
 		default: '#04BE02',
 	},
+	autoFill: {
+		type: String,
+		default: '',
+	},
 })
 
 const isOn = ref(props.checked)
 
 // 注入父组件提供的方法
 const collectFormValue = inject('collectFormValue', undefined)
+const registerFormControl = inject('registerFormControl', undefined)
 watch(
 	() => props.checked,
 	(newVal) => {
@@ -59,6 +64,16 @@ watch(
 	},
 	{ immediate: true }, // 立即执行一次回调
 )
+
+const unregisterFormControl = registerFormControl?.({
+	getName: () => props.name,
+	getValue: () => isOn.value,
+	reset: () => {
+		isOn.value = false
+		collectFormValue?.(props.name, isOn.value)
+	},
+})
+onBeforeUnmount(() => unregisterFormControl?.())
 
 const computedStyle = computed(() => {
 	const checkedColor = isOn.value ? (props.color ?? '#04BE02') : undefined
@@ -88,16 +103,20 @@ function handleClicked(event) {
 
 <template>
 	<div
-		v-if="type === 'checkbox'" :id="id" v-bind="$attrs" class="dd-checkbox-input"
+		v-if="type === 'checkbox'" :id="id" v-bind="$attrs" class="dd-checkbox-input" data-dd-label-target
+		role="checkbox" :tabindex="disabled ? -1 : 0" :aria-checked="isOn" :aria-disabled="disabled"
 		:class="{ 'dd-checkbox-input-checked': isOn, 'dd-checkbox-input-disabled': disabled }" @click="handleClicked"
+		@keydown.enter.prevent="handleClicked" @keydown.space.prevent="handleClicked"
 	>
 		<i
 			class="dd-checkbox-input-inner" :style="computedStyle"
 		/>
 	</div>
 	<div
-		v-else :id="id" v-bind="$attrs" class="dd-switch-input" :class="{ 'dd-switch-input-checked': isOn }"
+		v-else :id="id" v-bind="$attrs" class="dd-switch-input" data-dd-label-target role="switch"
+		:tabindex="disabled ? -1 : 0" :aria-checked="isOn" :aria-disabled="disabled" :class="{ 'dd-switch-input-checked': isOn, 'dd-switch-input-disabled': disabled }"
 		@click="handleClicked"
+		@keydown.enter.prevent="handleClicked" @keydown.space.prevent="handleClicked"
 	>
 		<i class="dd-switch-input-inner" :style="computedStyle" />
 	</div>
@@ -162,6 +181,10 @@ function handleClicked(event) {
 	&::after {
 		transform: translateX(20px);
 	}
+}
+
+.dd-switch-input-disabled {
+	opacity: 0.3;
 }
 
 .dd-checkbox-input {

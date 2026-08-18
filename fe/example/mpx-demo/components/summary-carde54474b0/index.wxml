@@ -1,0 +1,1 @@
+<view class="card"><view class="card__eyebrow">Mpx 自定义组件</view><view class="card__title">{{summary}}</view><view class="card__description">组件接收页面属性，并通过自己的 computed 生成展示内容。</view></view>

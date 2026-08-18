@@ -21,8 +21,9 @@ class ApiRegistry {
     // extBridge 一次性调用的处理器，共享 extModules 引用
     private val extBridgeApi by lazy { ExtBridgeApi(extModules) }
 
-    // extOnBridge 持续订阅的取消函数，key="${module}_${event}"
-    private val extSubscriptions = mutableMapOf<String, Runnable>()
+    // extOnBridge 持续订阅的取消函数。跨小程序栈共享 ApiRegistry，必须按 owner 隔离。
+    private data class ExtSubscriptionKey(val appId: String, val eventKey: String)
+    private val extSubscriptions = mutableMapOf<ExtSubscriptionKey, Runnable>()
 
     /**
      * Registers an API handler
@@ -71,9 +72,17 @@ class ApiRegistry {
             val event = apiName.removePrefix("${matchedModule}_")
             val successId = params.optString("success", "")
             return if (successId.isNotEmpty()) {
-                handleExtOnBridge(matchedModule, event, apiName, params, successId, responseCallback)
+                handleExtOnBridge(
+                    appId,
+                    matchedModule,
+                    event,
+                    apiName,
+                    params,
+                    successId,
+                    responseCallback,
+                )
             } else {
-                handleExtOffBridge(apiName)
+                handleExtOffBridge(appId, apiName)
                 NoneResult()
             }
         }
@@ -86,6 +95,7 @@ class ApiRegistry {
      * 处理 extOnBridge：启动持续订阅，保存取消函数
      */
     private fun handleExtOnBridge(
+        appId: String,
         module: String,
         event: String,
         eventKey: String,
@@ -94,9 +104,10 @@ class ApiRegistry {
         responseCallback: (String) -> Unit,
     ): APIResult {
         val handler = extModules[module] ?: return NoneResult()
+        val subscriptionKey = ExtSubscriptionKey(appId, eventKey)
 
         // 若已有相同订阅，先取消旧的
-        extSubscriptions.remove(eventKey)?.run()
+        extSubscriptions.remove(subscriptionKey)?.run()
 
         val callback = object : com.didi.dimina.api.ext.ExtCallback {
             override fun onSuccess(result: JSONObject) {
@@ -110,7 +121,7 @@ class ApiRegistry {
 
         val unsubscribe = handler.handle(event, JSONObject(), callback)
         if (unsubscribe != null) {
-            extSubscriptions[eventKey] = unsubscribe
+            extSubscriptions[subscriptionKey] = unsubscribe
         }
         return NoneResult()
     }
@@ -118,23 +129,24 @@ class ApiRegistry {
     /**
      * 处理 extOffBridge：取消持续订阅
      */
-    private fun handleExtOffBridge(eventKey: String) {
-        extSubscriptions.remove(eventKey)?.run()
+    private fun handleExtOffBridge(appId: String, eventKey: String) {
+        extSubscriptions.remove(ExtSubscriptionKey(appId, eventKey))?.run()
         LogUtils.d(tag, "extOffBridge: cancelled subscription for $eventKey")
     }
 
-    /**
-     * 取消所有持续订阅（小程序销毁时调用）
-     */
-    fun clearExtSubscriptions() {
-        extSubscriptions.values.forEach { it.run() }
-        extSubscriptions.clear()
+    /** 取消指定小程序的持续订阅，不影响仍在返回栈中的 opener。 */
+    fun clearExtSubscriptions(appId: String) {
+        val owned = extSubscriptions.filterKeys { it.appId == appId }
+        owned.keys.forEach(extSubscriptions::remove)
+        owned.values.forEach { it.run() }
     }
     
     /**
      * Clears all API handlers
      */
     fun clear() {
+        extSubscriptions.values.forEach { it.run() }
+        extSubscriptions.clear()
         apiHandlers.clear()
     }
     

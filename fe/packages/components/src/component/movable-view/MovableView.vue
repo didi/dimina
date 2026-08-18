@@ -35,7 +35,7 @@ const props = defineProps({
 	 */
 	x: {
 		type: [Number, String],
-		default: 1,
+		default: 0,
 		required: false,
 	},
 	/**
@@ -43,7 +43,7 @@ const props = defineProps({
 	 */
 	y: {
 		type: [Number, String],
-		default: 1,
+		default: 0,
 		required: false,
 	},
 	/**
@@ -84,7 +84,7 @@ const props = defineProps({
 	 */
 	scaleMin: {
 		type: Number,
-		default: 0.1,
+		default: 0.5,
 		required: false,
 	},
 	/**
@@ -102,7 +102,7 @@ const props = defineProps({
 		type: Number,
 		default: 1,
 		required: false,
-		validator: value => value >= 0.1 && value <= 10,
+		validator: value => value >= 0.5 && value <= 10,
 	},
 	/**
 	 * 是否使用动画
@@ -115,24 +115,40 @@ const props = defineProps({
 })
 const emit = defineEmits(['update:x', 'update:y'])
 const info = useInfo()
+const registerMovableView = inject('registerMovableView', undefined)
 const movableView = ref(null)
 const movableViewContent = ref(null)
 let startX = 0
 let startY = 0
-const currentX = ref(Number.isNaN(props.x) ? 1 : Number.parseFloat(props.x))
-const currentY = ref(Number.isNaN(props.y) ? 1 : Number.parseFloat(props.y))
+function parseCoordinate(value) {
+	const parsed = Number.parseFloat(value)
+	return Number.isFinite(parsed) ? parsed : 0
+}
+const currentX = ref(parseCoordinate(props.x))
+const currentY = ref(parseCoordinate(props.y))
+const currentScale = ref(Math.min(Math.max(props.scaleValue, props.scaleMin, 0.5), props.scaleMax, 10))
 const duration = ref(props.animation ? '0.5s' : '0s')
 let isDragging = false
+let isScaling = false
 let isUpdatingFromDrag = false
 let parentRect = { width: 0, height: 0 }
 let childRect = { width: 0, height: 0 }
 let lastPositionX = 0
 let lastPositionY = 0
 let rafId = null
+let startDistance = 0
+let startScale = 1
+let lastPointerX = 0
+let lastPointerY = 0
+let lastPointerTime = 0
+let velocityX = 0
+let velocityY = 0
 
 let resizeObserver = null
+let unregisterMovableView
 
 onMounted(() => {
+	unregisterMovableView = registerMovableView?.({ start: startDrag, move: drag, end: endDrag })
 	resizeObserver = new ResizeObserver(() => {
 		requestAnimationFrame(() => {
 			updateRects()
@@ -154,6 +170,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+	unregisterMovableView?.()
 	if (resizeObserver) {
 		resizeObserver.disconnect()
 		resizeObserver = null
@@ -166,20 +183,23 @@ onUnmounted(() => {
 
 function updateRects() {
 	parentRect = movableView.value.parentElement.getBoundingClientRect()
-	childRect = movableViewContent.value.getBoundingClientRect()
+	childRect = {
+		width: movableViewContent.value.offsetWidth,
+		height: movableViewContent.value.offsetHeight,
+	}
 
 	if (parentRect.width >= childRect.width) {
 		lastPositionX = parentRect.x
 	}
 	else {
-		lastPositionX = childRect.x
+		lastPositionX = parentRect.x
 	}
 
 	if (parentRect.height >= childRect.height) {
 		lastPositionY = parentRect.y
 	}
 	else {
-		lastPositionY = childRect.y
+		lastPositionY = parentRect.y
 	}
 }
 
@@ -213,14 +233,44 @@ function startDrag(event) {
 		return
 	}
 	duration.value = '0s'
+	if (props.scale && event.touches?.length >= 2) {
+		const [first, second] = event.touches
+		startDistance = Math.hypot(second.clientX - first.clientX, second.clientY - first.clientY)
+		startScale = currentScale.value
+		isScaling = true
+		isDragging = false
+		triggerEvent('touchstart', { event, info })
+		return
+	}
 
 	isDragging = true
-	startX = (event.touches ? event.touches[0].clientX : event.clientX) - currentX.value
-	startY = (event.touches ? event.touches[0].clientY : event.clientY) - currentY.value
+	const pointer = event.touches ? event.touches[0] : event
+	startX = pointer.clientX - currentX.value
+	startY = pointer.clientY - currentY.value
+	lastPointerX = pointer.clientX
+	lastPointerY = pointer.clientY
+	lastPointerTime = event.timeStamp || performance.now()
+	velocityX = 0
+	velocityY = 0
 	triggerEvent('touchstart', { event, info })
 }
 
 function drag(event) {
+	if (isScaling && event.touches?.length >= 2) {
+		if (event.cancelable) event.preventDefault()
+		const [first, second] = event.touches
+		const distance = Math.hypot(second.clientX - first.clientX, second.clientY - first.clientY)
+		const scale = Math.min(Math.max(startScale * distance / Math.max(startDistance, 1), props.scaleMin, 0.5), props.scaleMax, 10)
+		if (scale !== currentScale.value) {
+			currentScale.value = Number(scale.toFixed(3))
+			triggerEvent('scale', {
+				event,
+				info,
+				detail: { scale: currentScale.value, x: currentX.value, y: currentY.value },
+			})
+		}
+		return
+	}
 	if (props.disabled || !isDragging) {
 		if (props.disabled) {
 			triggerEvent('touchmove', { event, info })
@@ -237,15 +287,20 @@ function drag(event) {
 	rafId = requestAnimationFrame(() => {
 		const nX = event.touches ? event.touches[0].clientX : event.clientX
 		const nY = event.touches ? event.touches[0].clientY : event.clientY
+		const time = event.timeStamp || performance.now()
+		const elapsed = Math.max(time - lastPointerTime, 1)
+		velocityX = (nX - lastPointerX) / elapsed
+		velocityY = (nY - lastPointerY) / elapsed
+		lastPointerX = nX
+		lastPointerY = nY
+		lastPointerTime = time
 
 		const dx = nX - startX
 		const dy = nY - startY
-
-		const { x: constrainedX, y: constrainedY } = constrainPosition(dx, dy)
-
-		const rect = movableViewContent.value.getBoundingClientRect()
-		const x = rect.x - lastPositionX
-		const y = rect.y - lastPositionY
+		const constrained = constrainPosition(dx, dy)
+		const damp = (value, boundary) => boundary + (value - boundary) / Math.max(props.damping / 5, 1)
+		const constrainedX = props.outOfBounds && constrained.x !== dx ? damp(dx, constrained.x) : constrained.x
+		const constrainedY = props.outOfBounds && constrained.y !== dy ? damp(dy, constrained.y) : constrained.y
 
 		isUpdatingFromDrag = true
 
@@ -264,20 +319,28 @@ function drag(event) {
 			emit('update:y', constrainedY)
 		}
 
-		triggerEvent('change', {
-			event,
-			info,
-			detail: {
-				x,
-				y,
-				source: 'touch',
-			},
-		})
+		if (props.direction !== 'none') {
+			triggerEvent('change', {
+				event,
+				info,
+				detail: {
+					x: currentX.value,
+					y: currentY.value,
+					source: constrained.x === dx && constrained.y === dy ? 'touch' : 'touch-out-of-bounds',
+				},
+			})
+		}
 	})
 }
 
 function endDrag(event) {
 	if (props.disabled) {
+		triggerEvent('touchend', { event, info })
+		return
+	}
+
+	if (isScaling) {
+		isScaling = false
 		triggerEvent('touchend', { event, info })
 		return
 	}
@@ -288,7 +351,28 @@ function endDrag(event) {
 
 	isDragging = false
 	isUpdatingFromDrag = false
-	duration.value = props.animation ? '0.5s' : '0s'
+	const constrained = constrainPosition(currentX.value, currentY.value)
+	let nextX = constrained.x
+	let nextY = constrained.y
+	let source = constrained.x !== currentX.value || constrained.y !== currentY.value ? 'out-of-bounds' : ''
+	if (!source && props.inertia) {
+		const inertiaFactor = 180 / Math.max(props.friction, 0.01)
+		const inertiaPosition = constrainPosition(
+			currentX.value + velocityX * inertiaFactor,
+			currentY.value + velocityY * inertiaFactor,
+		)
+		nextX = inertiaPosition.x
+		nextY = inertiaPosition.y
+		source = nextX !== currentX.value || nextY !== currentY.value ? 'friction' : ''
+	}
+	duration.value = props.animation && source ? `${Math.max(120, 600 / Math.max(props.damping / 10, 1))}ms` : '0s'
+	if (source) {
+		currentX.value = nextX
+		currentY.value = nextY
+		emit('update:x', nextX)
+		emit('update:y', nextY)
+		triggerEvent('change', { event, info, detail: { x: nextX, y: nextY, source } })
+	}
 
 	if (rafId) {
 		cancelAnimationFrame(rafId)
@@ -306,13 +390,18 @@ watch([() => props.x, () => props.y], ([nX, nY], [pX, pY]) => {
 	if (nX === pX && nY === pY) {
 		return
 	}
-	const x = Number.isNaN(nX) ? 1 : Number.parseFloat(nX)
-	const y = Number.isNaN(nY) ? 1 : Number.parseFloat(nY)
+	const x = parseCoordinate(nX)
+	const y = parseCoordinate(nY)
 	const { x: constrainedX, y: constrainedY } = constrainPosition(x, y)
 	duration.value = props.animation ? '0.5s' : '0s'
 	currentX.value = constrainedX
 	currentY.value = constrainedY
 }, { flush: 'post' })
+
+watch([() => props.scaleValue, () => props.scaleMin, () => props.scaleMax], ([value]) => {
+	if (!props.scale) return
+	currentScale.value = Math.min(Math.max(Number(value) || 1, props.scaleMin, 0.5), props.scaleMax, 10)
+})
 </script>
 
 <template>
@@ -324,7 +413,7 @@ watch([() => props.x, () => props.y], ([nX, nY], [pX, pY]) => {
 		<div
 			ref="movableViewContent" class="dd-movable-view-content" :style="{
 				'--duration': duration,
-				'transform': `translate3d(${currentX}px, ${currentY}px, 0) scale(${scaleValue})`,
+				'transform': `translate3d(${currentX}px, ${currentY}px, 0) scale(${currentScale})`,
 			}"
 		>
 			<slot />

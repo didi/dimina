@@ -16,6 +16,7 @@ public class NavigationBarAPI: DMPContainerApi {
     // API method names
     private static let SET_NAVIGATION_BAR_TITLE = "setNavigationBarTitle"
     private static let SET_NAVIGATION_BAR_COLOR = "setNavigationBarColor"
+    private static let HIDE_HOME_BUTTON = "hideHomeButton"
     
     // Set navigation bar title
     @BridgeMethod(SET_NAVIGATION_BAR_TITLE)
@@ -155,6 +156,46 @@ public class NavigationBarAPI: DMPContainerApi {
             DMPContainerApi.invokeSuccess(callback: callback, param: result)
         }
         
+        return DMPAsyncResult()
+    }
+
+    // Hide the home button for the calling page (wx.hideHomeButton)
+    @BridgeMethod(HIDE_HOME_BUTTON)
+    var hideHomeButton: DMPBridgeMethodHandler = { param, env, callback in
+        let app = DMPAppManager.sharedInstance().getApp(appIndex: env.appIndex)
+
+        DispatchQueue.main.async {
+            // The flag lives on the caller's page record (keyed by env.webViewId),
+            // so a delayed call from a background page hides that page's own
+            // button — never the currently visible page's.
+            guard let pageRecord = app?.getNavigator()?.pageRecord(webViewId: env.webViewId) else {
+                let errorMsg = "\(HIDE_HOME_BUTTON):fail page not found"
+                DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: errorMsg)
+                return
+            }
+            pageRecord.homeButtonForceHidden = true
+
+            // Refresh the on-screen nav bar only when the caller is the visible
+            // page; background pages re-derive it in viewWillAppear.
+            let topPageController: DMPPageController? = {
+                guard let top = app?.getNavigator()?.navigationController?.topViewController else {
+                    return nil
+                }
+                if let controller = top as? DMPPageController {
+                    return controller
+                }
+                if let tabBarController = top as? DMPTabBarContainerController {
+                    return tabBarController.currentPageController
+                }
+                return nil
+            }()
+            topPageController?.refreshNavigationBar(ifDisplaying: env.webViewId)
+
+            let result = DMPMap()
+            result.set("errMsg", "\(HIDE_HOME_BUTTON):ok")
+            DMPContainerApi.invokeSuccess(callback: callback, param: result)
+        }
+
         return DMPAsyncResult()
     }
 }

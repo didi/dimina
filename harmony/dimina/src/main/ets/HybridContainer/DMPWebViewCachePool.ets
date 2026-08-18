@@ -13,6 +13,7 @@ import { DMPWebViewNodeController, NodeControllerWrapper } from './DMPWebViewNod
 
 export class DMPWebViewCachePool {
   private app: DMPApp
+  private runtimeGeneration: number
   //通用缓存池
   private generalCachePool: Array<DMPWebViewNodeController> = []
   //轻量缓存池
@@ -26,6 +27,7 @@ export class DMPWebViewCachePool {
 
   constructor(app: DMPApp) {
     this.app = app
+    this.runtimeGeneration = app.runtimeGeneration
   }
 
   init() {
@@ -64,7 +66,8 @@ export class DMPWebViewCachePool {
     //避免一次性新增太多阻塞UI
     setTimeout(() => {
       if (this.generalCachePool.length < 1) {
-        if (this.app && DMPAppManager.sharedInstance().existApp(this.app.appConfig.appId)) {
+        if (this.app && this.runtimeGeneration === this.app.runtimeGeneration &&
+          DMPAppManager.sharedInstance().getApp(this.app.appIndex) === this.app) {
           for (let i = 0; i < this.increaseCount - 1; i++) {
             this.preLoadWebView();
           }

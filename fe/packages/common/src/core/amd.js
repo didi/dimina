@@ -14,6 +14,11 @@ function modDefine(id, factory) {
 		}
 	}
 }
+
+function hasModule(id) {
+	return Object.prototype.hasOwnProperty.call(JSModules, id)
+}
+
 // 模块加载函数
 function modRequire(id, callback, errorCallback) {
 	if (typeof id !== 'string') {
@@ -44,6 +49,9 @@ function modRequire(id, callback, errorCallback) {
 				${e.stack}
 			`
 			console.error(`require ${id} error: ${em}`)
+			if (isFunction(globalThis.__diminaReportError)) {
+				globalThis.__diminaReportError(e)
+			}
 			if (isFunction(errorCallback)) {
 				errorCallback({ mod: id, errMsg: e.message })
 			}
@@ -70,4 +78,4 @@ modRequire.async = async (id) => {
 	})
 }
 
-export { modDefine, modRequire }
+export { hasModule, modDefine, modRequire }

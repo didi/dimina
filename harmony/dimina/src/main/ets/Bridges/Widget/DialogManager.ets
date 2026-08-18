@@ -49,14 +49,29 @@ export class DialogManager {
 
 
   showDialog(params: ModalOption, dialogId?: string) {
-    if (!dialogId) {
-      dialogId = "id" + systemDateTime.getTime()
+    const resolvedDialogId: string = dialogId ?? "id" + systemDateTime.getTime()
+    if (this.dialogs.hasKey(resolvedDialogId)) {
+      this.hideDialog(resolvedDialogId)
     }
-    if (this.dialogs.hasKey(dialogId)) {
-      this.hideDialog(dialogId)
+
+    const cancel = params.cancel
+    const confirm = params.confirm
+    const fail = params.fail
+    params.cancel = () => {
+      this.dialogs.remove(resolvedDialogId)
+      cancel?.()
     }
+    params.confirm = () => {
+      this.dialogs.remove(resolvedDialogId)
+      confirm?.()
+    }
+    params.fail = () => {
+      this.dialogs.remove(resolvedDialogId)
+      fail?.()
+    }
+
     const dialog = new DialogApi();
-    params.dialogId = dialogId;
+    params.dialogId = resolvedDialogId;
     this.dialogs.set(params.dialogId, dialog);
     dialog.showDialog(params);
   }

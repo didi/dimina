@@ -46,11 +46,11 @@ export struct DMPMiniProgramMenuDialog {
         .backgroundColor('#f2f2f2')
 
       Row({ space: 16 }) {
-        this.MenuItem('↻', 24, '重新进入\n小程序', () => {
+        this.MenuItem(true, '重新进入\n小程序', () => {
           this.closeDialog()
           this.onReenter?.()
         })
-        this.MenuItem('×', 26, '关闭小程序', () => {
+        this.MenuItem(false, '关闭小程序', () => {
           this.closeDialog()
           this.onClose?.()
         })
@@ -81,13 +81,20 @@ export struct DMPMiniProgramMenuDialog {
   }
 
   @Builder
-  private MenuItem(icon: string, iconSize: number, title: string, onClick: () => void) {
+  private MenuItem(isReenter: boolean, title: string, onClick: () => void) {
     Column() {
       Stack() {
-        Text(icon)
-          .fontSize(iconSize)
-          .fontColor('#333333')
-          .fontWeight(FontWeight.Medium)
+        if (isReenter) {
+          SymbolGlyph($r('sys.symbol.arrow_clockwise'))
+            .fontSize(24)
+            .fontColor(['#333333'])
+            .fontWeight(FontWeight.Medium)
+        } else {
+          SymbolGlyph($r('sys.symbol.xmark'))
+            .fontSize(24)
+            .fontColor(['#333333'])
+            .fontWeight(FontWeight.Medium)
+        }
       }
       .width(52)
       .height(52)

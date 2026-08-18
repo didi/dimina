@@ -41,41 +41,64 @@ const props = defineProps({
 		type: Boolean,
 		default: false,
 	},
+	name: {
+		type: String,
+	},
+	autoFill: {
+		type: String,
+	},
 })
 
 let index = -1
 const pickerView = ref(null)
-const itemValue = []
+const itemValue = ref([...(props.value || [])])
 
 provide('getPickerHeight', () => {
 	return pickerView.value.offsetHeight
 })
 
-provide('pickerItemStyle', {
+provide('pickerItemStyle', computed(() => ({
 	indicatorStyle: props.indicatorStyle,
 	indicatorClass: props.indicatorClass,
 	maskStyle: props.maskStyle,
 	maskClass: props.maskClass,
-})
+})))
 
-provide('itemValue', props.value)
+provide('itemValue', itemValue)
+provide('pickerImmediateChange', computed(() => props.immediateChange))
 provide('getItemIndex', () => {
 	return ++index
 })
 
 provide('setPickerValue', (index, value) => {
-	itemValue[index] = value
+	itemValue.value[index] = value
 })
+
+watch(() => props.value, (value = []) => {
+	itemValue.value = [...value]
+}, { deep: true })
 
 const info = useInfo()
 provide('pickerEvent', (type, event) => {
-	const detail = type === 'change' ? { value: itemValue } : {}
+	const detail = type === 'change' ? { value: [...itemValue.value] } : {}
 	triggerEvent(type, {
 		event,
 		info,
 		detail,
 	})
 })
+
+const collectFormValue = inject('collectFormValue', undefined)
+const registerFormControl = inject('registerFormControl', undefined)
+watch(itemValue, value => collectFormValue?.(props.name, [...value]), { deep: true, immediate: true })
+const unregisterFormControl = registerFormControl?.({
+	getName: () => props.name,
+	getValue: () => [...itemValue.value],
+	reset: () => {
+		itemValue.value = [...(props.value || [])]
+	},
+})
+onBeforeUnmount(() => unregisterFormControl?.())
 </script>
 
 <template>

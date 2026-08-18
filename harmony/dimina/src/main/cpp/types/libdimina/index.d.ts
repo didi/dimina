@@ -13,5 +13,6 @@ export const destroyJsEngine: (appIndex: number) => number;
 
 export const brotliDecompress: (data: ArrayBuffer) => ArrayBuffer;
 
-export const registerCanvasTsfn: (appIndex: number,
-  callback: (type: number, data: string) => string) => void;
+// Canvas 2D GL surface binding
+export const canvasBindSurface: (appIndex: number, nodeId: string, surfaceId: string, width: number, height: number) => number;
+export const canvasUnbindSurface: (appIndex: number, nodeId: string) => number;

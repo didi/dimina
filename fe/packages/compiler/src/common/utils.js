@@ -1,3 +1,4 @@
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
@@ -39,6 +40,39 @@ function getAbsolutePath(workPath, pagePath, src) {
 }
 
 const assetsMap = {}
+
+function resetAssetCache() {
+	for (const assetPath of Object.keys(assetsMap)) {
+		delete assetsMap[assetPath]
+	}
+}
+
+function isPathInside(rootPath, targetPath) {
+	const relativePath = path.relative(rootPath, targetPath)
+	return relativePath === '' || (!relativePath.startsWith(`..${path.sep}`) && relativePath !== '..' && !path.isAbsolute(relativePath))
+}
+
+function resolveAssetSourcePath(workPath, pagePath, src) {
+	const projectRoot = path.resolve(workPath)
+	if (src.startsWith('/')) {
+		return path.resolve(projectRoot, `.${src}`)
+	}
+
+	const normalizedPagePath = path.resolve(pagePath)
+	const pageDirectory = path.isAbsolute(pagePath) && isPathInside(projectRoot, normalizedPagePath)
+		? path.dirname(normalizedPagePath)
+		: path.resolve(projectRoot, path.dirname(pagePath.replace(/^[/\\]+/, '')))
+	const resolvedPath = path.resolve(pageDirectory, src)
+	if (isPathInside(projectRoot, resolvedPath)) {
+		return resolvedPath
+	}
+
+	// Mini-program resources cannot escape the project package. Some imported
+	// templates use enough ../ segments for their consuming page rather than the
+	// template file itself, so clamp that traversal at the project root.
+	return path.resolve(projectRoot, src.replace(/^(?:\.\.[/\\])+/, ''))
+}
+
 /**
  * 将静态资源存储到 static 文件夹
  */
@@ -53,11 +87,7 @@ function collectAssets(workPath, pagePath, src, targetPath, appId) {
 		return src
 	}
 
-	// example/article/article -> example/article
-	const relativePath = pagePath.split('/').slice(0, -1).join('/')
-	const absolutePath = src.startsWith('/')
-		? (workPath + src)
-		: path.resolve(workPath, relativePath, src)
+	const absolutePath = resolveAssetSourcePath(workPath, pagePath, src)
 
 	if (assetsMap[absolutePath]) {
 		return assetsMap[absolutePath]
@@ -67,7 +97,7 @@ function collectAssets(workPath, pagePath, src, targetPath, appId) {
 		// 复制将文件夹下所有同类型的资源文件并加上前缀
 		const ext = `.${src.split('.').pop()}`
 		const dirPath = absolutePath.split(path.sep).slice(0, -1).join('/')
-		const prefix = uuid()
+		const prefix = uuid(dirPath)
 
 		const targetStatic = `${targetPath}/main/static`
 		if (!fs.existsSync(targetStatic)) {
@@ -136,17 +166,23 @@ function transformRpx(styleText) {
 	}
 
 	return styleText.replace(/([+-]?\d+(?:\.\d+)?)rpx/g, (_, pixel) => {
-		return `${Number(pixel)}rem`
+		const viewportWidth = Number((Number(pixel) / 7.5).toFixed(6))
+		return `${Object.is(viewportWidth, -0) ? 0 : viewportWidth}vw`
 	})
 }
 
-function uuid() {
-	return Math.random().toString(36).slice(2, 7)
+// Deterministic per-path id: the first 64 bits of sha256(path) as a base36
+// token. Determinism is load-bearing — the view/style/render stages each hash
+// the path independently in separate worker realms, so a random id would
+// diverge and break WXSS scoping. 64 bits keeps near-identical component paths
+// (the mini-program norm) collision-free where a 32-bit hash would clash.
+function uuid(str) {
+	return crypto.createHash('sha256').update(str).digest().readBigUInt64BE(0).toString(36)
 }
 
 const tagWhiteList = [
 	'page',
-	'wrapper',
+	'component-host',
 	'block',
 	'button',
 	'camera',
@@ -189,6 +225,29 @@ const tagWhiteList = [
 	'web-view',
 ]
 
+// Known mini-program built-ins are tracked separately from ordinary HTML tags.
+// This lets compatibility diagnostics keep warning for an unimplemented
+// built-in such as <ad> or <audio>, while the view compiler follows glass-easel
+// and leaves undeclared tags as native elements.
+const miniProgramBuiltinTags = new Set([
+	...tagWhiteList,
+	'canvas',
+	'match-media',
+	'page-container',
+	'share-element',
+	'editor',
+	'audio',
+	'channel-live',
+	'channel-video',
+	'live-player',
+	'live-pusher',
+	'voip-room',
+	'ad',
+	'ad-custom',
+	'official-account',
+	'xr-frame',
+])
+
 export {
 	artCode,
 	collectAssets,
@@ -196,6 +255,9 @@ export {
 	getAbsolutePath,
 	hasCompileInfo,
 	isObjectEmpty,
+	miniProgramBuiltinTags,
+	resolveAssetSourcePath,
+	resetAssetCache,
 	tagWhiteList,
 	transformRpx,
 	uuid,

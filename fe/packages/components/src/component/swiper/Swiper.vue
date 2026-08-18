@@ -3,7 +3,6 @@
 // https://developers.weixin.qq.com/miniprogram/dev/component/swiper.html
 
 import { transformRpx } from '@dimina/common'
-import { cloneVNode } from 'vue'
 import { triggerEvent, useInfo } from '@/common/events'
 
 const props = defineProps({
@@ -41,6 +40,16 @@ const props = defineProps({
 	current: {
 		type: Number,
 		default: 0,
+	},
+	/** 当前所在滑块的 item-id，优先于 current */
+	currentItemId: {
+		type: String,
+		default: '',
+	},
+	/** 跳过不可见滑块的内容布局 */
+	skipHiddenItemLayout: {
+		type: Boolean,
+		default: false,
 	},
 	/**
 	 * 自动切换时间间隔
@@ -127,17 +136,26 @@ const currentIndex = ref(props.current)
 // 添加标记来追踪内部变更
 let isInternalChange = false
 
-// 递归查找所有子节点中是 Swiper-Item 的节点数量
+// 迭代查找嵌套插槽中的 SwiperItem，避免异常深度或循环 VNode 造成栈溢出。
 function findSwiperItems(nodes) {
 	const res = []
-	for (let i = 0; i < nodes.length; i++) {
-		const vnode = nodes[i]
+	const stack = Array.isArray(nodes) ? [...nodes].reverse() : []
+	const visited = new WeakSet()
+	while (stack.length) {
+		const vnode = stack.pop()
+		if (!vnode || typeof vnode !== 'object' || visited.has(vnode)) continue
+		visited.add(vnode)
 		if (vnode.type?.__name === 'SwiperItem') {
 			res.push(vnode)
+			continue
 		}
-		else if (vnode.children) {
-			// 如果当前节点有子节点，则递归查找
-			res.push(...findSwiperItems(vnode.children.default ? vnode.children.default() : vnode.children))
+
+		let children = vnode.children
+		if (children?.default && typeof children.default === 'function') {
+			children = children.default()
+		}
+		if (Array.isArray(children)) {
+			for (let i = children.length - 1; i >= 0; i--) stack.push(children[i])
 		}
 	}
 
@@ -228,6 +246,15 @@ function normalizeCurrent(current) {
 
 function getVisibleCurrent(current = currentIndex.value) {
 	return normalizeCurrent(current)
+}
+
+function getItemId(current = currentIndex.value) {
+	const item = slotItems.value[getVisibleCurrent(current)]
+	return item?.props?.itemId ?? item?.props?.['item-id'] ?? ''
+}
+
+function getIndexByItemId(itemId) {
+	return slotItems.value.findIndex(item => (item?.props?.itemId ?? item?.props?.['item-id'] ?? '') === itemId)
 }
 
 function isActiveDot(index) {
@@ -402,6 +429,7 @@ function setNewCurrent(newCurrent) {
 		info,
 		detail: {
 			current: getVisibleCurrent(newCurrent),
+			currentItemId: getItemId(newCurrent),
 			source,
 		},
 	})
@@ -412,6 +440,7 @@ watch(
 		() => props.vertical,
 		() => props.autoplay,
 		() => props.current,
+		() => props.currentItemId,
 		() => props.previousMargin,
 		() => props.nextMargin,
 		() => props.circular,
@@ -419,7 +448,7 @@ watch(
 		() => props.snapToEdge,
 		() => props.interval,
 	],
-	([newVertical, newAutoplay, newCurrent, newPreviousMargin, newNextMargin, newCircular, newDisplayMultipleItems, newSnapToEdge, newInterval], [oldVertical, oldAutoplay, _oldCurrent, oldPreviousMargin, oldNextMargin, oldCircular, oldDisplayMultipleItems, oldSnapToEdge, oldInterval]) => {
+	([newVertical, newAutoplay, newCurrent, newCurrentItemId, newPreviousMargin, newNextMargin, newCircular, newDisplayMultipleItems, newSnapToEdge, newInterval], [oldVertical, oldAutoplay, _oldCurrent, oldCurrentItemId, oldPreviousMargin, oldNextMargin, oldCircular, oldDisplayMultipleItems, oldSnapToEdge, oldInterval]) => {
 		if (oldVertical !== newVertical) {
 			wrapperStyle.value.flexDirection = newVertical ? 'column' : 'row'
 			requestMargin()
@@ -443,7 +472,12 @@ watch(
 		}
 
 		// 只有在不是内部变更时才响应current的变化
-		if (newCurrent !== currentIndex.value && !isInternalChange) {
+		const itemIdIndex = newCurrentItemId ? getIndexByItemId(newCurrentItemId) : -1
+		if (newCurrentItemId !== oldCurrentItemId && itemIdIndex >= 0 && !isInternalChange) {
+			source = ''
+			setNewCurrent(itemIdIndex)
+		}
+		else if (newCurrent !== currentIndex.value && !isInternalChange && !newCurrentItemId) {
 			source = ''
 			setNewCurrent(newCurrent)
 		}
@@ -463,6 +497,8 @@ watch(
 )
 
 watch(slotCount, () => {
+	const itemIdIndex = props.currentItemId ? getIndexByItemId(props.currentItemId) : -1
+	if (itemIdIndex >= 0) currentIndex.value = itemIdIndex
 	if (currentIndex.value !== -1 && currentIndex.value !== slotCount.value) {
 		currentIndex.value = normalizeCurrent(currentIndex.value)
 	}
@@ -753,6 +789,7 @@ function handleTransitionEnd(event) {
 		info,
 		detail: {
 			current: getVisibleCurrent(),
+			currentItemId: getItemId(),
 			source,
 		},
 	})
@@ -841,7 +878,8 @@ function stopAutoplay() {
 
 onMounted(() => {
 	requestMargin()
-	currentIndex.value = normalizeCurrent(currentIndex.value)
+	const itemIdIndex = props.currentItemId ? getIndexByItemId(props.currentItemId) : -1
+	currentIndex.value = normalizeCurrent(itemIdIndex >= 0 ? itemIdIndex : currentIndex.value)
 	applyTransform(currentIndex.value)
 	wrapperStyle.value.transition = 'none'
 	startAutoplay() // 组件挂载后开始自动播放
@@ -855,7 +893,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-	<div v-bind="$attrs" class="dd-swiper">
+	<div v-bind="$attrs" class="dd-swiper" :class="{ 'dd-swiper-skip-hidden': skipHiddenItemLayout }">
 		<div
 			class="dd-swiper-wrapper" :style="wrapperEventStyle"
 			:aria-label="Boolean(props.vertical) ? '可竖向滚动' : '可横向滚动'" @touchstart="startDrag"
@@ -935,6 +973,11 @@ onBeforeUnmount(() => {
 		width: 100%;
 		height: 100%;
 		will-change: transform;
+	}
+
+	&.dd-swiper-skip-hidden .dd-swiper-item {
+		content-visibility: auto;
+		contain-intrinsic-size: 100% 100%;
 	}
 
 	.dd-swiper-dots {

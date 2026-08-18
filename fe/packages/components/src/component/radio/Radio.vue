@@ -40,22 +40,24 @@ const props = defineProps({
 		default: '#09BB07',
 	},
 })
-const selectValue = inject('selectValue', undefined)
-// 父级 radio-group 的选中值
-const selected = inject('selected', undefined)
-
-if (props.checked) {
-	selectValue?.(props.value)
-}
-
-const isOn = computed(() => {
-	if (selected) {
-		return selected.value === props.value
-	}
-	else {
-		return Boolean(props.checked)
-	}
+const radioGroup = inject('radioGroup', undefined)
+const isOn = ref(Boolean(props.checked))
+watch(() => props.checked, value => {
+	isOn.value = value
 })
+
+const radioControl = {
+	getValue: () => props.value,
+	isChecked: () => isOn.value,
+	setChecked: value => {
+		isOn.value = value
+	},
+	reset: () => {
+		isOn.value = false
+	},
+}
+const unregisterRadio = radioGroup?.registerRadio(radioControl)
+onBeforeUnmount(() => unregisterRadio?.())
 
 const computedStyle = computed(() => {
 	if (props.color && isOn.value) {
@@ -69,15 +71,15 @@ const computedStyle = computed(() => {
 	}
 })
 
-// 父级 radio-group 的 change 事件
-const handleValueChange = inject('handleValueChange', undefined)
 const info = useInfo()
 function handleClicked(event) {
 	if (!props.disabled) {
-		if (typeof selectValue === 'function') {
-			selectValue(props.value)
+		if (radioGroup) {
+			radioGroup.selectRadio(radioControl, event)
 		}
-		handleValueChange?.(event)
+		else {
+			isOn.value = true
+		}
 
 		triggerEvent('tap', {
 			event,
@@ -89,7 +91,11 @@ function handleClicked(event) {
 </script>
 
 <template>
-	<div v-bind="$attrs" class="dd-radio" @click="handleClicked">
+	<div
+		:id="id" v-bind="$attrs" class="dd-radio" data-dd-label-target role="radio"
+		:tabindex="disabled ? -1 : 0" :aria-checked="isOn" :aria-disabled="disabled" @click="handleClicked"
+		@keydown.enter.prevent="handleClicked" @keydown.space.prevent="handleClicked"
+	>
 		<div class="dd-radio-wrapper">
 			<div
 				class="dd-radio-input" :class="{ 'dd-radio-input-checked': isOn, 'dd-radio-input-disabled': disabled }"

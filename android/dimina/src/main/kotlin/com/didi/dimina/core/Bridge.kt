@@ -30,8 +30,22 @@ class Bridge(
 ) {
     private val tag = "Bridge"
     private val id: String = "bridge_${Utils.uuid()}"
+    @Volatile
     private var serviceResource: Boolean = false
+    @Volatile
     private var renderResource: Boolean = false
+    @Volatile
+    private var resourceLoadedForwarded: Boolean = false
+    @Volatile
+    private var destroyed: Boolean = false
+    @Volatile
+    private var resourceLoadId: String? = null
+    @Volatile
+    private var desiredPageVisible: Boolean? = null
+    @Volatile
+    private var sentPageVisible: Boolean? = null
+    @Volatile
+    private var pendingAppShowOptions: JSONObject? = null
 
     /**
      * Bridge 初始化逻辑
@@ -66,13 +80,26 @@ class Bridge(
     /**
      * Start the bridge by loading resources in both render thread and logic thread.
      */
-    fun start() {
+    fun start(visible: Boolean? = null) {
+        val currentResourceLoadId = synchronized(this) {
+            destroyed = false
+            resourceLoadId = Utils.uuid()
+            if (visible != null) {
+                desiredPageVisible = visible
+            } else if (desiredPageVisible == null) {
+                desiredPageVisible = true
+            }
+            resourceLoadId!!
+        }
+
         // 通知渲染线程加载资源
         options.webview.postMessage(
             "loadResource",
             mapOf(
                 "bridgeId" to id,
+                "resourceLoadId" to currentResourceLoadId,
                 "appId" to options.appId,
+                "runtimeType" to options.runtimeType,
                 "pagePath" to options.pathInfo.pagePath,
                 "root" to options.root,
                 "baseUrl" to PathUtils.WEBVIEW_JSAPP_BASE_URL
@@ -93,13 +120,20 @@ class Bridge(
                 // 发送 loadResource 消息
                 options.jscore.postMessage(
                     "loadResource",
-                    mapOf(
-                        "bridgeId" to id,
-                        "appId" to options.appId,
-                        "pagePath" to options.pathInfo.pagePath,
-                        "root" to options.root,
-                        "baseUrl" to PathUtils.WEBVIEW_JSAPP_BASE_URL
-                    )
+                    JSONObject().apply {
+                        put("bridgeId", id)
+                        put("resourceLoadId", currentResourceLoadId)
+                        put("appId", options.appId)
+                        put("runtimeType", options.runtimeType)
+                        put("pagePath", options.pathInfo.pagePath)
+                        put("query", options.pathInfo.query ?: JSONObject())
+                        put("scene", options.scene)
+                        put("root", options.root)
+                        put("baseUrl", PathUtils.WEBVIEW_JSAPP_BASE_URL)
+                        options.referrerInfo?.let {
+                            put("referrerInfo", JSONObject(it.toString()))
+                        }
+                    }
                 )
 
                 LogUtils.d(tag, "Bridge started and resources loaded in background thread")
@@ -113,11 +147,18 @@ class Bridge(
      * 消息处理
      */
     private fun messageInvoke(source: String, msg: JSONObject): JSValue? {
+        if (destroyed) {
+            return null
+        }
 
         val body = msg.getJSONObject("body")
         val bridgeId = body.optString("bridgeId")
 
         if (bridgeId.isNotEmpty() && bridgeId != id) {
+            return JSValue.createUndefined()
+        }
+        val incomingResourceLoadId = body.optString("resourceLoadId")
+        if (incomingResourceLoadId.isNotEmpty() && incomingResourceLoadId != resourceLoadId) {
             return JSValue.createUndefined()
         }
 
@@ -133,6 +174,9 @@ class Bridge(
                 put("pagePath", options.pathInfo.pagePath)
                 put("scene", options.scene)
                 put("query", options.pathInfo.query)
+                options.referrerInfo?.let {
+                    put("referrerInfo", JSONObject(it.toString()))
+                }
                 // Copy all properties from original body
                 for (key in body.keys()) {
                     put(key, body.get(key))
@@ -144,8 +188,7 @@ class Bridge(
             "service" -> {
                 when (type) {
                     "serviceResourceLoaded" -> {
-                        this.serviceResource = true
-                        if (isResourceLoaded()) {
+                        if (markResourceLoaded(service = true)) {
                             transMsg.put("type", "resourceLoaded")
                         } else {
                             return null
@@ -153,15 +196,21 @@ class Bridge(
                     }
 
                     "renderResourceLoaded" -> {
-                        this.renderResource = true
-                        if (isResourceLoaded()) {
+                        if (markResourceLoaded(service = false)) {
                             transMsg.put("type", "resourceLoaded")
                         } else {
                             return null
                         }
                     }
+
+                    "renderResourceLoadFailed" -> {
+                        synchronized(this) {
+                            renderResource = false
+                            resourceLoadedForwarded = false
+                        }
+                    }
                 }
-                options.jscore.postMessage(transMsg.toString())
+                forwardToService(transMsg)
             }
 
             "container" -> {
@@ -181,6 +230,9 @@ class Bridge(
      * 消息中转
      */
     private fun messagePublish(msg: JSONObject) {
+        if (destroyed) {
+            return
+        }
         val body = msg.getJSONObject("body")
         val bridgeId = body.optString("bridgeId")
         if (bridgeId.isNotEmpty() && bridgeId != id) {
@@ -209,11 +261,50 @@ class Bridge(
         return serviceResource && renderResource
     }
 
-    fun appShow() {
-        if (!isResourceLoaded()) {
+    @Synchronized
+    private fun markResourceLoaded(service: Boolean): Boolean {
+        if (destroyed) {
+            return false
+        }
+        if (service) {
+            serviceResource = true
+        } else {
+            renderResource = true
+        }
+        if (!isResourceLoaded() || resourceLoadedForwarded) {
+            return false
+        }
+        resourceLoadedForwarded = true
+        return true
+    }
+
+    @Synchronized
+    private fun forwardToService(msg: JSONObject) {
+        if (destroyed) {
             return
         }
-        options.jscore.postMessage(type="appShow")
+        options.jscore.postMessage(msg.toString())
+        if (msg.optString("type") == "resourceLoaded") {
+            flushPendingAppShow()
+            flushPageVisibility()
+        }
+    }
+
+    fun appShow(enterOptions: JSONObject? = null) {
+        val pending = synchronized(this) {
+            if (enterOptions != null) {
+                pendingAppShowOptions = JSONObject(enterOptions.toString())
+            }
+            if (!isResourceLoaded()) {
+                return
+            }
+            pendingAppShowOptions.also { pendingAppShowOptions = null }
+        }
+        if (pending == null) {
+            options.jscore.postMessage(type = "appShow")
+        } else {
+            postAppShow(pending)
+        }
     }
 
     fun appHide() {
@@ -224,30 +315,67 @@ class Bridge(
     }
 
     fun pageShow() {
-        if (!isResourceLoaded()) {
-            return
-        }
-        options.jscore.postMessage("pageShow", mapOf("bridgeId" to id))
+        desiredPageVisible = true
+        flushPageVisibility()
     }
 
     fun pageHide() {
-        if (!isResourceLoaded()) {
+        desiredPageVisible = false
+        flushPageVisibility()
+    }
+
+    @Synchronized
+    private fun flushPageVisibility() {
+        val visible = desiredPageVisible
+        if (!isResourceLoaded() || visible == null || sentPageVisible == visible) {
             return
         }
-        options.jscore.postMessage("pageHide", mapOf("bridgeId" to id))
+
+        options.jscore.postMessage(
+            if (visible) "pageShow" else "pageHide",
+            mapOf("bridgeId" to id)
+        )
+        sentPageVisible = visible
+    }
+
+    private fun flushPendingAppShow() {
+        val pending = synchronized(this) {
+            if (!isResourceLoaded()) return
+            pendingAppShowOptions.also { pendingAppShowOptions = null }
+        } ?: return
+        postAppShow(pending)
+    }
+
+    private fun postAppShow(enterOptions: JSONObject) {
+        val body = JSONObject(enterOptions.toString()).apply {
+            if (!has("pagePath")) {
+                put("pagePath", options.pathInfo.pagePath)
+            }
+            if (!has("query")) {
+                put("query", options.pathInfo.query ?: JSONObject())
+            }
+        }
+        options.jscore.postMessage("appShow", body)
     }
 
     fun destroy(keepHandler: Boolean = false) {
         parent.clearNativeComponents(this)
-        if (!isResourceLoaded()) {
-            return
+        val wasResourceLoaded = isResourceLoaded()
+        synchronized(this) {
+            destroyed = true
+            serviceResource = false
+            renderResource = false
+            resourceLoadedForwarded = false
+            resourceLoadId = null
+            desiredPageVisible = null
+            sentPageVisible = null
+            pendingAppShowOptions = null
         }
-        // 重置资源加载状态
-        serviceResource = false
-        renderResource = false
 
         // 发送页面卸载消息
-        options.jscore.postMessage("pageUnload", mapOf("bridgeId" to id))
+        if (wasResourceLoaded) {
+            options.jscore.postMessage("pageUnload", mapOf("bridgeId" to id))
+        }
 
         if (!keepHandler) {
             // 移除在 init() 中添加的回调

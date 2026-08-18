@@ -1,14 +1,25 @@
 package com.didi.dimina.api.route
 
-import android.content.Intent
 import com.didi.dimina.api.APIResult
 import com.didi.dimina.api.AsyncResult
 import com.didi.dimina.api.BaseApiHandler
-import com.didi.dimina.bean.MiniProgram
 import com.didi.dimina.common.ApiUtils
+import com.didi.dimina.core.BundledMiniProgramResolver
 import com.didi.dimina.core.MiniApp
 import com.didi.dimina.ui.container.DiminaActivity
 import org.json.JSONObject
+
+internal fun miniProgramSuccessResult(apiName: String, afterComplete: () -> Unit): AsyncResult {
+    return AsyncResult(
+        value = JSONObject().apply { put("errMsg", "$apiName:ok") },
+        afterComplete = afterComplete,
+        completeCarriesResult = true,
+    )
+}
+
+internal fun miniProgramErrorResult(apiName: String, errorMessage: String): AsyncResult {
+    return ApiUtils.createErrorResponse(apiName, errorMessage).copy(completeCarriesResult = true)
+}
 
 /**
  * Navigation API implementation
@@ -20,15 +31,31 @@ import org.json.JSONObject
  * - navigateBack: Navigate back to the previous page
  */
 class RouteApi : BaseApiHandler() {
+    private val miniProgramOperationGuard = MiniProgramOperationGuard()
+
     private companion object {
         const val NAVIGATE_TO = "navigateTo"
         const val REDIRECT_TO = "redirectTo"
         const val NAVIGATE_BACK = "navigateBack"
         const val RE_LAUNCH = "reLaunch"
         const val SWITCH_TAB = "switchTab"
+        const val NAVIGATE_TO_MINI_PROGRAM = "navigateToMiniProgram"
+        const val NAVIGATE_BACK_MINI_PROGRAM = "navigateBackMiniProgram"
+        const val EXIT_MINI_PROGRAM = "exitMiniProgram"
+        const val RESTART_MINI_PROGRAM = "restartMiniProgram"
     }
 
-    override val apiNames = setOf(NAVIGATE_TO, REDIRECT_TO, NAVIGATE_BACK, RE_LAUNCH, SWITCH_TAB)
+    override val apiNames = setOf(
+        NAVIGATE_TO,
+        REDIRECT_TO,
+        NAVIGATE_BACK,
+        RE_LAUNCH,
+        SWITCH_TAB,
+        NAVIGATE_TO_MINI_PROGRAM,
+        NAVIGATE_BACK_MINI_PROGRAM,
+        EXIT_MINI_PROGRAM,
+        RESTART_MINI_PROGRAM,
+    )
 
     override fun handleAction(
         activity: DiminaActivity,
@@ -52,15 +79,11 @@ class RouteApi : BaseApiHandler() {
 
                 val miniProgram = activity.getMiniProgram()
                 MiniApp.getInstance().openApp(
-                    activity, MiniProgram(
-                        appId = appId,
-                        name = miniProgram.name,
+                    activity,
+                    miniProgram.copy(
                         root = false,
                         path = url,
-                        versionCode = miniProgram.versionCode,
-                        versionName = miniProgram.versionName,
-                        updateManifestUrl = miniProgram.updateManifestUrl
-                    )
+                    ),
                 )
                 AsyncResult(JSONObject().apply {
                     put("errMsg", "$NAVIGATE_TO:ok")
@@ -107,20 +130,7 @@ class RouteApi : BaseApiHandler() {
                     return ApiUtils.createErrorResponse(apiName, "URL cannot be empty")
                 }
 
-                val miniProgram = activity.getMiniProgram()
-                DiminaActivity.launch(
-                    activity, MiniProgram(
-                        appId = appId,
-                        name = miniProgram.name,
-                        root = true, // Set as root since we're clearing the stack
-                        path = url,
-                        versionCode = miniProgram.versionCode,
-                        versionName = miniProgram.versionName,
-                        updateManifestUrl = miniProgram.updateManifestUrl
-                    ),
-                    // Clear all activities below the top and reuse the top activity if it exists
-                    Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK
-                )
+                activity.reLaunchTo(url)
                 AsyncResult(JSONObject().apply {
                     put("errMsg", "$RE_LAUNCH:ok")
                 })
@@ -143,8 +153,90 @@ class RouteApi : BaseApiHandler() {
                 })
             }
 
+            NAVIGATE_TO_MINI_PROGRAM -> {
+                val request = MiniProgramRouteContract.navigateTo(params, appId).getOrElse {
+                    return miniProgramErrorResult(apiName, it.message ?: "invalid options")
+                }
+                val miniApp = MiniApp.getInstance()
+                if (miniApp.isRunning(request.appId)) {
+                    return miniProgramErrorResult(
+                        apiName,
+                        "target mini program is already running",
+                    )
+                }
+                val target = BundledMiniProgramResolver.resolve(
+                    context = activity,
+                    appId = request.appId,
+                    requestedPath = request.path,
+                ).getOrElse {
+                    return miniProgramErrorResult(
+                        apiName,
+                        it.message ?: "target mini program is not bundled",
+                    )
+                }.copy(
+                    scene = MiniProgramRouteContract.SCENE_OPENED_BY_MINI_PROGRAM,
+                    openerAppId = appId,
+                    referrerExtraData = request.extraData.toString(),
+                    envVersion = request.envVersion,
+                )
+
+                withMiniProgramOperation(apiName) {
+                    activity.navigateToMiniProgram(target)
+                }
+            }
+
+            NAVIGATE_BACK_MINI_PROGRAM -> {
+                val openerAppId = activity.getMiniProgram().openerAppId
+                if (openerAppId == null || !MiniApp.getInstance().isRunning(openerAppId)) {
+                    return miniProgramErrorResult(
+                        apiName,
+                        "no opener mini program",
+                    )
+                }
+                val extraData = MiniProgramRouteContract.navigateBackExtraData(params).getOrElse {
+                    return miniProgramErrorResult(apiName, it.message ?: "invalid options")
+                }
+                withMiniProgramOperation(apiName) {
+                    activity.navigateBackMiniProgram(extraData)
+                }
+            }
+
+            EXIT_MINI_PROGRAM -> withMiniProgramOperation(apiName) {
+                activity.exitMiniProgram()
+            }
+
+            RESTART_MINI_PROGRAM -> {
+                val path = MiniProgramRouteContract.restartPath(params).getOrElse {
+                    return miniProgramErrorResult(apiName, it.message ?: "invalid options")
+                }
+                withMiniProgramOperation(apiName) {
+                    activity.restartMiniProgram(path)
+                }
+            }
+
             else -> {
                 super.handleAction(activity, appId, apiName, params, responseCallback)
+            }
+        }
+    }
+
+    private fun success(apiName: String, afterComplete: () -> Unit): AsyncResult {
+        return miniProgramSuccessResult(apiName, afterComplete)
+    }
+
+    private fun withMiniProgramOperation(apiName: String, action: () -> Unit): AsyncResult {
+        if (!miniProgramOperationGuard.tryBegin()) {
+            return miniProgramErrorResult(
+                apiName,
+                "another mini program operation is in progress",
+            )
+        }
+        return success(apiName) {
+            try {
+                action()
+            }
+            finally {
+                miniProgramOperationGuard.end()
             }
         }
     }

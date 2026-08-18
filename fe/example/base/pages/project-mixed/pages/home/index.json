@@ -1,7 +1,7 @@
 {
-  "navigationBarBackgroundColor": "#ddd",
+  "navigationBarBackgroundColor": "#f3f5f9",
   "navigationBarTextStyle": "black",
-  "navigationBarTitleText": "首页",
-  "backgroundColor": "#fff",
+  "navigationBarTitleText": "混合能力实验室",
+  "backgroundColor": "#f3f5f9",
   "usingComponents": {}
 }

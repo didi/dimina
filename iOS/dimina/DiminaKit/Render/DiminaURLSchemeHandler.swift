@@ -23,13 +23,20 @@ class DiminaURLSchemeHandler: NSObject, WKURLSchemeHandler {
             return
         }
         
-        let path = resolvePath(for: url)
-        print("📦 DiminaURLSchemeHandler loading resource: \(path)")
+        guard let path = resolvePath(for: url) else {
+            urlSchemeTask.didFailWithError(NSError(
+                domain: "DiminaErrorDomain",
+                code: 403,
+                userInfo: [NSLocalizedDescriptionKey: "Resource path is outside the application sandbox"]
+            ))
+            return
+        }
+        DMPLogger.debug("📦 DiminaURLSchemeHandler loading resource: \(path)")
         
         // Check if the file exists
         guard FileManager.default.fileExists(atPath: path) else {
             let errorMessage = "Resource does not exist: \(path)"
-            print("❌ \(errorMessage)")
+            DMPLogger.debug("❌ \(errorMessage)")
             urlSchemeTask.didFailWithError(NSError(domain: "DiminaErrorDomain", code: 404, userInfo: [NSLocalizedDescriptionKey: errorMessage]))
             return
         }
@@ -46,37 +53,49 @@ class DiminaURLSchemeHandler: NSObject, WKURLSchemeHandler {
             urlSchemeTask.didReceive(data)
             urlSchemeTask.didFinish()
             
-            print("✅ Resource loaded successfully: \(url.absoluteString)")
+            DMPLogger.debug("✅ Resource loaded successfully: \(url.absoluteString)")
         } catch {
-            print("❌ Resource loading failed: \(error.localizedDescription)")
+            DMPLogger.debug("❌ Resource loading failed: \(error.localizedDescription)")
             urlSchemeTask.didFailWithError(error)
         }
     }
     
     func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {
         // Cleanup operations when the task is stopped
-        print("🛑 Stopping resource loading")
+        DMPLogger.debug("🛑 Stopping resource loading")
     }
 
-    private func resolvePath(for url: URL) -> String {
+    private func resolvePath(for url: URL) -> String? {
+        guard url.scheme?.lowercased() == "dimina",
+              url.user == nil,
+              url.password == nil,
+              url.host == nil || url.host?.isEmpty == true else {
+            return nil
+        }
         let path = url.path
 
-        if path == "/pageFrame.html" || path.contains("vconsole") {
-            return sdkPath(for: path)
+        if path == "/pageFrame.html" {
+            return DMPFileUtil.confinedPath(
+                rootPath: DMPSandboxManager.sdkMainBundlePath(),
+                relativePath: "pageFrame.html"
+            )
         }
 
         if path.hasPrefix("/assets/") {
-            let sdkResourcePath = sdkPath(for: path)
-            if FileManager.default.fileExists(atPath: sdkResourcePath) {
-                return sdkResourcePath
-            }
+            return DMPFileUtil.confinedPath(
+                rootPath: DMPSandboxManager.sdkMainBundlePath(),
+                relativePath: path
+            )
         }
 
-        return DMPSandboxManager.sandboxPath() + path
-    }
-
-    private func sdkPath(for path: String) -> String {
-        return DMPSandboxManager.sdkMainBundlePath() + path
+        let appPrefix = "/\(appId)/"
+        let appRelativePath = path.hasPrefix(appPrefix)
+            ? String(path.dropFirst(appPrefix.count))
+            : path
+        return DMPFileUtil.confinedPath(
+            rootPath: DMPSandboxManager.appBundlePath(appId),
+            relativePath: appRelativePath
+        )
     }
     
     // Get MIME type based on file path

@@ -26,25 +26,19 @@ public class StorageAPI: DMPContainerApi {
     private static let GET_STORAGE_INFO_SYNC = "getStorageInfoSync"
     private static let GET_STORAGE_INFO = "getStorageInfo"
     
-    // 在类初始化时确保DMPStorage已初始化
-    override public init(app: DMPApp? = nil) {
-        super.init(app: app)
-        DMPStorage.shared.initialize()
-    }
-    
     // wx.setStorageSync(key, data) → params: [key, data]
     @BridgeMethod(SET_STORAGE_SYNC)
     var setStorageSync: DMPBridgeMethodHandler = { param, env, callback in
         guard let array = param.getValue() as? [Any], array.count >= 2,
               let key = array[0] as? String else { return DMPSyncResult(false) }
-        return DMPSyncResult(DMPStorage.shared.set(key: key, value: array[1], encrypted: false))
+        return DMPSyncResult(DMPStorage.storage(for: env.appId).set(key: key, value: array[1], encrypted: false))
     }
 
     // wx.getStorageSync(key) → params: key string
     @BridgeMethod(GET_STORAGE_SYNC)
     var getStorageSync: DMPBridgeMethodHandler = { param, env, callback in
         guard let key = param.getValue() as? String else { return DMPNoneResult() }
-        let value = DMPStorage.shared.get(key: key, encrypted: false)
+        let value = DMPStorage.storage(for: env.appId).get(key: key, encrypted: false)
         return DMPSyncResult(value ?? "")
     }
 
@@ -52,7 +46,7 @@ public class StorageAPI: DMPContainerApi {
     @BridgeMethod(REMOVE_STORAGE_SYNC)
     var removeStorageSync: DMPBridgeMethodHandler = { param, env, callback in
         guard let key = param.getValue() as? String else { return DMPSyncResult(false) }
-        DMPStorage.shared.remove(key: key, encrypted: false)
+        DMPStorage.storage(for: env.appId).remove(key: key, encrypted: false)
         return DMPSyncResult(true)
     }
 
@@ -60,7 +54,7 @@ public class StorageAPI: DMPContainerApi {
     @BridgeMethod(CLEAR_STORAGE_SYNC)
     var clearStorageSync: DMPBridgeMethodHandler = { param, env, callback in
         // 清除所有存储（包括加密和非加密）
-        DMPStorage.shared.clearAllStorage()
+        DMPStorage.storage(for: env.appId).clearAllStorage()
         return DMPSyncResult(true)
     }
 
@@ -85,7 +79,7 @@ public class StorageAPI: DMPContainerApi {
 
         // 在后台线程执行存储操作
         DispatchQueue.global().async {
-            let success = DMPStorage.shared.set(key: key, value: data, encrypted: encrypt)
+            let success = DMPStorage.storage(for: env.appId).set(key: key, value: data, encrypted: encrypt)
 
             DispatchQueue.main.async {
                 if success {
@@ -115,7 +109,7 @@ public class StorageAPI: DMPContainerApi {
 
         // 在后台线程执行获取操作
         DispatchQueue.global().async {
-            let value = DMPStorage.shared.get(key: key, encrypted: encrypt)
+            let value = DMPStorage.storage(for: env.appId).get(key: key, encrypted: encrypt)
 
             DispatchQueue.main.async {
                 if let value = value {
@@ -146,7 +140,7 @@ public class StorageAPI: DMPContainerApi {
 
         // 在后台线程执行删除操作
         DispatchQueue.global().async {
-            DMPStorage.shared.remove(key: key, encrypted: encrypt)
+            DMPStorage.storage(for: env.appId).remove(key: key, encrypted: encrypt)
 
             DispatchQueue.main.async {
                 let resultMap = DMPMap()
@@ -163,7 +157,7 @@ public class StorageAPI: DMPContainerApi {
     var clearStorage: DMPBridgeMethodHandler = { param, env, callback in
         // 在后台线程执行清除操作
         DispatchQueue.global().async {
-            DMPStorage.shared.clearAllStorage()
+            DMPStorage.storage(for: env.appId).clearAllStorage()
 
             DispatchQueue.main.async {
                 let resultMap = DMPMap()
@@ -178,7 +172,7 @@ public class StorageAPI: DMPContainerApi {
     // Get storage info synchronously
     @BridgeMethod(GET_STORAGE_INFO_SYNC)
     var getStorageInfoSync: DMPBridgeMethodHandler = { param, env, callback in
-        let storageInfo = DMPStorage.shared.getAllStorageInfo()
+        let storageInfo = DMPStorage.storage(for: env.appId).getAllStorageInfo()
 
         let result = DMPMap()
         result.set("keys", storageInfo.keys)
@@ -193,7 +187,7 @@ public class StorageAPI: DMPContainerApi {
     var getStorageInfo: DMPBridgeMethodHandler = { param, env, callback in
         // 在后台线程执行获取存储信息操作
         DispatchQueue.global().async {
-            let storageInfo = DMPStorage.shared.getAllStorageInfo()
+            let storageInfo = DMPStorage.storage(for: env.appId).getAllStorageInfo()
 
             DispatchQueue.main.async {
                 let resultMap = DMPMap()

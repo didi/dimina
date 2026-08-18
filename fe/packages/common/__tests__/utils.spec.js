@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { camelCaseToUnderscore, get, set, toCamelCase } from '../src/core/utils'
+import { camelCaseToUnderscore, get, set, toCamelCase, transformRpx } from '../src/core/utils'
 
 describe('自定义数据转换', () => {
 	it('连字符写法会转换成驼峰写法', () => {
@@ -44,5 +44,12 @@ describe('path get/set', () => {
 			a: { b: [{ c: 1 }] },
 			x: { 'y.z': 2 },
 		})
+	})
+})
+
+describe('rpx conversion', () => {
+	it('keeps rpx independent from rem root font size', () => {
+		expect(transformRpx('width:750rpx;margin-left:-7.5rpx;font-size:1rem'))
+			.toBe('width:100vw;margin-left:-1vw;font-size:1rem')
 	})
 })

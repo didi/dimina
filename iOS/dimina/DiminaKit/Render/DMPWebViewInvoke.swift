@@ -29,7 +29,7 @@ public class DMPWebViewInvoke {
         webview.registerJSHandler(handlerName: "invokeHandler") { [weak self] data in
             guard let self = self else { return }
 
-            print("🔴 DiminaRenderBridge.publish调用: \(data)")
+            DMPLogger.debug("🔴 DiminaRenderBridge.publish调用: \(data)")
 
             // 处理从JS传来的数据
             if let messageString = data as? String {
@@ -40,14 +40,14 @@ public class DMPWebViewInvoke {
                    let body = messageDict["body"] as? [String: Any],
                    let target = messageDict["target"] as? String {
                     
-                    print("消息类型: \(type)")
-                    print("消息内容: \(body)")
-                    print("目标处理器: \(target)")
+                    DMPLogger.debug("消息类型: \(type)")
+                    DMPLogger.debug("消息内容: \(body)")
+                    DMPLogger.debug("目标处理器: \(target)")
                     
                     // 获取回调ID
                     let callbackId = messageDict["callbackId"] as? String
                     if let callbackId = callbackId {
-                        print("回调ID: \(callbackId)")
+                        DMPLogger.debug("回调ID: \(callbackId)")
                     }
                     
                     // 处理消息并获取返回值
@@ -89,7 +89,7 @@ public class DMPWebViewInvoke {
                         self.render?.executeJavaScript(webViewId: webViewId, callbackScript)
                     }
                 } else {
-                    print("无法解析JSON消息: \(messageString)")
+                    DMPLogger.debug("无法解析JSON消息: \(messageString)")
                 }
             }
         }
@@ -126,7 +126,7 @@ public class DMPWebViewInvoke {
                 });
             };
         })();
-        """, injectionTime: .atDocumentStart, forMainFrameOnly: false)
+        """, injectionTime: .atDocumentStart, forMainFrameOnly: true)
 
         webview.getWebView().configuration.userContentController.addUserScript(invokeScript)
     }

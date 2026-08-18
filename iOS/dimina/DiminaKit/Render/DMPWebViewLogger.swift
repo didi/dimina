@@ -26,7 +26,7 @@ public protocol DMPWebViewLoggerDelegate: AnyObject {
 // Provide default implementation for log methods
 public extension DMPWebViewLoggerDelegate {
     func webViewDidLog(webViewId: Int, level: DMPLogLevel, message: String) {
-        print("🔵 WebView[\(webViewId)] [\(level.rawValue)]: \(message)")
+        DMPLogger.debug("🔵 WebView[\(webViewId)] [\(level.rawValue)]: \(message)")
     }
 }
 
@@ -58,7 +58,7 @@ public class DMPWebViewLogger: NSObject, WKScriptMessageHandler {
         webView.configuration.userContentController.add(self, name: "networkError")
         webView.configuration.userContentController.add(self, name: "resourceError")
         
-        print("🔧 WebViewLogger[\(webViewId)]: Log handlers registered")
+        DMPLogger.debug("🔧 WebViewLogger[\(webViewId)]: Log handlers registered")
         
         // Configure WebView security settings
         if #available(iOS 14.0, *) {
@@ -67,22 +67,23 @@ public class DMPWebViewLogger: NSObject, WKScriptMessageHandler {
             pagePrefs.allowsContentJavaScript = true
             webView.configuration.defaultWebpagePreferences = pagePrefs
             
-            // Enable developer tools (if supported)
+            #if DEBUG
             if #available(iOS 16.4, *) {
                 webView.isInspectable = true
             }
+            #endif
             
-            print("WebView configured with modern security mode")
+            DMPLogger.debug("WebView configured with modern security mode")
         } else {
             // Note: No longer using private APIs as they may cause crashes
-            print("WebView using default security settings")
+            DMPLogger.debug("WebView using default security settings")
         }
         
         // Inject log capture script
         injectLoggerScript()
         
         // Inject additional JavaScript after first navigation to handle cross-origin issues
-        print("WebView log handler initialization completed")
+        DMPLogger.debug("WebView log handler initialization completed")
     }
     
     // Safe method to clean up handlers
@@ -92,17 +93,17 @@ public class DMPWebViewLogger: NSObject, WKScriptMessageHandler {
         for handlerName in handlerNames {
             do {
                 webView.configuration.userContentController.removeScriptMessageHandler(forName: handlerName)
-                print("🧹 WebViewLogger[\(webViewId)]: Cleaned up handler \(handlerName)")
+                DMPLogger.debug("🧹 WebViewLogger[\(webViewId)]: Cleaned up handler \(handlerName)")
             } catch {
                 // Ignore error if handler doesn't exist
-                print("🟡 WebViewLogger[\(webViewId)]: Handler \(handlerName) doesn't exist, skipping cleanup")
+                DMPLogger.debug("🟡 WebViewLogger[\(webViewId)]: Handler \(handlerName) doesn't exist, skipping cleanup")
             }
         }
     }
     
     // Inject log capture script
     private func injectLoggerScript() {
-        let script = WKUserScript(source: getLoggerScript(), injectionTime: .atDocumentStart, forMainFrameOnly: false)
+        let script = WKUserScript(source: getLoggerScript(), injectionTime: .atDocumentStart, forMainFrameOnly: true)
         webView.configuration.userContentController.addUserScript(script)
     }
     
@@ -361,7 +362,7 @@ public class DMPWebViewLogger: NSObject, WKScriptMessageHandler {
         case "resourceError":
             logMessage(level: .resource, message: String(describing: message.body))
         default:
-            print("🟡 WebViewLogger[\(webViewId)]: Unknown message type: \(message.name)")
+            DMPLogger.debug("🟡 WebViewLogger[\(webViewId)]: Unknown message type: \(message.name)")
         }
     }
     
@@ -436,7 +437,7 @@ public class DMPWebViewLogger: NSObject, WKScriptMessageHandler {
     // Cleanup
     public func cleanup() {
         cleanupHandlers()
-        print("🧹 WebViewLogger[\(webViewId)]: Cleanup completed")
+        DMPLogger.debug("🧹 WebViewLogger[\(webViewId)]: Cleanup completed")
     }
     
     deinit {
@@ -446,6 +447,6 @@ public class DMPWebViewLogger: NSObject, WKScriptMessageHandler {
     // Update webViewId method
     internal func updateWebViewId(_ newWebViewId: Int) {
         self.webViewId = newWebViewId
-        print("🔄 WebViewLogger: Updated webViewId to \(newWebViewId)")
+        DMPLogger.debug("🔄 WebViewLogger: Updated webViewId to \(newWebViewId)")
     }
 } 

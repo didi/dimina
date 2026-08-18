@@ -1,6 +1,6 @@
 {
   "name": "@didi-dimina/dimina",
-  "version": "1.3.1",
+  "version": "1.5.0",
   "description": "星河小程序鸿蒙容器sdk,可以快速帮助微信小程序迁移到鸿蒙应用中",
   "main": "Index.ets",
   "author": "ucodeustory",
@@ -10,7 +10,7 @@
   "dependencies": {
     "libdimina.so": "file:./src/main/cpp/types/libdimina",
     "@ohos/imageknifepro": "1.0.14",
-    "@tencent/mmkv": "2.4.0",
+    "@tencent/mmkv": "2.4.1",
     "@ohos/photoview": "2.1.1"
   },
   "compatibleSdkVersion": "12",

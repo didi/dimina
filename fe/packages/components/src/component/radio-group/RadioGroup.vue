@@ -17,32 +17,67 @@ const props = defineProps({
 	name: {
 		type: String,
 	},
+	autoFill: {
+		type: String,
+	},
 })
 
 // 注入表单组件提供的方法
 const collectFormValue = inject('collectFormValue', undefined)
-const selected = ref(null)
+const registerFormControl = inject('registerFormControl', undefined)
+const items = new Set()
 
-function selectValue(value) {
-	selected.value = value
-	collectFormValue?.(props.name, selected.value)
+function getSelectedItem() {
+	return [...items].find(item => item.isChecked())
+}
+
+function getValue() {
+	return getSelectedItem()?.getValue() ?? ''
+}
+
+function registerRadio(item) {
+	items.add(item)
+	if (item.isChecked()) {
+		for (const other of items) {
+			if (other !== item) other.setChecked(false)
+		}
+	}
+	collectFormValue?.(props.name, getValue())
+	return () => items.delete(item)
 }
 
 const info = useInfo()
-function handleValueChange(event) {
-	collectFormValue?.(props.name, selected.value)
+function selectRadio(item, event) {
+	if (item.isChecked()) return
+	for (const other of items) {
+		other.setChecked(other === item)
+	}
+	const value = getValue()
+	collectFormValue?.(props.name, value)
 	triggerEvent('change', {
 		event,
 		info,
 		detail: {
-			value: selected.value,
+			value,
 		},
 	})
 }
 
-provide('selected', selected)
-provide('selectValue', selectValue)
-provide('handleValueChange', handleValueChange)
+function reset() {
+	for (const item of items) item.reset()
+	const selectedItems = [...items].filter(item => item.isChecked())
+	selectedItems.slice(1).forEach(item => item.setChecked(false))
+	collectFormValue?.(props.name, getValue())
+}
+
+const unregisterFormControl = registerFormControl?.({
+	getName: () => props.name,
+	getValue,
+	reset,
+})
+onBeforeUnmount(() => unregisterFormControl?.())
+
+provide('radioGroup', { registerRadio, selectRadio })
 </script>
 
 <template>

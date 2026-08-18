@@ -204,6 +204,36 @@ function invokeAPI(apiName, { params, bridgeId }) {
 	})
 }
 
+/**
+ * Invokes a container API from the render thread and routes callbacks back to
+ * the render callback registry through the service thread.
+ */
+function invokeAPIWithCallback(apiName, { params = {}, bridgeId, success, fail, complete }) {
+	let successId
+	let failId
+	let completeId
+	const callbackRegistry = window.__callback
+
+	if (success) successId = callbackRegistry.store(success)
+	if (fail) failId = callbackRegistry.store(fail)
+	completeId = callbackRegistry.store((data) => {
+		complete?.(data)
+		callbackRegistry.remove(successId)
+		callbackRegistry.remove(failId)
+	})
+
+	window.__message.send({
+		type: 'componentInvokeAPI',
+		target: 'service',
+		body: {
+			apiName,
+			bridgeId,
+			callbacks: { complete: completeId, fail: failId, success: successId },
+			params,
+		},
+	})
+}
+
 function onEvent(eventName, callback) {
 	const handler = (msg) => {
 		callback?.(msg)
@@ -238,4 +268,4 @@ function hasCatchEvent(info, eventType = 'tap') {
 	return !!(attrs[`catch${eventType}`] || attrs[`catch:${eventType}`])
 }
 
-export { hasCatchEvent, hasEvent, invokeAPI, offEvent, onEvent, triggerEvent, useInfo }
+export { hasCatchEvent, hasEvent, invokeAPI, invokeAPIWithCallback, offEvent, onEvent, triggerEvent, useInfo }

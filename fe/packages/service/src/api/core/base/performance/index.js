@@ -35,24 +35,7 @@ class Performance {
 	}
 
 	createObserver(listener) {
-		const observer = new Observer(listener)
-
-		if (listener) {
-			const id = callback.store((res) => {
-				const list = (res?.data?.entryList && JSON.parse(res?.data?.entryList)) || []
-
-				if (list) {
-					this.entryList.push(list)
-					observer.notify(list)
-				}
-			}, true)
-
-			invokeAPI('addPerformanceObserver', {
-				success: id,
-			}, 'render')
-		}
-
-		return observer
+		return new Observer(this, listener)
 	}
 
 	getEntries() {
@@ -116,14 +99,39 @@ class EntryList {
 }
 
 class Observer {
-	constructor(callback) {
+	constructor(performance, listener) {
+		this.performance = performance
 		this.entryTypes = []
-		this.callback = callback
+		this.callback = listener
+		this.observerId = null
+		this.callbackId = null
+		this.connected = false
 	}
 
-	observe(options) {
+	observe(options = {}) {
+		this.disconnect()
 		this.connected = true
-		this.entryTypes = options.entryTypes
+		this.entryTypes = Array.isArray(options.entryTypes) ? options.entryTypes : []
+		this.callbackId = callback.store((res = {}) => {
+			if (res.observerId) {
+				this.observerId = res.observerId
+				if (!this.connected) {
+					invokeAPI('removePerformanceObserver', { observerId: res.observerId }, 'render')
+					callback.remove(this.callbackId)
+					this.callbackId = null
+					return
+				}
+			}
+			const list = res?.data?.entryList ? JSON.parse(res.data.entryList) : []
+			if (this.connected && list.length > 0) {
+				this.performance.entryList.push(list)
+				this.notify(list)
+			}
+		}, true)
+		invokeAPI('addPerformanceObserver', {
+			entryTypes: this.entryTypes,
+			success: this.callbackId,
+		}, 'render')
 	}
 
 	notify(data) {
@@ -140,11 +148,23 @@ class Observer {
 				}
 				return flag
 			}))
-			this.callback(entryList)
+			if (typeof this.callback === 'function') {
+				this.callback(entryList)
+			}
 		}
 	}
 
 	disconnect() {
 		this.connected = false
+		if (this.observerId) {
+			invokeAPI('removePerformanceObserver', {
+				observerId: this.observerId,
+			}, 'render')
+		}
+		if (this.callbackId && this.observerId) {
+			callback.remove(this.callbackId)
+		}
+		this.observerId = null
+		this.callbackId = null
 	}
 }

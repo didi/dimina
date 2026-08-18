@@ -22,7 +22,7 @@ export class DMPWindowUtil {
       window.getLastWindow(context, (err: BusinessError, data) => {
         const errCode: number = err.code
         if (errCode) {
-          console.error('Failed to obtain the top window. Cause: ' + JSON.stringify(err));
+          DMPLogger.e('', 'Failed to obtain the top window. Cause: ' + JSON.stringify(err));
           return
         }
         windowClass = data
@@ -39,10 +39,10 @@ export class DMPWindowUtil {
           windowClass.setWindowSystemBarProperties(properties, (err: BusinessError) => {
             const errCode: number = err.code;
             if (errCode) {
-              console.error('Failed to set the system bar properties. Cause: ' + JSON.stringify(err));
+              DMPLogger.e('', 'Failed to set the system bar properties. Cause: ' + JSON.stringify(err));
               return;
             }
-            console.info('Succeeded in setting the system bar properties.');
+            DMPLogger.i('', 'Succeeded in setting the system bar properties.');
           })
         }
 

@@ -8,6 +8,8 @@
 
 ### 安装
 
+运行环境要求 Node.js 20 或更高版本。
+
 ```sh
 npm install @dimina/compiler -g
 ```
@@ -105,8 +107,13 @@ app.less, index.less  ->  style.css    (Less 样式文件)
 app.scss, index.scss  ->  style.css    (SCSS 样式文件)
 app.sass, index.sass  ->  style.css    (Sass 样式文件)
 app.json, index.json  ->  config.json  (配置文件)
+game.js, game.json    ->  logic.js + app-config.json（小游戏入口，不生成页面视图/样式）
 miniprogram_npm/      ->  npm包构建   (npm组件支持)
 ```
+
+### 微信小游戏入口
+
+当 `project.config.json` 的 `compileType` 为 `game`，或工程只有 `game.json` + `game.js`/`game.ts` 而没有 `app.json` 时，DMCC 会按小游戏编译。产物的 `app-config.json` 包含 `runtimeType: "game"`、`entryPagePath: "game"`，`logic.js` 包含 `game.js` 及其本地依赖；不会生成 WXML 页面和页面 CSS。运行能力与边界见[微信小游戏运行文档](../../../docs/Mini-Game.md)。
 
 ### TypeScript、Less 和 SCSS 支持
 

@@ -1,0 +1,160 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="420" viewBox="0 0 1200 420" role="img" aria-labelledby="title desc">
+  <title id="title">Dimina cross-platform mini program runtime</title>
+  <desc id="desc">Didi's open-source runtime compiles WXML, WXSS, and JavaScript with DMCC for Android, iOS, Harmony, and Web.</desc>
+
+  <style>
+    @media (prefers-reduced-motion: no-preference) {
+      .animated-arrow {
+        stroke-dasharray: 5 5;
+        animation: arrow-flow 0.75s linear infinite;
+      }
+      .meteor {
+        animation: meteor-fall 8s linear infinite;
+        will-change: transform, opacity;
+      }
+      .meteor-two { animation-delay: 2.7s; }
+      .meteor-three { animation-delay: 5.4s; }
+    }
+    .meteor { opacity: 0; }
+    @keyframes arrow-flow {
+      to { stroke-dashoffset: -10; }
+    }
+    @keyframes meteor-fall {
+      0%, 5% { opacity: 0; transform: translate(90px, -90px); }
+      8% { opacity: 0.76; }
+      30% { opacity: 0.76; transform: translate(-250px, 250px); }
+      34%, 100% { opacity: 0; transform: translate(-310px, 310px); }
+    }
+  </style>
+
+  <defs>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0070F3"/>
+      <stop offset="1" stop-color="#0070F3"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#FAFAFA"/>
+    </linearGradient>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#0070F3"/>
+    </marker>
+    <linearGradient id="meteor-trail" x1="64" y1="0" x2="0" y2="64" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4AAEFF" stop-opacity="0"/>
+      <stop offset="0.68" stop-color="#4AAEFF" stop-opacity="0.24"/>
+      <stop offset="0.9" stop-color="#86CEFF" stop-opacity="0.62"/>
+      <stop offset="1" stop-color="#DDF4FF" stop-opacity="0.96"/>
+    </linearGradient>
+    <clipPath id="meteor-clip">
+      <rect width="1200" height="420" rx="28"/>
+    </clipPath>
+  </defs>
+
+  <rect x="0.5" y="0.5" width="1199" height="419" rx="28" fill="#FAFAFA" stroke="#EAEAEA"/>
+  <path d="M1 340 C240 280 360 440 610 360 C850 284 976 330 1199 250 L1199 391 Q1199 419 1171 419 H29 Q1 419 1 391 Z" fill="#F2F2F2"/>
+  <g id="meteor-shower" clip-path="url(#meteor-clip)" aria-hidden="true">
+    <g class="meteor meteor-one">
+      <g transform="translate(1080 10)">
+        <path d="M64 0 L0 64" fill="none" stroke="url(#meteor-trail)" stroke-width="3" stroke-linecap="round"/>
+        <circle cx="0" cy="64" r="5" fill="#9EDCFF" fill-opacity="0.2"/>
+        <circle cx="0" cy="64" r="2.6" fill="#FFF6DE" stroke="#72C7FF" stroke-width="1.2"/>
+      </g>
+    </g>
+    <g class="meteor meteor-two">
+      <g transform="translate(850 -22) scale(0.72)">
+        <path d="M64 0 L0 64" fill="none" stroke="url(#meteor-trail)" stroke-width="3" stroke-linecap="round"/>
+        <circle cx="0" cy="64" r="5" fill="#9EDCFF" fill-opacity="0.2"/>
+        <circle cx="0" cy="64" r="2.6" fill="#FFF6DE" stroke="#72C7FF" stroke-width="1.2"/>
+      </g>
+    </g>
+    <g class="meteor meteor-three">
+      <g transform="translate(1180 132) scale(0.58)">
+        <path d="M64 0 L0 64" fill="none" stroke="url(#meteor-trail)" stroke-width="3" stroke-linecap="round"/>
+        <circle cx="0" cy="64" r="5" fill="#9EDCFF" fill-opacity="0.2"/>
+        <circle cx="0" cy="64" r="2.6" fill="#FFF6DE" stroke="#72C7FF" stroke-width="1.2"/>
+      </g>
+    </g>
+  </g>
+  <line x1="620" y1="48" x2="620" y2="372" stroke="#EAEAEA"/>
+
+  <g id="title-block" transform="translate(58 54)">
+    <g>
+      <circle cx="8" cy="8" r="8" fill="#0070F3"/>
+      <text x="28" y="14" fill="#666666" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15" font-weight="700" letter-spacing="2">DIDI OPEN SOURCE · MINI PROGRAM RUNTIME</text>
+    </g>
+
+    <text x="0" y="112" fill="#000000" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="84" font-weight="800" letter-spacing="1">DIMINA</text>
+    <text x="5" y="157" fill="#333333" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="27" font-weight="650">Cross-platform Mini Program Runtime</text>
+
+    <text x="0" y="226" fill="#000000" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="27" font-weight="650">One mini program. Four platforms.</text>
+    <text x="0" y="263" fill="#666666" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="20">Android · iOS · Harmony · Web</text>
+
+    <g transform="translate(0 302)">
+      <rect width="190" height="36" rx="18" fill="#FFFFFF" stroke="#EAEAEA"/>
+      <text x="95" y="23" text-anchor="middle" fill="#666666" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="14" font-weight="700">APACHE-2.0</text>
+      <rect x="202" width="228" height="36" rx="18" fill="#FFFFFF" stroke="#EAEAEA"/>
+      <text x="316" y="23" text-anchor="middle" fill="#666666" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="14" font-weight="700">CROSS-PLATFORM</text>
+    </g>
+  </g>
+
+  <g id="project-proof">
+    <rect x="654" y="76" width="156" height="268" rx="22" fill="url(#panel)" stroke="#EAEAEA"/>
+    <text x="732" y="108" text-anchor="middle" fill="#666666" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="13" font-weight="700" letter-spacing="1.4">MINI PROGRAM</text>
+
+    <g transform="translate(676 132)">
+      <rect width="112" height="44" rx="10" fill="#FAFAFA" stroke="#EAEAEA"/>
+      <path d="M14 13h18M14 21h34M14 29h25" stroke="#0070F3" stroke-width="2" stroke-linecap="round"/>
+      <text x="96" y="27" text-anchor="end" fill="#000000" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="14" font-weight="700">WXML</text>
+    </g>
+    <g transform="translate(676 188)">
+      <rect width="112" height="44" rx="10" fill="#FAFAFA" stroke="#EAEAEA"/>
+      <path d="M14 13h30M14 21h20M14 29h34" stroke="#000000" stroke-width="2" stroke-linecap="round"/>
+      <text x="96" y="27" text-anchor="end" fill="#000000" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="14" font-weight="700">WXSS</text>
+    </g>
+    <g transform="translate(676 244)">
+      <rect width="112" height="44" rx="10" fill="#FAFAFA" stroke="#EAEAEA"/>
+      <path d="M14 13h24M14 21h34M14 29h18" stroke="#888888" stroke-width="2" stroke-linecap="round"/>
+      <text x="96" y="27" text-anchor="end" fill="#000000" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="14" font-weight="700">JS</text>
+    </g>
+    <text x="732" y="322" text-anchor="middle" fill="#666666" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12">SOURCE</text>
+
+    <path class="animated-arrow" d="M810 210 H838" fill="none" stroke="#0070F3" stroke-width="2.5" marker-end="url(#arrow)"/>
+
+    <circle cx="907" cy="210" r="68" fill="#FFFFFF" stroke="url(#accent)" stroke-width="3"/>
+    <circle cx="907" cy="210" r="54" fill="none" stroke="#EAEAEA" stroke-dasharray="3 7"/>
+    <rect x="885" y="170" width="44" height="30" rx="8" fill="#000000"/>
+    <text x="907" y="190" text-anchor="middle" fill="#FFFFFF" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="13" font-weight="800">&lt;/&gt;</text>
+    <text x="907" y="225" text-anchor="middle" fill="#000000" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="19" font-weight="800">DMCC</text>
+    <text x="907" y="244" text-anchor="middle" fill="#666666" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11">COMPILER</text>
+
+    <path class="animated-arrow" d="M973 188 C991 166 994 116 1014 100" fill="none" stroke="#D4D4D4" stroke-width="2"/>
+    <path class="animated-arrow" d="M974 202 C993 191 997 174 1014 172" fill="none" stroke="#D4D4D4" stroke-width="2"/>
+    <path class="animated-arrow" d="M974 218 C993 229 997 246 1014 248" fill="none" stroke="#D4D4D4" stroke-width="2"/>
+    <path class="animated-arrow" d="M973 232 C991 254 994 304 1014 320" fill="none" stroke="#D4D4D4" stroke-width="2"/>
+
+    <g transform="translate(1014 72)">
+      <rect width="144" height="56" rx="14" fill="#FFFFFF" stroke="#EAEAEA"/>
+      <circle cx="22" cy="28" r="7" fill="#0070F3"/>
+      <text x="38" y="25" fill="#000000" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="16" font-weight="700">Android</text>
+      <text x="38" y="42" fill="#666666" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11">QuickJS</text>
+    </g>
+    <g transform="translate(1014 144)">
+      <rect width="144" height="56" rx="14" fill="#FFFFFF" stroke="#EAEAEA"/>
+      <circle cx="22" cy="28" r="7" fill="#000000"/>
+      <text x="38" y="25" fill="#000000" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="16" font-weight="700">iOS</text>
+      <text x="38" y="42" fill="#666666" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11">JavaScriptCore</text>
+    </g>
+    <g transform="translate(1014 220)">
+      <rect width="144" height="56" rx="14" fill="#FFFFFF" stroke="#EAEAEA"/>
+      <circle cx="22" cy="28" r="7" fill="#888888"/>
+      <text x="38" y="25" fill="#000000" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="16" font-weight="700">Harmony</text>
+      <text x="38" y="42" fill="#666666" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11">QuickJS</text>
+    </g>
+    <g transform="translate(1014 292)">
+      <rect width="144" height="56" rx="14" fill="#FFFFFF" stroke="#EAEAEA"/>
+      <circle cx="22" cy="28" r="7" fill="#0070F3"/>
+      <text x="38" y="25" fill="#000000" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="16" font-weight="700">Web</text>
+      <text x="38" y="42" fill="#666666" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11">Web Worker</text>
+    </g>
+  </g>
+</svg>

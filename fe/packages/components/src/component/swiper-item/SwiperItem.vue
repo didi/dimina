@@ -9,13 +9,6 @@ const props = defineProps({
 	itemId: {
 		type: String,
 	},
-	/**
-	 * 是否跳过未显示的滑块布局，设为 true 可优化复杂情况下的滑动性能，但会丢失隐藏状态滑块的布局信息
-	 */
-	skipHiddenItemLayout: {
-		type: Boolean,
-		default: false,
-	},
 })
 </script>
 

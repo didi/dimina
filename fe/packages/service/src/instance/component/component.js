@@ -1,10 +1,14 @@
-import { cloneDeep, isFunction, isString, set } from '@dimina/common'
+import { cloneDeep, isFunction, normalizePropertyDefinition, resolvePropertyValue } from '@dimina/common'
 import { createSelectorQuery } from '../../api/core/wxml/selector-query'
 import { createIntersectionObserver } from '../../api/core/wxml/intersection-observer'
+import { createMediaQueryObserver } from '../../api/core/wxml/media-query-observer'
+import { invokeAPI } from '../../api/common'
 import message from '../../core/message'
 import runtime from '../../core/runtime'
+import { applyDataUpdates, invokeDataObservers, invokePropertyChanges } from '../../core/data-update'
+import { invokeSafely, invokeSafelyAll } from '../../core/safe-callback'
 import { beginUpdateBatch, createUpdateCallback, endUpdateBatch, enqueueUpdate } from '../../core/update-queue'
-import { addComputedData, deepEqual, filterData, filterInvokeObserver, invokeBehaviorObservers, invokeObserversOnce, invokePropertyObservers, isChildComponent, matchComponent, resolveEventHandler, runPropertyObservers, syncUpdateChildrenProps } from '../../core/utils'
+import { deepEqual, isChildComponent, matchComponent, resolveEventBinding, syncUpdateChildrenProps } from '../../core/utils'
 
 // 组件生命周期
 const componentLifetimes = ['created', 'attached', 'ready', 'moved', 'detached', 'error']
@@ -47,8 +51,10 @@ export class Component {
 		this.__id__ = this.opts.moduleId
 		this.__info__ = module.moduleInfo
 		this.__eventAttr__ = opts.eventAttr
+		this.__eventPath__ = null
 		this.__pageId__ = opts.pageId
 		this.__parentId__ = opts.parentId
+		this.__isCustomTabBar__ = opts.isCustomTabBar === true
 		
 		// 初始化关系相关属性
 		this.__relations__ = new Map() // 存储关系节点
@@ -57,6 +63,7 @@ export class Component {
 		// 初始化 groupSetData 相关属性
 		this.__groupSetDataMode__ = false // 是否处于批量更新模式
 		this.__groupSetDataBuffer__ = {} // 批量更新数据缓存
+		this.__groupSetDataChanges__ = [] // 批量更新路径缓存
 		this.__groupSetDataCallbacks__ = [] // 批量更新回调缓存
 		this.__pendingInitSetDataCallbacks__ = [] // 初始化期间 setData 回调缓存
 	
@@ -65,48 +72,58 @@ export class Component {
 		this.__childPropsBindings__ = {}
 		this.__pendingSyncedProps__ = {}
 		this.__initialPropertyObserversInvoked__ = false
+		this.__initialPropertyNames__ = new Set(opts.propertyNames || Object.keys(opts.properties || {}))
+		this.__initialPropertyChanges__ = []
+		this.__initialPropertyValues__ = {}
+		this.__propertySchemas__ = Object.fromEntries(
+			Object.entries(this.__info__.properties || {}).map(([name, definition]) => [name, normalizePropertyDefinition(definition)]),
+		)
 	}
 
-	init() {
+	init({ deferInitialData = false } = {}) {
+		this.#initCustomMethods()
 		if (this.__isComponent__) {
-			for (const key in this.__info__.properties) {
-				// 先取逻辑层的属性默认值
-				if (!Object.prototype.hasOwnProperty.call(this.opts.properties, key) || this.opts.properties[key] === undefined) {
-					this.data[key] = this.__info__.properties[key]?.value ?? null
-				}
-				else {
-					// 没有默认值则取渲染层的属性实际值
-					this.data[key] = this.opts.properties[key]
+			const initialProperties = this.opts.properties || {}
+			for (const [key, schema] of Object.entries(this.__propertySchemas__)) {
+				const absentValue = resolvePropertyValue(schema, undefined, { absent: true })
+				this.data[key] = absentValue
+				if (this.__initialPropertyNames__.has(key)) {
+					const value = this.normalizePropertyValue(key, initialProperties[key], {
+						applyFilter: false,
+					})
+					this.__initialPropertyValues__[key] = value
+					this.__initialPropertyChanges__.push({
+						propertyName: key,
+						oldValue: undefined,
+						path: [key],
+						value,
+					})
 				}
 			}
 		}
 
 		this.#initLifecycle()
-		this.#initCustomMethods()
 		this.#initRelations()
 		this.#initComponentExport()
-		return this.#invokeInitLifecycle().then(() => {
-			addComputedData(this)
-			message.send({
-				type: this.__id__,
-				target: 'render',
-				body: {
-					bridgeId: this.bridgeId,
-					path: this.is,
-					data: this.data,
-				},
-			})
-		}).catch((err) => {
-			console.error(`[service] component.init lifecycle error, path: ${this.is}, moduleId: ${this.__id__}`, err)
-			message.send({
-				type: this.__id__,
-				target: 'render',
-				body: {
-					bridgeId: this.bridgeId,
-					path: this.is,
-					data: this.data,
-				},
-			})
+		this.#invokeInitLifecycle()
+		if (!deferInitialData) {
+			this.sendInitialData()
+		}
+	}
+
+	sendInitialData() {
+		if (this.__initialDataSent__) {
+			return
+		}
+		this.__initialDataSent__ = true
+		message.send({
+			type: this.__id__,
+			target: 'render',
+			body: {
+				bridgeId: this.bridgeId,
+				path: this.is,
+				data: this.data,
+			},
 		})
 	}
 
@@ -198,7 +215,12 @@ export class Component {
 		const relations = this.__info__.relations
 		if (!relations) return
 
-		const allInstances = Object.values(runtime.instances[this.bridgeId] || {})
+		const allInstances = Object.values(runtime.instances[this.bridgeId] || {}).filter(instance => (
+			instance === this
+			|| !instance.__isComponent__
+			|| instance.__componentAttached__
+			|| instance.__componentAttaching__
+		))
 		
 		for (const [relationPath, relationConfig] of Object.entries(relations)) {
 			const { type, target } = relationConfig
@@ -217,9 +239,7 @@ export class Component {
 			})
 
 			// 根据关系类型过滤组件
-			const relatedComponents = matchingComponents.filter(instance => {
-				return this.#checkRelationType(instance, type) || this.#checkImplicitRelation(instance, type)
-			})
+			const relatedComponents = matchingComponents.filter(instance => this.#checkRelationType(instance, type))
 
 			// 建立关系连接
 			for (const relatedComponent of relatedComponents) {
@@ -264,31 +284,10 @@ export class Component {
 				matches = targetInstance.is === resolvedPath || targetInstance.is.endsWith(`/${resolvedPath}`)
 			}
 			
-			const direct = this.#checkRelationType(targetInstance, type)
-			const implicit = this.#checkImplicitRelation(targetInstance, type)
-
-			if (matches && (direct || implicit)) {
+			if (matches && this.#checkRelationType(targetInstance, type)) {
 				this.#linkRelation(relationPath, targetInstance, relationConfig)
 			}
 		}
-	}
-
-	#checkImplicitRelation(targetInstance, relationType) {
-		if (relationType !== 'descendant' && relationType !== 'ancestor') {
-			return false
-		}
-
-		const reverseRelationType = relationType === 'descendant' ? 'ancestor' : 'descendant'
-		const targetRelations = targetInstance.__info__?.relations
-		if (!targetRelations) {
-			return false
-		}
-
-		return Object.entries(targetRelations).some(([relationPath, relationConfig]) => {
-			const resolvedPath = targetInstance.__relationPaths__?.get(relationPath)
-			return relationConfig.type === reverseRelationType
-				&& (this.is === resolvedPath || this.is.endsWith(`/${resolvedPath}`))
-		})
 	}
 
 	/**
@@ -351,13 +350,7 @@ export class Component {
 		this.__relations__.set(relationPath, relationNodes)
 		
 		// 调用 linked 生命周期函数
-		if (isFunction(relationConfig.linked)) {
-			try {
-				relationConfig.linked.call(this, targetInstance)
-			} catch (error) {
-				console.error('[service] relation linked error:', error)
-			}
-		}
+		invokeSafely(this, relationConfig.linked, [targetInstance], 'relation linked callback')
 	}
 
 	/**
@@ -376,13 +369,7 @@ export class Component {
 		this.__relations__.set(relationPath, relationNodes)
 		
 		// 调用 unlinked 生命周期函数
-		if (isFunction(relationConfig.unlinked)) {
-			try {
-				relationConfig.unlinked.call(this, targetInstance)
-			} catch (error) {
-				console.error('[service] relation unlinked error:', error)
-			}
-		}
+		invokeSafely(this, relationConfig.unlinked, [targetInstance], 'relation unlinked callback')
 	}
 
 	/**
@@ -390,13 +377,7 @@ export class Component {
 	 */
 	#handleRelationChange(relationPath, targetInstance, relationConfig) {
 		// 调用 linkChanged 生命周期函数
-		if (isFunction(relationConfig.linkChanged)) {
-			try {
-				relationConfig.linkChanged.call(this, targetInstance)
-			} catch (error) {
-				console.error('[service] relation linkChanged error:', error)
-			}
-		}
+		invokeSafely(this, relationConfig.linkChanged, [targetInstance], 'relation linkChanged callback')
 	}
 
 	/**
@@ -404,49 +385,46 @@ export class Component {
 	 * @param {*} data
 	 */
 	setData(data, callback) {
-		const fData = filterData(data)
-		
-		// 更新数据并收集旧值（用于触发 observers）
-		const oldValues = {}
-		for (const key in fData) {
-			oldValues[key] = this.data[key]
-			set(this.data, key, fData[key])
+		const update = applyDataUpdates(this, data, callback)
+		if (!update) {
+			return
 		}
-
-		// 触发 observers（微信小程序规范：setData 后应触发对应的 observers，一次 setData 每个监听器最多触发一次）
-		if (this.__info__.observers) {
-			invokeObserversOnce(Object.keys(fData), this.__info__.observers, this.data, this, oldValues)
-		}
-		invokeBehaviorObservers(this, Object.keys(fData), oldValues)
-		invokePropertyObservers(this, Object.keys(fData), oldValues)
 
 		if (!this.initd) {
-			if (isFunction(callback)) {
-				this.__pendingInitSetDataCallbacks__.push(callback)
-			}
+			this.__pendingInitSetDataCallbacks__.push(...update.callbacks)
+			invokePropertyChanges(this, update.propertyChanges)
 			return
 		}
 
 		// 如果处于 groupSetData 模式，将数据缓存起来
 		if (this.__groupSetDataMode__) {
 			// 合并到缓存中
-			for (const key in fData) {
-				this.__groupSetDataBuffer__[key] = fData[key]
+			for (const key of Object.keys(update.changedData)) {
+				this.__groupSetDataBuffer__[key] = update.changedData[key]
 			}
-			if (isFunction(callback)) {
-				this.__groupSetDataCallbacks__.push(callback)
-			}
+			this.__groupSetDataChanges__.push(...update.changes)
+			this.__groupSetDataCallbacks__.push(...update.callbacks)
+			invokePropertyChanges(this, update.propertyChanges)
 			return
 		}
 
 		// 同步更新子组件的 properties，确保与微信小程序时序一致
-		const syncedChildren = syncUpdateChildrenProps(this, runtime.instances[this.bridgeId], fData)
+		const syncedChildren = syncUpdateChildrenProps(this, runtime.instances[this.bridgeId], update.changedData)
 
-		enqueueUpdate(this.bridgeId, this.__id__, fData, createUpdateCallback(this, callback))
+		enqueueUpdate(
+			this.bridgeId,
+			this.__id__,
+			update.changedData,
+			createUpdateCallback(this, update.callbacks),
+			update.changes,
+		)
 
 		syncedChildren.forEach(({ child, data }) => {
 			enqueueUpdate(this.bridgeId, child.__id__, data)
 		})
+
+		// exparser runs property observers after the data observer/update phase.
+		invokePropertyChanges(this, update.propertyChanges)
 	}
 
 	/**
@@ -495,36 +473,42 @@ export class Component {
 			return
 		}
 
-		const propertyObserversToExecute = []
-		for (const prop of Object.keys(this.__info__.properties)) {
-			const observer = this.__info__.properties[prop]?.observer
-			const val = this.data[prop]
-			if (isString(observer)) {
-				propertyObserversToExecute.push(() => this[observer]?.(val, undefined))
-			}
-			else if (isFunction(observer)) {
-				propertyObserversToExecute.push(() => observer.call(this, val, undefined))
-			}
+		const changedPaths = this.__initialPropertyChanges__.map(change => change.path)
+		if (changedPaths.length > 0) {
+			invokeDataObservers(this, changedPaths)
+			invokePropertyChanges(this, this.__initialPropertyChanges__)
 		}
-
-		propertyObserversToExecute.forEach(run => run())
 		this.__initialPropertyObserversInvoked__ = true
 	}
 
-	async #invokeInitLifecycle() {
+	#applyInitialProperties() {
+		for (const [key, incomingValue] of Object.entries(this.__initialPropertyValues__)) {
+			const oldValue = this.data[key]
+			const value = this.normalizePropertyValue(key, incomingValue, { oldValue })
+			this.data[key] = value
+			const change = this.__initialPropertyChanges__.find(item => item.propertyName === key)
+			if (change) {
+				change.oldValue = oldValue
+				change.value = value
+			}
+		}
+	}
+
+	#invokeInitLifecycle() {
 		if (this.__isComponent__) {
-			// 组件实例创建时调用 componentCreated
-			await this.componentCreated()
-			// Fixme: 组件已挂载到DOM (componentAttached)
-			await this.componentAttached()
+			// exparser creates the component with declared defaults, then applies
+			// incoming template properties and their observers after created.
+			this.componentCreated()
+			this.#applyInitialProperties()
+			this.#invokeInitialPropertyObservers()
 		}
 		else {
 			// 使用 Component 构造器创建的页面生命周期
-			await this.componentCreated()
-			// Fixme: 组件已挂载到DOM (componentAttached)
-			await this.componentAttached()
+			this.componentCreated()
+			// Component 构造的页面根实例在页面节点树创建阶段进入 attached。
+			this.componentAttached()
 
-			await this.onLoad?.(this.opts.query || {})
+			invokeSafely(this, this.onLoad, [this.opts.query || {}], 'onLoad')
 		}
 		this.initd = true
 	}
@@ -534,46 +518,86 @@ export class Component {
 	 * triggerObserver
 	 */
 	tO(data) {
+		const incomingData = typeof this.normalizePropertyValues === 'function'
+			? this.normalizePropertyValues(data, { applyFilter: false })
+			: data
 		const nextData = {}
-		for (const [prop, val] of Object.entries(data)) {
+		const appliedData = {}
+		for (const [prop, incomingValue] of Object.entries(incomingData)) {
 			if (
 				this.__pendingSyncedProps__
 				&& Object.prototype.hasOwnProperty.call(this.__pendingSyncedProps__, prop)
-				&& deepEqual(this.__pendingSyncedProps__[prop], val)
+				&& deepEqual(this.__pendingSyncedProps__[prop], incomingValue)
 			) {
-				this.data[prop] = val
+				if (!this.hasPropertyFilter?.(prop)) {
+					this.data[prop] = incomingValue
+				}
+				appliedData[prop] = this.data[prop]
 				delete this.__pendingSyncedProps__[prop]
 				continue
 			}
-			nextData[prop] = val
+			const value = typeof this.normalizePropertyValue === 'function'
+				? this.normalizePropertyValue(prop, incomingValue)
+				: incomingValue
+			nextData[prop] = value
+			appliedData[prop] = value
 		}
 
 		if (Object.keys(nextData).length === 0) {
-			return
+			return appliedData
 		}
 
-		// 收集需要执行的观察者函数
-		const observersToExecute = []
-		const oldValues = {}
+		const propertyChanges = []
+		const changedPaths = []
 		// 保存旧值并更新数据，收集观察者
 		for (const [prop, val] of Object.entries(nextData)) {
 			// 保存旧值
 			const oldVal = this.data[prop]
-			oldValues[prop] = oldVal
-
 			// 更新数据
 			this.data[prop] = val
-
-			// 收集 observers
-			if (this.__info__.observers) {
-				observersToExecute.push(() => filterInvokeObserver(prop, this.__info__.observers, this.data, this, oldVal))
-			}
-			
+			changedPaths.push([prop])
+			propertyChanges.push({ propertyName: prop, oldValue: oldVal, path: [prop], value: val })
 		}
-		
-		observersToExecute.forEach(run => run())
-		invokeBehaviorObservers(this, Object.keys(nextData), Object.fromEntries(Object.keys(nextData).map(prop => [prop, undefined])))
-		runPropertyObservers(this, Object.keys(nextData), oldValues)
+
+		invokeDataObservers(this, changedPaths)
+		invokePropertyChanges(this, propertyChanges)
+		return appliedData
+	}
+
+	hasPropertyFilter(prop) {
+		const definition = this.__info__.properties?.[prop]
+		return !!definition && typeof definition === 'object' && definition.filter != null
+	}
+
+	normalizePropertyValue(prop, value, { absent = false, applyFilter = true, oldValue = this.data[prop], path = [prop] } = {}) {
+		const schema = this.__propertySchemas__[prop]
+		if (!schema) {
+			return value
+		}
+
+		const normalizedValue = resolvePropertyValue(schema, value, { absent })
+		if (absent || !applyFilter || !this.hasPropertyFilter(prop)) {
+			return normalizedValue
+		}
+
+		const definition = this.__info__.properties[prop]
+		const filter = isFunction(definition.filter)
+			? definition.filter
+			: this.__info__.methods?.[definition.filter]
+		if (!isFunction(filter)) {
+			return normalizedValue
+		}
+
+		const filteredValue = invokeSafely(this, filter, [normalizedValue, oldValue, path], 'property filter')
+		return filteredValue === undefined ? normalizedValue : filteredValue
+	}
+
+	normalizePropertyValues(data, { applyFilter = true } = {}) {
+		const normalized = {}
+		for (const [prop, value] of Object.entries(data || {})) {
+			normalized[prop] = this.normalizePropertyValue(prop, value, { applyFilter })
+		}
+		return normalized
 	}
 
 	getPageId() {
@@ -687,13 +711,12 @@ export class Component {
 		
 		// 存储批量更新的数据
 		this.__groupSetDataBuffer__ = {}
+		this.__groupSetDataChanges__ = []
 		this.__groupSetDataCallbacks__ = []
 		
 		try {
 			// 执行回调函数
-			callback.call(this)
-		} catch (error) {
-			console.error('[service] groupSetData callback error:', error)
+			invokeSafely(this, callback, [], 'groupSetData callback')
 		} finally {
 			// 退出批量更新模式
 			this.__groupSetDataMode__ = false
@@ -702,12 +725,14 @@ export class Component {
 			if (this.__groupSetDataBuffer__ && Object.keys(this.__groupSetDataBuffer__).length > 0) {
 				const bufferedData = this.__groupSetDataBuffer__
 				const bufferedCallbacks = this.__groupSetDataCallbacks__
+				const bufferedChanges = this.__groupSetDataChanges__
 				this.__groupSetDataBuffer__ = {}
+				this.__groupSetDataChanges__ = []
 				this.__groupSetDataCallbacks__ = []
 				const syncedChildren = syncUpdateChildrenProps(this, runtime.instances[this.bridgeId], bufferedData)
 				
 				// 发送合并后的数据更新
-				enqueueUpdate(this.bridgeId, this.__id__, bufferedData, createUpdateCallback(this, bufferedCallbacks))
+				enqueueUpdate(this.bridgeId, this.__id__, bufferedData, createUpdateCallback(this, bufferedCallbacks), bufferedChanges)
 
 				syncedChildren.forEach(({ child, data }) => {
 					enqueueUpdate(this.bridgeId, child.__id__, data)
@@ -715,6 +740,7 @@ export class Component {
 			}
 			else {
 				this.__groupSetDataBuffer__ = {}
+				this.__groupSetDataChanges__ = []
 				this.__groupSetDataCallbacks__ = []
 			}
 			endUpdateBatch(this.bridgeId)
@@ -722,10 +748,10 @@ export class Component {
 	}
 
 	/**
-	 * TODO: 创建一个 MediaQueryObserver 对象
+	 * 创建一个 MediaQueryObserver 对象，选择器范围限定在当前组件。
 	 */
-	createMediaQueryObserver() {
-		console.warn('[service] 暂不支持 createMediaQueryObserver')
+	createMediaQueryObserver(options) {
+		return createMediaQueryObserver(this, options)
 	}
 
 	/**
@@ -733,30 +759,48 @@ export class Component {
 	 * https://developers.weixin.qq.com/miniprogram/dev/framework/custom-component/relations.html
 	 */
 	getRelationNodes(relationPath) {
-		if (!relationPath) {
-			console.warn('[service] getRelationNodes 需要传入关系路径参数')
-			return []
+		// exparser 对未声明的 relation 返回 null，已声明但未建立关系时返回空数组。
+		const relationNodes = this.__relations__.get(relationPath)
+		if (!relationNodes) {
+			return null
 		}
-
-		// 获取关系节点
-		const relationNodes = this.__relations__.get(relationPath) || []
 		
 		// 返回节点数组的副本，避免外部修改
 		return [...relationNodes]
 	}
 
 	/**
-	 * TODO: 执行关键帧动画
+	 * 执行关键帧动画。
 	 */
-	animate() {
-		console.warn('[service] 暂不支持 animate')
+	animate(selector, keyframes, duration, timeline, callback) {
+		if (isFunction(timeline)) {
+			callback = timeline
+			timeline = undefined
+		}
+		invokeAPI('componentAnimate', {
+			moduleId: this.__id__,
+			selector,
+			keyframes,
+			duration,
+			timeline,
+			success: callback,
+		}, 'render')
 	}
 
 	/**
-	 * TODO: 清除关键帧动画
+	 * 清除关键帧动画。
 	 */
-	clearAnimation() {
-		console.warn('[service] 暂不支持 clearAnimation')
+	clearAnimation(selector, options, callback) {
+		if (isFunction(options)) {
+			callback = options
+			options = {}
+		}
+		invokeAPI('componentClearAnimation', {
+			moduleId: this.__id__,
+			selector,
+			options: options || {},
+			success: callback,
+		}, 'render')
 	}
 
 	/**
@@ -771,47 +815,193 @@ export class Component {
 			return
 		}
 		const type = methodName.trim()
-		const eventHandler = resolveEventHandler(this.__eventAttr__, type)
-		if (eventHandler) {
-			await runtime.triggerEvent({
+		if (!type) {
+			return
+		}
+
+		const normalizedOptions = {
+			bubbles: options.bubbles === true,
+			composed: options.composed === true,
+			capturePhase: options.capturePhase === true,
+		}
+		const target = {
+			id: this.id,
+			dataset: this.dataset || {},
+		}
+		let stopped = false
+		let defaultPrevented = false
+		const event = {
+			type,
+			timeStamp: Date.now(),
+			detail,
+			bubbles: normalizedOptions.bubbles,
+			composed: normalizedOptions.composed,
+			currentTarget: null,
+			target,
+			preventDefault() {
+				defaultPrevented = true
+			},
+			stopPropagation() {
+				stopped = true
+			},
+		}
+		Object.defineProperty(event, 'defaultPrevented', {
+			enumerable: true,
+			get: () => defaultPrevented,
+		})
+
+		const eventPath = Component.prototype.getCustomEventPath.call(this, normalizedOptions.composed)
+		const dispatch = async (node, capture) => {
+			const binding = resolveEventBinding(node.eventAttr, type)
+			if (!binding) {
+				return
+			}
+
+			const methodName = capture
+				? (binding.captureCatch ?? binding.captureBind)
+				: (binding.catch ?? binding.bind)
+			if (!methodName) {
+				return
+			}
+
+			event.currentTarget = node.currentTarget
+			const result = await runtime.triggerEvent({
 				bridgeId: this.bridgeId,
-				moduleId: this.__pageId__,
-				methodName: eventHandler,
-				event: {
-					type,
-					detail,
-					currentTarget: {
-						id: this.id,
-						dataset: this.dataset,
-					},
-					target: {
-						id: this.id,
-						dataset: this.dataset,
-					},
-				},
+				moduleId: node.moduleId,
+				methodName,
+				event,
 			})
+			const isCatch = capture ? Boolean(binding.captureCatch) : Boolean(binding.catch)
+			if (isCatch) {
+				event.stopPropagation()
+			}
+			if (result === false) {
+				event.preventDefault()
+				event.stopPropagation()
+			}
 		}
 
-		// 事件是否冒泡
-		if (options.bubbles) {
-			// 当前组件的上一级自定义组件
-			const parentInstance = runtime.instances[this.bridgeId][this.__parentId__]
-			await parentInstance?.triggerEvent(methodName, detail)
+		// exparser 的捕获阶段与 bubbles 无关：只要显式开启 capturePhase，
+		// 就先按根 -> 目标的顺序执行 capture-bind/capture-catch。
+		if (normalizedOptions.capturePhase) {
+			for (let i = eventPath.length - 1; i >= 0 && !stopped; i--) {
+				await dispatch(eventPath[i], true)
+			}
 		}
 
-		// 事件是否可以穿越组件边界，为false时，事件将只能在引用组件的节点树上触发，不进入其他任何组件内部
-		if (options.composed) {
-			// TODO:当前组件的上一级自定义组件的内部
+		if (stopped) {
+			return
 		}
 
-		if (options.capturePhase) {
-			// TODO:事件是否拥有捕获阶段
+		// 普通阶段始终检查目标节点；bubbles 只控制是否继续走祖先节点。
+		const bubblePath = normalizedOptions.bubbles ? eventPath : eventPath.slice(0, 1)
+		for (const node of bubblePath) {
+			await dispatch(node, false)
+			if (stopped) {
+				break
+			}
 		}
+	}
+
+	getCustomEventPath(composed) {
+		const eventPath = [{
+			moduleId: this.__pageId__,
+			eventAttr: this.__eventAttr__ || {},
+			currentTarget: {
+				id: this.id,
+				dataset: this.dataset || {},
+			},
+		}]
+
+		if (Array.isArray(this.__eventPath__)) {
+			const renderPath = this.__eventPath__.filter(node => node?.moduleId).map((node) => {
+				const hostInstance = node.isComponentHost && node.nodeModuleId
+					? runtime.instances[this.bridgeId]?.[node.nodeModuleId]
+					: null
+				return {
+					moduleId: node.moduleId,
+					nodeModuleId: node.nodeModuleId,
+					isComponentHost: node.isComponentHost === true,
+					eventAttr: node.eventAttr || {},
+					currentTarget: {
+						id: hostInstance?.id ?? node.targetInfo?.id,
+						dataset: hostInstance?.dataset || node.targetInfo?.dataset || {},
+					},
+				}
+			})
+
+			// Vue 不会把组件指令传透到 Fragment 根节点。对多根组件，
+			// renderPath 仍能记录内部普通节点，但可能缺少组件宿主；
+			// 用 service 已有的物理组件链补齐，并插入到该组件内部节点之后。
+			const instances = runtime.instances[this.bridgeId] || {}
+			const visited = new Set([this.__id__])
+			let insertionCursor = 0
+			let parent = instances[this.__parentId__]
+			while (parent?.__isComponent__ && !visited.has(parent.__id__)) {
+				visited.add(parent.__id__)
+				const hostIndex = renderPath.findIndex(node => (
+					node.isComponentHost && node.nodeModuleId === parent.__id__
+				))
+				if (hostIndex >= 0) {
+					insertionCursor = Math.max(insertionCursor, hostIndex + 1)
+				}
+				else if (Object.keys(parent.__eventAttr__ || {}).length > 0) {
+					let lastInternalIndex = -1
+					for (let i = 0; i < renderPath.length; i++) {
+						if (renderPath[i].moduleId === parent.__id__) {
+							lastInternalIndex = i
+						}
+					}
+					const insertAt = Math.max(insertionCursor, lastInternalIndex + 1)
+					renderPath.splice(insertAt, 0, {
+						moduleId: parent.__pageId__,
+						nodeModuleId: parent.__id__,
+						isComponentHost: true,
+						eventAttr: parent.__eventAttr__,
+						currentTarget: {
+							id: parent.id,
+							dataset: parent.dataset || {},
+						},
+					})
+					insertionCursor = insertAt + 1
+				}
+				parent = instances[parent.__parentId__]
+			}
+
+			for (const node of renderPath) {
+				if (composed || node.moduleId === this.__pageId__) {
+					eventPath.push(node)
+				}
+			}
+			return eventPath
+		}
+
+		// 旧 render 层或单元测试没有提供 WXML 节点路径时，仍可以沿组件
+		// 实例树派发。这条兼容路径不能表示组件内部普通节点，但保留了
+		// 组件宿主的 composed 边界语义。
+		const instances = runtime.instances[this.bridgeId] || {}
+		const visited = new Set([this.__id__])
+		let parent = instances[this.__parentId__]
+		while (parent?.__isComponent__ && !visited.has(parent.__id__)) {
+			visited.add(parent.__id__)
+			if (composed || parent.__pageId__ === this.__pageId__) {
+				eventPath.push({
+					moduleId: parent.__pageId__,
+					eventAttr: parent.__eventAttr__ || {},
+					currentTarget: {
+						id: parent.id,
+						dataset: parent.dataset || {},
+					},
+				})
+			}
+			parent = instances[parent.__parentId__]
+		}
+		return eventPath
 	}
 
 	pageReady() {
 		if (!this.__isComponent__) {
-			this.ready?.()
+			invokeSafely(this, this.ready, [], 'ready lifetime')
 		}
 	}
 
@@ -820,14 +1010,40 @@ export class Component {
 	 */
 	pageUnload() {
 		if (!this.__isComponent__) {
-			this.onUnload?.()
+			invokeSafely(this, this.onUnload, [], 'onUnload')
 		}
 	}
 
 	pageScrollTop(opts) {
 		if (!this.__isComponent__) {
 			const { scrollTop } = opts
-			this.onPageScroll?.({ scrollTop })
+			invokeSafely(this, this.onPageScroll, [{ scrollTop }], 'onPageScroll')
+		}
+	}
+
+	pagePullDownRefresh() {
+		if (!this.__isComponent__) {
+			invokeSafely(this, this.onPullDownRefresh, [], 'onPullDownRefresh')
+		}
+	}
+
+	pageReachBottom() {
+		if (!this.__isComponent__) {
+			invokeSafely(this, this.onReachBottom, [], 'onReachBottom')
+		}
+	}
+
+	pageShareAppMessage(options = {}) {
+		if (!this.__isComponent__) {
+			return invokeSafely(this, this.onShareAppMessage, [options], 'onShareAppMessage')
+		}
+
+		return undefined
+	}
+
+	pageTabItemTap(item = {}) {
+		if (!this.__isComponent__) {
+			invokeSafely(this, this.onTabItemTap, [item], 'onTabItemTap')
 		}
 	}
 
@@ -836,16 +1052,16 @@ export class Component {
 	 * 组件所在的页面被展示时执行
 	 */
 	pageShow() {
-		this.__info__.behaviorPageLifetimes?.show?.forEach(method => method.call(this))
-		this.onShow?.()
+		invokeSafelyAll(this, this.__info__.behaviorPageLifetimes?.show, [], 'page show lifetime')
+		invokeSafely(this, this.onShow, [], 'page show lifetime')
 	}
 
 	/**
 	 * 组件所在的页面被隐藏时执行
 	 */
 	pageHide() {
-		this.__info__.behaviorPageLifetimes?.hide?.forEach(method => method.call(this))
-		this.onHide?.()
+		invokeSafelyAll(this, this.__info__.behaviorPageLifetimes?.hide, [], 'page hide lifetime')
+		invokeSafely(this, this.onHide, [], 'page hide lifetime')
 	}
 
 	/**
@@ -853,31 +1069,31 @@ export class Component {
 	 * @param {object} size
 	 */
 	pageResize(size) {
-		this.__info__.behaviorPageLifetimes?.resize?.forEach(method => method.call(this, size))
-		this.resize?.(size)
+		invokeSafelyAll(this, this.__info__.behaviorPageLifetimes?.resize, [size], 'page resize lifetime')
+		invokeSafely(this, this.resize, [size], 'page resize lifetime')
 	}
 
 	// 组件所在页面路由动画完成时执行
 	componentRouteDone() {
-		this.__info__.behaviorPageLifetimes?.routeDone?.forEach(method => method.call(this))
-		this.routeDone?.()
+		invokeSafelyAll(this, this.__info__.behaviorPageLifetimes?.routeDone, [], 'page routeDone lifetime')
+		invokeSafely(this, this.routeDone, [], 'page routeDone lifetime')
 	}
 
 	// --- 组件的生命周期 ---
 	/**
 	 * 在组件实例刚刚被创建时执行
 	 */
-	async componentCreated() {
-		this.__info__.behaviorLifetimes?.created?.forEach(method => method.call(this))
-		await this.created?.()
+	componentCreated() {
+		invokeSafelyAll(this, this.__info__.behaviorLifetimes?.created, [], 'created lifetime')
+		invokeSafely(this, this.created, [], 'created lifetime')
 	}
 
 	/**
 	 * 在组件实例进入页面节点树时执行
 	 */
-	async componentAttached() {
-		this.__info__.behaviorLifetimes?.attached?.forEach(method => method.call(this))
-		await this.attached?.()
+	componentAttached() {
+		invokeSafelyAll(this, this.__info__.behaviorLifetimes?.attached, [], 'attached lifetime')
+		invokeSafely(this, this.attached, [], 'attached lifetime')
 		
 		// 建立组件间关系
 		this.#checkAndLinkRelations()
@@ -887,16 +1103,16 @@ export class Component {
 	 * 在组件在视图层布局完成后执行
 	 */
 	componentReadied() {
-		this.#invokeInitialPropertyObservers()
-		this.__info__.behaviorLifetimes?.ready?.forEach(method => method.call(this))
-		this.ready?.()
+		invokeSafelyAll(this, this.__info__.behaviorLifetimes?.ready, [], 'ready lifetime')
+		invokeSafely(this, this.ready, [], 'ready lifetime')
 	}
 
 	/**
 	 * 在组件实例被移动到节点树另一个位置时执行
 	 */
 	componentMoved() {
-		this.moved?.()
+		invokeSafelyAll(this, this.__info__.behaviorLifetimes?.moved, [], 'moved lifetime')
+		invokeSafely(this, this.moved, [], 'moved lifetime')
 		
 		// 组件移动后，需要重新检查关系并触发 linkChanged
 		const relations = this.__info__.relations
@@ -914,7 +1130,13 @@ export class Component {
 	 * 在组件实例被从页面节点树移除时执行
 	 */
 	componentDetached() {
-		// 在组件 detached 前移除所有关系
+		// exparser marks the node detached before invoking the lifetime, but keeps
+		// relation links visible until detached callbacks have completed.
+		this.__componentAttached__ = false
+		invokeSafelyAll(this, this.__info__.behaviorLifetimes?.detached, [], 'detached lifetime')
+		invokeSafely(this, this.detached, [], 'detached lifetime')
+
+		// Relation unlinked callbacks run after detached.
 		const relations = this.__info__.relations
 		if (relations) {
 			for (const [relationPath, relationConfig] of Object.entries(relations)) {
@@ -930,8 +1152,6 @@ export class Component {
 		// 通知其他组件移除对当前组件的引用
 		this.#notifyOthersToUnlinkThis()
 		
-		this.__info__.behaviorLifetimes?.detached?.forEach(method => method.call(this))
-		this.detached?.()
 		this.initd = false
 	}
 	
@@ -954,13 +1174,7 @@ export class Component {
 					
 					// 调用 unlinked 生命周期函数
 					const relationConfig = instance.__info__.relations?.[relationPath]
-					if (relationConfig && isFunction(relationConfig.unlinked)) {
-						try {
-							relationConfig.unlinked.call(instance, this)
-						} catch (error) {
-							console.error('[service] relation unlinked error:', error)
-						}
-					}
+					invokeSafely(instance, relationConfig?.unlinked, [this], 'relation unlinked callback')
 				}
 			}
 		}
@@ -971,6 +1185,7 @@ export class Component {
 	 * @param {*} error
 	 */
 	componentError(error) {
-		this.error?.(error)
+		invokeSafelyAll(this, this.__info__.behaviorLifetimes?.error, [error], 'error lifetime', false)
+		invokeSafely(this, this.error, [error], 'error lifetime', false)
 	}
 }

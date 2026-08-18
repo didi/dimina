@@ -26,7 +26,7 @@ public class DMPWebViewPool {
         // Ensure creation on main thread
         assert(Thread.isMainThread, "WKProcessPool must be created on main thread")
         let processPool = WKProcessPool()
-        print("🔧 WebViewPool: Created shared WKProcessPool")
+        DMPLogger.debug("🔧 WebViewPool: Created shared WKProcessPool")
         return processPool
     }()
     
@@ -38,7 +38,7 @@ public class DMPWebViewPool {
     deinit {
         NotificationCenter.default.removeObserver(self)
         webViews.removeAll()
-        print("🧹 WebViewPool: Clear pool during deallocation")
+        DMPLogger.debug("🧹 WebViewPool: Clear pool during deallocation")
     }
     
     // MARK: - Notification Setup
@@ -86,7 +86,7 @@ public class DMPWebViewPool {
         let inUseCount = webViews.filter { $0.poolState.isInUse }.count
         let resetingCount = webViews.filter { $0.poolState == .reseting }.count
         
-        print("🟦 WebViewPool: Requesting WebView, pool status - Available: \(availableCount), InUse: \(inUseCount), Reseting: \(resetingCount)")
+        DMPLogger.debug("🟦 WebViewPool: Requesting WebView, pool status - Available: \(availableCount), InUse: \(inUseCount), Reseting: \(resetingCount)")
         
         let webview: DMPWebview
         
@@ -103,7 +103,7 @@ public class DMPWebViewPool {
             // Synchronously execute reset logic to ensure correct state setting
             webview.resetForReuse(appName: appName, appId: appId)
             
-            print("🟢 WebViewPool: Reuse WebView (ID: \(webview.getWebViewId())), state: \(webview.poolState.description)")
+            DMPLogger.debug("🟢 WebViewPool: Reuse WebView (ID: \(webview.getWebViewId())), state: \(webview.poolState.description)")
         } else {
             // Create new WebView
             webview = createNewWebView(delegate: delegate, appName: appName, appId: appId)
@@ -113,14 +113,14 @@ public class DMPWebViewPool {
             // Add to pool
             webViews.append(webview)
             
-            print("🟡 WebViewPool: Create new WebView (ID: \(webview.getWebViewId())), state: \(webview.poolState.description)")
+            DMPLogger.debug("🟡 WebViewPool: Create new WebView (ID: \(webview.getWebViewId())), state: \(webview.poolState.description)")
         }
         
         let newAvailableCount = webViews.filter { $0.poolState.canReuse }.count
         let newInUseCount = webViews.filter { $0.poolState.isInUse }.count
         let newResetingCount = webViews.filter { $0.poolState == .reseting }.count
         
-        print("🟦 WebViewPool: WebView allocated, pool status - Available: \(newAvailableCount), InUse: \(newInUseCount), Reseting: \(newResetingCount)")
+        DMPLogger.debug("🟦 WebViewPool: WebView allocated, pool status - Available: \(newAvailableCount), InUse: \(newInUseCount), Reseting: \(newResetingCount)")
         
         // Asynchronous preload more WebViews - on main thread
         Task { @MainActor in
@@ -139,17 +139,17 @@ public class DMPWebViewPool {
         let inUseCount = webViews.filter { $0.poolState.isInUse }.count
         let resetingCount = webViews.filter { $0.poolState == .reseting }.count
         
-        print("🟦 WebViewPool: Requesting to release WebView (ID: \(webViewId)), pool status - Available: \(availableCount), InUse: \(inUseCount), Reseting: \(resetingCount)")
+        DMPLogger.debug("🟦 WebViewPool: Requesting to release WebView (ID: \(webViewId)), pool status - Available: \(availableCount), InUse: \(inUseCount), Reseting: \(resetingCount)")
         
         // Find corresponding webview
         guard let targetWebView = webViews.first(where: { $0.getWebViewId() == webViewId && $0.poolState.isInUse }) else {
-            print("⚠️ WebViewPool: Warning - Trying to release WebView that's not in use (ID: \(webViewId))")
+            DMPLogger.debug("⚠️ WebViewPool: Warning - Trying to release WebView that's not in use (ID: \(webViewId))")
             return
         }
         
         // Immediately set to resetting state to prevent reuse
         targetWebView.poolState = .reseting
-        print("🔄 WebViewPool: WebView (ID: \(webViewId)) marked as reseting")
+        DMPLogger.debug("🔄 WebViewPool: WebView (ID: \(webViewId)) marked as reseting")
         
         // Asynchronously clean WebView state to avoid blocking main thread
         Task { @MainActor in
@@ -164,19 +164,19 @@ public class DMPWebViewPool {
             if totalCount <= self.maxPoolSize {
                 // Mark as available state
                 targetWebView.poolState = .available
-                print("🔵 WebViewPool: WebView returned to pool (ID: \(webViewId)), state: \(targetWebView.poolState.description)")
+                DMPLogger.debug("🔵 WebViewPool: WebView returned to pool (ID: \(webViewId)), state: \(targetWebView.poolState.description)")
             } else {
                 // Pool is full, destroy WebView
                 self.webViews.removeAll { $0.getWebViewId() == webViewId }
                 self.cleanupWebView(targetWebView)
-                print("🔴 WebViewPool: Pool is full, destroy WebView (ID: \(webViewId))")
+                DMPLogger.debug("🔴 WebViewPool: Pool is full, destroy WebView (ID: \(webViewId))")
             }
             
             let newAvailableCount = self.webViews.filter { $0.poolState.canReuse }.count
             let newInUseCount = self.webViews.filter { $0.poolState.isInUse }.count
             let newResetingCount = self.webViews.filter { $0.poolState == .reseting }.count
             
-            print("🟦 WebViewPool: WebView released, pool status - Available: \(newAvailableCount), InUse: \(newInUseCount), Reseting: \(newResetingCount)")
+            DMPLogger.debug("🟦 WebViewPool: WebView released, pool status - Available: \(newAvailableCount), InUse: \(newInUseCount), Reseting: \(newResetingCount)")
         }
     }
     
@@ -193,7 +193,7 @@ public class DMPWebViewPool {
         let inUseCount = webViews.filter { $0.poolState.isInUse }.count
         let resetingCount = webViews.filter { $0.poolState == .reseting }.count
         
-        print("🧹 WebViewPool: Start clearing pool, current status - Available: \(availableCount), InUse: \(inUseCount), Reseting: \(resetingCount)")
+        DMPLogger.debug("🧹 WebViewPool: Start clearing pool, current status - Available: \(availableCount), InUse: \(inUseCount), Reseting: \(resetingCount)")
         
         // 1. Clean all non-using WebViews
         for webview in webViews {
@@ -208,15 +208,15 @@ public class DMPWebViewPool {
         // 3. Warning for still using WebViews
         let stillInUseCount = webViews.filter { $0.poolState.isInUse }.count
         if stillInUseCount > 0 {
-            print("⚠️ WebViewPool: Warning - Still \(stillInUseCount) WebViews in use")
+            DMPLogger.debug("⚠️ WebViewPool: Warning - Still \(stillInUseCount) WebViews in use")
         }
         
-        print("🧹 WebViewPool: Pool cleared")
+        DMPLogger.debug("🧹 WebViewPool: Pool cleared")
     }
     
     /// Completely clean single WebView
     private func cleanupWebView(_ webview: DMPWebview) {
-        print("🧹 WebViewPool: Clean WebView (ID: \(webview.getWebViewId()))")
+        DMPLogger.debug("🧹 WebViewPool: Clean WebView (ID: \(webview.getWebViewId()))")
         
         webview.getWebView().endEditing(true)
         webview.getWebView().scrollView.endEditing(true)
@@ -257,7 +257,7 @@ public class DMPWebViewPool {
         // Navigate to blank page
         webview.getWebView().loadHTMLString("<html><body></body></html>", baseURL: nil)
         
-        print("🧹 WebViewPool: WebView (ID: \(webview.getWebViewId())) cleaned")
+        DMPLogger.debug("🧹 WebViewPool: WebView (ID: \(webview.getWebViewId())) cleaned")
     }
     
     /// Get pool status information
@@ -280,35 +280,35 @@ public class DMPWebViewPool {
     /// Preload WebViews
     private func preloadWebViews(appId: String) async {
         guard !appId.isEmpty else {
-            print("🔧 WebViewPool: Skip preload without appId")
+            DMPLogger.debug("🔧 WebViewPool: Skip preload without appId")
             return
         }
 
         let currentCount = webViews.filter { $0.appId == appId }.count
         let neededCount = max(0, minPoolSize - currentCount) // Ensure not negative
         
-        print("🔧 WebViewPool: Current pool has \(currentCount) WebViews, need to preload \(neededCount)")
+        DMPLogger.debug("🔧 WebViewPool: Current pool has \(currentCount) WebViews, need to preload \(neededCount)")
         
         // Create only when needed
         guard neededCount > 0 else {
-            print("🔧 WebViewPool: WebView pool count meets minimum requirement, no need to preload")
+            DMPLogger.debug("🔧 WebViewPool: WebView pool count meets minimum requirement, no need to preload")
             return
         }
         
         for i in 0..<neededCount {
             // Double check, ensure not exceed max pool size
             if webViews.count >= maxPoolSize {
-                print("🔧 WebViewPool: Already reached max pool size, stop preloading")
+                DMPLogger.debug("🔧 WebViewPool: Already reached max pool size, stop preloading")
                 break
             }
             
             let webview = createNewWebView(delegate: nil, appName: "", appId: appId)
             webview.poolState = .available  // Preloaded WebViews should be available state
             webViews.append(webview)
-            print("🔧 WebViewPool: Preload WebView \(i+1)/\(neededCount) (ID: \(webview.getWebViewId())), state: \(webview.poolState.description)")
+            DMPLogger.debug("🔧 WebViewPool: Preload WebView \(i+1)/\(neededCount) (ID: \(webview.getWebViewId())), state: \(webview.poolState.description)")
         }
         
-        print("🔧 WebViewPool: Preload completed, current pool has \(webViews.count) WebViews")
+        DMPLogger.debug("🔧 WebViewPool: Preload completed, current pool has \(webViews.count) WebViews")
     }
     
     /// Preload more WebViews as needed
@@ -325,9 +325,9 @@ public class DMPWebViewPool {
             let webview = createNewWebView(delegate: nil, appName: "", appId: appId)
             webview.poolState = .available  // Preloaded WebViews should be available state
             webViews.append(webview)
-            print("🔧 WebViewPool: Preload WebView as needed (ID: \(webview.getWebViewId())), state: \(webview.poolState.description), current pool has \(webViews.count) WebViews")
+            DMPLogger.debug("🔧 WebViewPool: Preload WebView as needed (ID: \(webview.getWebViewId())), state: \(webview.poolState.description), current pool has \(webViews.count) WebViews")
         } else {
-            print("🔧 WebViewPool: Pool status good, no need to preload - Available: \(availableCount), Total: \(currentCount), Min: \(minPoolSize), Max: \(maxPoolSize)")
+            DMPLogger.debug("🔧 WebViewPool: Pool status good, no need to preload - Available: \(availableCount), Total: \(currentCount), Min: \(minPoolSize), Max: \(maxPoolSize)")
         }
     }
     
@@ -349,21 +349,21 @@ public class DMPWebViewPool {
         // Select from WebViews in reusable state
         for webview in webViews where webview.poolState.canReuse {
             if webview.appId != appId {
-                print("🟡 WebViewPool: WebView (ID: \(webview.getWebViewId())) appId mismatch, skipping")
+                DMPLogger.debug("🟡 WebViewPool: WebView (ID: \(webview.getWebViewId())) appId mismatch, skipping")
                 continue
             }
 
             // Check if WebView is in a state suitable for reuse
             if webview.getWebView().isLoading {
-                print("🟡 WebViewPool: WebView (ID: \(webview.getWebViewId())) is still loading, skipping")
+                DMPLogger.debug("🟡 WebViewPool: WebView (ID: \(webview.getWebViewId())) is still loading, skipping")
                 continue
             }
             
-            print("🟢 WebViewPool: Found available WebView (ID: \(webview.getWebViewId())) for reuse")
+            DMPLogger.debug("🟢 WebViewPool: Found available WebView (ID: \(webview.getWebViewId())) for reuse")
             return webview
         }
         
-        print("🔍 WebViewPool: No available WebView found, will create new one")
+        DMPLogger.debug("🔍 WebViewPool: No available WebView found, will create new one")
         return nil
     }
     
@@ -371,18 +371,18 @@ public class DMPWebViewPool {
     
     @objc private func applicationDidEnterBackground() {
         // When app enters background, consider cleaning some WebViews to save memory
-        print("🌙 WebViewPool: App entering background")
+        DMPLogger.debug("🌙 WebViewPool: App entering background")
     }
     
     @objc private func applicationWillEnterForeground() {
         // When app is about to enter foreground, warm up WebView pool
-        print("🌅 WebViewPool: App about to enter foreground, warming up pool")
+        DMPLogger.debug("🌅 WebViewPool: App about to enter foreground, warming up pool")
         warmUp()
     }
     
     @objc private func applicationDidReceiveMemoryWarning() {
         // When receive memory warning, clean some WebViews
-        print("⚠️ WebViewPool: Received memory warning, cleaning pool")
+        DMPLogger.debug("⚠️ WebViewPool: Received memory warning, cleaning pool")
         
         // Only keep minimum number of available WebViews, remove others
         let availableWrappers = webViews.filter { $0.poolState.canReuse }
@@ -396,13 +396,13 @@ public class DMPWebViewPool {
             webViews.removeAll { wrapper in
                 wrapper.poolState.canReuse && wrappersToRemove.contains { $0.getWebViewId() == wrapper.getWebViewId() }
             }
-            print("⚠️ WebViewPool: Cleaned \(wrappersToRemove.count) available WebViews due to memory warning")
+            DMPLogger.debug("⚠️ WebViewPool: Cleaned \(wrappersToRemove.count) available WebViews due to memory warning")
         }
     }
     
     @objc private func applicationWillTerminate() {
         // When app is about to terminate, clean all WebViews
-        print("🌙 WebViewPool: App about to terminate, cleaning all WebViews")
+        DMPLogger.debug("🌙 WebViewPool: App about to terminate, cleaning all WebViews")
         clearPool()
     }
     
@@ -417,7 +417,7 @@ extension DMPWebview {
     /// Prepare WebView for reuse
     @MainActor
     fileprivate func prepareForReuse() {
-        print("🧽 WebView (ID: \(getWebViewId())) start preparing for reuse")
+        DMPLogger.debug("🧽 WebView (ID: \(getWebViewId())) start preparing for reuse")
         
         getWebView().endEditing(true)
         getWebView().scrollView.endEditing(true)
@@ -425,7 +425,7 @@ extension DMPWebview {
         
         let userContentController = getWebView().configuration.userContentController
         userContentController.removeAllUserScripts()
-        print("🧽 WebView (ID: \(getWebViewId())) cleaned user scripts")
+        DMPLogger.debug("🧽 WebView (ID: \(getWebViewId())) cleaned user scripts")
         
         let allHandlerNames = [
             // JS bridge handlers
@@ -440,10 +440,10 @@ extension DMPWebview {
         for handlerName in allHandlerNames {
             do {
                 userContentController.removeScriptMessageHandler(forName: handlerName)
-                print("🧽 WebView (ID: \(getWebViewId())) cleaned handler: \(handlerName)")
+                DMPLogger.debug("🧽 WebView (ID: \(getWebViewId())) cleaned handler: \(handlerName)")
             } catch {
                 // If handler doesn't exist, ignore error
-                print("🟡 WebView (ID: \(getWebViewId())) handler \(handlerName) doesn't exist, skip cleanup")
+                DMPLogger.debug("🟡 WebView (ID: \(getWebViewId())) handler \(handlerName) doesn't exist, skip cleanup")
             }
         }
         
@@ -452,19 +452,19 @@ extension DMPWebview {
             if !allHandlerNames.contains(handlerName) {
                 do {
                     userContentController.removeScriptMessageHandler(forName: handlerName)
-                    print("🧽 WebView (ID: \(getWebViewId())) cleaned custom handler: \(handlerName)")
+                    DMPLogger.debug("🧽 WebView (ID: \(getWebViewId())) cleaned custom handler: \(handlerName)")
                 } catch {
-                    print("🟡 WebView (ID: \(getWebViewId())) custom handler cleanup failed: \(handlerName), error: \(error)")
+                    DMPLogger.debug("🟡 WebView (ID: \(getWebViewId())) custom handler cleanup failed: \(handlerName), error: \(error)")
                 }
             }
         }
         
         // Clear callback records
         jsBridgeCallbacks.removeAll()
-        print("🧽 WebView (ID: \(getWebViewId())) cleaned all JS bridge callbacks")
+        DMPLogger.debug("🧽 WebView (ID: \(getWebViewId())) cleaned all JS bridge callbacks")
         
         if logger != nil {
-            print("🧽 WebView (ID: \(getWebViewId())) keep existing logger to avoid double cleanup")
+            DMPLogger.debug("🧽 WebView (ID: \(getWebViewId())) keep existing logger to avoid double cleanup")
         }
         
         // Use minimized HTML to ensure WebView status is normal, but avoid completely blank page that might cause issues
@@ -490,7 +490,6 @@ extension DMPWebview {
                 window.removeEventListener = function() {};
                 document.removeEventListener = function() {};
                 
-                console.log('WebView prepared for reuse');
             </script>
         </body>
         </html>
@@ -500,26 +499,28 @@ extension DMPWebview {
     /// Reset WebView for new application
     @MainActor
     fileprivate func resetForReuse(appName: String, appId: String) {
-        print("🔄 WebView (ID: \(getWebViewId())) start reset for app: \(appName)")
+        DMPLogger.debug("🔄 WebView (ID: \(getWebViewId())) start reset for app: \(appName)")
         
         // Update application information
         self.appName = appName
         self.appId = appId
         
+        #if DEBUG
         if self.logger == nil {
             // Re-initialize logger (only when no logger exists)
             self.logger = DMPWebViewLogger(webView: self.getWebView(), webViewId: self.getWebViewId())
-            print("🔄 WebView (ID: \(getWebViewId())) re-initialized logger")
+            DMPLogger.debug("🔄 WebView (ID: \(getWebViewId())) re-initialized logger")
         } else {
-            print("🔄 WebView (ID: \(getWebViewId())) logger already exists, skip re-initialization")
+            DMPLogger.debug("🔄 WebView (ID: \(getWebViewId())) logger already exists, skip re-initialization")
             // Ensure existing logger is in good state, update webViewId
             self.logger?.updateWebViewId(self.getWebViewId())
-            print("🔄 WebView (ID: \(getWebViewId())) updated logger webViewId")
+            DMPLogger.debug("🔄 WebView (ID: \(getWebViewId())) updated logger webViewId")
         }
+        #endif
         
         // Page path will be correctly set in DMPPageController.configWebView()
         self.query.removeAll()
         self.pagePath = ""
-        print("🔄 WebView (ID: \(getWebViewId())) cleared query parameters and page path")
+        DMPLogger.debug("🔄 WebView (ID: \(getWebViewId())) cleared query parameters and page path")
     }
 } 

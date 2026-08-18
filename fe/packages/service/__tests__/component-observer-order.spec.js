@@ -4,6 +4,41 @@ import { Component } from '../src/instance/component/component'
 import { ComponentModule } from '../src/instance/component/component-module'
 
 describe('Component.tO observer ordering', () => {
+	it('isolates observer exceptions and continues in registration order', () => {
+		const calls = []
+		const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+		const instance = {
+			data: { count: 0 },
+			__pendingSyncedProps__: {},
+			__info__: {
+				behaviorObserverList: [{
+					key: 'count',
+					observer() {
+						calls.push('behavior-1')
+						throw new Error('observer failed')
+					},
+				}, {
+					key: 'count',
+					observer() {
+						calls.push('behavior-2')
+					},
+				}],
+				observers: {
+					count() {
+						calls.push('component')
+					},
+				},
+				properties: {},
+			},
+		}
+
+		Component.prototype.tO.call(instance, { count: 1 })
+
+		expect(calls).toEqual(['behavior-1', 'behavior-2', 'component'])
+		expect(instance.data.count).toBe(1)
+		error.mockRestore()
+	})
+
 	it('executes property observers for initial component properties', async () => {
 		const componentModule = new ComponentModule({
 			properties: {
@@ -73,12 +108,80 @@ describe('Component.tO observer ordering', () => {
 			},
 		})
 
-		await expect(component.init()).resolves.toBeUndefined()
+		expect(component.init()).toBeUndefined()
 		component.componentReadied()
 		expect(component.data._animatedObserved).toBe(true)
 	})
 
-	it('executes initial property observers once on componentReadied', async () => {
+	it('applies incoming properties after created by default', () => {
+		const calls = []
+		const componentModule = new ComponentModule({
+			properties: {
+				active: {
+					type: Boolean,
+					observer(value) {
+						calls.push(`observer:${value}`)
+					},
+				},
+			},
+			lifetimes: {
+				created() {
+					calls.push(`created:${this.data.active}`)
+				},
+			},
+			methods: {},
+		}, { component: true })
+		const component = new Component(componentModule, {
+			bridgeId: 'bridge-late-properties',
+			moduleId: 'component-late-properties',
+			path: '/late-properties',
+			pageId: 'page-1',
+			parentId: 'page-1',
+			properties: { active: true },
+			propertyNames: ['active'],
+		})
+
+		component.init()
+
+		expect(calls).toEqual(['created:false', 'observer:true'])
+		expect(component.data.active).toBe(true)
+	})
+
+	it('does not let non-exparser options move property observers before created', () => {
+		const calls = []
+		const componentModule = new ComponentModule({
+			options: { propertyEarlyInit: true },
+			properties: {
+				active: {
+					type: Boolean,
+					observer(value) {
+						calls.push(`observer:${value}`)
+					},
+				},
+			},
+			lifetimes: {
+				created() {
+					calls.push(`created:${this.data.active}`)
+				},
+			},
+			methods: {},
+		}, { component: true })
+		const component = new Component(componentModule, {
+			bridgeId: 'bridge-early-properties',
+			moduleId: 'component-early-properties',
+			path: '/early-properties',
+			pageId: 'page-1',
+			parentId: 'page-1',
+			properties: { active: true },
+			propertyNames: ['active'],
+		})
+
+		component.init()
+
+		expect(calls).toEqual(['created:false', 'observer:true'])
+	})
+
+	it('executes initial property observers after created and only once', async () => {
 		const observeSrc = vi.fn(function observeSrc(src) {
 			this.data.loading = !!src
 		})
@@ -111,15 +214,14 @@ describe('Component.tO observer ordering', () => {
 		})
 
 		await component.init()
-		expect(observeSrc).not.toHaveBeenCalled()
-
-		component.componentReadied()
-
 		expect(observeSrc).toHaveBeenCalledTimes(1)
 		expect(component.data.loading).toBe(true)
+
+		component.componentReadied()
+		expect(observeSrc).toHaveBeenCalledTimes(1)
 	})
 
-	it('defers initial property observers to componentReadied for relation components', async () => {
+	it('executes initial property observers before attached for relation components', async () => {
 		const observeActive = vi.fn(function observeActive(val) {
 			this.data._observedActive = val
 		})
@@ -154,14 +256,11 @@ describe('Component.tO observer ordering', () => {
 		})
 
 		await component.init()
-		expect(observeActive).not.toHaveBeenCalled()
-
-		component.componentReadied()
 		expect(observeActive).toHaveBeenCalledTimes(1)
 		expect(component.data._observedActive).toBe(0)
 	})
 
-	it('executes property observers in reverse batch order after raw observers', () => {
+	it('executes property observers in assignment order after data observers', () => {
 		const calls = []
 		const instance = {
 			data: {
@@ -201,12 +300,12 @@ describe('Component.tO observer ordering', () => {
 
 		expect(calls).toEqual([
 			'observers:show',
+			'observeShow:fade',
 			'observeClass:top',
-			'observeShow:top',
 		])
 	})
 
-	it('runs later changed props before earlier props in reverse batch order', () => {
+	it('skips identical assignments and preserves changed-property order', () => {
 		const calls = []
 		const instance = {
 			data: {
@@ -245,9 +344,8 @@ describe('Component.tO observer ordering', () => {
 
 		expect(calls).toEqual([
 			'type:array',
-			'defaultDate:1',
 		])
-		expect(instance.data.currentDate).toBe(1)
+		expect(instance.data.currentDate).toEqual([1])
 	})
 
 	it('skips duplicate observer execution but keeps data in sync for identical render replay after parent sync', () => {
@@ -317,6 +415,6 @@ describe('Component.tO observer ordering', () => {
 		})
 
 		expect(instance.data.visible).toBe(true)
-		expect(instance.watchVisible).toHaveBeenCalledWith(true, false)
+		expect(instance.watchVisible).toHaveBeenCalledWith(true, false, ['visible'])
 	})
 })

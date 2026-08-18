@@ -6,26 +6,19 @@ import deviceInfo from '@ohos.deviceInfo';
 import { bundleManager, ConfigurationConstant, common } from '@kit.AbilityKit';
 import BuildProfile from '../../../../BuildProfile';
 import { i18n } from '@kit.LocalizationKit';
+import { DMPContextUtils } from './DMPContextUtils';
+import { DMPMenuButtonLayout } from './DMPMenuButtonLayout';
 
 export class DMPHostEnvBuilder {
-  private static cachedSnapshot: DMPMap | undefined
-  private static cacheTimestamp: number = 0
-
   static buildSnapshot(app: DMPApp): DMPMap {
-    const now = Date.now()
-    if (DMPHostEnvBuilder.cachedSnapshot && (now - DMPHostEnvBuilder.cacheTimestamp < 10000)) {
-      return DMPHostEnvBuilder.cachedSnapshot
-    }
-
     const systemInfo: DMPMap = DMPHostEnvBuilder.buildSystemInfo(app)
-    const menuRect: DMPMap = DMPHostEnvBuilder.buildMenuRect()
+    const menuRect: DMPMap = DMPMenuButtonLayout.buildFromWindowMetrics(
+      DMPDeviceUtil.getSafeAreaAndDisplayWHSync())
 
     const snapshot: DMPMap = new DMPMap()
     snapshot.set('systemInfo', systemInfo.toJSON())
     snapshot.set('menuRect', menuRect.toJSON())
 
-    DMPHostEnvBuilder.cachedSnapshot = snapshot
-    DMPHostEnvBuilder.cacheTimestamp = now
     return snapshot
   }
 
@@ -82,7 +75,7 @@ export class DMPHostEnvBuilder {
     // app base info
     result.set('SDKVersion', BuildProfile.HAR_VERSION)
     result.set('version', info?.versionName ?? '')
-    result.set('enableDebug', app.appConfig.isDebugMode)
+    result.set('enableDebug', DMPContextUtils.debugMode)
     result.set('language', language)
     result.set('theme', theme)
 
@@ -96,26 +89,4 @@ export class DMPHostEnvBuilder {
     return result
   }
 
-  private static buildMenuRect(): DMPMap {
-    const whData: DMPMap = DMPDeviceUtil.getSafeAreaAndDisplayWHSync()
-    const width: number = 87
-    const height: number = 32
-    const navigationBarContentHeight: number = 55
-    const top: number = ((whData.get('statusBarHeight') as number) ?? 0) +
-      Math.round((navigationBarContentHeight - height) / 2)
-    const right: number = ((whData.get('windowWidth') as number) ?? 0) - 10
-    const left: number = right - width
-    const bottom: number = top + height
-
-    const rect: DMPMap = new DMPMap()
-    rect.set('top', top)
-    rect.set('left', left)
-    rect.set('width', width)
-    rect.set('height', height)
-    rect.set('bottom', bottom)
-    rect.set('right', right)
-    rect.set('x', left)
-    rect.set('y', top)
-    return rect
-  }
 }

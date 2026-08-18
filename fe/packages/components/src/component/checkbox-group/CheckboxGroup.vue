@@ -17,43 +17,66 @@ const props = defineProps({
 	name: {
 		type: String,
 	},
+	autoFill: {
+		type: String,
+	},
 })
 
 // 注入表单组件提供的方法
 const collectFormValue = inject('collectFormValue', undefined)
-const selected = ref([])
+const registerFormControl = inject('registerFormControl', undefined)
+const items = new Set()
 
-function selectValue(value) {
-	if (value !== undefined) {
-		if (selected.value.includes(value)) {
-			selected.value = selected.value.filter(item => item !== value)
-		}
-		else {
-			selected.value.push(value)
-		}
+function getValue() {
+	return [...items].filter(item => item.isChecked()).map(item => item.getValue())
+}
+
+function syncFormValue() {
+	collectFormValue?.(props.name, getValue())
+}
+
+function registerCheckbox(item) {
+	items.add(item)
+	syncFormValue()
+	return () => {
+		items.delete(item)
+		syncFormValue()
 	}
-	collectFormValue?.(props.name, toRaw(selected.value))
 }
 
 const info = useInfo()
-function handleClicked(event) {
-	const v = toRaw(selected.value)
-	collectFormValue?.(props.name, v)
+function toggleCheckbox(item, event) {
+	item.setChecked(!item.isChecked())
+	const value = getValue()
+	collectFormValue?.(props.name, value)
 	triggerEvent('change', {
 		event,
 		info,
 		detail: {
-			value: v,
+			value,
 		},
 	})
 }
 
-provide('selected', selected)
-provide('selectValue', selectValue)
+function reset() {
+	for (const item of items) {
+		item.reset()
+	}
+	syncFormValue()
+}
+
+const unregisterFormControl = registerFormControl?.({
+	getName: () => props.name,
+	getValue,
+	reset,
+})
+onBeforeUnmount(() => unregisterFormControl?.())
+
+provide('checkboxGroup', { registerCheckbox, toggleCheckbox })
 </script>
 
 <template>
-	<div :id="id" v-bind="$attrs" class="dd-checkbox-group" @click="handleClicked">
+	<div :id="id" v-bind="$attrs" class="dd-checkbox-group" role="group">
 		<slot />
 	</div>
 </template>

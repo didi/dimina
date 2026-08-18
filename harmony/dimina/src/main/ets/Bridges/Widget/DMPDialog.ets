@@ -22,15 +22,21 @@ struct DMPDialog {
           .fontWeight(FontWeight.Bold)
           .fontColor(0x202020).margin({ top: 18 })
 
-        Text(this.content ?? '')
-          .fontSize(16)
-          .fontColor(0x747474)
-          .padding({
-            top: 20,
-            bottom: 30,
-            left: 16,
-            right: 16
-          })
+        Scroll() {
+          Text(this.content ?? '')
+            .fontSize(16)
+            .fontColor(0x747474)
+            .padding({
+              top: 20,
+              bottom: 30,
+              left: 16,
+              right: 16
+            })
+            .width('100%')
+        }
+        .width('100%')
+        .flexShrink(1)
+        .edgeEffect(EdgeEffect.None)
 
         Divider().strokeWidth(1).color(0xf2f2f2)
 
@@ -63,7 +69,11 @@ struct DMPDialog {
             })
         }
         .height(45)
-      }.backgroundColor(0xffffff).margin({ left: 40, right: 40 }).borderRadius(6)
+      }
+      .constraintSize({ maxHeight: '90%' })
+      .backgroundColor(0xffffff)
+      .margin({ left: 40, right: 40 })
+      .borderRadius(6)
     }.backgroundColor(0x30000000).width('100%').height('100%').justifyContent(FlexAlign.Center)
 
   }

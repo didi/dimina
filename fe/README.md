@@ -7,7 +7,8 @@
 - **common**：各分包通用公共工具函数。
 - **compiler**：小程序源码编译工具。
 - **components**：内置小程序标准组件。
-- **container**：原生容器层，为小程序提供 API。
+- **container-sdk**：Web 端小程序容器运行时 SDK（`createContainer`，不含 UI），宿主可嵌入接入，用法见其 [README](./packages/container-sdk/README.md)。
+- **container**：容器 demo，消费 container-sdk，`index.html` 为演示入口（应用列表 + 手机壳）。
 - **jdimina**：webview sdk，为 webview 组件提供调用协议。
 - **render**：渲染层，负责 UI 展示与消息处理。
 - **server**：网络请求代理服务器, 提供给 web 端网络请求代理，用以解决跨域问题。
@@ -71,7 +72,13 @@ pnpm generate:sdk
 
 编译 `example/` 目录下的所有小程序，并将产物输出到 `packages/container/public`。
 
-默认情况下，命令会读取 `packages/container/public/compile-cache.json`，跳过未发生变化的小程序以提升编译速度。如需忽略本地缓存并重新编译全部示例小程序，可以执行：
+默认情况下，命令会读取 `packages/container/public/compile-cache.json`：
+
+- 完全未变化的小程序会整个跳过。
+- 只有普通源文件变化时，会根据持久化依赖图计算受影响页面，并只运行需要的 view、logic 或 style 阶段。
+- 编译器、JSON 配置或文件结构发生变化时，会自动回退为整个小程序全量编译。
+
+如需忽略本地缓存并重新编译全部示例小程序，可以执行：
 
 ```sh
 pnpm compile --force

@@ -7,23 +7,30 @@ const MMKV_TYPE_SUFFIX = '_mMKv7Yp3';
 
 export class DMPMMKVManager {
   public mmkv: MMKV;
-  private static instance: DMPMMKVManager
+  private static instances: Map<string, DMPMMKVManager> = new Map();
+  private static initialized: boolean = false;
 
-  static sharedInstance() {
-    if (!DMPMMKVManager.instance) {
-      DMPMMKVManager.instance = new DMPMMKVManager();
+  static sharedInstance(appId: string = 'default'): DMPMMKVManager {
+    const namespace = encodeURIComponent(appId.trim() || 'default');
+    let instance = DMPMMKVManager.instances.get(namespace);
+    if (!instance) {
+      instance = new DMPMMKVManager(namespace);
+      DMPMMKVManager.instances.set(namespace, instance);
     }
-    return DMPMMKVManager.instance;
+    return instance;
   }
 
-  constructor() {
+  private constructor(namespace: string) {
     let sandboxPath = DMPFileManager.sharedInstance().sandboxPath;
     let rootPath = sandboxPath + '/mmkv'
     let cachePath = DMPFileManager.sharedInstance().cacheDir + '/mmkv';
-    MMKV.initializeWithPath(rootPath, cachePath)
+    if (!DMPMMKVManager.initialized) {
+      MMKV.initializeWithPath(rootPath, cachePath)
+      DMPMMKVManager.initialized = true;
+    }
 
-    let mmapID = 'dimina_mmkv_mmap_id';
-    let backupRootDir = sandboxPath + '/mmkv_backup'
+    let mmapID = `dimina_mmkv_${namespace}`;
+    let backupRootDir = `${sandboxPath}/mmkv_backup/${namespace}`
     this.mmkv = MMKV.backedUpMMKVWithID(mmapID, backupRootDir, MMKV.SINGLE_PROCESS_MODE, "DIMINA MMKV");
   }
 

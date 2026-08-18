@@ -162,6 +162,17 @@ public class ModalManager {
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(titleLabel)
         
+        // Keep long content inside a dedicated scrolling region while the
+        // title and action buttons remain fixed.
+        let contentScrollView = UIScrollView()
+        contentScrollView.alwaysBounceVertical = false
+        contentScrollView.showsHorizontalScrollIndicator = false
+        contentScrollView.translatesAutoresizingMaskIntoConstraints = false
+        if #available(iOS 11.0, *) {
+            contentScrollView.contentInsetAdjustmentBehavior = .never
+        }
+        container.addSubview(contentScrollView)
+
         // Create content label
         let contentLabel = UILabel()
         contentLabel.text = content
@@ -170,7 +181,7 @@ public class ModalManager {
         contentLabel.textAlignment = .center
         contentLabel.numberOfLines = 0
         contentLabel.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(contentLabel)
+        contentScrollView.addSubview(contentLabel)
         
         // Create separator line
         let separatorLine = UIView()
@@ -247,12 +258,19 @@ public class ModalManager {
         // Activate button constraints
         NSLayoutConstraint.activate(buttonConstraints)
         
+        let contentHeightConstraint = contentScrollView.heightAnchor.constraint(
+            equalTo: contentLabel.heightAnchor,
+            constant: 0
+        )
+        contentHeightConstraint.priority = .defaultHigh
+
         // Set up main container constraints
-        NSLayoutConstraint.activate([
+        var containerConstraints = [
             // Container constraints
             container.centerXAnchor.constraint(equalTo: rootView.centerXAnchor),
             container.centerYAnchor.constraint(equalTo: rootView.centerYAnchor),
             container.widthAnchor.constraint(equalToConstant: 280),
+            container.heightAnchor.constraint(lessThanOrEqualTo: rootView.safeAreaLayoutGuide.heightAnchor, multiplier: 0.9),
             
             // Title constraints
             titleLabel.topAnchor.constraint(equalTo: container.topAnchor, constant: 20),
@@ -260,12 +278,17 @@ public class ModalManager {
             titleLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
             
             // Content constraints
-            contentLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 12),
-            contentLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
-            contentLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
+            contentScrollView.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 12),
+            contentScrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            contentScrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            contentLabel.topAnchor.constraint(equalTo: contentScrollView.contentLayoutGuide.topAnchor),
+            contentLabel.bottomAnchor.constraint(equalTo: contentScrollView.contentLayoutGuide.bottomAnchor),
+            contentLabel.leadingAnchor.constraint(equalTo: contentScrollView.contentLayoutGuide.leadingAnchor, constant: 16),
+            contentLabel.trailingAnchor.constraint(equalTo: contentScrollView.contentLayoutGuide.trailingAnchor, constant: -16),
+            contentLabel.widthAnchor.constraint(equalTo: contentScrollView.frameLayoutGuide.widthAnchor, constant: -32),
             
             // Separator line constraints
-            separatorLine.topAnchor.constraint(equalTo: contentLabel.bottomAnchor, constant: 20),
+            separatorLine.topAnchor.constraint(equalTo: contentScrollView.bottomAnchor, constant: 20),
             separatorLine.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             separatorLine.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             separatorLine.heightAnchor.constraint(equalToConstant: 1),
@@ -275,7 +298,9 @@ public class ModalManager {
             buttonsContainer.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             buttonsContainer.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             buttonsContainer.bottomAnchor.constraint(equalTo: container.bottomAnchor)
-        ])
+        ]
+        containerConstraints.append(contentHeightConstraint)
+        NSLayoutConstraint.activate(containerConstraints)
     }
     
     // MARK: - Button Actions

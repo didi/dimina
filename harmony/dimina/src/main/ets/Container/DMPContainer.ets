@@ -35,7 +35,11 @@ export class DMPContainer {
   }
 
   public loadResourceService(webViewId: number, pagePath: string) {
-    const root = this.app?.bundleManager.getJsAppModuleConfig()?.getRootPackage(pagePath)
+    const appConfig = this.app?.bundleManager.getJsAppModuleConfig()
+    const root = appConfig?.getRootPackage(pagePath)
+    const navigator = this.app.navigatorManager.findNavigatorByWebViewId(webViewId)
+    const launchConfig = navigator?.getLaunchConfig()
+    const pageRecord = this.app.navigatorManager.getPageRecordById(webViewId)
 
     const msg: DMPMap = new DMPMap({
       type: 'loadResource',
@@ -43,6 +47,10 @@ export class DMPContainer {
         bridgeId: webViewId,
         appId: this.app.appConfig.appId,
         pagePath: pagePath,
+        runtimeType: appConfig?.runtimeType ?? 'miniProgram',
+        query: pageRecord?.params?.get('query') ?? new DMPMap(),
+        scene: launchConfig?.scene,
+        referrerInfo: launchConfig?.referrerInfo,
         root: root,
         hostEnv: DMPHostEnvBuilder.buildSnapshot(this.app),
       }
@@ -52,18 +60,38 @@ export class DMPContainer {
   }
 
   public loadResourceRender(webViewId: number, pagePath: string) {
-    const root = this.app?.bundleManager.getJsAppModuleConfig()?.getRootPackage(pagePath)
+    const appConfig = this.app?.bundleManager.getJsAppModuleConfig()
+    const root = appConfig?.getRootPackage(pagePath)
     const msg: DMPMap = new DMPMap({
       type: 'loadResource',
       body: {
         bridgeId: webViewId,
         appId: this.app.appConfig.appId,
         pagePath: pagePath,
+        runtimeType: appConfig?.runtimeType ?? 'miniProgram',
         root: root
       }
     })
 
     DMPChannelProxyNext.ContainerToRender(msg, this.app, webViewId)
+  }
+
+  public updateHostEnv(): void {
+    let hasLoadedService: boolean = false
+    this.loadStatusMap.forEach((status: ResourceLoadType) => {
+      if ((status & ResourceLoadType.ServiceLoaded) !== 0) {
+        hasLoadedService = true
+      }
+    })
+    if (!hasLoadedService) {
+      return
+    }
+
+    const msg: DMPMap = new DMPMap({
+      type: 'hostEnvUpdate',
+      body: DMPHostEnvBuilder.buildSnapshot(this.app)
+    })
+    DMPChannelProxyNext.ContainerToService(msg, this.app.appIndex)
   }
 
   public callBridgeMethods(methodName: string, webViewId: number,

@@ -1,5 +1,6 @@
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { describe, beforeAll, beforeEach, afterEach, afterAll, it, expect } from '@ohos/hypium';
+import { DMPBundleAppConfigNext } from '../../../main/ets/Bundle/Model/DMPBundleAppConfigNext';
 
 export default function abilityTest() {
   describe('ActsAbilityTest', () => {
@@ -30,6 +31,15 @@ export default function abilityTest() {
       // Defines a variety of assertion methods, which are used to declare expected boolean conditions.
       expect(a).assertContain(b);
       expect(a).assertEqual(a);
+    })
+
+    it('miniGameRuntimeConfig', 0, () => {
+      const config = DMPBundleAppConfigNext.fromJsonString(
+        '{"app":{"runtimeType":"game","entryPagePath":"game","pages":["game"]},"modules":{}}'
+      ) as DMPBundleAppConfigNext
+      expect(config.runtimeType).assertEqual('game')
+      expect(config.entryPagePath).assertEqual('game')
+      expect(config.isContainsPage('game')).assertFalse()
     })
   })
 }

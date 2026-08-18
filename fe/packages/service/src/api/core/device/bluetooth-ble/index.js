@@ -1,11 +1,34 @@
 import { invokeAPI } from '@/api/common'
+import {
+	createBluetoothEvent,
+	encodeArrayBuffer,
+	invokeBluetoothAPI,
+	normalizeCharacteristicResult,
+} from '../bluetooth/shared'
+
+const connectionStateEvent = createBluetoothEvent(
+	'onBLEConnectionStateChange',
+	'offBLEConnectionStateChange',
+)
+const characteristicValueEvent = createBluetoothEvent(
+	'onBLECharacteristicValueChange',
+	'offBLECharacteristicValueChange',
+	normalizeCharacteristicResult,
+)
+const mtuEvent = createBluetoothEvent('onBLEMTUChange', 'offBLEMTUChange')
 
 /**
  * 向蓝牙低功耗设备特征值中写入二进制数据。注意：必须设备的特征支持 write 才可以成功调用。
  * https://developers.weixin.qq.com/miniprogram/dev/api/device/bluetooth-ble/wx.writeBLECharacteristicValue.html
  */
 export function writeBLECharacteristicValue(opts) {
-	return invokeAPI('writeBLECharacteristicValue', opts)
+	return invokeBluetoothAPI('writeBLECharacteristicValue', opts, {
+		prepare(data) {
+			return data && typeof data === 'object'
+				? { ...data, value: encodeArrayBuffer(data.value) }
+				: data
+		},
+	})
 }
 
 /**
@@ -28,32 +51,32 @@ export function readBLECharacteristicValue(opts) {
  * 监听蓝牙低功耗连接状态改变事件。包括开发者主动连接或断开连接，设备丢失，连接异常断开等等
  * https://developers.weixin.qq.com/miniprogram/dev/api/device/bluetooth-ble/wx.onBLEConnectionStateChange.html
  */
-export function onBLEConnectionStateChange(opts) {
-	return invokeAPI('onBLEConnectionStateChange', opts)
+export function onBLEConnectionStateChange(listener) {
+	return connectionStateEvent.on(listener)
 }
 
 /**
  * 监听蓝牙低功耗设备的特征值变化事件。必须先调用 wx.notifyBLECharacteristicValueChange 接口才能接收到设备推送的 notification。
  * https://developers.weixin.qq.com/miniprogram/dev/api/device/bluetooth-ble/wx.onBLECharacteristicValueChange.html
  */
-export function onBLECharacteristicValueChange(opts) {
-	return invokeAPI('onBLECharacteristicValueChange', opts)
+export function onBLECharacteristicValueChange(listener) {
+	return characteristicValueEvent.on(listener)
 }
 
 /**
  * 移除蓝牙低功耗连接状态改变事件的监听函数。不传此参数则移除所有监听函数。
  * https://developers.weixin.qq.com/miniprogram/dev/api/device/bluetooth-ble/wx.offBLEConnectionStateChange.html
  */
-export function offBLEConnectionStateChange(opts) {
-	return invokeAPI('offBLEConnectionStateChange', opts)
+export function offBLEConnectionStateChange(listener) {
+	return connectionStateEvent.off(listener)
 }
 
 /**
  * 移除蓝牙低功耗设备的特征值变化事件的全部监听函数
  * https://developers.weixin.qq.com/miniprogram/dev/api/device/bluetooth-ble/wx.offBLECharacteristicValueChange.html
  */
-export function offBLECharacteristicValueChange() {
-	return invokeAPI('offBLECharacteristicValueChange')
+export function offBLECharacteristicValueChange(listener) {
+	return characteristicValueEvent.off(listener)
 }
 
 /**
@@ -104,4 +127,28 @@ export function createBLEConnection(opts) {
  */
 export function closeBLEConnection(opts) {
 	return invokeAPI('closeBLEConnection', opts)
+}
+
+/**
+ * 获取蓝牙低功耗的最大传输单元。
+ * https://developers.weixin.qq.com/miniprogram/dev/api/device/bluetooth-ble/wx.getBLEMTU.html
+ */
+export function getBLEMTU(opts) {
+	return invokeAPI('getBLEMTU', opts)
+}
+
+/**
+ * 监听蓝牙低功耗的最大传输单元变化事件。
+ * https://developers.weixin.qq.com/miniprogram/dev/api/device/bluetooth-ble/wx.onBLEMTUChange.html
+ */
+export function onBLEMTUChange(listener) {
+	return mtuEvent.on(listener)
+}
+
+/**
+ * 移除蓝牙低功耗的最大传输单元变化事件监听函数。
+ * https://developers.weixin.qq.com/miniprogram/dev/api/device/bluetooth-ble/wx.offBLEMTUChange.html
+ */
+export function offBLEMTUChange(listener) {
+	return mtuEvent.off(listener)
 }

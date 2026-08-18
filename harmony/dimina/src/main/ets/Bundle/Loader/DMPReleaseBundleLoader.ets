@@ -18,6 +18,7 @@ import { DMPMap } from '../../Utils/DMPMap';
 import { DMPTextUtils } from '../../Utils/DMPTextUtils';
 import { DialogManager } from '../../Bridges/Widget/DialogManager';
 import { EngineStatus } from '../../DApp/utils/DMPStatusMonitor';
+import { DMPRemoteUpdateManager } from '../DMPRemoteUpdateManager';
 
 export class DMPReleaseBundleLoader implements DMPBundleLoader {
   //文件管理
@@ -114,15 +115,30 @@ export class DMPReleaseBundleLoader implements DMPBundleLoader {
         //安装成功以后，存储version
         DMPPreference.getInstance().put(bundleLoadInfo.appId + "_versionName", bundleLoadInfo.appVersionName!)
         DMPPreference.getInstance().put(bundleLoadInfo.appId + "_versionCode", bundleLoadInfo.appVersionCode!)
-        this.tryLaunchApp(bundleLoadInfo);
       } else {
         DMPLogger.i(Tags.BUNDLE, "加载缓存包")
         this.loadCacheConfig(bundleLoadInfo);
-        this.tryLaunchApp(bundleLoadInfo);
       }
+      await this.installManifestPackageIfNeeded(bundleLoadInfo);
+      this.tryLaunchApp(bundleLoadInfo);
     } catch (e) {
       this.handleException(Tags.LOAD_LOCAL_BUNDLE, ErrorCode.LOAD_LOCAL_BUNDLE_FAILED, e);
     }
+  }
+
+  private async installManifestPackageIfNeeded(bundleLoadInfo: DMPBundleLoadInfo): Promise<void> {
+    const installed = await DMPRemoteUpdateManager.sharedInstance()
+      .installInitialPackageIfNeeded(this.app);
+    if (!installed) {
+      return;
+    }
+
+    const cacheJSAppConfig = this.fileManager.loadJSAppConfig(bundleLoadInfo.appId);
+    bundleLoadInfo.cacheJSAppBundleConfig = DMJSAppBundleConfig.fromJson(cacheJSAppConfig);
+    if (bundleLoadInfo.cacheJSAppBundleConfig == null) {
+      throw new Error('manifest package installed without a valid config');
+    }
+    DMPLogger.i(Tags.LOAD_REMOTE_BUNDLE, 'ManifestUrl 首次安装完成');
   }
 
   private loadCacheConfig(bundleLoadInfo: DMPBundleLoadInfo) {
@@ -338,4 +354,3 @@ export class DMPReleaseBundleLoader implements DMPBundleLoader {
     this.waitLoadError(errCode, errMsg);
   }
 }
-

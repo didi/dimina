@@ -1,4 +1,5 @@
 import { callback, isFunction, uuid } from '@dimina/common'
+import hostEnv from '@/core/host-env'
 import message from '@/core/message'
 import router from '@/core/router'
 
@@ -7,17 +8,65 @@ export const CANVAS_NODE_TYPE = 'dimina-canvas-node'
 const CONTEXT_2D_TYPES = new Set(['2d'])
 const WEBGL_CONTEXT_TYPES = new Set(['webgl', 'experimental-webgl', 'webgl2'])
 const CANVAS_2D_RESOURCE_METHODS = new Set(['createLinearGradient', 'createPattern', 'createRadialGradient'])
-// Methods that return ImageData-like objects (need special handling, not CanvasResource proxy)
-const CANVAS_2D_IMAGEDATA_METHODS = new Set(['createImageData'])
-const WEBGL_RESOURCE_METHODS = new Set([
-	'createBuffer',
-	'createFramebuffer',
-	'createProgram',
-	'createRenderbuffer',
-	'createShader',
-	'createTexture',
+const WEBGL_RESOURCE_METHOD_TYPES = new Map([
+	['createBuffer', 'buffer'],
+	['createFramebuffer', 'framebuffer'],
+	['createProgram', 'program'],
+	['createQuery', 'query'],
+	['createRenderbuffer', 'renderbuffer'],
+	['createSampler', 'sampler'],
+	['createShader', 'shader'],
+	['createTexture', 'texture'],
+	['createTransformFeedback', 'transformFeedback'],
+	['createVertexArray', 'vertexArray'],
+	['fenceSync', 'sync'],
 ])
-const WEBGL_LOCATION_METHODS = new Set(['getAttribLocation', 'getUniformLocation'])
+const WEBGL_LOCATION_METHOD_TYPES = new Map([
+	['getAttribLocation', 'attribLocation'],
+	['getUniformLocation', 'uniformLocation'],
+])
+const WEBGL_DELETE_METHOD_TYPES = new Map([
+	['deleteBuffer', 'buffer'],
+	['deleteFramebuffer', 'framebuffer'],
+	['deleteProgram', 'program'],
+	['deleteQuery', 'query'],
+	['deleteRenderbuffer', 'renderbuffer'],
+	['deleteSampler', 'sampler'],
+	['deleteShader', 'shader'],
+	['deleteSync', 'sync'],
+	['deleteTexture', 'texture'],
+	['deleteTransformFeedback', 'transformFeedback'],
+	['deleteVertexArray', 'vertexArray'],
+])
+const WEBGL_IS_METHOD_TYPES = new Map([
+	['isBuffer', 'buffer'],
+	['isFramebuffer', 'framebuffer'],
+	['isProgram', 'program'],
+	['isQuery', 'query'],
+	['isRenderbuffer', 'renderbuffer'],
+	['isSampler', 'sampler'],
+	['isShader', 'shader'],
+	['isSync', 'sync'],
+	['isTexture', 'texture'],
+	['isTransformFeedback', 'transformFeedback'],
+	['isVertexArray', 'vertexArray'],
+])
+
+const WEBGL_DEFAULT_CONTEXT_ATTRIBUTES = {
+	alpha: true,
+	depth: true,
+	stencil: false,
+	antialias: true,
+	premultipliedAlpha: true,
+	preserveDrawingBuffer: false,
+	powerPreference: 'default',
+	failIfMajorPerformanceCaveat: false,
+	desynchronized: false,
+}
+
+const webglCapabilitiesByBridge = new Map()
+let miniGameScreenCanvas = null
+let miniGameImageCanvas = null
 
 const WEBGL_CONSTANTS = {
 	DEPTH_BUFFER_BIT: 0x00000100,
@@ -311,12 +360,78 @@ const WEBGL_CONSTANTS = {
 	COMPILE_STATUS: 0x8B81,
 }
 
+function normalizeContextType(type) {
+	const contextType = String(type).toLowerCase()
+	return contextType === 'experimental-webgl' ? 'webgl' : contextType
+}
+
+function setWebGLCapabilities(bridgeId, capabilities) {
+	if (!bridgeId || !capabilities) {
+		return
+	}
+	webglCapabilitiesByBridge.set(bridgeId, capabilities)
+}
+
+function getWebGLCapabilities(bridgeId) {
+	return webglCapabilitiesByBridge.get(bridgeId) || null
+}
+
+function getContextCapabilities(capabilities, contextType) {
+	if (!capabilities) {
+		return null
+	}
+	return capabilities[normalizeContextType(contextType)] || null
+}
+
+function deserializeCanvasValue(value) {
+	if (value === null || value === undefined) {
+		return value
+	}
+	if (Array.isArray(value)) {
+		return value.map(item => deserializeCanvasValue(item))
+	}
+	if (typeof value !== 'object') {
+		return value
+	}
+	if (value.__canvasTypedArray) {
+		if (value.__canvasTypedArray === 'DataView') {
+			return new DataView(new Uint8Array(value.data || []).buffer)
+		}
+		const Ctor = globalThis[value.__canvasTypedArray]
+		if (typeof Ctor === 'function') {
+			return new Ctor(value.data || [])
+		}
+		return value.data || []
+	}
+	const result = {}
+	for (const [key, item] of Object.entries(value)) {
+		result[key] = deserializeCanvasValue(item)
+	}
+	return result
+}
+
+message.on('canvasCapabilities', ({ bridgeId, capabilities }) => {
+	setWebGLCapabilities(bridgeId, capabilities)
+})
+
+message.on('resourceLoaded', ({ bridgeId, canvasCapabilities }) => {
+	setWebGLCapabilities(bridgeId, canvasCapabilities)
+})
+
 let canvasResourceSerial = 1
 let canvasRafSerial = 1
 
 function getCurrentBridgeId() {
 	const pageInfo = router.getPageInfo()
 	return pageInfo?.bridgeId || pageInfo?.id || ''
+}
+
+function normalizeCanvasDimension(value, fallback) {
+	if (value === undefined) {
+		return fallback
+	}
+	const number = Number(value)
+	return Number.isFinite(number) && number >= 0 ? Math.floor(number) : fallback
 }
 
 function sendCanvasMessage(bridgeId, name, params) {
@@ -419,15 +534,19 @@ class ImageDataProxy {
 }
 
 class CanvasResource {
-	constructor(canvas, resourceId) {
+	constructor(canvas, resourceId, resourceType = 'resource', metadata = {}) {
 		this.__canvasResourceId = resourceId
 		this.__canvasProxyValue = canvasResourceSerial++
 		this.canvas = canvas
+		this.resourceType = resourceType
+		this.metadata = metadata
+		this.deleted = false
 
 		return new Proxy(this, {
 			get(target, prop) {
 				if (prop in target) {
-					return target[prop]
+					const value = target[prop]
+					return typeof value === 'function' ? value.bind(target) : value
 				}
 				if (typeof prop === 'symbol') {
 					return undefined
@@ -450,6 +569,14 @@ class CanvasResource {
 
 	toString() {
 		return String(this.__canvasProxyValue)
+	}
+
+	markDeleted() {
+		this.deleted = true
+	}
+
+	updateMetadata(patch = {}) {
+		Object.assign(this.metadata, patch)
 	}
 }
 
@@ -500,133 +627,175 @@ class CanvasImage {
 }
 
 class CanvasRenderingContext2DProxy {
-	constructor(canvas, contextId) {
-		this.canvas = canvas
-		this.contextId = contextId
-		this.state = {
-			fillStyle: '#000000',
-			strokeStyle: '#000000',
-			font: '10px sans-serif',
-			globalAlpha: 1,
-			lineWidth: 1,
-		}
+    constructor(canvas, contextId) {
+        this.canvas = canvas;
+        this.contextId = contextId;
+        this.state = {
+            fillStyle: "#000000",
+            strokeStyle: "#000000",
+            font: "10px sans-serif",
+            globalAlpha: 1,
+            lineWidth: 1,
+        };
+
+        return new Proxy(this, {
+            get(target, prop) {
+                if (prop in target) {
+                    return target[prop];
+                }
+                if (prop in target.state) {
+                    return target.state[prop];
+                }
+                if (typeof prop === "symbol") {
+                    return undefined;
+                }
+                return (...args) => target.call(prop, args);
+            },
+            set(target, prop, value) {
+                target.state[prop] = value;
+                target.canvas.enqueueOperation({
+                    op: "contextSetProperty",
+                    contextId,
+                    prop,
+                    value: serializeCanvasArg(value),
+                });
+                return true;
+            },
+        });
+    }
+
+    async getImageData(x, y, w, h) {
+        const result = await this.canvas.getImageData({
+            contextId: this.contextId,
+            x,
+            y,
+            width: w,
+            height: h,
+        });
+        return result;
+    }
+
+    toDataURL(type, quality) {
+        return this.canvas.toDataURL(type, quality);
+    }
+
+    call(method, args) {
+        if (method === "measureText") {
+            return { width: String(args[0] ?? "").length * 10 };
+        }
+
+        if (method === "createImageData") {
+            const w = args[0];
+            const h = args[1];
+            return {
+                width: w,
+                height: h,
+                data: new Uint8ClampedArray(w * h * 4),
+            };
+        }
+
+        const resultId = CANVAS_2D_RESOURCE_METHODS.has(method)
+            ? makeResourceId()
+            : undefined;
+        this.canvas.enqueueOperation({
+            op: "contextCall",
+            contextId: this.contextId,
+            method,
+            args: serializeCanvasArgs(args),
+            resultId,
+        });
+
+        if (resultId) {
+            return new CanvasResource(this.canvas, resultId);
+        }
+    }
+}
+
+class WebGLExtensionProxy {
+	constructor(context, name, extensionId, descriptor = {}) {
+		this.context = context
+		this.name = name
+		this.__canvasResourceId = extensionId
+		this.constants = descriptor.constants || {}
 
 		return new Proxy(this, {
 			get(target, prop) {
 				if (prop in target) {
-					return target[prop]
+					const value = target[prop]
+					return typeof value === 'function' ? value.bind(target) : value
 				}
-				if (prop in target.state) {
-					return target.state[prop]
+				if (Object.prototype.hasOwnProperty.call(target.constants, prop)) {
+					return target.constants[prop]
 				}
 				if (typeof prop === 'symbol') {
 					return undefined
 				}
 				return (...args) => target.call(prop, args)
 			},
-			set(target, prop, value) {
-				target.state[prop] = value
-				target.canvas.enqueueOperation({
-					op: 'contextSetProperty',
-					contextId,
-					prop,
-					value: serializeCanvasArg(value),
-				})
-				return true
-			},
 		})
 	}
 
 	call(method, args) {
-		if (method === 'measureText') {
-			return { width: String(args[0] ?? '').length * 10 }
+		let result
+		let resultId
+		if (method.startsWith('create')) {
+			resultId = makeResourceId('webgl_extension_resource')
+			result = new CanvasResource(this.context.canvas, resultId, `${this.name}:${method}`)
+			this.context.resources.set(resultId, result)
+		}
+		else if (method.startsWith('delete') && args[0]?.markDeleted) {
+			args[0].markDeleted()
+		}
+		else if (method.startsWith('is') && args[0] instanceof CanvasResource) {
+			return !args[0].deleted
 		}
 
-		// getImageData: synchronous — flush pending ops and invoke native bridge directly
-		if (method === 'getImageData') {
-			const operations = this.canvas.pendingOperations
-			this.canvas.pendingOperations = []
-			this.canvas.flushScheduled = false
-
-			console.log('[service] [Canvas] getImageData: nodeId=' + this.canvas.nodeId + ' x=' + (args[0] || 0) + ' y=' + (args[1] || 0) + ' w=' + (args[2] || 0) + ' h=' + (args[3] || 0) + ' pendingOps=' + operations.length)
-
-			const result = message.invoke({
-				type: 'invokeAPI',
-				target: 'container',
-				body: {
-					bridgeId: this.canvas.bridgeId,
-					name: 'canvasGetImageData',
-					params: {
-						nodeId: this.canvas.nodeId,
-						operations,
-						x: args[0] || 0,
-						y: args[1] || 0,
-						width: args[2] || 0,
-						height: args[3] || 0,
-					},
-				},
-			})
-
-			console.log('[service] [Canvas] getImageData result: hasData=' + !!(result && result.data) + ' dataLen=' + (result?.data?.length || 0))
-
-			const width = args[2] || 0
-			const height = args[3] || 0
-			const proxy = new ImageDataProxy(this.canvas, makeResourceId(), width, height)
-			if (result && result.data) {
-				proxy.data = new Uint8ClampedArray(result.data)
-			}
-			return proxy
-		}
-
-		// createImageData returns ImageData-like objects, not CanvasResource proxies
-		if (CANVAS_2D_IMAGEDATA_METHODS.has(method)) {
-			const resultId = makeResourceId()
-			this.canvas.enqueueOperation({
-				op: 'contextCall',
-				contextId: this.contextId,
-				method,
-				args: serializeCanvasArgs(args),
-				resultId,
-			})
-			let width, height
-			if (typeof args[0] === 'number') {
-				width = args[0] || 0
-				height = args[1] || 0
-			} else if (args[0] && args[0].width) {
-				width = args[0].width
-				height = args[0].height
-			} else {
-				width = 0
-				height = 0
-			}
-			return new ImageDataProxy(this.canvas, resultId, width, height)
-		}
-
-		const resultId = CANVAS_2D_RESOURCE_METHODS.has(method) ? makeResourceId() : undefined
-		this.canvas.enqueueOperation({
-			op: 'contextCall',
-			contextId: this.contextId,
+		this.context.canvas.enqueueOperation({
+			op: 'extensionCall',
+			contextId: this.context.contextId,
+			extensionId: this.__canvasResourceId,
 			method,
 			args: serializeCanvasArgs(args),
 			resultId,
 		})
-
-		if (resultId) {
-			return new CanvasResource(this.canvas, resultId)
-		}
+		return result
 	}
 }
 
 class WebGLRenderingContextProxy {
-	constructor(canvas, contextId, contextType) {
+	constructor(canvas, contextId, contextType, attributes, capabilities) {
 		this.canvas = canvas
 		this.contextId = contextId
 		this.contextType = contextType
+		this.requestedAttributes = {
+			...WEBGL_DEFAULT_CONTEXT_ATTRIBUTES,
+			...(isPlainObject(attributes) ? attributes : {}),
+		}
+		this.capabilities = null
+		this.resources = new Map()
+		this.extensions = new Map()
+		this.properties = new Map()
+		this.state = new Map()
+		this.enabledCapabilities = new Set()
+		this.errors = []
+		this.queryResults = new Map()
+		this.contextLost = false
+		this.creationFailed = false
+		this.hasActualCapabilities = false
+		this.initializeState()
+		this.updateCapabilities(capabilities)
 
 		return new Proxy(this, {
 			get(target, prop) {
 				if (prop in target) {
-					return target[prop]
+					const value = target[prop]
+					return typeof value === 'function' ? value.bind(target) : value
+				}
+				if (target.properties.has(prop)) {
+					return target.properties.get(prop)
+				}
+				if (Object.prototype.hasOwnProperty.call(target.capabilities?.constants || {}, prop)) {
+					return target.capabilities.constants[prop]
 				}
 				if (Object.prototype.hasOwnProperty.call(WEBGL_CONSTANTS, prop)) {
 					return WEBGL_CONSTANTS[prop]
@@ -642,39 +811,161 @@ class WebGLRenderingContextProxy {
 				}
 				return (...args) => target.call(prop, args)
 			},
+			set(target, prop, value) {
+				target.properties.set(prop, value)
+				target.canvas.enqueueOperation({
+					op: 'contextSetProperty',
+					contextId,
+					prop,
+					value: serializeCanvasArg(value),
+				})
+				return true
+			},
 		})
 	}
 
-	call(method, args) {
-		switch (method) {
-			case 'getParameter':
-				return this.getParameter(args[0])
-			case 'getShaderParameter':
-			case 'getProgramParameter':
-				return true
-			case 'getShaderInfoLog':
-			case 'getProgramInfoLog':
-				return ''
-			case 'getError':
-				return WEBGL_CONSTANTS.NO_ERROR
-			case 'isContextLost':
-				return false
-			case 'checkFramebufferStatus':
-				return WEBGL_CONSTANTS.FRAMEBUFFER_COMPLETE
-			case 'getContextAttributes':
-				return {}
-			case 'getSupportedExtensions':
-				return []
-			case 'getExtension':
-				return null
-			default:
-				break
+	initializeState() {
+		const { width, height } = this.canvas
+		this.state.set(WEBGL_CONSTANTS.VIEWPORT, [0, 0, width, height])
+		this.state.set(WEBGL_CONSTANTS.SCISSOR_BOX, [0, 0, width, height])
+		this.state.set(WEBGL_CONSTANTS.COLOR_CLEAR_VALUE, new Float32Array([0, 0, 0, 0]))
+		this.state.set(WEBGL_CONSTANTS.COLOR_WRITEMASK, [true, true, true, true])
+		this.state.set(WEBGL_CONSTANTS.DEPTH_CLEAR_VALUE, 1)
+		this.state.set(WEBGL_CONSTANTS.DEPTH_WRITEMASK, true)
+		this.state.set(WEBGL_CONSTANTS.DEPTH_FUNC, WEBGL_CONSTANTS.LESS)
+		this.state.set(WEBGL_CONSTANTS.STENCIL_CLEAR_VALUE, 0)
+		this.state.set(WEBGL_CONSTANTS.LINE_WIDTH, 1)
+		this.state.set(WEBGL_CONSTANTS.CULL_FACE_MODE, WEBGL_CONSTANTS.BACK)
+		this.state.set(WEBGL_CONSTANTS.FRONT_FACE, WEBGL_CONSTANTS.CCW)
+		this.state.set(WEBGL_CONSTANTS.ACTIVE_TEXTURE, WEBGL_CONSTANTS.TEXTURE0)
+		this.state.set(WEBGL_CONSTANTS.PACK_ALIGNMENT, 4)
+		this.state.set(WEBGL_CONSTANTS.UNPACK_ALIGNMENT, 4)
+		this.state.set(WEBGL_CONSTANTS.CURRENT_PROGRAM, null)
+		this.state.set(WEBGL_CONSTANTS.ARRAY_BUFFER_BINDING, null)
+		this.state.set(WEBGL_CONSTANTS.ELEMENT_ARRAY_BUFFER_BINDING, null)
+		this.state.set(WEBGL_CONSTANTS.TEXTURE_BINDING_2D, null)
+		this.state.set(WEBGL_CONSTANTS.FRAMEBUFFER_BINDING, null)
+		this.state.set(WEBGL_CONSTANTS.RENDERBUFFER_BINDING, null)
+	}
+
+	updateCapabilities(capabilities, actual = false) {
+		if (!capabilities) {
+			return
 		}
+		const next = deserializeCanvasValue(capabilities)
+		const extensions = { ...(this.capabilities?.extensions || {}) }
+		for (const [name, descriptor] of Object.entries(next.extensions || {})) {
+			extensions[name] = {
+				...(extensions[name] || {}),
+				...descriptor,
+				constants: {
+					...(extensions[name]?.constants || {}),
+					...(descriptor.constants || {}),
+				},
+			}
+		}
+		this.capabilities = {
+			...(this.capabilities || {}),
+			...next,
+			constants: {
+				...(this.capabilities?.constants || {}),
+				...(next.constants || {}),
+			},
+			parameters: {
+				...(this.capabilities?.parameters || {}),
+				...(next.parameters || {}),
+			},
+			extensions,
+			shaderPrecisionFormats: {
+				...(this.capabilities?.shaderPrecisionFormats || {}),
+				...(next.shaderPrecisionFormats || {}),
+			},
+		}
+		this.hasActualCapabilities ||= actual
+		if (typeof this.capabilities.contextLost === 'boolean') {
+			this.contextLost = this.capabilities.contextLost
+		}
+	}
 
-		const resultId = (WEBGL_RESOURCE_METHODS.has(method) || WEBGL_LOCATION_METHODS.has(method))
-			? makeResourceId('webgl_resource')
-			: undefined
+	applyFeedback(feedback = {}) {
+		if (feedback.success === false) {
+			this.creationFailed = true
+			this.contextLost = true
+			this.canvas.handleContextCreationFailure(this.contextId, this.contextType, feedback.statusMessage)
+		}
+		else if (feedback.capabilities) {
+			this.updateCapabilities(feedback.capabilities, true)
+		}
+		if (typeof feedback.contextLost === 'boolean') {
+			this.contextLost = feedback.contextLost
+		}
+		for (const error of feedback.errors || []) {
+			this.queueError(error)
+		}
+		for (const update of feedback.resources || []) {
+			this.resources.get(update.resourceId)?.updateMetadata(deserializeCanvasValue(update.metadata))
+		}
+		for (const query of feedback.queries || []) {
+			this.queryResults.set(query.key, this.deserializeFeedbackValue(query.value))
+		}
+	}
 
+	deserializeFeedbackValue(value) {
+		if (value?.__canvasResourceId) {
+			return this.resources.get(value.__canvasResourceId) || null
+		}
+		if (Array.isArray(value)) {
+			return value.map(item => this.deserializeFeedbackValue(item))
+		}
+		if (value && typeof value === 'object' && !value.__canvasTypedArray) {
+			const result = {}
+			for (const [key, item] of Object.entries(value)) {
+				result[key] = this.deserializeFeedbackValue(item)
+			}
+			return result
+		}
+		return deserializeCanvasValue(value)
+	}
+
+	queueError(error) {
+		if (error && error !== WEBGL_CONSTANTS.NO_ERROR && !this.errors.includes(error)) {
+			this.errors.push(error)
+		}
+	}
+
+	queryKey(method, args) {
+		return `${method}:${JSON.stringify(serializeCanvasArgs(args))}`
+	}
+
+	requestQuery(method, args, fallback = null) {
+		const key = this.queryKey(method, args)
+		this.canvas.enqueueOperation({
+			op: 'contextQuery',
+			contextId: this.contextId,
+			method,
+			args: serializeCanvasArgs(args),
+			key,
+		})
+		return this.queryResults.has(key) ? this.queryResults.get(key) : fallback
+	}
+
+	createResource(method, args, resourceType) {
+		const resultId = makeResourceId(`webgl_${resourceType}`)
+		const metadata = {}
+		if (resourceType === 'shader') {
+			metadata.shaderType = args[0]
+			metadata.source = ''
+			metadata.compileStatus = false
+			metadata.infoLog = ''
+		}
+		else if (resourceType === 'program') {
+			metadata.attachedShaders = []
+			metadata.linkStatus = false
+			metadata.validateStatus = false
+			metadata.infoLog = ''
+		}
+		const resource = new CanvasResource(this.canvas, resultId, resourceType, metadata)
+		this.resources.set(resultId, resource)
 		this.canvas.enqueueOperation({
 			op: 'contextCall',
 			contextId: this.contextId,
@@ -682,77 +973,315 @@ class WebGLRenderingContextProxy {
 			args: serializeCanvasArgs(args),
 			resultId,
 		})
+		return resource
+	}
 
-		if (resultId) {
-			return new CanvasResource(this.canvas, resultId)
+	call(method, args) {
+		switch (method) {
+			case 'getParameter':
+				return this.getParameter(args[0])
+			case 'getShaderParameter':
+				return this.getShaderParameter(args[0], args[1])
+			case 'getProgramParameter':
+				return this.getProgramParameter(args[0], args[1])
+			case 'getShaderInfoLog':
+				return args[0]?.metadata?.infoLog || ''
+			case 'getProgramInfoLog':
+				return args[0]?.metadata?.infoLog || ''
+			case 'getShaderSource':
+				return args[0]?.metadata?.source || null
+			case 'getAttachedShaders':
+				return args[0]?.metadata?.attachedShaders?.slice() || []
+			case 'getError': {
+				const error = this.errors.shift()
+				if (error) {
+					return error
+				}
+				this.canvas.enqueueOperation({
+					op: 'contextFeedback',
+					contextId: this.contextId,
+				})
+				return WEBGL_CONSTANTS.NO_ERROR
+			}
+			case 'isContextLost':
+				this.canvas.enqueueOperation({
+					op: 'contextFeedback',
+					contextId: this.contextId,
+				})
+				return this.contextLost
+			case 'isEnabled':
+				return this.enabledCapabilities.has(args[0])
+			case 'checkFramebufferStatus':
+				return this.requestQuery(method, args, WEBGL_CONSTANTS.FRAMEBUFFER_COMPLETE)
+			case 'getContextAttributes':
+				return {
+					...(this.hasActualCapabilities && this.capabilities?.contextAttributes
+						? this.capabilities.contextAttributes
+						: this.requestedAttributes),
+				}
+			case 'getSupportedExtensions':
+				return (this.capabilities?.supportedExtensions || []).slice()
+			case 'getExtension':
+				return this.getExtension(args[0])
+			case 'getShaderPrecisionFormat':
+				return this.getShaderPrecisionFormat(args[0], args[1])
+			case 'getActiveAttrib':
+			case 'getActiveUniform':
+			case 'getBufferParameter':
+			case 'getFramebufferAttachmentParameter':
+			case 'getRenderbufferParameter':
+			case 'getTexParameter':
+			case 'getUniform':
+			case 'getVertexAttrib':
+			case 'getVertexAttribOffset':
+				return this.requestQuery(method, args)
+			default:
+				break
+		}
+
+		const resourceType = WEBGL_RESOURCE_METHOD_TYPES.get(method) || WEBGL_LOCATION_METHOD_TYPES.get(method)
+		if (resourceType) {
+			return this.createResource(method, args, resourceType)
+		}
+
+		if (WEBGL_IS_METHOD_TYPES.has(method)) {
+			const resource = args[0]
+			return resource instanceof CanvasResource
+				&& resource.resourceType === WEBGL_IS_METHOD_TYPES.get(method)
+				&& !resource.deleted
+		}
+
+		if (WEBGL_DELETE_METHOD_TYPES.has(method) && args[0]?.markDeleted) {
+			args[0].markDeleted()
+		}
+
+		this.updateState(method, args)
+		const operation = {
+			op: 'contextCall',
+			contextId: this.contextId,
+			method,
+			args: serializeCanvasArgs(args),
+		}
+		if (method === 'compileShader') {
+			args[0]?.updateMetadata({ compileStatus: true })
+			operation.feedback = 'shader'
+		}
+		else if (method === 'linkProgram' || method === 'validateProgram') {
+			args[0]?.updateMetadata(method === 'linkProgram' ? { linkStatus: true } : { validateStatus: true })
+			operation.feedback = 'program'
+		}
+		else if (method === 'readPixels' && ArrayBuffer.isView(args[6])) {
+			operation.typedArrayUpdateId = this.canvas.registerTypedArrayUpdate(args[6])
+			operation.typedArrayArgIndex = 6
+		}
+		else if (method === 'getBufferSubData' && ArrayBuffer.isView(args[2])) {
+			operation.typedArrayUpdateId = this.canvas.registerTypedArrayUpdate(args[2])
+			operation.typedArrayArgIndex = 2
+		}
+		this.canvas.enqueueOperation(operation)
+	}
+
+	updateState(method, args) {
+		switch (method) {
+			case 'viewport':
+				this.state.set(WEBGL_CONSTANTS.VIEWPORT, args.slice(0, 4))
+				break
+			case 'scissor':
+				this.state.set(WEBGL_CONSTANTS.SCISSOR_BOX, args.slice(0, 4))
+				break
+			case 'clearColor':
+				this.state.set(WEBGL_CONSTANTS.COLOR_CLEAR_VALUE, new Float32Array(args.slice(0, 4)))
+				break
+			case 'colorMask':
+				this.state.set(WEBGL_CONSTANTS.COLOR_WRITEMASK, args.slice(0, 4).map(Boolean))
+				break
+			case 'clearDepth':
+				this.state.set(WEBGL_CONSTANTS.DEPTH_CLEAR_VALUE, args[0])
+				break
+			case 'depthMask':
+				this.state.set(WEBGL_CONSTANTS.DEPTH_WRITEMASK, Boolean(args[0]))
+				break
+			case 'depthFunc':
+				this.state.set(WEBGL_CONSTANTS.DEPTH_FUNC, args[0])
+				break
+			case 'clearStencil':
+				this.state.set(WEBGL_CONSTANTS.STENCIL_CLEAR_VALUE, args[0])
+				break
+			case 'lineWidth':
+				this.state.set(WEBGL_CONSTANTS.LINE_WIDTH, args[0])
+				break
+			case 'cullFace':
+				this.state.set(WEBGL_CONSTANTS.CULL_FACE_MODE, args[0])
+				break
+			case 'frontFace':
+				this.state.set(WEBGL_CONSTANTS.FRONT_FACE, args[0])
+				break
+			case 'activeTexture':
+				this.state.set(WEBGL_CONSTANTS.ACTIVE_TEXTURE, args[0])
+				break
+			case 'pixelStorei':
+				this.state.set(args[0], args[1])
+				break
+			case 'enable':
+				this.enabledCapabilities.add(args[0])
+				break
+			case 'disable':
+				this.enabledCapabilities.delete(args[0])
+				break
+			case 'useProgram':
+				this.state.set(WEBGL_CONSTANTS.CURRENT_PROGRAM, args[0] || null)
+				break
+			case 'bindBuffer':
+				if (args[0] === WEBGL_CONSTANTS.ARRAY_BUFFER) {
+					this.state.set(WEBGL_CONSTANTS.ARRAY_BUFFER_BINDING, args[1] || null)
+				}
+				else if (args[0] === WEBGL_CONSTANTS.ELEMENT_ARRAY_BUFFER) {
+					this.state.set(WEBGL_CONSTANTS.ELEMENT_ARRAY_BUFFER_BINDING, args[1] || null)
+				}
+				break
+			case 'bindTexture':
+				if (args[0] === WEBGL_CONSTANTS.TEXTURE_2D) {
+					this.state.set(WEBGL_CONSTANTS.TEXTURE_BINDING_2D, args[1] || null)
+				}
+				break
+			case 'bindFramebuffer':
+				this.state.set(WEBGL_CONSTANTS.FRAMEBUFFER_BINDING, args[1] || null)
+				break
+			case 'bindRenderbuffer':
+				this.state.set(WEBGL_CONSTANTS.RENDERBUFFER_BINDING, args[1] || null)
+				break
+			case 'shaderSource':
+				args[0]?.updateMetadata({ source: String(args[1] ?? '') })
+				break
+			case 'attachShader': {
+				const attached = args[0]?.metadata?.attachedShaders
+				if (attached && args[1] && !attached.includes(args[1])) {
+					attached.push(args[1])
+				}
+				break
+			}
+			case 'detachShader': {
+				const attached = args[0]?.metadata?.attachedShaders
+				const index = attached?.indexOf(args[1]) ?? -1
+				if (index >= 0) {
+					attached.splice(index, 1)
+				}
+				break
+			}
+			default:
+				break
 		}
 	}
 
 	getParameter(pname) {
-		const { width, height } = this.canvas
-		switch (pname) {
-			case WEBGL_CONSTANTS.VERSION:
-				return 'WebGL 1.0'
-			case WEBGL_CONSTANTS.SHADING_LANGUAGE_VERSION:
-				return 'WebGL GLSL ES 1.0'
-			case WEBGL_CONSTANTS.VENDOR:
-				return 'Dimina'
-			case WEBGL_CONSTANTS.RENDERER:
-				return 'Dimina WebGL Proxy'
-			case WEBGL_CONSTANTS.VIEWPORT:
-				return [0, 0, width, height]
-			case WEBGL_CONSTANTS.MAX_VIEWPORT_DIMS:
-				return [width || 4096, height || 4096]
-			case WEBGL_CONSTANTS.ALIASED_POINT_SIZE_RANGE:
-				return [1, 64]
-			case WEBGL_CONSTANTS.ALIASED_LINE_WIDTH_RANGE:
-				return [1, 1]
-			case WEBGL_CONSTANTS.COLOR_CLEAR_VALUE:
-				return [0, 0, 0, 0]
-			case WEBGL_CONSTANTS.COLOR_WRITEMASK:
-			case WEBGL_CONSTANTS.DEPTH_WRITEMASK:
-				return true
-			case WEBGL_CONSTANTS.COMPRESSED_TEXTURE_FORMATS:
-				return []
-			case WEBGL_CONSTANTS.MAX_TEXTURE_SIZE:
-			case WEBGL_CONSTANTS.MAX_CUBE_MAP_TEXTURE_SIZE:
-			case WEBGL_CONSTANTS.MAX_RENDERBUFFER_SIZE:
-				return 4096
-			case WEBGL_CONSTANTS.MAX_VERTEX_ATTRIBS:
-				return 16
-			case WEBGL_CONSTANTS.MAX_TEXTURE_IMAGE_UNITS:
-			case WEBGL_CONSTANTS.MAX_VERTEX_TEXTURE_IMAGE_UNITS:
-			case WEBGL_CONSTANTS.MAX_COMBINED_TEXTURE_IMAGE_UNITS:
-				return 8
-			case WEBGL_CONSTANTS.MAX_VERTEX_UNIFORM_VECTORS:
-			case WEBGL_CONSTANTS.MAX_FRAGMENT_UNIFORM_VECTORS:
-			case WEBGL_CONSTANTS.MAX_VARYING_VECTORS:
-				return 128
-			default:
-				return 0
+		if (this.state.has(pname)) {
+			const value = this.state.get(pname)
+			if (ArrayBuffer.isView(value)) {
+				return value.slice()
+			}
+			return Array.isArray(value) ? value.slice() : value
 		}
+		const parameters = this.capabilities?.parameters || {}
+		if (Object.prototype.hasOwnProperty.call(parameters, pname)) {
+			return deserializeCanvasValue(parameters[pname])
+		}
+		return this.requestQuery('getParameter', [pname])
+	}
+
+	getShaderParameter(shader, pname) {
+		if (!(shader instanceof CanvasResource) || shader.resourceType !== 'shader') {
+			return null
+		}
+		switch (pname) {
+			case WEBGL_CONSTANTS.DELETE_STATUS:
+				return shader.deleted
+			case WEBGL_CONSTANTS.SHADER_TYPE:
+				return shader.metadata.shaderType
+			case WEBGL_CONSTANTS.COMPILE_STATUS:
+				return Boolean(shader.metadata.compileStatus)
+			default:
+				return this.requestQuery('getShaderParameter', [shader, pname])
+		}
+	}
+
+	getProgramParameter(program, pname) {
+		if (!(program instanceof CanvasResource) || program.resourceType !== 'program') {
+			return null
+		}
+		switch (pname) {
+			case WEBGL_CONSTANTS.DELETE_STATUS:
+				return program.deleted
+			case WEBGL_CONSTANTS.LINK_STATUS:
+				return Boolean(program.metadata.linkStatus)
+			case WEBGL_CONSTANTS.VALIDATE_STATUS:
+				return Boolean(program.metadata.validateStatus)
+			case WEBGL_CONSTANTS.ATTACHED_SHADERS:
+				return program.metadata.attachedShaders.length
+			default:
+				return this.requestQuery('getProgramParameter', [program, pname])
+		}
+	}
+
+	getShaderPrecisionFormat(shaderType, precisionType) {
+		const key = `${shaderType}:${precisionType}`
+		const value = this.capabilities?.shaderPrecisionFormats?.[key]
+		return value ? { ...value } : this.requestQuery('getShaderPrecisionFormat', [shaderType, precisionType])
+	}
+
+	getExtension(requestedName) {
+		const requested = String(requestedName || '')
+		const supported = this.capabilities?.supportedExtensions || []
+		const name = supported.find(item => item.toLowerCase() === requested.toLowerCase())
+		if (!name) {
+			return null
+		}
+		if (this.extensions.has(name)) {
+			return this.extensions.get(name)
+		}
+		const extensionId = makeResourceId('webgl_extension')
+		const descriptor = this.capabilities?.extensions?.[name] || {}
+		const extension = new WebGLExtensionProxy(this, name, extensionId, descriptor)
+		this.extensions.set(name, extension)
+		this.canvas.enqueueOperation({
+			op: 'getExtension',
+			contextId: this.contextId,
+			extensionId,
+			name,
+		})
+		return extension
 	}
 }
 
 export class CanvasNode {
-	constructor({ nodeId, bridgeId = getCurrentBridgeId(), width = 300, height = 150, type = '2d', offscreen = false }) {
+	constructor({
+		nodeId,
+		bridgeId = getCurrentBridgeId(),
+		width = 300,
+		height = 150,
+		type = '2d',
+		offscreen = false,
+		webglCapabilities,
+	}) {
 		this.__diminaCanvasNode = true
 		this.nodeId = nodeId
 		this.bridgeId = bridgeId
 		this.type = type
 		this.offscreen = offscreen
+		this.webglCapabilities = webglCapabilities || getWebGLCapabilities(bridgeId)
 		this.contexts = new Map()
+		this.contextsById = new Map()
+		this.activeContextType = null
+		this.eventListeners = new Map()
+		this.pendingTypedArrayUpdates = new Map()
 		this.pendingOperations = []
 		this.flushScheduled = false
-		this._width = width
-		this._height = height
+		this._width = normalizeCanvasDimension(width, 300)
+		this._height = normalizeCanvasDimension(height, 150)
 
 		// Send initial dimensions to native so the bitmap context is created
 		// before any drawing operations arrive.
-		this.enqueueOperation({ op: 'setCanvasProperty', prop: 'width', value: width })
-		this.enqueueOperation({ op: 'setCanvasProperty', prop: 'height', value: height })
-
-		console.log('[canvas-node] CanvasNode created nodeId=' + nodeId + ' bridgeId=' + bridgeId + ' size=' + width + 'x' + height + ' type=' + type + ' offscreen=' + offscreen)
+		this.enqueueOperation({ op: 'setCanvasProperty', prop: 'width', value: this._width })
+		this.enqueueOperation({ op: 'setCanvasProperty', prop: 'height', value: this._height })
 	}
 
 	get width() {
@@ -760,11 +1289,11 @@ export class CanvasNode {
 	}
 
 	set width(value) {
-		this._width = value
+		this._width = normalizeCanvasDimension(value, 300)
 		this.enqueueOperation({
 			op: 'setCanvasProperty',
 			prop: 'width',
-			value,
+			value: this._width,
 		})
 	}
 
@@ -773,18 +1302,23 @@ export class CanvasNode {
 	}
 
 	set height(value) {
-		this._height = value
+		this._height = normalizeCanvasDimension(value, 150)
 		this.enqueueOperation({
 			op: 'setCanvasProperty',
 			prop: 'height',
-			value,
+			value: this._height,
 		})
 	}
 
 	getContext(type = '2d', attributes) {
-		const contextType = String(type).toLowerCase()
-		if (!CONTEXT_2D_TYPES.has(contextType) && !WEBGL_CONTEXT_TYPES.has(contextType)) {
-			console.error('[canvas-node] getContext unsupported type:', type)
+		const requestedType = String(type).toLowerCase()
+		const contextType = normalizeContextType(requestedType)
+		const isWebGL = WEBGL_CONTEXT_TYPES.has(requestedType)
+		if (!CONTEXT_2D_TYPES.has(contextType) && !isWebGL) {
+			return null
+		}
+
+		if (this.activeContextType && this.activeContextType !== contextType) {
 			return null
 		}
 
@@ -793,20 +1327,109 @@ export class CanvasNode {
 			return this.contexts.get(contextType)
 		}
 
+		const capabilities = isWebGL
+			? getContextCapabilities(this.webglCapabilities, contextType)
+			: null
+		if (isWebGL && capabilities?.supported === false) {
+			return null
+		}
+
 		const contextId = makeResourceId('canvas_context')
 		console.log('[canvas-node] getContext nodeId=' + this.nodeId + ' type=' + contextType + ' contextId=' + contextId)
 		this.enqueueOperation({
 			op: 'getContext',
 			contextId,
-			contextType,
+			contextType: requestedType,
 			attributes: serializeCanvasArg(attributes),
 		})
 
-		const context = WEBGL_CONTEXT_TYPES.has(contextType)
-			? new WebGLRenderingContextProxy(this, contextId, contextType)
+		const context = isWebGL
+			? new WebGLRenderingContextProxy(this, contextId, contextType, attributes, capabilities)
 			: new CanvasRenderingContext2DProxy(this, contextId)
+		this.activeContextType = contextType
 		this.contexts.set(contextType, context)
+		this.contextsById.set(contextId, context)
 		return context
+	}
+
+	addEventListener(type, listener) {
+		if (!isFunction(listener)) {
+			return
+		}
+		if (!this.eventListeners.has(type)) {
+			this.eventListeners.set(type, new Set())
+		}
+		this.eventListeners.get(type).add(listener)
+	}
+
+	removeEventListener(type, listener) {
+		this.eventListeners.get(type)?.delete(listener)
+	}
+
+	dispatchEvent(event) {
+		if (!event?.type) {
+			return true
+		}
+		let defaultPrevented = false
+		const normalizedEvent = {
+			...event,
+			target: this,
+			currentTarget: this,
+			preventDefault() {
+				defaultPrevented = true
+				this.defaultPrevented = true
+			},
+		}
+		for (const listener of this.eventListeners.get(event.type) || []) {
+			listener.call(this, normalizedEvent)
+		}
+		const propertyHandler = this[`on${event.type}`]
+		if (isFunction(propertyHandler)) {
+			propertyHandler.call(this, normalizedEvent)
+		}
+		return !defaultPrevented
+	}
+
+	notifyContextCreationError(statusMessage = 'WebGL context creation failed') {
+		this.dispatchEvent({
+			type: 'webglcontextcreationerror',
+			statusMessage,
+		})
+	}
+
+	handleContextCreationFailure(contextId, contextType, statusMessage) {
+		const context = this.contextsById.get(contextId)
+		if (this.contexts.get(contextType) === context) {
+			this.contexts.delete(contextType)
+			this.activeContextType = null
+		}
+		this.contextsById.delete(contextId)
+		this.notifyContextCreationError(statusMessage)
+	}
+
+	registerTypedArrayUpdate(value) {
+		const updateId = makeResourceId('canvas_typed_array_update')
+		this.pendingTypedArrayUpdates.set(updateId, value)
+		return updateId
+	}
+
+	applyFlushFeedback(feedback = {}) {
+		for (const [contextId, contextFeedback] of Object.entries(feedback.contexts || {})) {
+			this.contextsById.get(contextId)?.applyFeedback?.(contextFeedback)
+		}
+		for (const update of feedback.typedArrays || []) {
+			const target = this.pendingTypedArrayUpdates.get(update.id)
+			if (target && ArrayBuffer.isView(target)) {
+				const data = deserializeCanvasValue(update.value)
+				if (ArrayBuffer.isView(data)) {
+					target.set(data.subarray(0, target.length))
+				}
+				else if (Array.isArray(data)) {
+					target.set(data.slice(0, target.length))
+				}
+			}
+			this.pendingTypedArrayUpdates.delete(update.id)
+		}
 	}
 
 	createImage() {
@@ -835,55 +1458,32 @@ export class CanvasNode {
 		})
 	}
 
-	toDataURL(type = 'image/png', quality) {
-		const operations = this.pendingOperations
-		this.pendingOperations = []
-		this.flushScheduled = false
-
-		console.log('[service] [Canvas] toDataURL: nodeId=' + this.nodeId + ' type=' + type + ' pendingOps=' + operations.length)
-
-		const result = message.invoke({
-			type: 'invokeAPI',
-			target: 'container',
-			body: {
-				bridgeId: this.bridgeId,
-				name: 'canvasToDataURLSync',
-				params: {
-					nodeId: this.nodeId,
-					operations,
-					type,
-					quality,
-				},
-			},
+	getImageData({ contextId, x, y, width, height }) {
+		return new Promise((resolve, reject) => {
+			const callbackId = callback.store((res) => {
+                resolve(res);
+			})
+			this.enqueueOperation({
+				op: 'getImageData',
+				contextId,
+				x,
+				y,
+				width,
+				height,
+				callback: callbackId,
+			})
 		})
-
-		console.log('[service] [Canvas] toDataURL result: hasDataUrl=' + !!(result && result.dataUrl) + ' len=' + (result?.dataUrl?.length || 0))
-		return (result && result.dataUrl) || ''
 	}
 
-	canvasToTempFilePath(opts = {}) {
-		return new Promise((resolve, reject) => {
-			const callbackId = callback.store((result) => {
-				if (result && result.tempFilePath) {
-					resolve(result)
-					if (isFunction(opts.success)) opts.success(result)
-				} else {
-					const err = { errMsg: result?.errMsg || 'canvasToTempFilePath:fail' }
-					reject(err)
-					if (isFunction(opts.fail)) opts.fail(err)
-				}
-				if (isFunction(opts.complete)) opts.complete(result)
+	toDataURL(type = 'image/png', quality) {
+		return new Promise((resolve) => {
+			const callbackId = callback.store((dataURL) => {
+				resolve(dataURL)
 			})
-			sendCanvasMessage(this.bridgeId, 'canvasNodeToTempFilePath', {
-				nodeId: this.nodeId,
-				x: opts.x || 0,
-				y: opts.y || 0,
-				width: opts.width,
-				height: opts.height,
-				destWidth: opts.destWidth,
-				destHeight: opts.destHeight,
-				fileType: opts.fileType || 'png',
-				quality: opts.quality || 1.0,
+			this.enqueueOperation({
+				op: 'toDataURL',
+				mimeType: type,
+				quality,
 				callback: callbackId,
 			})
 		})
@@ -906,11 +1506,18 @@ export class CanvasNode {
 		}
 		const operations = this.pendingOperations
 		this.pendingOperations = []
-		const opSummary = operations.map(o => o.op + (o.method ? ':' + o.method : o.prop ? ':' + o.prop : ''))
-		console.log('[canvas-node] flush nodeId=' + this.nodeId + ' bridgeId=' + this.bridgeId + ' ops(' + operations.length + '):', JSON.stringify(opSummary))
+		const needsFeedback = operations.some(operation => operation.op === 'getContext'
+			|| operation.op === 'contextQuery'
+			|| operation.op === 'contextFeedback'
+			|| operation.feedback
+			|| operation.typedArrayUpdateId)
+		const feedback = needsFeedback
+			? callback.store(result => this.applyFlushFeedback(result))
+			: undefined
 		sendCanvasMessage(this.bridgeId, 'canvasNodeFlush', {
 			nodeId: this.nodeId,
 			operations,
+			feedback,
 		})
 	}
 }
@@ -919,12 +1526,14 @@ export function hydrateCanvasNode(node, bridgeId = getCurrentBridgeId()) {
 	if (!node || node.__diminaNodeType !== CANVAS_NODE_TYPE) {
 		return node
 	}
+	setWebGLCapabilities(bridgeId, node.webglCapabilities)
 	return new CanvasNode({
 		nodeId: node.nodeId,
 		bridgeId,
 		width: node.width,
 		height: node.height,
 		type: node.type,
+		webglCapabilities: node.webglCapabilities,
 	})
 }
 
@@ -948,8 +1557,8 @@ export function hydrateSelectorQueryResult(value, bridgeId = getCurrentBridgeId(
 }
 
 export function createOffscreenCanvas(options = {}) {
-	const width = Number(options.width) || 300
-	const height = Number(options.height) || 150
+	const width = normalizeCanvasDimension(options.width, 300)
+	const height = normalizeCanvasDimension(options.height, 150)
 	const type = options.type || '2d'
 	const nodeId = makeResourceId('offscreen_canvas')
 	const bridgeId = getCurrentBridgeId()
@@ -966,5 +1575,66 @@ export function createOffscreenCanvas(options = {}) {
 		height,
 		type,
 		offscreen: true,
+		webglCapabilities: getWebGLCapabilities(bridgeId),
 	})
+}
+
+/**
+ * 创建小游戏画布。微信小游戏中第一次调用 wx.createCanvas() 得到上屏画布，
+ * 后续调用得到离屏画布；入口 game.js 不依赖 Page/WXML。
+ */
+export function createCanvas(options = {}) {
+	if (miniGameScreenCanvas) {
+		return createOffscreenCanvas(options)
+	}
+
+	const systemInfo = hostEnv.getSystemInfo() || {}
+	const width = normalizeCanvasDimension(options.width, systemInfo.windowWidth || 300)
+	const height = normalizeCanvasDimension(options.height, systemInfo.windowHeight || 150)
+	const type = options.type || '2d'
+	const nodeId = makeResourceId('game_canvas')
+	const bridgeId = getCurrentBridgeId()
+	sendCanvasMessage(bridgeId, 'createGameCanvas', {
+		nodeId,
+		width,
+		height,
+		type,
+	})
+	miniGameScreenCanvas = new CanvasNode({
+		nodeId,
+		bridgeId,
+		width,
+		height,
+		type,
+		webglCapabilities: getWebGLCapabilities(bridgeId),
+	})
+	return miniGameScreenCanvas
+}
+
+export function createMiniGameImage() {
+	// 图片资源存放在 Render 的全局 Canvas 资源表中，不需要占用小游戏的
+	// 首个上屏 Canvas。这样业务即使先 wx.createImage()，第一次显式
+	// wx.createCanvas() 仍严格得到上屏画布，符合微信小游戏语义。
+	miniGameImageCanvas ||= createOffscreenCanvas({ width: 1, height: 1, type: '2d' })
+	return miniGameImageCanvas.createImage()
+}
+
+export function installMiniGameGlobals() {
+	globalThis.GameGlobal = globalThis
+	globalThis.global = globalThis
+	globalThis.requestAnimationFrame = (callback) => {
+		if (!miniGameScreenCanvas) {
+			throw new Error('requestAnimationFrame requires wx.createCanvas() first')
+		}
+		return miniGameScreenCanvas.requestAnimationFrame(callback)
+	}
+	globalThis.cancelAnimationFrame = (requestId) => {
+		miniGameScreenCanvas?.cancelAnimationFrame(requestId)
+	}
+}
+
+// 仅供 runtime 重建和单元测试清理同一个 service 上下文中的全局状态。
+export function resetMiniGameCanvas() {
+	miniGameScreenCanvas = null
+	miniGameImageCanvas = null
 }

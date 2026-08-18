@@ -51,6 +51,30 @@ export class DMPRemoteUpdateManager {
     return DMPRemoteUpdateManager.instance;
   }
 
+  /**
+   * Install the manifest package before runtime startup when no runnable local
+   * package exists. Normal updates still use checkForUpdate after launch.
+   */
+  async installInitialPackageIfNeeded(app: DMPApp): Promise<boolean> {
+    if (this.isPackageReady(app.appConfig.appId)) {
+      return false;
+    }
+
+    const manifestUrl = app.appConfig.updateManifestUrl?.trim() ?? '';
+    if (!manifestUrl) {
+      throw new Error(
+        `mini program ${app.appConfig.appId} has no local package or updateManifestUrl`
+      );
+    }
+
+    const manifest = await this.fetchManifest(manifestUrl);
+    this.validateManifestAppId(manifest, app.appConfig.appId);
+
+    const zipPath = await this.downloadPackage(manifest);
+    await this.installPackage(manifest, zipPath);
+    return true;
+  }
+
   async checkForUpdate(app: DMPApp): Promise<void> {
     const manifestUrl = app.appConfig.updateManifestUrl?.trim() ?? '';
     if (!manifestUrl) {
@@ -61,9 +85,7 @@ export class DMPRemoteUpdateManager {
     let updateAnnounced = false;
     try {
       const manifest = await this.fetchManifest(manifestUrl);
-      if (manifest.appId !== app.appConfig.appId) {
-        throw new Error(`manifest appId ${manifest.appId} does not match ${app.appConfig.appId}`);
-      }
+      this.validateManifestAppId(manifest, app.appConfig.appId);
 
       const currentVersion = app.bundleManager.getBundleInfo().currentJsAppBundleConfig?.versionCode ?? 0;
       if (manifest.versionCode <= currentVersion) {
@@ -75,15 +97,34 @@ export class DMPRemoteUpdateManager {
       app.notifyUpdateManagerStatus('updating');
 
       const zipPath = await this.downloadPackage(manifest);
-      if (manifest.sha256) {
-        await this.verifySha256(zipPath, manifest.sha256);
-      }
-
       await this.installPackage(manifest, zipPath);
       app.notifyUpdateManagerStatus('updateready');
     } catch (e) {
       DMPLogger.e(Tags.LOAD_REMOTE_BUNDLE, `远程更新失败: ${e}`);
       app.notifyUpdateManagerStatus(updateAnnounced ? 'updatefail' : 'noupdate');
+    }
+  }
+
+  private isPackageReady(appId: string): boolean {
+    const config = this.fileManager.loadJSAppConfig(appId);
+    if (!config) {
+      return false;
+    }
+    const versionCode: number | undefined = config.getNumber('versionCode');
+    if (versionCode === undefined) {
+      return false;
+    }
+    const versionDir = this.fileManager.getJSAppVersionDir(appId, versionCode.toString());
+    return fs.accessSync(`${versionDir}/main/app-config.json`)
+      && fs.accessSync(`${versionDir}/main/logic.js`);
+  }
+
+  private validateManifestAppId(
+    manifest: DMPRemoteUpdateManifest,
+    expectedAppId: string
+  ): void {
+    if (manifest.appId !== expectedAppId) {
+      throw new Error(`manifest appId ${manifest.appId} does not match ${expectedAppId}`);
     }
   }
 
@@ -168,6 +209,9 @@ export class DMPRemoteUpdateManager {
   private async installPackage(manifest: DMPRemoteUpdateManifest, zipPath: string): Promise<void> {
     const versionDir = this.fileManager.getJSAppVersionDir(manifest.appId, manifest.versionCode.toString());
     try {
+      if (manifest.sha256) {
+        await this.verifySha256(zipPath, manifest.sha256);
+      }
       if (fs.accessSync(versionDir)) {
         fs.rmdirSync(versionDir);
       }

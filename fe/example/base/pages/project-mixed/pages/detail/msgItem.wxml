@@ -1,11 +1,22 @@
 <template name="msgItem">
-  <view class="con">
-    <text>start</text>
-    <text> {{index}}: {{msg}} </text>
-    <text> Time: {{time}} </text>
-    <text>end</text>
+  <view class="message-preview">
+    <view class="message-avatar">{{index + 1}}</view>
+    <view class="message-content">
+      <text class="message-title">{{msg}}</text>
+      <text class="message-time">记录时间 · {{time}}</text>
+    </view>
+    <view class="message-status"></view>
   </view>
 </template>
 
-<view>msg start</view>
-<view>msg end</view>
+<view class="include-fragment">
+  <view class="fragment-node">
+    <view class="fragment-dot fragment-dot--start"></view>
+    <text>片段起点</text>
+  </view>
+  <view class="fragment-line"></view>
+  <view class="fragment-node">
+    <view class="fragment-dot fragment-dot--end"></view>
+    <text>片段终点</text>
+  </view>
+</view>

@@ -1,5 +1,7 @@
 <template name="item">
-  <text>hello</text>
-  <text>{{text}}</text>
-  <text>world</text>
+  <view class="sentence-preview">
+    <text>你好，</text>
+    <text class="sentence-accent">{{text}}</text>
+    <text>，欢迎回来。</text>
+  </view>
 </template>

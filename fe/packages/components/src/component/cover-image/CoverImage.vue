@@ -10,10 +10,14 @@ const props = defineProps({
 		type: String,
 		default: '',
 	},
+	referrerPolicy: {
+		type: String,
+		default: 'no-referrer',
+	},
 })
 useInfo()
 </script>
 
 <template>
-	<Image v-bind="$attrs" :src="props.src" />
+	<Image v-bind="$attrs" :src="props.src" :referrer-policy="props.referrerPolicy" />
 </template>

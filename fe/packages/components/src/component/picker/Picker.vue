@@ -19,7 +19,7 @@ const props = defineProps({
 		type: String,
 		default: 'selector',
 		validator: (value) => {
-			return ['selector', 'multiSelector', 'time', 'date'].includes(value)
+			return ['selector', 'multiSelector', 'time', 'date', 'region'].includes(value)
 		},
 	},
 	/**
@@ -95,6 +95,20 @@ const props = defineProps({
 			}
 		},
 	},
+	customItem: {
+		type: String,
+		default: '',
+	},
+	level: {
+		type: String,
+		default: '',
+	},
+	name: {
+		type: String,
+	},
+	autoFill: {
+		type: String,
+	},
 })
 
 
@@ -127,6 +141,13 @@ watch(() => props.mode, () => {
 // 点击触发选择器显示
 const handleTriggerClick = () => {
 	if (props.disabled) return
+	if (props.mode === 'region') {
+		triggerEvent('error', {
+			info,
+			detail: { errMsg: 'picker:fail region mode is not supported by the current container' },
+		})
+		return
+	}
 	showPicker.value = true
 	
 	// 确保多列选择器有正确的初始值
@@ -162,6 +183,7 @@ const info = useInfo()
 // 确认选择
 const handleConfirm = (event) => {
 	currentValue.value = tempValue.value
+	collectFormValue?.(props.name, currentValue.value)
 	showPicker.value = false
 	triggerEvent('change', {
 			event,
@@ -171,6 +193,20 @@ const handleConfirm = (event) => {
 			},
 		})
 }
+
+const collectFormValue = inject('collectFormValue', undefined)
+const registerFormControl = inject('registerFormControl', undefined)
+watch(currentValue, value => collectFormValue?.(props.name, value), { deep: true, immediate: true })
+const unregisterFormControl = registerFormControl?.({
+	getName: () => props.name,
+	getValue: () => currentValue.value,
+	reset: () => {
+		currentValue.value = props.mode === 'selector' ? -1 : ''
+		tempValue.value = currentValue.value
+		collectFormValue?.(props.name, currentValue.value)
+	},
+})
+onBeforeUnmount(() => unregisterFormControl?.())
 
 // 遮罩层点击
 const handleMaskClick = () => {

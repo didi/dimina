@@ -1,42 +1,81 @@
-<!-- 手机本体 -->
-<div id="iphone">
-	<!-- 手机屏幕 -->
-	<div class="iphone__screen">
-		<div class="iphone__screen-sleep-mask"></div>
-		<div class="iphone__status-bar">
-			<div class="status-bar__left">
-				<span class="status-bar__time"></span>
-			</div>
-			<div class="status-bar__right">
-				<!-- 信号强度 -->
-				<svg class="status-bar__signal" viewBox="0 0 20 12" aria-hidden="true">
-					<rect x="1" y="7" width="3" height="4" rx="1" fill="currentColor" />
-					<rect x="6" y="5" width="3" height="6" rx="1" fill="currentColor" />
-					<rect x="11" y="3" width="3" height="8" rx="1" fill="currentColor" />
-					<rect x="16" y="1" width="3" height="10" rx="1" fill="currentColor" />
-				</svg>
-				<!-- WiFi -->
-				<svg class="status-bar__wifi" viewBox="0 0 19 14" aria-hidden="true">
-					<path fill-rule="evenodd" clip-rule="evenodd" d="M9.5 2.18c2.86 0 5.54.9 7.7 2.52.36.27.42.78.13 1.12l-.42.5c-.27.31-.73.36-1.06.11A10.12 10.12 0 0 0 9.5 4.35a10.12 10.12 0 0 0-6.35 2.08c-.33.25-.79.2-1.06-.11l-.42-.5a.77.77 0 0 1 .13-1.12A12.79 12.79 0 0 1 9.5 2.18zm0 1.05a11.62 11.62 0 0 0-6.53 1.94l.1.13A11.13 11.13 0 0 1 9.5 3.44a11.13 11.13 0 0 1 6.43 1.86l.1-.13A11.62 11.62 0 0 0 9.5 3.23z" fill="currentColor" />
-					<path fill-rule="evenodd" clip-rule="evenodd" d="M9.5 6.1c1.76 0 3.42.54 4.77 1.52.37.27.43.79.13 1.13l-.42.49c-.27.31-.74.36-1.07.12A5.82 5.82 0 0 0 9.5 8.28a5.82 5.82 0 0 0-3.41 1.08c-.33.24-.8.19-1.07-.12l-.42-.49a.77.77 0 0 1 .13-1.13A8.11 8.11 0 0 1 9.5 6.1zm0 1.04a7 7 0 0 0-3.75 1.02l.1.12A6.59 6.59 0 0 1 9.5 7.28c1.32 0 2.58.34 3.65 1l.1-.12A7 7 0 0 0 9.5 7.14z" fill="currentColor" />
-					<circle cx="9.5" cy="11.08" r="1.08" fill="currentColor" />
-				</svg>
-				<!-- 电池 -->
-				<svg class="status-bar__battery" width="25" height="13" viewBox="0 0 25 13" fill="none">
-					<rect x="0.75" y="0.75" width="20" height="11.5" rx="2.2" stroke="currentColor" stroke-width="1" />
-					<rect x="2.5" y="2.5" width="16.5" height="8" rx="1.3" fill="currentColor" />
-					<rect x="22" y="4.25" width="2" height="4.5" rx="1" fill="currentColor" />
-				</svg>
-			</div>
-		</div>
-		<div class="iphone__screen_dynamic-island">
-			<span><img
-					src="https://img.shields.io/github/stars/didi/dimina?style=flat&logo=github&labelColor=5d4de3&color=6e6e78"
-					alt="GitHub stars"></span>
-		</div>
-		<div class="iphone__apps"></div>
+
+<main class="device-stage">
+	<div class="device-stage__rules" aria-hidden="true"></div>
+
+	<header class="device-stage__header">
+		<img class="device-stage__logo" alt="星河 Dimina">
+		<nav class="device-stage__nav" aria-label="项目链接">
+			<a href="https://github.com/didi/dimina" target="_blank" rel="noreferrer">GitHub ↗</a>
+			<a href="./" aria-current="page">在线体验</a>
+		</nav>
+	</header>
+
+	<div class="device-stage__vertical-title" aria-hidden="true">
+		<span>星河小程序</span>
+		<small>DIMINA / WEB</small>
+	</div>
+	<div class="device-stage__orbit" aria-hidden="true">
+		<span class="device-stage__orbit-light"></span>
 	</div>
 
-	<!-- 电源键 -->
-	<button class="power-btn" type="button" aria-label="电源键" aria-pressed="false"></button>
-</div>
+	<div class="device-stage__device">
+		<!-- 手机本体 -->
+		<div id="iphone">
+			<!-- 手机屏幕 -->
+			<div class="iphone__screen">
+				<div class="iphone__screen-sleep-mask"></div>
+				<div class="iphone__status-bar">
+					<div class="status-bar__left">
+						<span class="status-bar__time"></span>
+					</div>
+					<div class="status-bar__right">
+						<!-- 信号强度 -->
+						<svg class="status-bar__signal" viewBox="0 0 20 12" aria-hidden="true">
+							<rect x="1" y="7" width="3" height="4" rx="1" fill="currentColor" />
+							<rect x="6" y="5" width="3" height="6" rx="1" fill="currentColor" />
+							<rect x="11" y="3" width="3" height="8" rx="1" fill="currentColor" />
+							<rect x="16" y="1" width="3" height="10" rx="1" fill="currentColor" />
+						</svg>
+						<!-- WiFi -->
+						<svg class="status-bar__wifi" viewBox="0 0 19 14" aria-hidden="true">
+							<path fill-rule="evenodd" clip-rule="evenodd" d="M9.5 2.18c2.86 0 5.54.9 7.7 2.52.36.27.42.78.13 1.12l-.42.5c-.27.31-.73.36-1.06.11A10.12 10.12 0 0 0 9.5 4.35a10.12 10.12 0 0 0-6.35 2.08c-.33.25-.79.2-1.06-.11l-.42-.5a.77.77 0 0 1 .13-1.12A12.79 12.79 0 0 1 9.5 2.18zm0 1.05a11.62 11.62 0 0 0-6.53 1.94l.1.13A11.13 11.13 0 0 1 9.5 3.44a11.13 11.13 0 0 1 6.43 1.86l.1-.13A11.62 11.62 0 0 0 9.5 3.23z" fill="currentColor" />
+							<path fill-rule="evenodd" clip-rule="evenodd" d="M9.5 6.1c1.76 0 3.42.54 4.77 1.52.37.27.43.79.13 1.13l-.42.49c-.27.31-.74.36-1.07.12A5.82 5.82 0 0 0 9.5 8.28a5.82 5.82 0 0 0-3.41 1.08c-.33.24-.8.19-1.07-.12l-.42-.49a.77.77 0 0 1 .13-1.13A8.11 8.11 0 0 1 9.5 6.1zm0 1.04a7 7 0 0 0-3.75 1.02l.1.12A6.59 6.59 0 0 1 9.5 7.28c1.32 0 2.58.34 3.65 1l.1-.12A7 7 0 0 0 9.5 7.14z" fill="currentColor" />
+							<circle cx="9.5" cy="11.08" r="1.08" fill="currentColor" />
+						</svg>
+						<!-- 电池 -->
+						<svg class="status-bar__battery" width="25" height="13" viewBox="0 0 25 13" fill="none">
+							<rect x="0.75" y="0.75" width="20" height="11.5" rx="2.2" stroke="currentColor" stroke-width="1" />
+							<rect x="2.5" y="2.5" width="16.5" height="8" rx="1.3" fill="currentColor" />
+							<rect x="22" y="4.25" width="2" height="4.5" rx="1" fill="currentColor" />
+						</svg>
+					</div>
+				</div>
+				<div class="iphone__screen_dynamic-island">
+					<span><img
+							src="https://img.shields.io/github/stars/didi/dimina?style=flat&logo=github&labelColor=5d4de3&color=6e6e78"
+							alt="GitHub stars"></span>
+				</div>
+				<div class="iphone__apps"></div>
+			</div>
+
+			<!-- 电源键 -->
+			<button class="power-btn" type="button" aria-label="电源键" aria-pressed="false"></button>
+		</div>
+	</div>
+
+	<section class="device-stage__statement">
+		<h1>一套小程序代码<br>在四个平台真实运行</h1>
+		<p>同一份小程序语义，由 Android、iOS、Harmony 与 Web 容器共同承接。</p>
+	</section>
+
+	<div class="device-stage__folio" aria-hidden="true">LIVE DEMO</div>
+	<footer class="device-stage__footer">
+		<p>滴滴开源跨端小程序框架</p>
+		<ul aria-label="支持平台">
+			<li class="is-current">Web</li>
+			<li><a href="https://github.com/didi/dimina/blob/HEAD/android/README.md" target="_blank" rel="noreferrer">Android</a></li>
+			<li><a href="https://github.com/didi/dimina/blob/HEAD/iOS/README.md" target="_blank" rel="noreferrer">iOS</a></li>
+			<li><a href="https://github.com/didi/dimina/blob/HEAD/harmony/dimina/README.md" target="_blank" rel="noreferrer">Harmony</a></li>
+		</ul>
+	</footer>
+</main>

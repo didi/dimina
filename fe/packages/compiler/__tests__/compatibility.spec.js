@@ -64,6 +64,7 @@ describe('compatibility diagnostics', () => {
 		const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
 		warnUnsupportedWxApi('canIUse', '/pages/index/index.js', 1)
+		warnUnsupportedWxApi('createCanvas', '/game.js', 2)
 		warnUnsupportedWxApi('getUserProfile', '/pages/index/index.js', 2)
 
 		expect(warn).toHaveBeenCalledTimes(1)
@@ -77,14 +78,36 @@ describe('compatibility diagnostics', () => {
 		checkTemplateCompatibility([
 			'<view>',
 			'  <ad unit-id="demo" />',
+			'  <audio src="demo.mp3" />',
 			'  <custom-card />',
 			'</view>',
 		].join('\n'), '/pages/index/index.wxml', {
 			'custom-card': '/components/card/index',
 		})
 
-		expect(warn).toHaveBeenCalledTimes(1)
+		expect(warn).toHaveBeenCalledTimes(2)
 		expect(warn.mock.calls[0][0]).toContain('<ad>')
 		expect(warn.mock.calls[0][0]).toContain('/pages/index/index.wxml:2')
+		expect(warn.mock.calls[1][0]).toContain('<audio>')
+		expect(warn.mock.calls[1][0]).toContain('/pages/index/index.wxml:3')
+	})
+
+	it('keeps native WXML elements out of unsupported component diagnostics', () => {
+		const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+		checkTemplateCompatibility([
+			'<page-meta root-font-size="system" />',
+			'<view>',
+			'  <div><span><p>paragraph</p></span></div>',
+			'  <strong><i>important</i></strong>',
+			'  <em><b><small>emphasis</small></b></em>',
+			'  <table><tbody><tr><td>cell</td></tr></tbody></table>',
+			'  <unknown-element />',
+			'</view>',
+		].join('\n'), '/pages/index/index.wxml')
+
+		expect(warn).toHaveBeenCalledTimes(1)
+		expect(warn.mock.calls[0][0]).toContain('<unknown-element>')
+		expect(warn.mock.calls[0][0]).not.toMatch(/<page-meta>|<div>|<span>|<p>|<strong>|<i>|<em>|<b>|<small>|<table>|<tbody>|<tr>|<td>/)
 	})
 })

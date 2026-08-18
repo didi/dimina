@@ -1,35 +1,376 @@
 #root {
-	display: flex;
-	padding-top: 20px;
-	padding-bottom: 20px;
-	position: absolute;
-	left: 0;
-	top: 0;
-	right: 0;
-	bottom: 0;
-	overflow-y: scroll;
-	justify-content: center;
-	background: linear-gradient(43deg, #4158d0 0%, #c850c0 46%, #ffcc70 100%);
+	position: fixed;
+	inset: 0;
+	overflow: auto;
+	color: #151515;
+	background: #fbfbf8;
 
 	/* 移动设备全屏模式 */
 	@include mobile-fullscreen-device {
-		padding: 0;
-		overflow-y: hidden;
+		overflow: hidden;
 		background: #000;
 	}
 }
 
-:root {
+.device-stage {
+	--device-scale: 0.78;
 	--x: 0;
 	--y: 0;
-	--xp: 0;
-	--yp: 0;
-	--hue: calc(0 + (var(--xp) * 500));
+	--accent: #0878ff;
 	--bg: hsl(0 0% 10%);
-	--size: 100px;
-	--glow: radial-gradient(50% 50% at center, hsl(var(--hue) 80% 85%), hsl(var(--hue) 80% 70%), transparent)
+	--size: 160px;
+	--glow: radial-gradient(50% 50% at center,
+		color-mix(in srgb, var(--accent) 35%, white),
+		color-mix(in srgb, var(--accent) 70%, white) 30%,
+		var(--accent) 56%,
+		transparent 78%)
 		calc((var(--x) * 1px) - (var(--size) * 0.5)) calc((var(--y) * 1px) - (var(--size) * 0.5)) / var(--size)
 		var(--size) no-repeat fixed;
+	position: relative;
+	width: 100%;
+	height: 100%;
+	min-height: 620px;
+	overflow: hidden;
+	background: #fbfbf8;
+
+	&__rules {
+		position: absolute;
+		inset: 0;
+		pointer-events: none;
+		background:
+			linear-gradient(90deg, transparent calc(12.5% - 0.5px), rgba(25, 25, 25, 0.06) calc(12.5% - 0.5px), rgba(25, 25, 25, 0.06) 12.5%, transparent 12.5%),
+			linear-gradient(90deg, transparent calc(62.5% - 0.5px), rgba(25, 25, 25, 0.06) calc(62.5% - 0.5px), rgba(25, 25, 25, 0.06) 62.5%, transparent 62.5%);
+	}
+
+	&__header {
+		position: absolute;
+		z-index: 5;
+		top: 26px;
+		left: clamp(28px, 4vw, 60px);
+		right: clamp(28px, 4vw, 60px);
+		height: 62px;
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		border-bottom: 1px solid #dfdfda;
+	}
+
+	&__logo {
+		display: block;
+		width: 116px;
+		height: auto;
+	}
+
+	&__nav {
+		display: flex;
+		gap: 27px;
+		padding-top: 9px;
+		font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+		font-size: 12px;
+		letter-spacing: 0.04em;
+
+		a {
+			color: inherit;
+			text-decoration: none;
+
+			&[aria-current="page"] {
+				color: var(--accent);
+			}
+
+			&:focus-visible {
+				outline: 2px solid var(--accent);
+				outline-offset: 4px;
+			}
+		}
+	}
+
+	&__vertical-title {
+		position: absolute;
+		z-index: 3;
+		top: 145px;
+		left: clamp(33px, 5.8vw, 88px);
+		display: flex;
+		align-items: flex-start;
+		gap: 24px;
+		writing-mode: vertical-rl;
+		text-orientation: upright;
+		font-size: clamp(25px, 2.6vw, 39px);
+		font-family: "Songti SC", "Noto Serif CJK SC", "Times New Roman", serif;
+		line-height: 1.12;
+		letter-spacing: 0.23em;
+
+		small {
+			font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+			font-size: 9px;
+			line-height: 1;
+			letter-spacing: 0.16em;
+			color: #777;
+		}
+	}
+
+	&__orbit {
+		position: absolute;
+		z-index: 0;
+		top: 20%;
+		left: 16%;
+		width: min(790px, 62vw);
+		aspect-ratio: 1;
+		border: 1px solid #dfdfda;
+		border-radius: 50%;
+
+		&-light {
+			position: absolute;
+			z-index: 1;
+			inset: -3px;
+			box-sizing: border-box;
+			padding: 3px;
+			border-radius: inherit;
+			background: var(--glow);
+			filter: drop-shadow(0 0 9px color-mix(in srgb, var(--accent) 62%, transparent));
+			pointer-events: none;
+			-webkit-mask:
+				linear-gradient(#000 0 0) content-box,
+				linear-gradient(#000 0 0);
+			-webkit-mask-composite: xor;
+			mask:
+				linear-gradient(#000 0 0) content-box,
+				linear-gradient(#000 0 0);
+			mask-composite: exclude;
+		}
+
+		&::before,
+		&::after {
+			content: '';
+			position: absolute;
+			z-index: 2;
+			border-radius: 50%;
+		}
+
+		&::before {
+			left: -5px;
+			top: 50%;
+			width: 9px;
+			height: 9px;
+			transform: translateY(-50%);
+			background: var(--accent);
+		}
+
+		&::after {
+			top: 5%;
+			right: 18%;
+			width: 5px;
+			height: 5px;
+			background: #151515;
+		}
+	}
+
+	&__device {
+		position: absolute;
+		z-index: 4;
+		top: 52%;
+		left: 50%;
+		width: $deviceWidth * 1px;
+		height: $deviceHeight * 1px;
+		transform: translate(-50%, -50%);
+
+		#iphone {
+			transform: scale(var(--device-scale));
+			transform-origin: center;
+			box-shadow: 0 30px 42px rgba(22, 22, 20, 0.14);
+		}
+	}
+
+	&__statement {
+		position: absolute;
+		z-index: 3;
+		top: 31%;
+		right: clamp(38px, 7vw, 108px);
+		width: min(330px, 24vw);
+
+		h1 {
+			margin: 0 0 22px;
+			font-size: clamp(28px, 2.5vw, 36px);
+			font-family: "Songti SC", "Noto Serif CJK SC", "Times New Roman", serif;
+			font-weight: 500;
+			line-height: 1.2;
+			letter-spacing: -0.045em;
+			text-wrap: pretty;
+		}
+
+		p {
+			max-width: 23em;
+			margin: 0;
+			color: #5f5f5b;
+			font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+			font-size: 14px;
+			line-height: 1.8;
+		}
+	}
+
+	&__folio {
+		position: absolute;
+		left: 12.5%;
+		bottom: 103px;
+		transform: translateX(-50%);
+		color: #777772;
+		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+		font-size: 12px;
+		letter-spacing: 0.14em;
+	}
+
+	&__footer {
+		position: absolute;
+		z-index: 5;
+		left: clamp(28px, 4vw, 60px);
+		right: clamp(28px, 4vw, 60px);
+		bottom: 25px;
+		height: 62px;
+		display: flex;
+		align-items: flex-end;
+		justify-content: space-between;
+		padding-bottom: 4px;
+		border-top: 1px solid #dfdfda;
+		font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+		font-size: 12px;
+
+		p {
+			color: #5f5f5b;
+			letter-spacing: 0.03em;
+		}
+
+		ul {
+			display: flex;
+			gap: 24px;
+			margin: 0;
+			padding: 0;
+			list-style: none;
+		}
+
+		li::before {
+			content: '';
+			display: inline-block;
+			width: 4px;
+			height: 4px;
+			margin: 0 8px 2px 0;
+			border-radius: 50%;
+			background: #b8b8b2;
+		}
+
+		li.is-current::before {
+			background: var(--accent);
+		}
+
+		a {
+			color: inherit;
+			text-decoration: underline;
+			text-decoration-color: transparent;
+			text-underline-offset: 3px;
+			transition: color 0.18s ease, text-decoration-color 0.18s ease;
+
+			&:hover {
+				color: var(--accent);
+				text-decoration-color: currentColor;
+			}
+
+			&:focus-visible {
+				outline: 2px solid var(--accent);
+				outline-offset: 3px;
+			}
+		}
+	}
+}
+
+@media (min-height: 980px) {
+	.device-stage {
+		--device-scale: 0.88;
+	}
+}
+
+@media (max-height: 820px) {
+	.device-stage {
+		--device-scale: 0.65;
+
+		&__vertical-title {
+			top: 124px;
+		}
+
+		&__statement {
+			top: 28%;
+		}
+	}
+}
+
+@media (max-width: 1120px) {
+	.device-stage {
+		--device-scale: 0.64;
+
+		&__vertical-title {
+			left: 42px;
+		}
+
+		&__orbit {
+			left: 12%;
+			width: 67vw;
+		}
+
+		&__statement {
+			right: 32px;
+			width: 260px;
+		}
+
+		&__footer ul {
+			gap: 12px;
+		}
+	}
+}
+
+@media (max-width: 920px) {
+	.device-stage__statement {
+		display: none;
+	}
+}
+
+@media (max-width: 860px) {
+	.device-stage {
+		--device-scale: 0.58;
+
+		&__vertical-title {
+			display: none;
+		}
+
+		&__footer p {
+			display: none;
+		}
+	}
+}
+
+@include mobile-fullscreen-device {
+	.device-stage {
+		min-height: 0;
+		background: #000;
+
+		&__rules,
+		&__header,
+		&__vertical-title,
+		&__orbit,
+		&__statement,
+		&__folio,
+		&__footer {
+			display: none;
+		}
+
+		&__device {
+			inset: 0;
+			width: 100%;
+			height: 100%;
+			transform: none;
+
+			#iphone {
+				transform: none;
+				box-shadow: none;
+			}
+		}
+	}
 }
 
 #iphone {
@@ -194,11 +535,10 @@
 			user-select: none;
 			cursor: pointer;
 			z-index: 100;
-			border: 2px solid transparent;
+			border: 2px solid #000;
 			box-shadow: 0 1px hsl(0 0% 100% / 0.15) inset;
-			background: linear-gradient(var(--bg), var(--bg)) padding-box, var(--glow),
-				linear-gradient(black, black) border-box;
-			transition: background-size 0.24s, width 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), 
+			background: var(--bg);
+			transition: width 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
 				height 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), 
 				margin 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
 			touch-action: none;
@@ -226,20 +566,7 @@
 				border-radius: 1rem;
 				pointer-events: none;
 			}
-			&::after {
-				content: '';
-				position: absolute;
-				inset: -4px;
-				filter: blur(20px);
-				border: 4px solid transparent;
-				background: var(--glow);
-				border-radius: 1rem;
-				pointer-events: none;
-			}
 			span {
-				background: var(--glow);
-				background-clip: text;
-				color: transparent;
 				height: 100%;
 				z-index: 2;
 				position: relative;

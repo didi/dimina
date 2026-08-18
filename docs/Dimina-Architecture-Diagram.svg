@@ -1,0 +1,293 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="1080" viewBox="0 0 1400 1080" role="img" aria-labelledby="diagram-title diagram-desc">
+        <title id="diagram-title">Dimina build, runtime, and platform architecture</title>
+        <desc id="diagram-desc">Mini program source is compiled by DMCC into runtime bundles. A container loads a service runtime and page render runtimes, routes publish and invoke messages, manages navigation and native APIs, and is implemented on Android, iOS, Harmony, and Web.</desc>
+        <style>
+          text { font-family: 'Geist', Arial, sans-serif; }
+          text[font-size="8"], text[font-size="7"] { font-family: 'Geist Mono', Consolas, monospace; }
+        </style>
+        <defs>
+          <marker id="arrowhead" markerWidth="12" markerHeight="9" refX="10.5" refY="4.5" orient="auto">
+            <polygon points="0 0, 12 4.5, 0 9" fill="#4d4d4d" />
+          </marker>
+          <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#eaeaea" stroke-width="0.5"/>
+          </pattern>
+        </defs>
+
+        <rect width="100%" height="100%" fill="#ffffff" />
+        <rect width="100%" height="100%" fill="url(#grid)" />
+
+        <!-- Neutral section surfaces sit below connection lines. -->
+        <rect x="20" y="30" width="1360" height="310" rx="12" fill="#fafafa"/>
+        <rect x="285" y="55" width="650" height="245" rx="12" fill="#ffffff"/>
+        <rect x="20" y="370" width="1360" height="430" rx="12" fill="#fafafa"/>
+        <rect x="20" y="850" width="1360" height="150" rx="12" fill="#fafafa"/>
+
+        <!-- Connections are intentionally painted before components. -->
+        <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+          <!-- Build flow -->
+          <path d="M 245 170 L 285 170 Q 305 170 305 150 L 305 112 L 313 112" stroke="#006bff" stroke-width="1.6" marker-end="url(#arrowhead)"/>
+          <line x1="405" y1="140" x2="570" y2="155" stroke="#007f70" stroke-width="1.4" marker-end="url(#arrowhead)"/>
+          <path d="M 625 173 L 625 180 L 365 180 L 365 188" stroke="#7d7d7d" stroke-width="1.2" marker-end="url(#arrowhead)"/>
+          <path d="M 625 173 L 625 180 L 480 180 L 480 188" stroke="#7d7d7d" stroke-width="1.2" marker-end="url(#arrowhead)"/>
+          <path d="M 625 173 L 625 188" stroke="#7d7d7d" stroke-width="1.2" marker-end="url(#arrowhead)"/>
+          <path d="M 625 173 L 625 180 L 710 180 L 710 188" stroke="#7d7d7d" stroke-width="1.2" marker-end="url(#arrowhead)"/>
+          <path d="M 625 173 L 625 180 L 825 180 L 825 188" stroke="#7d7d7d" stroke-width="1.2" marker-end="url(#arrowhead)"/>
+          <line x1="415" y1="227" x2="978" y2="112" stroke="#28a948" stroke-width="1.2" marker-end="url(#arrowhead)"/>
+          <line x1="530" y1="227" x2="978" y2="142" stroke="#28a948" stroke-width="1.2" marker-end="url(#arrowhead)"/>
+          <line x1="645" y1="227" x2="978" y2="172" stroke="#28a948" stroke-width="1.2" marker-end="url(#arrowhead)"/>
+          <line x1="760" y1="227" x2="978" y2="202" stroke="#28a948" stroke-width="1.2" marker-end="url(#arrowhead)"/>
+          <line x1="875" y1="227" x2="978" y2="232" stroke="#28a948" stroke-width="1.2" marker-end="url(#arrowhead)"/>
+          <line x1="1160" y1="165" x2="1198" y2="165" stroke="#7d00cc" stroke-width="1.6" marker-end="url(#arrowhead)"/>
+          <path d="M 1275 240 L 1275 330 Q 1275 350 1255 350 L 175 350 Q 155 350 155 370 L 155 428" stroke="#d8001b" stroke-width="1.5" stroke-dasharray="5,5" marker-end="url(#arrowhead)"/>
+
+          <!-- Runtime load and message flow -->
+          <line x1="255" y1="490" x2="298" y2="490" stroke="#7d00cc" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+          <line x1="450" y1="478" x2="503" y2="478" stroke="#28a948" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+          <path d="M 450 505 Q 495 575 735 575 L 970 575 Q 1005 575 1005 545" stroke="#006bff" stroke-width="2.1" marker-end="url(#arrowhead)"/>
+          <line x1="715" y1="462" x2="768" y2="462" stroke="#28a948" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+          <line x1="768" y1="510" x2="715" y2="510" stroke="#007f70" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+          <line x1="1003" y1="462" x2="952" y2="462" stroke="#006bff" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+          <line x1="952" y1="510" x2="1003" y2="510" stroke="#007f70" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+          <line x1="860" y1="535" x2="860" y2="648" stroke="#aa4d00" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+          <path d="M 930 535 C 930 570 1040 590 1110 628" stroke="#28a948" stroke-width="2.1" marker-end="url(#arrowhead)"/>
+          <path d="M 450 695 L 475 695 L 475 605 L 1040 605 L 1040 558" stroke="#006bff" stroke-width="1.8" stroke-dasharray="6,4" marker-end="url(#arrowhead)"/>
+          <path d="M 610 658 L 610 557" stroke="#7d7d7d" stroke-width="1.8" stroke-dasharray="6,4" marker-end="url(#arrowhead)"/>
+          <path d="M 715 700 L 735 700 L 735 620 L 1170 620 L 1170 557" stroke="#7d7d7d" stroke-width="1.8" stroke-dasharray="6,4" marker-end="url(#arrowhead)"/>
+          <path d="M 1243 477 L 1225 477 L 1225 585 L 880 585 L 880 537" stroke="#006bff" stroke-width="1.8" stroke-dasharray="6,4" marker-end="url(#arrowhead)"/>
+          <line x1="1215" y1="695" x2="1243" y2="695" stroke="#4d4d4d" stroke-width="2" marker-end="url(#arrowhead)"/>
+
+          <!-- Portable contract to platform hosts -->
+          <path d="M 860 742 L 860 813" stroke="#007f70" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+          <path d="M 685 835 L 685 845 L 202 845 L 202 878" stroke="#7d7d7d" stroke-width="1.3" marker-end="url(#arrowhead)"/>
+          <path d="M 685 835 L 685 845 L 532 845 L 532 878" stroke="#7d7d7d" stroke-width="1.3" marker-end="url(#arrowhead)"/>
+          <path d="M 715 835 L 715 845 L 867 845 L 867 878" stroke="#7d7d7d" stroke-width="1.3" marker-end="url(#arrowhead)"/>
+          <path d="M 715 835 L 715 845 L 1202 845 L 1202 878" stroke="#7d7d7d" stroke-width="1.3" marker-end="url(#arrowhead)"/>
+        </g>
+
+        <!-- Build and delivery boundary -->
+        <rect x="20" y="30" width="1360" height="310" rx="12" fill="none" stroke="#eaeaea" stroke-width="1"/>
+        <text x="38" y="53" fill="#171717" font-size="11" font-weight="600" style="paint-order:stroke;stroke:#fafafa;stroke-width:5px;stroke-linejoin:round">BUILD + DELIVERY</text>
+        <text x="1335" y="53" fill="#4d4d4d" font-size="8" text-anchor="end">build-time, platform-independent</text>
+
+        <!-- Source -->
+        <rect x="55" y="90" width="190" height="170" rx="6" fill="#ffffff"/>
+        <rect x="55" y="90" width="190" height="170" rx="6" fill="#f0f7ff" stroke="#cae7ff" stroke-width="1.5"/>
+        <text x="150" y="116" fill="#171717" font-size="12" font-weight="600" text-anchor="middle">Mini Program Source</text>
+        <text x="150" y="139" fill="#005ff2" font-size="8" text-anchor="middle">project.config + app.json</text>
+        <text x="75" y="169" fill="#4d4d4d" font-size="9">• JS / TS — logic</text>
+        <text x="75" y="190" fill="#4d4d4d" font-size="9">• WXML / DDML — view</text>
+        <text x="75" y="211" fill="#4d4d4d" font-size="9">• WXSS / DDSS / Sass</text>
+        <text x="75" y="232" fill="#4d4d4d" font-size="9">• JSON / WXS / npm</text>
+
+        <!-- DMCC compiler group -->
+        <rect x="285" y="55" width="650" height="245" rx="12" fill="none" stroke="#eaeaea" stroke-width="1"/>
+        <text x="302" y="74" fill="#171717" font-size="9" font-weight="600">DMCC / @dimina/compiler</text>
+
+        <rect x="315" y="80" width="180" height="60" rx="6" fill="#ffffff"/>
+        <rect x="315" y="80" width="180" height="60" rx="6" fill="#ecfdec" stroke="#b9f5bc" stroke-width="1.5"/>
+        <text x="405" y="103" fill="#171717" font-size="11" font-weight="600" text-anchor="middle">Build Orchestrator</text>
+        <text x="405" y="121" fill="#4d4d4d" font-size="8" text-anchor="middle">Node.js 22 · Listr · workers</text>
+
+        <rect x="515" y="153" width="220" height="20" rx="4" fill="#defffb" stroke="#b1f7ec" stroke-width="1"/>
+        <text x="625" y="167" fill="#007f70" font-size="7" text-anchor="middle">worker_threads · parallel compile stages</text>
+
+        <g>
+          <rect x="315" y="190" width="100" height="75" rx="6" fill="#ffffff"/>
+          <rect x="315" y="190" width="100" height="75" rx="6" fill="#ecfdec" stroke="#b9f5bc" stroke-width="1.3"/>
+          <text x="365" y="216" fill="#171717" font-size="10" font-weight="600" text-anchor="middle">Logic</text>
+          <text x="365" y="234" fill="#4d4d4d" font-size="8" text-anchor="middle">OXC + esbuild</text>
+          <text x="365" y="250" fill="#4d4d4d" font-size="7" text-anchor="middle">modules / assets</text>
+
+          <rect x="430" y="190" width="100" height="75" rx="6" fill="#ffffff"/>
+          <rect x="430" y="190" width="100" height="75" rx="6" fill="#ecfdec" stroke="#b9f5bc" stroke-width="1.3"/>
+          <text x="480" y="216" fill="#171717" font-size="10" font-weight="600" text-anchor="middle">View</text>
+          <text x="480" y="234" fill="#4d4d4d" font-size="8" text-anchor="middle">HTML parser</text>
+          <text x="480" y="250" fill="#4d4d4d" font-size="7" text-anchor="middle">Vue render modules</text>
+
+          <rect x="545" y="190" width="100" height="75" rx="6" fill="#ffffff"/>
+          <rect x="545" y="190" width="100" height="75" rx="6" fill="#ecfdec" stroke="#b9f5bc" stroke-width="1.3"/>
+          <text x="595" y="216" fill="#171717" font-size="10" font-weight="600" text-anchor="middle">Style</text>
+          <text x="595" y="234" fill="#4d4d4d" font-size="8" text-anchor="middle">PostCSS + SFC</text>
+          <text x="595" y="250" fill="#4d4d4d" font-size="7" text-anchor="middle">rpx / scope / Sass</text>
+
+          <rect x="660" y="190" width="100" height="75" rx="6" fill="#ffffff"/>
+          <rect x="660" y="190" width="100" height="75" rx="6" fill="#ecfdec" stroke="#b9f5bc" stroke-width="1.3"/>
+          <text x="710" y="216" fill="#171717" font-size="10" font-weight="600" text-anchor="middle">Config</text>
+          <text x="710" y="234" fill="#4d4d4d" font-size="8" text-anchor="middle">app / page merge</text>
+          <text x="710" y="250" fill="#4d4d4d" font-size="7" text-anchor="middle">subpackages / assets</text>
+
+          <rect x="775" y="190" width="100" height="75" rx="6" fill="#ffffff"/>
+          <rect x="775" y="190" width="100" height="75" rx="6" fill="#ecfdec" stroke="#b9f5bc" stroke-width="1.3"/>
+          <text x="825" y="216" fill="#171717" font-size="10" font-weight="600" text-anchor="middle">npm Builder</text>
+          <text x="825" y="234" fill="#4d4d4d" font-size="8" text-anchor="middle">dependency graph</text>
+          <text x="825" y="250" fill="#4d4d4d" font-size="7" text-anchor="middle">miniprogram_npm</text>
+        </g>
+
+        <!-- Runtime artifacts -->
+        <rect x="980" y="70" width="180" height="210" rx="6" fill="#ffffff"/>
+        <rect x="980" y="70" width="180" height="210" rx="6" fill="#faf0ff" stroke="#f2d9ff" stroke-width="1.5"/>
+        <text x="1070" y="98" fill="#171717" font-size="12" font-weight="600" text-anchor="middle">Runtime Bundle</text>
+        <text x="1070" y="119" fill="#7d00cc" font-size="8" text-anchor="middle">main/ + subpackage/</text>
+        <text x="1000" y="148" fill="#4d4d4d" font-size="9">• app-config.json</text>
+        <text x="1000" y="170" fill="#4d4d4d" font-size="9">• logic.js per package</text>
+        <text x="1000" y="192" fill="#4d4d4d" font-size="9">• page render modules</text>
+        <text x="1000" y="214" fill="#4d4d4d" font-size="9">• app / page CSS</text>
+        <text x="1000" y="236" fill="#4d4d4d" font-size="9">• static assets</text>
+        <text x="1070" y="260" fill="#4d4d4d" font-size="7" text-anchor="middle">compiler ↔ runtime contract</text>
+
+        <rect x="1200" y="90" width="150" height="150" rx="6" fill="#ffffff"/>
+        <rect x="1200" y="90" width="150" height="150" rx="6" fill="#fafafa" stroke="#eaeaea" stroke-width="1.5"/>
+        <text x="1275" y="115" fill="#171717" font-size="11" font-weight="600" text-anchor="middle">Package + Publish</text>
+        <text x="1275" y="137" fill="#4d4d4d" font-size="8" text-anchor="middle">generate-app / sdk</text>
+        <text x="1275" y="161" fill="#4d4d4d" font-size="8" text-anchor="middle">shared/jsapp/*.zip</text>
+        <text x="1275" y="179" fill="#4d4d4d" font-size="8" text-anchor="middle">shared/jssdk/main.zip</text>
+        <text x="1275" y="197" fill="#4d4d4d" font-size="8" text-anchor="middle">config.json versions</text>
+        <text x="1275" y="218" fill="#d8001b" font-size="7" text-anchor="middle">optional manifest + SHA-256</text>
+
+        <!-- Runtime boundary -->
+        <rect x="20" y="370" width="1360" height="430" rx="12" fill="none" stroke="#eaeaea" stroke-width="1"/>
+        <text x="38" y="393" fill="#171717" font-size="11" font-weight="600" style="paint-order:stroke;stroke:#fafafa;stroke-width:5px;stroke-linejoin:round">PORTABLE RUNTIME + CONTAINER CONTRACT</text>
+        <text x="1335" y="393" fill="#4d4d4d" font-size="8" text-anchor="end">one service runtime · page-scoped render instances</text>
+
+        <rect x="55" y="430" width="200" height="120" rx="6" fill="#ffffff"/>
+        <rect x="55" y="430" width="200" height="120" rx="6" fill="#faf0ff" stroke="#f2d9ff" stroke-width="1.5"/>
+        <text x="155" y="456" fill="#171717" font-size="11" font-weight="600" text-anchor="middle">Installed Resources</text>
+        <text x="155" y="478" fill="#7d00cc" font-size="8" text-anchor="middle">JSSDK + JSApp bundle</text>
+        <text x="155" y="501" fill="#4d4d4d" font-size="8" text-anchor="middle">sandbox / static deployment</text>
+        <text x="155" y="521" fill="#4d4d4d" font-size="8" text-anchor="middle">main + lazy subpackages</text>
+        <text x="155" y="540" fill="#d8001b" font-size="7" text-anchor="middle">native update manager installs ZIP</text>
+
+        <rect x="300" y="455" width="150" height="70" rx="6" fill="#ffffff"/>
+        <rect x="300" y="455" width="150" height="70" rx="6" fill="#ecfdec" stroke="#b9f5bc" stroke-width="1.5"/>
+        <text x="375" y="481" fill="#171717" font-size="11" font-weight="600" text-anchor="middle">Resource Loader</text>
+        <text x="375" y="501" fill="#4d4d4d" font-size="8" text-anchor="middle">config · logic · view · CSS</text>
+
+        <rect x="505" y="400" width="210" height="155" rx="6" fill="#ffffff"/>
+        <rect x="505" y="400" width="210" height="155" rx="6" fill="#ecfdec" stroke="#b9f5bc" stroke-width="1.5"/>
+        <text x="610" y="428" fill="#171717" font-size="12" font-weight="600" text-anchor="middle">Service Logic Layer</text>
+        <text x="610" y="450" fill="#107d32" font-size="8" text-anchor="middle">@dimina/service</text>
+        <text x="525" y="478" fill="#4d4d4d" font-size="9">• App / Page / Component</text>
+        <text x="525" y="499" fill="#4d4d4d" font-size="9">• lifecycle + data / observers</text>
+        <text x="525" y="520" fill="#4d4d4d" font-size="9">• wx / dd API facade</text>
+        <text x="525" y="541" fill="#4d4d4d" font-size="7">no direct DOM access</text>
+
+        <rect x="770" y="440" width="180" height="95" rx="6" fill="#ffffff"/>
+        <rect x="770" y="440" width="180" height="95" rx="6" fill="#defffb" stroke="#b1f7ec" stroke-width="1.5"/>
+        <text x="860" y="468" fill="#171717" font-size="12" font-weight="600" text-anchor="middle">Container Bridge</text>
+        <text x="860" y="491" fill="#007f70" font-size="8" text-anchor="middle">publish · invoke · callbacks</text>
+        <text x="860" y="512" fill="#4d4d4d" font-size="8" text-anchor="middle">bridgeId / target routing</text>
+
+        <rect x="1005" y="400" width="210" height="155" rx="6" fill="#ffffff"/>
+        <rect x="1005" y="400" width="210" height="155" rx="6" fill="#f0f7ff" stroke="#cae7ff" stroke-width="1.5"/>
+        <text x="1110" y="428" fill="#171717" font-size="12" font-weight="600" text-anchor="middle">Render Layer</text>
+        <text x="1110" y="450" fill="#005ff2" font-size="8" text-anchor="middle">@dimina/render · Vue 3</text>
+        <text x="1025" y="478" fill="#4d4d4d" font-size="9">• pageFrame + reactive state</text>
+        <text x="1025" y="499" fill="#4d4d4d" font-size="9">• templates / DOM / events</text>
+        <text x="1025" y="520" fill="#4d4d4d" font-size="9">• selector / canvas / media</text>
+        <text x="1025" y="541" fill="#4d4d4d" font-size="7">one instance per page WebView</text>
+
+        <rect x="300" y="650" width="150" height="90" rx="6" fill="#ffffff"/>
+        <rect x="300" y="650" width="150" height="90" rx="6" fill="#f0f7ff" stroke="#cae7ff" stroke-width="1.5"/>
+        <text x="375" y="677" fill="#171717" font-size="10" font-weight="600" text-anchor="middle">Built-in Components</text>
+        <text x="375" y="698" fill="#005ff2" font-size="8" text-anchor="middle">@dimina/components</text>
+        <text x="375" y="718" fill="#4d4d4d" font-size="8" text-anchor="middle">Vue UI + native overlays</text>
+
+        <rect x="505" y="660" width="210" height="80" rx="6" fill="#ffffff"/>
+        <rect x="505" y="660" width="210" height="80" rx="6" fill="#fafafa" stroke="#eaeaea" stroke-width="1.5"/>
+        <text x="610" y="687" fill="#171717" font-size="10" font-weight="600" text-anchor="middle">Shared JS Primitives</text>
+        <text x="610" y="707" fill="#4d4d4d" font-size="8" text-anchor="middle">@dimina/common · mitt</text>
+        <text x="610" y="725" fill="#4d4d4d" font-size="7" text-anchor="middle">module registry · callbacks · utils</text>
+
+        <rect x="770" y="650" width="180" height="90" rx="6" fill="#ffffff"/>
+        <rect x="770" y="650" width="180" height="90" rx="6" fill="#fff6de" stroke="#ffdc73" stroke-width="1.5"/>
+        <text x="860" y="678" fill="#171717" font-size="10" font-weight="600" text-anchor="middle">Navigator + View Pool</text>
+        <text x="860" y="699" fill="#aa4d00" font-size="8" text-anchor="middle">page stack · tab stack</text>
+        <text x="860" y="719" fill="#4d4d4d" font-size="8" text-anchor="middle">create / reuse / destroy WebViews</text>
+
+        <rect x="1005" y="630" width="210" height="130" rx="6" fill="#ffffff"/>
+        <rect x="1005" y="630" width="210" height="130" rx="6" fill="#ecfdec" stroke="#b9f5bc" stroke-width="1.5"/>
+        <text x="1110" y="658" fill="#171717" font-size="11" font-weight="600" text-anchor="middle">Native API Registry</text>
+        <text x="1110" y="679" fill="#107d32" font-size="8" text-anchor="middle">container modules + extensions</text>
+        <text x="1025" y="704" fill="#4d4d4d" font-size="8">• network / storage / file</text>
+        <text x="1025" y="723" fill="#4d4d4d" font-size="8">• device / media / UI / route</text>
+        <text x="1025" y="742" fill="#4d4d4d" font-size="8">• extBridge host modules</text>
+
+        <rect x="1245" y="400" width="120" height="155" rx="6" fill="#ffffff"/>
+        <rect x="1245" y="400" width="120" height="155" rx="6" fill="#f0f7ff" stroke="#cae7ff" stroke-width="1.5"/>
+        <text x="1305" y="428" fill="#171717" font-size="10" font-weight="600" text-anchor="middle">Embedded H5</text>
+        <text x="1305" y="449" fill="#005ff2" font-size="8" text-anchor="middle">jdimina SDK</text>
+        <text x="1305" y="476" fill="#4d4d4d" font-size="8" text-anchor="middle">web-view content</text>
+        <text x="1305" y="496" fill="#4d4d4d" font-size="8" text-anchor="middle">wx.miniProgram</text>
+        <text x="1305" y="516" fill="#4d4d4d" font-size="8" text-anchor="middle">H5 ↔ service/native</text>
+        <text x="1305" y="538" fill="#4d4d4d" font-size="7" text-anchor="middle">optional package</text>
+
+        <rect x="1245" y="650" width="120" height="90" rx="6" fill="#ffffff"/>
+        <rect x="1245" y="650" width="120" height="90" rx="6" fill="#fafafa" stroke="#eaeaea" stroke-width="1.5"/>
+        <text x="1305" y="677" fill="#171717" font-size="10" font-weight="600" text-anchor="middle">External Systems</text>
+        <text x="1305" y="698" fill="#4d4d4d" font-size="8" text-anchor="middle">OS services · network</text>
+        <text x="1305" y="718" fill="#4d4d4d" font-size="7" text-anchor="middle">Web dev: Express proxy</text>
+
+        <text x="736" y="454" fill="#107d32" font-size="8" text-anchor="middle" style="paint-order:stroke;stroke:#fafafa;stroke-width:4px;stroke-linejoin:round">events</text>
+        <text x="736" y="503" fill="#007f70" font-size="8" text-anchor="middle" style="paint-order:stroke;stroke:#fafafa;stroke-width:4px;stroke-linejoin:round">setData / API</text>
+        <text x="978" y="454" fill="#005ff2" font-size="8" text-anchor="middle" style="paint-order:stroke;stroke:#fafafa;stroke-width:4px;stroke-linejoin:round">events</text>
+        <text x="978" y="503" fill="#007f70" font-size="8" text-anchor="middle" style="paint-order:stroke;stroke:#fafafa;stroke-width:4px;stroke-linejoin:round">updates</text>
+        <text x="686" y="570" fill="#005ff2" font-size="8" text-anchor="middle" style="paint-order:stroke;stroke:#fafafa;stroke-width:4px;stroke-linejoin:round">view modules + CSS</text>
+        <text x="930" y="582" fill="#005ff2" font-size="8" style="paint-order:stroke;stroke:#fafafa;stroke-width:4px;stroke-linejoin:round">H5 bridge</text>
+
+        <!-- Contract bus in the gap between runtime and platform boundaries -->
+        <rect x="570" y="813" width="260" height="22" rx="4" fill="#defffb" stroke="#b1f7ec" stroke-width="1"/>
+        <text x="700" y="828" fill="#007f70" font-size="8" text-anchor="middle">same bundle format + publish / invoke contract</text>
+
+        <!-- Platform boundary -->
+        <rect x="20" y="850" width="1360" height="150" rx="12" fill="none" stroke="#eaeaea" stroke-width="1"/>
+        <text x="38" y="873" fill="#171717" font-size="11" font-weight="600" style="paint-order:stroke;stroke:#fafafa;stroke-width:5px;stroke-linejoin:round">PLATFORM HOST IMPLEMENTATIONS</text>
+
+        <g>
+          <rect x="45" y="880" width="315" height="100" rx="6" fill="#ffffff"/>
+          <rect x="45" y="880" width="315" height="100" rx="6" fill="#fff6de" stroke="#ffdc73" stroke-width="1.5"/>
+          <text x="202" y="906" fill="#171717" font-size="11" font-weight="600" text-anchor="middle">Android SDK</text>
+          <text x="202" y="926" fill="#aa4d00" font-size="8" text-anchor="middle">Kotlin · Java 17 · Compose</text>
+          <text x="202" y="945" fill="#4d4d4d" font-size="8" text-anchor="middle">QuickJS via JNI/C++ · Android WebView</text>
+          <text x="202" y="963" fill="#4d4d4d" font-size="7" text-anchor="middle">MMKV · OkHttp · WebViewAssetLoader · JitPack</text>
+
+          <rect x="380" y="880" width="305" height="100" rx="6" fill="#ffffff"/>
+          <rect x="380" y="880" width="305" height="100" rx="6" fill="#fff6de" stroke="#ffdc73" stroke-width="1.5"/>
+          <text x="532" y="906" fill="#171717" font-size="11" font-weight="600" text-anchor="middle">iOS SDK</text>
+          <text x="532" y="926" fill="#aa4d00" font-size="8" text-anchor="middle">Swift 6 · UIKit / SwiftUI · SPM</text>
+          <text x="532" y="945" fill="#4d4d4d" font-size="8" text-anchor="middle">JavaScriptCore · WKWebView</text>
+          <text x="532" y="963" fill="#4d4d4d" font-size="7" text-anchor="middle">Alamofire · MMKV · ZIPFoundation</text>
+
+          <rect x="715" y="880" width="305" height="100" rx="6" fill="#ffffff"/>
+          <rect x="715" y="880" width="305" height="100" rx="6" fill="#fff6de" stroke="#ffdc73" stroke-width="1.5"/>
+          <text x="867" y="906" fill="#171717" font-size="11" font-weight="600" text-anchor="middle">Harmony SDK</text>
+          <text x="867" y="926" fill="#aa4d00" font-size="8" text-anchor="middle">ArkTS · HarmonyOS 5 · OHPM</text>
+          <text x="867" y="945" fill="#4d4d4d" font-size="8" text-anchor="middle">QuickJS libdimina.so Worker · Harmony WebView</text>
+          <text x="867" y="963" fill="#4d4d4d" font-size="7" text-anchor="middle">Navigation · MMKV · native same-layer components</text>
+
+          <rect x="1050" y="880" width="305" height="100" rx="6" fill="#ffffff"/>
+          <rect x="1050" y="880" width="305" height="100" rx="6" fill="#f0f7ff" stroke="#cae7ff" stroke-width="1.5"/>
+          <text x="1202" y="906" fill="#171717" font-size="11" font-weight="600" text-anchor="middle">Web Container</text>
+          <text x="1202" y="926" fill="#005ff2" font-size="8" text-anchor="middle">ES modules · Vite · Browser</text>
+          <text x="1202" y="945" fill="#4d4d4d" font-size="8" text-anchor="middle">Web Worker service · iframe pageFrame render</text>
+          <text x="1202" y="963" fill="#4d4d4d" font-size="7" text-anchor="middle">mitt · optional Express / Axios CORS proxy</text>
+        </g>
+
+        <!-- Legend outside all boundaries -->
+        <text x="38" y="1030" fill="#171717" font-size="10" font-weight="600">Legend</text>
+        <rect x="100" y="1020" width="18" height="11" rx="2" fill="#f0f7ff" stroke="#cae7ff" stroke-width="1"/>
+        <text x="125" y="1028" fill="#4d4d4d" font-size="8">Render / frontend</text>
+        <rect x="260" y="1020" width="18" height="11" rx="2" fill="#ecfdec" stroke="#b9f5bc" stroke-width="1"/>
+        <text x="285" y="1028" fill="#4d4d4d" font-size="8">Logic / container</text>
+        <rect x="430" y="1020" width="18" height="11" rx="2" fill="#faf0ff" stroke="#f2d9ff" stroke-width="1"/>
+        <text x="455" y="1028" fill="#4d4d4d" font-size="8">Artifacts / storage</text>
+        <rect x="610" y="1020" width="18" height="11" rx="2" fill="#fff6de" stroke="#ffdc73" stroke-width="1"/>
+        <text x="635" y="1028" fill="#4d4d4d" font-size="8">Platform host</text>
+        <rect x="760" y="1020" width="18" height="11" rx="2" fill="#defffb" stroke="#b1f7ec" stroke-width="1"/>
+        <text x="785" y="1028" fill="#4d4d4d" font-size="8">Message contract</text>
+        <line x1="940" y1="1026" x2="965" y2="1026" stroke="#d8001b" stroke-width="1.4" stroke-dasharray="4,4"/>
+        <text x="974" y="1028" fill="#4d4d4d" font-size="8">Install / update flow</text>
+        <rect x="1130" y="1020" width="18" height="11" rx="2" fill="#fafafa" stroke="#eaeaea" stroke-width="1"/>
+        <text x="1155" y="1028" fill="#4d4d4d" font-size="8">Shared / external</text>
+        <text x="38" y="1057" fill="#8f8f8f" font-size="7">Solid arrows: load, route, or call · Dashed arrows: dependency, extension, or update path</text>
+      </svg>

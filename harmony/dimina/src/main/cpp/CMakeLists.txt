@@ -10,15 +10,13 @@ set(NATIVERENDER_ROOT_PATH ${CMAKE_CURRENT_SOURCE_DIR})
 # Include FetchContent for downloading dependencies
 include(FetchContent)
 
-option(DIMINA_UPDATE_QUICKJS_ON_BUILD "Update QuickJS from origin/master before each native build" ON)
-option(DIMINA_UPDATE_BROTLI_ON_BUILD "Update Brotli from origin/master before each native build" ON)
+include("${CMAKE_CURRENT_LIST_DIR}/../../../../../cmake/DependencyVersions.cmake")
 
 # Download QuickJS from GitHub
 FetchContent_Declare(
     quickjs
     GIT_REPOSITORY https://github.com/bellard/quickjs.git
-    GIT_TAG master
-    GIT_SHALLOW TRUE
+    GIT_TAG ${DIMINA_QUICKJS_GIT_TAG}
 )
 FetchContent_MakeAvailable(quickjs)
 
@@ -26,8 +24,7 @@ FetchContent_MakeAvailable(quickjs)
 FetchContent_Declare(
     brotli
     GIT_REPOSITORY https://github.com/google/brotli.git
-    GIT_TAG master
-    GIT_SHALLOW TRUE
+    GIT_TAG ${DIMINA_BROTLI_GIT_TAG}
 )
 FetchContent_GetProperties(brotli)
 if(NOT brotli_POPULATED)
@@ -45,19 +42,6 @@ add_library(brotlidec STATIC ${BROTLI_DEC_SOURCES})
 target_include_directories(brotlicommon PUBLIC ${brotli_SOURCE_DIR}/c/include)
 target_include_directories(brotlidec PUBLIC ${brotli_SOURCE_DIR}/c/include)
 target_link_libraries(brotlidec PUBLIC brotlicommon)
-
-if(DIMINA_UPDATE_BROTLI_ON_BUILD)
-    find_package(Git REQUIRED)
-    # Best effort: network failure must not fail the build (see cmake/update_repo.cmake)
-    add_custom_target(update_brotli_latest
-        COMMAND ${CMAKE_COMMAND}
-            -DGIT_EXECUTABLE=${GIT_EXECUTABLE}
-            -DREPO_DIR=${brotli_SOURCE_DIR}
-            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/update_repo.cmake
-        COMMENT "Updating Brotli to latest origin/master (best effort)"
-    )
-    add_dependencies(brotlicommon update_brotli_latest)
-endif()
 
 # Handle the VERSION file to prevent conflicts with C++ standard <version> header
 # on case-insensitive filesystems (macOS). QuickJS ships a plain-text VERSION file
@@ -109,28 +93,29 @@ set(QUICKJS_SOURCES
     ${quickjs_SOURCE_DIR}/dtoa.c
 )
 
+# ─── Canvas 2D shared library (NanoVG + GLES) ───
+set(CANVAS2D_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../shared/canvas2d")
+if(EXISTS "${CANVAS2D_DIR}/CMakeLists.txt")
+    add_subdirectory(${CANVAS2D_DIR} ${CMAKE_CURRENT_BINARY_DIR}/canvas2d)
+    set(CANVAS2D_AVAILABLE TRUE)
+else()
+    set(CANVAS2D_AVAILABLE FALSE)
+    message(WARNING "Canvas2D directory not found at ${CANVAS2D_DIR}, canvas GL rendering disabled")
+endif()
+
 # Add shared library target
 add_library(dimina SHARED ${sources} ${QUICKJS_SOURCES})
-
-if(DIMINA_UPDATE_QUICKJS_ON_BUILD)
-    find_package(Git REQUIRED)
-    # Best effort: network failure must not fail the build (see cmake/update_repo.cmake).
-    # REMOVE_FILE deletes the VERSION file to prevent conflicts with the C++ standard
-    # <version> header on case-insensitive filesystems (macOS); value is already in version.h.
-    add_custom_target(update_quickjs_latest
-        COMMAND ${CMAKE_COMMAND}
-            -DGIT_EXECUTABLE=${GIT_EXECUTABLE}
-            -DREPO_DIR=${quickjs_SOURCE_DIR}
-            -DREMOVE_FILE=${quickjs_SOURCE_DIR}/VERSION
-            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/update_repo.cmake
-        COMMENT "Updating QuickJS to latest origin/master (best effort)"
-    )
-    add_dependencies(dimina update_quickjs_latest)
-endif()
 
 # Link necessary libraries
 target_link_libraries(dimina PUBLIC libace_napi.z.so libhilog_ndk.z.so libuv.so)
 target_link_libraries(dimina PUBLIC brotlidec brotlicommon)
+
+# Link canvas2d and OpenGL ES if available
+if(CANVAS2D_AVAILABLE)
+    target_include_directories(dimina PRIVATE ${CANVAS2D_DIR}/include)
+    target_link_libraries(dimina PUBLIC dimina_canvas2d)
+    target_link_libraries(dimina PUBLIC EGL GLESv3)
+endif()
 
 # Additional target properties for Release mode
 if(CMAKE_BUILD_TYPE STREQUAL "Release")

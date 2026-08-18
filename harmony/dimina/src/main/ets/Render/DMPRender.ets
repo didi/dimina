@@ -3,6 +3,7 @@ import { DMPWebViewController } from '../HybridContainer/DMPWebViewController';
 import { AsyncCallback } from '@kit.BasicServicesKit';
 import { DMPMap } from '../Utils/DMPMap';
 import { BusinessError } from '@ohos.base';
+import { DMPLogger } from '../EventTrack/DMPLogger';
 
 
 export class DMPRender {
@@ -28,7 +29,7 @@ export class DMPRender {
       try {
         controller.runJavaScript(script, (error, result) => {
           if (error) {
-            console.info(`run JavaScript error: ` + JSON.stringify(error))
+            DMPLogger.e('', `run JavaScript error: ` + JSON.stringify(error))
             return;
           }
         });
@@ -39,7 +40,7 @@ export class DMPRender {
           this.enqueueScript(webViewId, script)
           return
         }
-        console.info(`run JavaScript exception: ` + JSON.stringify(error))
+        DMPLogger.e('', `run JavaScript exception: ` + JSON.stringify(error))
       }
     }
   }
@@ -96,7 +97,7 @@ export class DMPRender {
       const controller = this.app.render.getController(webViewId)
       controller.subController && controller.subController.runJavaScript(`DiminaRenderBridge.onMessage(${dataString})`, (error, result) => {
         if (error) {
-          console.info(`run webview JavaScript error: ` + JSON.stringify(error))
+          DMPLogger.e('', `run webview JavaScript error: ` + JSON.stringify(error))
           return;
         }
       });

@@ -1,36 +1,136 @@
 <template name="odd">
-  <view> odd </view>
-  <image src="./ui.png" class="testImg"></image>
+  <view class="parity-item parity-item--odd">
+    <image src="./ui.png" class="parity-image" mode="aspectFit"></image>
+    <text class="parity-name">奇数项</text>
+    <text class="parity-value">NO.{{value}}</text>
+  </view>
 </template>
+
 <template name="even">
-  <view> even </view>
+  <view class="parity-item parity-item--even">
+    <view class="parity-symbol">E</view>
+    <text class="parity-name">偶数项</text>
+    <text class="parity-value">NO.{{value}}</text>
+  </view>
 </template>
-
-<view class="detail" bindtap="back">
-  {{text}}
-</view>
-
-<block wx:for="{{[1, 2, 3, 4, 5]}}">
-  <template is="{{item % 2 == 0 ? 'even' : 'odd'}}"/>
-</block>
 
 <import src="./msgItem.wxml"/>
-<template is="msgItem" data="{{...item}}" />
+<import src="item.wxml"/>
 
 <wxs module="utils" src="../../utils/format.wxs" />
 
 <wxs module="foo">
-var some_msg = "some msg";
+var some_msg = "内联模块运行正常";
 module.exports = {
   msg : some_msg,
 }
 </wxs>
 
-<view>hello {{ utils.formatTime(myTime) }}</view>
-<view> {{foo.msg}} </view>
+<view class="detail-page">
+  <view class="detail-hero">
+    <view class="hero-glow hero-glow--one"></view>
+    <view class="hero-glow hero-glow--two"></view>
+    <view class="detail-eyebrow">
+      <view class="eyebrow-dot"></view>
+      <text>CAPABILITY DETAIL</text>
+    </view>
+    <text class="detail-title">模板与模块能力</text>
+    <text class="detail-description">查看动态模板、WXS 数据处理以及文件组合的实际渲染效果</text>
+    <view class="hero-meta">
+      <view class="hero-meta-item">
+        <text class="hero-meta-value">5</text>
+        <text class="hero-meta-label">动态模板</text>
+      </view>
+      <view class="hero-meta-divider"></view>
+      <view class="hero-meta-item">
+        <text class="hero-meta-value">2</text>
+        <text class="hero-meta-label">WXS 模块</text>
+      </view>
+      <view class="hero-meta-divider"></view>
+      <view class="hero-meta-item">
+        <text class="hero-meta-value">2</text>
+        <text class="hero-meta-label">组合方式</text>
+      </view>
+    </view>
+    <view class="back-button" hover-class="back-button--pressed" bindtap="back">
+      <text class="back-arrow">‹</text>
+      <text>{{text}}</text>
+    </view>
+  </view>
 
-<include src="./msgItem.wxml"/>
+  <view class="detail-card">
+    <view class="section-heading">
+      <view>
+        <text class="section-kicker">DYNAMIC TEMPLATE</text>
+        <text class="section-title">条件模板</text>
+      </view>
+      <view class="section-tag">奇偶渲染</view>
+    </view>
+    <text class="section-description">根据数据项的奇偶状态，动态选择对应模板。</text>
+    <view class="parity-grid">
+      <block wx:for="{{[1, 2, 3, 4, 5]}}" wx:key="*this">
+        <template is="{{item % 2 == 0 ? 'even' : 'odd'}}" data="{{value: item}}"/>
+      </block>
+    </view>
+  </view>
 
-<import src="item.wxml"/>
+  <view class="detail-card">
+    <view class="section-heading">
+      <view>
+        <text class="section-kicker">DATA TEMPLATE</text>
+        <text class="section-title">数据展开</text>
+      </view>
+      <view class="section-tag section-tag--green">Import</view>
+    </view>
+    <text class="section-description">通过对象展开语法向导入模板传递完整数据。</text>
+    <template is="msgItem" data="{{...item}}" />
+  </view>
 
-<template is="item" data="{{text: 'I am template'}}"/>
+  <view class="detail-card">
+    <view class="section-heading">
+      <view>
+        <text class="section-kicker">WXS MODULE</text>
+        <text class="section-title">模块计算</text>
+      </view>
+      <view class="section-tag section-tag--violet">WXS</view>
+    </view>
+    <text class="section-description">同时验证外部模块引用与页面内联模块。</text>
+    <view class="result-panel">
+      <view class="result-row">
+        <view class="result-icon result-icon--blue">日</view>
+        <view class="result-content">
+          <text class="result-label">格式化时间</text>
+          <text class="result-value">{{utils.formatTime(myTime)}}</text>
+        </view>
+      </view>
+      <view class="result-row result-row--last">
+        <view class="result-icon result-icon--violet">内</view>
+        <view class="result-content">
+          <text class="result-label">内联模块状态</text>
+          <text class="result-value">{{foo.msg}}</text>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <view class="detail-card">
+    <view class="section-heading">
+      <view>
+        <text class="section-kicker">FILE COMPOSITION</text>
+        <text class="section-title">文件组合</text>
+      </view>
+      <view class="section-tag section-tag--orange">Include</view>
+    </view>
+    <text class="section-description">对比 Include 直接引入与 Import 模板复用。</text>
+    <view class="composition-block">
+      <text class="composition-label">INCLUDE FRAGMENT</text>
+      <include src="./msgItem.wxml"/>
+    </view>
+    <view class="composition-block composition-block--last">
+      <text class="composition-label">IMPORT TEMPLATE</text>
+      <template is="item" data="{{text: 'Dimina 模板'}}"/>
+    </view>
+  </view>
+
+  <text class="detail-footer">DIMINA · TEMPLATE CAPABILITIES</text>
+</view>

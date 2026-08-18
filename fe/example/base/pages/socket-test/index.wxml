@@ -1,0 +1,12 @@
+<view class="container">
+  <view class="row">
+    <input class="url-input" value="{{wsUrl}}" bindinput="onUrlInput" placeholder="wss:// echo server url" />
+    <button type="primary" size="mini" bindtap="runTests" disabled="{{running}}">{{running ? '运行中...' : '运行全部用例'}}</button>
+  </view>
+  <view class="summary {{summaryClass}}">{{summaryText}}</view>
+  <scroll-view scroll-y class="log">
+    <view wx:for="{{results}}" wx:key="index" class="log-line {{item.ok ? 'ok' : 'fail'}}">
+      {{item.ok ? '✅' : '❌'}} {{item.name}}{{item.detail ? ' — ' + item.detail : ''}}
+    </view>
+  </scroll-view>
+</view>

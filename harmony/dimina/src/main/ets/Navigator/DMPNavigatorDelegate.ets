@@ -39,6 +39,10 @@ export class DMPNavigatorDelegate {
     await this._navigator.redirectTo(this._id, params);
   }
 
+  async navigateHome() {
+    await this._navigator.navigateHome(this._id);
+  }
+
   async pop(delta: number = 1) {
     await this._navigator.pop(delta);
   }

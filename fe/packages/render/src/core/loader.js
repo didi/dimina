@@ -6,37 +6,72 @@ class Loader {
 		this.staticModules = {}
 	}
 
-	loadResource(opts) {
-		const { bridgeId, appId, pagePath, root, baseUrl } = opts
+	async loadResource(opts) {
+		const { bridgeId, appId, pagePath, root, baseUrl, resourceLoadId, runtimeType } = opts
+		if (runtimeType === 'game') {
+			this.reportResourceLoaded({ bridgeId, resourceLoadId })
+			return true
+		}
 
 		const filename = pagePath.replace(/\//g, '_')
 		const appStyleResourcePath = `${baseUrl}${appId}/main/app.css`
 		const styleResourcePath = `${baseUrl}${appId}/${root}/${filename}.css`
 		const viewResourcePath = `${baseUrl}${appId}/${root}/${filename}.js`
 
-		Promise.allSettled([
+		const results = await Promise.allSettled([
 			this.loadStyleFile(appStyleResourcePath),
 			this.loadStyleFile(styleResourcePath),
 			this.loadScriptFile(viewResourcePath),
-		]).then(
-			(results) => {
-				window.modRequire(pagePath)
-				message.invoke({
-					type: 'renderResourceLoaded',
-					target: 'service',
-					body: {
-						bridgeId,
-					},
-				})
+		])
 
-				const errors = results
-					.filter(result => result.status === 'rejected')
-					.map(result => result.reason)
-				if (errors.length) {
-					console.error('[system]', '[render]', `资源加载失败: ${errors}`)
-				}
+		const errors = results
+			.filter(result => result.status === 'rejected')
+			.map(result => result.reason instanceof Error ? result.reason.message : String(result.reason))
+		if (errors.length) {
+			this.reportResourceLoadFailed({ bridgeId, pagePath, errors, resourceLoadId })
+			return false
+		}
+
+		try {
+			window.modRequire(pagePath)
+		}
+		catch (error) {
+			this.reportResourceLoadFailed({
+				bridgeId,
+				pagePath,
+				resourceLoadId,
+				errors: [error instanceof Error ? error.message : String(error)],
+			})
+			return false
+		}
+
+		this.reportResourceLoaded({ bridgeId, resourceLoadId })
+		return true
+	}
+
+	reportResourceLoaded({ bridgeId, resourceLoadId }) {
+		message.invoke({
+			type: 'renderResourceLoaded',
+			target: 'service',
+			body: {
+				bridgeId,
+				resourceLoadId,
 			},
-		)
+		})
+	}
+
+	reportResourceLoadFailed({ bridgeId, pagePath, errors, resourceLoadId }) {
+		console.error('[system]', '[render]', `资源加载失败: ${errors.join('; ')}`)
+		message.invoke({
+			type: 'renderResourceLoadFailed',
+			target: 'service',
+			body: {
+				bridgeId,
+				resourceLoadId,
+				pagePath,
+				errors,
+			},
+		})
 	}
 
 	loadStyleFile(path) {
@@ -74,15 +109,25 @@ class Loader {
 	 * @param {{path: string, scopeId: string, usingComponents: object, render: Function}} moduleInfo
 	 */
 	createModule(moduleInfo) {
-		const { path, usingComponents } = moduleInfo
+		const { path, usingComponents, componentPlaceholder = {} } = moduleInfo
 		if (this.staticModules[path]) {
 			return
 		}
 
 		this.staticModules[path] = new Module(moduleInfo)
 
-		for (const componentPath of Object.values(usingComponents)) {
-			window.modRequire(componentPath)
+		for (const [componentName, componentPath] of Object.entries(usingComponents)) {
+			try {
+				window.modRequire(componentPath)
+			}
+			catch (error) {
+				const placeholderName = componentPlaceholder[componentName]
+				const placeholderPath = placeholderName && usingComponents[placeholderName]
+				if (!placeholderPath) {
+					throw error
+				}
+				window.modRequire(placeholderPath)
+			}
 		}
 	}
 

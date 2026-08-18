@@ -8,6 +8,26 @@ import { PageModule } from '../src/instance/page/page-module'
 describe('behavior runtime alignment', () => {
 	beforeEach(() => {
 		runtime.instances = {}
+		runtime.pageStates.clear()
+	})
+
+	it('injects and transports wx://form-field properties', () => {
+		const componentModule = new ComponentModule({
+			behaviors: ['wx://form-field'],
+			properties: {
+				// Component declarations keep higher priority than the behavior.
+				value: { type: String, value: 'own' },
+			},
+	}, {
+			component: true,
+			path: 'components/form-field/index',
+			usingComponents: {},
+		})
+		const props = componentModule.getProps()
+
+		expect(props.name.type).toEqual(['s'])
+		expect(props.value).toMatchObject({ type: ['s'], default: 'own' })
+		expect(props.__diminaMeta.builtinBehaviors).toContain('wx://form-field')
 	})
 
 	it('runs page behavior lifetimes and observers', async () => {
@@ -38,8 +58,8 @@ describe('behavior runtime alignment', () => {
 					},
 				},
 				observers: {
-					count(value, oldValue) {
-						calls.push(`behavior:observer:${oldValue ?? 'undefined'}->${value}`)
+					count(value) {
+						calls.push(`behavior:observer:${value}`)
 					},
 				},
 			}],
@@ -77,8 +97,8 @@ describe('behavior runtime alignment', () => {
 				calls.push(`page:onResize:${size?.width}`)
 			},
 			observers: {
-				count(value, oldValue) {
-					calls.push(`page:observer:${oldValue}->${value}`)
+				count(value) {
+					calls.push(`page:observer:${value}`)
 				},
 			},
 		}, {
@@ -108,8 +128,8 @@ describe('behavior runtime alignment', () => {
 			'behavior:attached',
 			'page:attached',
 			'page:onLoad',
-			'page:observer:0->1',
-			'behavior:observer:0->1',
+			'behavior:observer:1',
+			'page:observer:1',
 			'behavior:show',
 			'page:onShow',
 			'behavior:hide',
@@ -246,13 +266,14 @@ describe('behavior runtime alignment', () => {
 				'component-1': component,
 			},
 		}
+		await runtime.moduleAttached({ bridgeId, moduleId: component.__id__ })
 
 		runtime.pageResize({ bridgeId, size: { width: 414 } })
 		runtime.componentRouteDone({ bridgeId })
 
 		expect(calls).toEqual([
-			'page:resize:414',
 			'component:resize:414',
+			'page:resize:414',
 			'component:routeDone',
 		])
 	})

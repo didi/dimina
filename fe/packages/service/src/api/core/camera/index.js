@@ -1,24 +1,20 @@
 import { invokeAPI } from '@/api/common'
-import router from '@/core/router'
 
 export function createCameraContext() {
 	return new CameraContext()
 }
 
 class CameraContext {
-	constructor() {
-		this.bridgeId = router.getPageInfo().id
-	}
-
-	takePhoto(data) {
+	takePhoto(data = {}) {
 		return invokeAPI('takePhoto', data)
 	}
 
-	startRecord() {
-		return invokeAPI('startRecord')
+	startRecord(data = {}) {
+		// Keep camera recording separate from the legacy voice startRecord API.
+		return invokeAPI('startRecordCamera', data)
 	}
 
-	stopRecord() {
-		return invokeAPI('stopRecord')
+	stopRecord(data = {}) {
+		return invokeAPI('stopRecordCamera', data)
 	}
 }

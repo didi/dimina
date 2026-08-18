@@ -1,5 +1,6 @@
 class HostEnv {
 	constructor() {
+		this.listeners = new Set()
 		this.reset()
 	}
 
@@ -24,6 +25,12 @@ class HostEnv {
 			...this.snapshot,
 			...patch,
 		}
+		this.listeners.forEach(listener => listener(patch, this.snapshot))
+	}
+
+	onUpdate(listener) {
+		this.listeners.add(listener)
+		return () => this.listeners.delete(listener)
 	}
 
 	get(key) {

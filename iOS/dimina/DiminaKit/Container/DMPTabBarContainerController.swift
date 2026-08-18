@@ -135,6 +135,13 @@ final class DMPTabBarContainerController: UIViewController {
         return tabPageRecords[index]
     }
 
+    /// 按 webViewId 查找 tab 页记录（含未选中的后台 tab）。navigator 的
+    /// pageRecords 只镜像当前选中 tab，按调用页记账的 API（如 hideHomeButton）
+    /// 需要能定位到后台 tab 的记录
+    func pageRecord(webViewId: Int) -> DMPPageRecord? {
+        return tabPageRecords.values.first { $0.webViewId == webViewId }
+    }
+
     func setTabBarStyle(
         color: String?,
         selectedColor: String?,

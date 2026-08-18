@@ -1,27 +1,128 @@
 <view class="home">
-	<image class="anima-view" src="{{imageList}}"></image>
-	<text>{{a.b.c[0].text}}</text>
-	<view class="already-upload" style="background:url('{{imageLi}}') no-repeat;background-size: 100% auto;"></view>
-
-	<view>
-		<text wx:if="{{condition === 1}}">1</text>
-		<text wx:elif="{{condition === 2}}">2</text>
-		<text wx:else>NaN</text>
+	<view class="hero-card">
+		<view class="hero-orb hero-orb--large"></view>
+		<view class="hero-orb hero-orb--small"></view>
+		<view class="hero-content">
+			<view class="eyebrow">
+				<view class="eyebrow-dot"></view>
+				<text>PROJECT MIXED</text>
+			</view>
+			<text class="hero-title">混合能力实验室</text>
+			<text class="hero-description">集中体验数据更新、页面跳转与交互反馈</text>
+			<view class="hero-summary">
+				<view class="summary-item">
+					<text class="summary-label">当前状态</text>
+					<text class="summary-value">{{show ? '已显示' : '已隐藏'}}</text>
+				</view>
+				<view class="summary-divider"></view>
+				<view class="summary-item">
+					<text class="summary-label">列表项目</text>
+					<text class="summary-value">{{list.length}} 项</text>
+				</view>
+			</view>
+		</view>
+		<view class="hero-logo-wrap">
+			<image class="anima-view" src="{{imageList}}" mode="aspectFit"></image>
+		</view>
+		<view class="already-upload" style="background:url('{{imageLi}}') no-repeat;background-size: 100% auto;"></view>
 	</view>
-	<view class="text" wx:if="{{show}}">
-		<text user-select="{{true}}">123</text>
+
+	<view class="section-card">
+		<view class="section-heading">
+			<view>
+				<text class="section-kicker">DATA</text>
+				<text class="section-title">响应式数据</text>
+			</view>
+			<view class="status-badge {{show ? 'status-badge--active' : ''}}">
+				<view class="status-dot"></view>
+				<text>{{show ? '显示中' : '已隐藏'}}</text>
+			</view>
+		</view>
+
+		<view class="data-panel">
+			<view class="data-row">
+				<text class="data-label">嵌套字段</text>
+				<text class="data-value">{{a.b.c[0].text}}</text>
+			</view>
+			<view class="data-row">
+				<text class="data-label">条件结果</text>
+				<text class="data-value" wx:if="{{condition === 1}}">1</text>
+				<text class="data-value" wx:elif="{{condition === 2}}">2</text>
+				<text class="data-value data-value--muted" wx:else>NaN</text>
+			</view>
+			<view class="data-row data-row--last">
+				<text class="data-label">选中文本</text>
+				<text class="data-value text" wx:if="{{show}}" user-select="{{true}}">123</text>
+				<text class="data-value data-value--muted" wx:else>不可见</text>
+			</view>
+		</view>
+
+		<view class="button-row">
+			<view class="button button--primary" hover-class="button--pressed" bindtap="show">显示并更新</view>
+			<view class="button button--secondary" hover-class="button--pressed" bindtap="hide">隐藏内容</view>
+		</view>
 	</view>
-	<view class="btn" bindtap="show">显示和修改嵌套数据</view>
-	<view class="btn" bindtap="hide">隐藏</view>
-	<view class="btn" bindtap="goDetail">{{text}}</view>
-	<view class="btn" bindtap="sumRes">{{res}}</view>
 
-	<view class="btn" bindtap="addItem">add item</view>
-	<view class="btn" bindtap="changeColor">change color</view>
-	<view class="btn" bindtap="showToast">toast</view>
+	<view class="section-card">
+		<view class="section-heading">
+			<view>
+				<text class="section-kicker">ACTIONS</text>
+				<text class="section-title">快捷操作</text>
+			</view>
+			<text class="section-caption">点击体验</text>
+		</view>
 
-	<view class="list-item" style="color:{{color}}" wx:for="{{list}}">
-		{{index}}: {{item.message}}
+		<view class="primary-action" hover-class="primary-action--pressed" bindtap="goDetail">
+			<view class="action-icon action-icon--light">→</view>
+			<view class="action-copy">
+				<text class="action-title">{{text}}</text>
+				<text class="action-description">查看模板、WXS 与页面生命周期</text>
+			</view>
+			<text class="action-arrow">›</text>
+		</view>
+
+		<view class="action-grid">
+			<view class="mini-action" hover-class="mini-action--pressed" bindtap="sumRes">
+				<view class="action-icon action-icon--blue">Σ</view>
+				<text class="mini-action-label">求和计算</text>
+				<text class="mini-action-value">结果 {{res}}</text>
+			</view>
+			<view class="mini-action" hover-class="mini-action--pressed" bindtap="addItem">
+				<view class="action-icon action-icon--violet">＋</view>
+				<text class="mini-action-label">新增项目</text>
+				<text class="mini-action-value">追加到列表</text>
+			</view>
+			<view class="mini-action" hover-class="mini-action--pressed" bindtap="changeColor">
+				<view class="action-icon action-icon--green">◐</view>
+				<text class="mini-action-label">切换颜色</text>
+				<text class="mini-action-value">更新主题色</text>
+			</view>
+			<view class="mini-action" hover-class="mini-action--pressed" bindtap="showToast">
+				<view class="action-icon action-icon--orange">✓</view>
+				<text class="mini-action-label">消息提示</text>
+				<text class="mini-action-value">展示 Toast</text>
+			</view>
+		</view>
 	</view>
 
+	<view class="section-card list-card">
+		<view class="section-heading">
+			<view>
+				<text class="section-kicker">COLLECTION</text>
+				<text class="section-title">动态列表</text>
+			</view>
+			<view class="count-badge">{{list.length}}</view>
+		</view>
+
+		<view class="list-item" style="color:{{color}}" wx:for="{{list}}" wx:key="key">
+			<view class="list-index">{{index + 1}}</view>
+			<view class="list-content">
+				<text class="list-message">{{item.message}}</text>
+				<text class="list-key">ID · {{item.key}}</text>
+			</view>
+			<view class="list-indicator" style="background-color:{{color}}"></view>
+		</view>
+	</view>
+
+	<text class="page-footer">DIMINA · MIXED PROJECT PLAYGROUND</text>
 </view>

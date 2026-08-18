@@ -1,9 +1,11 @@
-import { cloneDeep, isFunction, set } from '@dimina/common'
+import { cloneDeep, isFunction } from '@dimina/common'
 import { createSelectorQuery } from '../../api/core/wxml/selector-query'
 import message from '../../core/message'
 import runtime from '../../core/runtime'
+import { applyDataUpdates } from '../../core/data-update'
+import { invokeSafely, invokeSafelyAll } from '../../core/safe-callback'
 import { createUpdateCallback, enqueueUpdate } from '../../core/update-queue'
-import { addComputedData, filterData, invokeBehaviorObservers, invokeObserversOnce, isChildComponent, matchComponent, syncUpdateChildrenProps } from '../../core/utils'
+import { isChildComponent, matchComponent, syncUpdateChildrenProps } from '../../core/utils'
 
 // https://developers.weixin.qq.com/miniprogram/dev/reference/api/Page.html
 // const lifecycleMethods = ['onLoad', 'onShow', 'onReady', 'onHide', 'onUnload',
@@ -31,32 +33,27 @@ export class Page {
 		this.__pendingInitSetDataCallbacks__ = []
 	}
 
-	init() {
+	init({ deferInitialData = false } = {}) {
 		this.#initMembers()
-		return this.#invokeInitLifecycle().then(() => {
-			addComputedData(this)
-			console.log(`[service] page.init send data, moduleId: ${this.__id__}, path: ${this.is}`)
-			message.send({
-				type: this.__id__,
-				target: 'render',
-				body: {
-					bridgeId: this.bridgeId,
-					path: this.is,
-					data: this.data,
-				},
-			})
-		}).catch((err) => {
-			console.error(`[service] page.init lifecycle error, path: ${this.is}, moduleId: ${this.__id__}`, err)
-			// 即使生命周期出错，也要发送数据消息，否则渲染层会永远阻塞
-			message.send({
-				type: this.__id__,
-				target: 'render',
-				body: {
-					bridgeId: this.bridgeId,
-					path: this.is,
-					data: this.data,
-				},
-			})
+		this.#invokeInitLifecycle()
+		if (!deferInitialData) {
+			this.sendInitialData()
+		}
+	}
+
+	sendInitialData() {
+		if (this.__initialDataSent__) {
+			return
+		}
+		this.__initialDataSent__ = true
+		message.send({
+			type: this.__id__,
+			target: 'render',
+			body: {
+				bridgeId: this.bridgeId,
+				path: this.is,
+				data: this.data,
+			},
 		})
 	}
 
@@ -71,32 +68,26 @@ export class Page {
 	}
 
 	setData(data, callback) {
-		const fData = filterData(data)
-		const oldValues = {}
-		const info = this.__info__ || {}
-		
-		// 更新数据
-		for (const key in fData) {
-			oldValues[key] = this.data[key]
-			set(this.data, key, fData[key])
+		const update = applyDataUpdates(this, data, callback)
+		if (!update) {
+			return
 		}
-
-		if (info.observers) {
-			invokeObserversOnce(Object.keys(fData), info.observers, this.data, this, oldValues)
-		}
-		invokeBehaviorObservers(this, Object.keys(fData), oldValues)
 
 		if (!this.initd) {
-			if (isFunction(callback)) {
-				this.__pendingInitSetDataCallbacks__.push(callback)
-			}
+			this.__pendingInitSetDataCallbacks__.push(...update.callbacks)
 			return
 		}
 
 		// 同步更新子组件的 properties，确保与微信小程序时序一致
-		const syncedChildren = syncUpdateChildrenProps(this, runtime.instances[this.bridgeId], fData)
+		const syncedChildren = syncUpdateChildrenProps(this, runtime.instances[this.bridgeId], update.changedData)
 
-		enqueueUpdate(this.bridgeId, this.__id__, fData, createUpdateCallback(this, callback))
+		enqueueUpdate(
+			this.bridgeId,
+			this.__id__,
+			update.changedData,
+			createUpdateCallback(this, update.callbacks),
+			update.changes,
+		)
 
 		syncedChildren.forEach(({ child, data }) => {
 			enqueueUpdate(this.bridgeId, child.__id__, data)
@@ -108,6 +99,19 @@ export class Page {
 	 */
 	createSelectorQuery() {
 		return createSelectorQuery().in(this)
+	}
+
+	/**
+	 * 返回当前 tab 页直属的自定义 tabBar 组件实例。
+	 * https://developers.weixin.qq.com/miniprogram/dev/framework/ability/custom-tabbar.html
+	 */
+	getTabBar() {
+		const instances = Object.values(runtime.instances[this.bridgeId] || {})
+		return instances.find(item =>
+			item?.__isComponent__
+			&& item.__isCustomTabBar__
+			&& isChildComponent(item, this.__id__, instances),
+		) || null
 	}
 
 	/**
@@ -169,14 +173,14 @@ export class Page {
 		}
 	}
 
-	async #invokeInitLifecycle() {
-		this.__info__.behaviorLifetimes?.created?.forEach(method => method.call(this))
-		await this.created?.()
-		this.__info__.behaviorLifetimes?.attached?.forEach(method => method.call(this))
-		await this.attached?.()
+	#invokeInitLifecycle() {
+		invokeSafelyAll(this, this.__info__.behaviorLifetimes?.created, [], 'created lifetime')
+		invokeSafely(this, this.created, [], 'created lifetime')
+		invokeSafelyAll(this, this.__info__.behaviorLifetimes?.attached, [], 'attached lifetime')
+		invokeSafely(this, this.attached, [], 'attached lifetime')
 
 		// 页面创建时执行
-		await this.onLoad?.(this.opts.query || {})
+		invokeSafely(this, this.onLoad, [this.opts.query || {}], 'onLoad')
 		this.initd = true
 	}
 
@@ -184,35 +188,51 @@ export class Page {
 	 * 页面显示/切入前台时触发。该时机不能保证页面渲染完成，如有页面/组件元素相关操作建议在 onReady 中处理
 	 */
 	pageShow() {
-		this.__info__.behaviorPageLifetimes?.show?.forEach(method => method.call(this))
-		this.onShow?.()
+		invokeSafelyAll(this, this.__info__.behaviorPageLifetimes?.show, [], 'page show lifetime')
+		invokeSafely(this, this.onShow, [], 'onShow')
 	}
 
 	pageHide() {
-		this.__info__.behaviorPageLifetimes?.hide?.forEach(method => method.call(this))
-		this.onHide?.()
+		invokeSafelyAll(this, this.__info__.behaviorPageLifetimes?.hide, [], 'page hide lifetime')
+		invokeSafely(this, this.onHide, [], 'onHide')
 	}
 
 	pageReady() {
-		this.__info__.behaviorLifetimes?.ready?.forEach(method => method.call(this))
-		this.ready?.()
-		this.onReady?.()
+		invokeSafelyAll(this, this.__info__.behaviorLifetimes?.ready, [], 'ready lifetime')
+		invokeSafely(this, this.ready, [], 'ready lifetime')
+		invokeSafely(this, this.onReady, [], 'onReady')
 	}
 
 	pageUnload() {
-		this.__info__.behaviorLifetimes?.detached?.forEach(method => method.call(this))
-		this.detached?.()
-		this.onUnload?.()
+		invokeSafelyAll(this, this.__info__.behaviorLifetimes?.detached, [], 'detached lifetime')
+		invokeSafely(this, this.detached, [], 'detached lifetime')
+		invokeSafely(this, this.onUnload, [], 'onUnload')
 		this.initd = false
 	}
 
 	pageScrollTop(opts) {
 		const { scrollTop } = opts
-		this.onPageScroll?.({ scrollTop })
+		invokeSafely(this, this.onPageScroll, [{ scrollTop }], 'onPageScroll')
+	}
+
+	pagePullDownRefresh() {
+		invokeSafely(this, this.onPullDownRefresh, [], 'onPullDownRefresh')
+	}
+
+	pageReachBottom() {
+		invokeSafely(this, this.onReachBottom, [], 'onReachBottom')
+	}
+
+	pageShareAppMessage(options = {}) {
+		return invokeSafely(this, this.onShareAppMessage, [options], 'onShareAppMessage')
+	}
+
+	pageTabItemTap(item = {}) {
+		invokeSafely(this, this.onTabItemTap, [item], 'onTabItemTap')
 	}
 
 	pageResize(size) {
-		this.__info__.behaviorPageLifetimes?.resize?.forEach(method => method.call(this, size))
-		this.onResize?.(size)
+		invokeSafelyAll(this, this.__info__.behaviorPageLifetimes?.resize, [size], 'page resize lifetime')
+		invokeSafely(this, this.onResize, [size], 'onResize')
 	}
 }

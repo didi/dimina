@@ -88,16 +88,16 @@ export default class DMPCamera {
 
     // 监听相机状态变化
     this.cameraMgr.on('cameraStatus', (err: BusinessError, cameraStatusInfo: camera.CameraStatusInfo) => {
-      console.info(`camera : ${cameraStatusInfo.camera.cameraId}`);
-      console.info(`status: ${cameraStatusInfo.status}`);
+      DMPLogger.i(TAG, `camera : ${cameraStatusInfo.camera.cameraId}`);
+      DMPLogger.i(TAG, `status: ${cameraStatusInfo.status}`);
     });
 
     let cameraArray = this.getCameraDevices(this.cameraMgr);
     for (let index = 0; index < cameraArray.length; index++) {
-      console.info('cameraId : ' + cameraArray[index].cameraId); // 获取相机ID
-      console.info('cameraPosition : ' + cameraArray[index].cameraPosition); // 获取相机位置
-      console.info('cameraType : ' + cameraArray[index].cameraType); // 获取相机类型
-      console.info('connectionType : ' + cameraArray[index].connectionType); // 获取相机连接类型
+      DMPLogger.i(TAG, 'cameraId : ' + cameraArray[index].cameraId); // 获取相机ID
+      DMPLogger.i(TAG, 'cameraPosition : ' + cameraArray[index].cameraPosition); // 获取相机位置
+      DMPLogger.i(TAG, 'cameraType : ' + cameraArray[index].cameraType); // 获取相机类型
+      DMPLogger.i(TAG, 'connectionType : ' + cameraArray[index].connectionType); // 获取相机连接类型
     }
 
     this.cameraDevice = cameraArray[CommonConstants.INPUT_DEVICE_INDEX];
@@ -133,15 +133,15 @@ export default class DMPCamera {
 
     //设置回调之后，调用photoOutput的capture方法，就会将拍照的buffer回传到回调中
     this.photoOutput.on('photoAvailable', (errCode: BusinessError, photo: camera.Photo): void => {
-      console.info('getPhoto start');
-      console.info(`err: ${JSON.stringify(errCode)}`);
+      DMPLogger.i(TAG, 'getPhoto start');
+      DMPLogger.i(TAG, `err: ${JSON.stringify(errCode)}`);
       if (errCode || photo === undefined) {
          DMPLogger.e('getPhoto failed');
         return;
       }
       let imageObj = photo.main;
       imageObj.getComponent(image.ComponentType.JPEG, (errCode: BusinessError, component: image.Component): void => {
-        console.info('getComponent start');
+        DMPLogger.i(TAG, 'getComponent start');
         if (errCode || component === undefined) {
           DMPLogger.e('getComponent failed');
           return;
@@ -180,23 +180,23 @@ export default class DMPCamera {
   async releaseCamera(): Promise<void> {
     if (this.cameraInput) {
       await this.cameraInput.close();
-      console.info(TAG, 'cameraInput release');
+      DMPLogger.i(TAG, 'cameraInput release');
     }
     if (this.previewOutput) {
       await this.previewOutput.release();
-      console.info(TAG, 'previewOutput release');
+      DMPLogger.i(TAG, 'previewOutput release');
     }
     if (this.receiver) {
       await this.receiver.release();
-      console.info(TAG, 'receiver release');
+      DMPLogger.i(TAG, 'receiver release');
     }
     if (this.photoOutput) {
       await this.photoOutput.release();
-      console.info(TAG, 'photoOutput release');
+      DMPLogger.i(TAG, 'photoOutput release');
     }
     if (this.captureSession) {
       await this.captureSession.release();
-      console.info(TAG, 'captureSession release');
+      DMPLogger.i(TAG, 'captureSession release');
       this.captureSession = undefined;
     }
   }
@@ -237,7 +237,7 @@ export default class DMPCamera {
 
   async startPreviewOutput(previewOutput: camera.PreviewOutput): Promise<void> {
     previewOutput.start().then(() => {
-      console.info(TAG, `previewOutput start success`);
+      DMPLogger.i(TAG, `previewOutput start success`);
     }).catch((err: BusinessError) => {
        DMPLogger.e(TAG, `previewOutput start faild errorCode =  ${err.code}`);
     });
@@ -247,7 +247,7 @@ export default class DMPCamera {
     let photoSurfaceId: string | undefined = undefined;
     if (receiver !== undefined) {
       photoSurfaceId = await receiver.getReceivingSurfaceId();
-      console.info(TAG, `getReceivingSurfaceId success`);
+      DMPLogger.i(TAG, `getReceivingSurfaceId success`);
     }
     return photoSurfaceId;
   }
@@ -256,7 +256,7 @@ export default class DMPCamera {
                  photoSurfaceId: string): camera.PhotoOutput | undefined {
     let photoProfilesArray: Array<camera.Profile> = cameraOutputCapability.photoProfiles;
     if (!photoProfilesArray) {
-      console.info(TAG, `createOutput photoProfilesArray == null || undefined`);
+      DMPLogger.i(TAG, `createOutput photoProfilesArray == null || undefined`);
     }
     let photoOutput: camera.PhotoOutput | undefined = undefined;
     try {

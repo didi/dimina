@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import vue from '@vitejs/plugin-vue'
+import ViteAutoImport from 'unplugin-auto-import/vite'
 import { defineConfig } from 'vitest/config'
 
 function resolveFile(base) {
@@ -20,7 +21,7 @@ function resolveWorkspaceAlias(source, importer, cwd) {
 		if (importer?.includes('/packages/common/src/')) {
 			return resolveFile(resolve(cwd, '../common/src', source.slice(2)))
 		}
-		if (importer?.includes('/packages/components/src/')) {
+		if (importer?.includes('/packages/components/')) {
 			return resolveFile(resolve(cwd, '../components/src', source.slice(2)))
 		}
 		return resolveFile(resolve(cwd, 'src', source.slice(2)))
@@ -34,6 +35,10 @@ function resolveWorkspaceAlias(source, importer, cwd) {
 export default defineConfig({
 	plugins: [
 		vue(),
+		ViteAutoImport({
+			imports: ['vue'],
+			dts: false,
+		}),
 		{
 			name: 'dimina-workspace-source-alias',
 			enforce: 'pre',
@@ -45,7 +50,7 @@ export default defineConfig({
 	resolve: {
 		alias: {
 			'@dimina/common': resolve(process.cwd(), '../common/src/index.js'),
-			'@dimina/components': resolve(process.cwd(), '../components/src/index.js'),
+			'@dimina/components': resolve(process.cwd(), '../components/index.js'),
 		},
 	},
 	test: {

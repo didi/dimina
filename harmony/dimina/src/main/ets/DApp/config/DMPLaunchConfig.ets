@@ -18,7 +18,8 @@ export enum WebViewDefaultId {
 
 export enum DMPScene {
   fromMainEntry = 1001,
-  fromMiniProgram = 1037
+  fromMiniProgram = 1037,
+  fromMiniProgramBack = 1038
 }
 
 export class DMPLaunchStackConfig {
@@ -33,6 +34,9 @@ export class DMPLaunchConfig {
   appEntryPath?: string;
   //传递给页面参数
   query?: DMPMap;
+  // 小程序进入场景及来源信息，进入另一个小程序时分别为 1037 / referrerInfo。
+  scene: DMPScene = DMPScene.fromMainEntry;
+  referrerInfo?: DMPMap;
   launchAnimated?: boolean;
   isHoldMode?: boolean;
   isRelaunch?: boolean;
@@ -51,4 +55,3 @@ export class DMPCustomConfig {
   mapConfig?: DMPMapConfig
   safetyConfig?: DMPSafetyConfig
 }
-

@@ -37,8 +37,10 @@ export function useTouchEvents(info, elementRef, longPressThreshold = 350, moveT
 		longPressTimer.value = setTimeout(() => {
 			// 如果触摸没有移动太多，则触发长按事件
 			if (!isTouchMoved.value) {
-				// 创建新的事件对象，确保 currentTarget 被保留，未实现 longtap
-				triggerEvent('longpress', { event: { ...event, currentTarget }, info })
+				// longtap 是 longpress 的历史别名，exparser 会按实际绑定分发。
+				const preservedEvent = { ...event, currentTarget }
+				triggerEvent('longpress', { event: preservedEvent, info })
+				triggerEvent('longtap', { event: preservedEvent, info })
 			}
 			longPressTimer.value = null
 		}, longPressThreshold)

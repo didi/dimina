@@ -13,11 +13,13 @@ class NavigationBarApi : BaseApiHandler() {
     private companion object {
         const val SET_NAVIGATION_BAR_TITLE = "setNavigationBarTitle"
         const val SET_NAVIGATION_BAR_COLOR = "setNavigationBarColor"
+        const val HIDE_HOME_BUTTON = "hideHomeButton"
     }
 
     override val apiNames = setOf(
         SET_NAVIGATION_BAR_TITLE,
         SET_NAVIGATION_BAR_COLOR,
+        HIDE_HOME_BUTTON,
     )
 
     override fun handleAction(
@@ -57,6 +59,13 @@ class NavigationBarApi : BaseApiHandler() {
                 activity.setNavigationBarColor(frontColor, backgroundColor)
                 AsyncResult(JSONObject().apply {
                     put("errMsg", "$SET_NAVIGATION_BAR_COLOR:ok")
+                })
+            }
+
+            HIDE_HOME_BUTTON -> {
+                activity.hideHomeButton()
+                AsyncResult(JSONObject().apply {
+                    put("errMsg", "$HIDE_HOME_BUTTON:ok")
                 })
             }
 

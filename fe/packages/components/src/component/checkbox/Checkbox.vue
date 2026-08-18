@@ -14,6 +14,7 @@ const props = defineProps({
 	 */
 	value: {
 		type: String,
+		default: '',
 	},
 	/**
 	 * 是否禁用 checkbox。
@@ -38,16 +39,25 @@ const props = defineProps({
 	},
 })
 
-const selectValue = inject('selectValue', undefined)
-const selected = inject('selected', ref(props.checked ? [props.value] : []))
 const isOn = ref(props.checked)
+const checkboxGroup = inject('checkboxGroup', undefined)
 
-if (props.checked) {
-	selectValue?.(props.value)
+watch(() => props.checked, value => {
+	isOn.value = value
+})
+
+const checkboxControl = {
+	getValue: () => props.value,
+	isChecked: () => isOn.value,
+	setChecked: value => {
+		isOn.value = value
+	},
+	reset: () => {
+		isOn.value = false
+	},
 }
-else {
-	selectValue?.(undefined)
-}
+const unregisterCheckbox = checkboxGroup?.registerCheckbox(checkboxControl)
+onBeforeUnmount(() => unregisterCheckbox?.())
 
 const computedStyle = computed(() => {
 	if (props.color) {
@@ -60,32 +70,31 @@ const computedStyle = computed(() => {
 	}
 })
 
-function handleClicked() {
+function handleClicked(event) {
 	if (!props.disabled) {
-		if (typeof selectValue === 'function') {
-			selectValue(props.value)
+		if (checkboxGroup) {
+			checkboxGroup.toggleCheckbox(checkboxControl, event)
 		}
 		else {
-			if (selected.value.includes(props.value)) {
-				selected.value = selected.value.filter(item => item !== props.value)
-			}
-			else {
-				selected.value.push(props.value)
-			}
+			isOn.value = !isOn.value
 		}
-		isOn.value = !isOn.value
 	}
 }
 </script>
 
 <template>
-	<div v-bind="$attrs" class="dd-checkbox" @click="handleClicked">
+	<div
+		:id="id" v-bind="$attrs" class="dd-checkbox" data-dd-label-target role="checkbox"
+		:tabindex="disabled ? -1 : 0" :aria-checked="isOn" :aria-disabled="disabled" @click="handleClicked"
+		@keydown.enter.prevent="handleClicked" @keydown.space.prevent="handleClicked"
+	>
 		<div class="dd-checkbox-wrapper">
 			<div
 				class="dd-checkbox-input"
 				:class="{ 'dd-checkbox-input-checked': isOn, 'dd-checkbox-input-disabled': disabled }"
 				:style="computedStyle"
 			/>
+			<slot />
 		</div>
 	</div>
 </template>

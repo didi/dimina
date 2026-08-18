@@ -3,6 +3,7 @@ import grantPermission from './PermissionUtils'
 import { BusinessError } from '@kit.BasicServicesKit'
 import { CameraParams } from './DMPComponetParams'
 import { DMPMap } from '../../Utils/DMPMap'
+import { DMPLogger } from '../../EventTrack/DMPLogger'
 
 
 // @Builder中为动态组件的具体组件内容。
@@ -24,7 +25,7 @@ struct CameraComponent {
     await grantPermission().then(() => {
       this.xComponentInit();
     }).catch((err: BusinessError) => {
-      console.info('[CameraModel]', `grantPermission faild  ${JSON.stringify(err.code)}`);
+      DMPLogger.e('[CameraModel]', `grantPermission failed ${JSON.stringify(err.code)}`);
     })
   }
 

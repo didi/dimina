@@ -2,6 +2,7 @@ package com.didi.dimina.core
 
 import android.content.Context
 import com.didi.dimina.bean.MiniProgram
+import com.didi.dimina.common.AtomicZipInstaller
 import com.didi.dimina.common.LogUtils
 import com.didi.dimina.common.VersionUtils
 import okhttp3.OkHttpClient
@@ -10,12 +11,12 @@ import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
-import java.nio.file.Files
-import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
-import java.util.zip.ZipInputStream
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
 
 object RemoteUpdateManager {
     private const val TAG = "RemoteUpdateManager"
@@ -24,12 +25,91 @@ object RemoteUpdateManager {
     private const val EVENT_UPDATE_READY = "updateready"
     private const val EVENT_UPDATE_FAILED = "updatefail"
 
+    private val requiredPackagePaths = listOf(
+        "config.json",
+        "main/app-config.json",
+        "main/logic.js",
+    )
+    private val appLocks = ConcurrentHashMap<String, ReentrantLock>()
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
         .build()
 
     fun checkForUpdate(
+        context: Context,
+        miniProgram: MiniProgram,
+        notify: (String) -> Unit,
+    ) {
+        lockFor(miniProgram.appId).withLock {
+            checkForUpdateLocked(context, miniProgram, notify)
+        }
+    }
+
+    /**
+     * Installs the package described by [MiniProgram.updateManifestUrl] directly
+     * into the active app directory.
+     *
+     * This path is only used when no runnable local package exists yet. Unlike
+     * the normal update flow, the package must be activated before the service
+     * and render runtimes can start.
+     */
+    @Throws(IOException::class)
+    fun installInitialPackage(context: Context, miniProgram: MiniProgram): MiniProgram {
+        return lockFor(miniProgram.appId).withLock {
+            val manifestUrl = miniProgram.updateManifestUrl.trim()
+            if (manifestUrl.isEmpty()) {
+                throw IOException(
+                    "mini program ${miniProgram.appId} has no local package or updateManifestUrl"
+                )
+            }
+
+            val manifest = fetchManifest(manifestUrl)
+            validateManifestAppId(manifest, miniProgram.appId)
+
+            val zipFile = downloadPackage(context, manifest)
+            installActivePackage(context, manifest, zipFile)
+
+            miniProgram.copy(
+                name = miniProgram.name.ifBlank { manifest.name },
+                path = miniProgram.path ?: manifest.path,
+                versionCode = manifest.versionCode,
+                versionName = manifest.versionName,
+            )
+        }
+    }
+
+    /**
+     * Promotes the downloaded package to the active directory. The current
+     * runtime continues to use the old directory until this method is called.
+     */
+    fun activatePendingUpdate(context: Context, appId: String): Boolean {
+        return lockFor(appId).withLock {
+            try {
+                val pendingPackage = readPendingPackage(context, appId) ?: return@withLock false
+                val currentVersion = VersionUtils.getAppVersion(appId)
+                if (pendingPackage.versionCode <= currentVersion) {
+                    pendingPackage.directory.deleteRecursively()
+                    return@withLock false
+                }
+
+                val activeDir = appDirectory(jsAppRoot(context), appId)
+                AtomicZipInstaller.replaceDirectory(
+                    sourceDir = pendingPackage.directory,
+                    targetDir = activeDir,
+                    onInstalled = {
+                        VersionUtils.setAppVersion(appId, pendingPackage.versionCode)
+                    },
+                )
+                true
+            } catch (e: Exception) {
+                LogUtils.e(TAG, "Failed to activate pending update for $appId: ${e.message}")
+                false
+            }
+        }
+    }
+
+    private fun checkForUpdateLocked(
         context: Context,
         miniProgram: MiniProgram,
         notify: (String) -> Unit,
@@ -43,12 +123,11 @@ object RemoteUpdateManager {
         var updateAnnounced = false
         try {
             val manifest = fetchManifest(manifestUrl)
-            if (manifest.appId != miniProgram.appId) {
-                throw IOException("manifest appId ${manifest.appId} does not match ${miniProgram.appId}")
-            }
+            validateManifestAppId(manifest, miniProgram.appId)
 
             val currentVersion = VersionUtils.getAppVersion(miniProgram.appId)
             if (manifest.versionCode <= currentVersion) {
+                deletePendingPackage(context, miniProgram.appId)
                 notify(EVENT_NO_UPDATE)
                 return
             }
@@ -56,17 +135,46 @@ object RemoteUpdateManager {
             updateAnnounced = true
             notify(EVENT_UPDATING)
 
-            val zipFile = downloadPackage(context, manifest)
-            if (!manifest.sha256.isNullOrBlank()) {
-                verifySha256(zipFile, manifest.sha256)
+            val pendingPackage = readPendingPackage(context, miniProgram.appId)
+            if (pendingPackage != null && pendingPackage.versionCode >= manifest.versionCode) {
+                notify(EVENT_UPDATE_READY)
+                return
             }
 
-            installPackage(context, manifest, zipFile)
-            VersionUtils.setAppVersion(manifest.appId, manifest.versionCode)
+            val zipFile = downloadPackage(context, manifest)
+            installPendingPackage(context, manifest, zipFile)
             notify(EVENT_UPDATE_READY)
         } catch (e: Exception) {
             LogUtils.e(TAG, "Remote update failed: ${e.message}")
             notify(if (updateAnnounced) EVENT_UPDATE_FAILED else EVENT_NO_UPDATE)
+        }
+    }
+
+    private fun installActivePackage(
+        context: Context,
+        manifest: RemoteUpdateManifest,
+        zipFile: File,
+    ) {
+        try {
+            if (!manifest.sha256.isNullOrBlank()) {
+                verifySha256(zipFile, manifest.sha256)
+            }
+            val activeDir = appDirectory(jsAppRoot(context), manifest.appId)
+            val installed = AtomicZipInstaller.install(
+                inputProvider = { zipFile.inputStream() },
+                targetDir = activeDir,
+                requiredPaths = requiredPackagePaths,
+                afterExtract = { packageDir ->
+                    writeConfig(manifest, File(packageDir, "config.json"))
+                },
+            )
+            if (!installed) {
+                throw IOException("failed to extract or validate initial package")
+            }
+            validatePackage(activeDir, manifest.appId)
+            VersionUtils.setAppVersion(manifest.appId, manifest.versionCode)
+        } finally {
+            zipFile.delete()
         }
     }
 
@@ -103,77 +211,79 @@ object RemoteUpdateManager {
         return targetFile
     }
 
-    private fun installPackage(context: Context, manifest: RemoteUpdateManifest, zipFile: File) {
-        val jsAppRoot = File(context.filesDir, "jsapp").apply { mkdirs() }
-        val stagingDir = File(jsAppRoot, ".remote/${manifest.appId}-${manifest.versionCode}")
-        val targetDir = File(jsAppRoot, manifest.appId)
-        val backupDir = File(jsAppRoot, ".backup/${manifest.appId}-${System.currentTimeMillis()}")
-
+    private fun installPendingPackage(
+        context: Context,
+        manifest: RemoteUpdateManifest,
+        zipFile: File,
+    ) {
+        val pendingDir = pendingAppDirectory(context, manifest.appId)
         try {
-            stagingDir.deleteRecursively()
-            unzipFile(zipFile, stagingDir)
-            writeConfig(manifest, File(stagingDir, "config.json"))
-            validatePackage(stagingDir)
-
-            backupDir.parentFile?.mkdirs()
-            try {
-                if (targetDir.exists()) {
-                    Files.move(
-                        targetDir.toPath(),
-                        backupDir.toPath(),
-                        StandardCopyOption.REPLACE_EXISTING,
-                    )
-                }
-                Files.move(
-                    stagingDir.toPath(),
-                    targetDir.toPath(),
-                    StandardCopyOption.REPLACE_EXISTING,
-                )
-                backupDir.deleteRecursively()
-            } catch (e: Exception) {
-                if (!targetDir.exists() && backupDir.exists()) {
-                    Files.move(
-                        backupDir.toPath(),
-                        targetDir.toPath(),
-                        StandardCopyOption.REPLACE_EXISTING,
-                    )
-                }
-                throw e
+            if (!manifest.sha256.isNullOrBlank()) {
+                verifySha256(zipFile, manifest.sha256)
             }
+            val installed = AtomicZipInstaller.install(
+                inputProvider = { zipFile.inputStream() },
+                targetDir = pendingDir,
+                requiredPaths = requiredPackagePaths,
+                afterExtract = { packageDir ->
+                    writeConfig(manifest, File(packageDir, "config.json"))
+                },
+            )
+            if (!installed) {
+                throw IOException("failed to extract or validate update package")
+            }
+            validatePackage(pendingDir, manifest.appId)
         } finally {
-            stagingDir.deleteRecursively()
             zipFile.delete()
         }
     }
 
-    private fun unzipFile(zipFile: File, targetDir: File) {
-        targetDir.mkdirs()
-        val targetCanonical = targetDir.canonicalFile
-        ZipInputStream(zipFile.inputStream()).use { zipInputStream ->
-            var entry = zipInputStream.nextEntry
-            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+    private fun readPendingPackage(context: Context, appId: String): PendingPackage? {
+        val pendingDir = pendingAppDirectory(context, appId)
+        if (!pendingDir.exists()) {
+            return null
+        }
 
-            while (entry != null) {
-                val outputFile = File(targetDir, entry.name).canonicalFile
-                if (!outputFile.path.startsWith(targetCanonical.path + File.separator)) {
-                    throw IOException("invalid zip entry path: ${entry.name}")
-                }
+        return try {
+            val versionCode = validatePackage(pendingDir, appId)
+            PendingPackage(pendingDir, versionCode)
+        } catch (e: Exception) {
+            LogUtils.e(TAG, "Discarding invalid pending package for $appId: ${e.message}")
+            pendingDir.deleteRecursively()
+            null
+        }
+    }
 
-                if (entry.isDirectory) {
-                    outputFile.mkdirs()
-                } else {
-                    outputFile.parentFile?.mkdirs()
-                    FileOutputStream(outputFile).use { output ->
-                        var length: Int
-                        while (zipInputStream.read(buffer).also { length = it } > 0) {
-                            output.write(buffer, 0, length)
-                        }
-                    }
-                }
+    private fun deletePendingPackage(context: Context, appId: String) {
+        try {
+            pendingAppDirectory(context, appId).deleteRecursively()
+        } catch (e: Exception) {
+            LogUtils.e(TAG, "Failed to clean pending package for $appId: ${e.message}")
+        }
+    }
 
-                zipInputStream.closeEntry()
-                entry = zipInputStream.nextEntry
-            }
+    private fun validatePackage(packageDir: File, expectedAppId: String): Int {
+        val missingPath = requiredPackagePaths.firstOrNull { path ->
+            !File(packageDir, path).isFile
+        }
+        if (missingPath != null) {
+            throw IOException("package missing required file: $missingPath")
+        }
+
+        val config = JSONObject(File(packageDir, "config.json").readText())
+        val appId = config.getString("appId")
+        if (appId != expectedAppId) {
+            throw IOException("package appId $appId does not match $expectedAppId")
+        }
+        return config.getInt("versionCode")
+    }
+
+    private fun validateManifestAppId(
+        manifest: RemoteUpdateManifest,
+        expectedAppId: String,
+    ) {
+        if (manifest.appId != expectedAppId) {
+            throw IOException("manifest appId ${manifest.appId} does not match $expectedAppId")
         }
     }
 
@@ -188,17 +298,21 @@ object RemoteUpdateManager {
         }.toString())
     }
 
-    private fun validatePackage(packageDir: File) {
-        val requiredFiles = listOf(
-            File(packageDir, "config.json"),
-            File(packageDir, "main/app-config.json"),
-            File(packageDir, "main/logic.js"),
-        )
+    private fun pendingAppDirectory(context: Context, appId: String): File {
+        val pendingRoot = File(jsAppRoot(context), ".pending").apply { mkdirs() }
+        return appDirectory(pendingRoot, appId)
+    }
 
-        val missingFile = requiredFiles.firstOrNull { !it.isFile }
-        if (missingFile != null) {
-            throw IOException("package missing required file: ${missingFile.relativeTo(packageDir).path}")
+    private fun jsAppRoot(context: Context): File =
+        File(context.filesDir, "jsapp").apply { mkdirs() }
+
+    private fun appDirectory(root: File, appId: String): File {
+        val canonicalRoot = root.canonicalFile
+        val directory = File(canonicalRoot, appId).canonicalFile
+        if (directory.parentFile != canonicalRoot) {
+            throw IOException("invalid appId path: $appId")
         }
+        return directory
     }
 
     private fun verifySha256(file: File, expectedSha256: String) {
@@ -219,6 +333,14 @@ object RemoteUpdateManager {
         }
         return digest.digest().joinToString("") { "%02x".format(it) }
     }
+
+    private fun lockFor(appId: String): ReentrantLock =
+        appLocks.computeIfAbsent(appId) { ReentrantLock() }
+
+    private data class PendingPackage(
+        val directory: File,
+        val versionCode: Int,
+    )
 
     private data class RemoteUpdateManifest(
         val appId: String,

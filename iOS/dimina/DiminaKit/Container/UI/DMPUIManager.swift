@@ -5,80 +5,47 @@ public class DMPUIManager {
 
     private init() {}
 
-    private var _statusBarHeight: CGFloat?
-
-    private var _safeAreaInsets: UIEdgeInsets?
-
-    private var _deviceDisplayInfo: [String: Any]?
-
     public func getStatusBarHeight() -> CGFloat {
-        if let cachedHeight = _statusBarHeight {
-            return cachedHeight
-        }
-
-        var statusBarHeight: CGFloat = 0
-
         if #available(iOS 13.0, *) {
-            if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                let statusBarManager = windowScene.statusBarManager
+            if let statusBarManager = DMPUIManager.getCurrentWindow()?.windowScene?.statusBarManager
             {
-                statusBarHeight = statusBarManager.statusBarFrame.height
+                return statusBarManager.statusBarFrame.height
             }
-        } else {
-            statusBarHeight = UIApplication.shared.statusBarFrame.height
         }
-
-        _statusBarHeight = statusBarHeight
-        return statusBarHeight
+        return UIApplication.shared.statusBarFrame.height
     }
 
     public func getSafeAreaInsets() -> UIEdgeInsets {
-        if let cachedInsets = _safeAreaInsets {
-            return cachedInsets
-        }
-
-        var safeAreaInsets = UIEdgeInsets.zero
-
-        if #available(iOS 15.0, *) {
-            if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                let window = windowScene.windows.first
-            {
-                safeAreaInsets = window.safeAreaInsets
-            }
-        } else {
-            safeAreaInsets = UIApplication.shared.windows.first?.safeAreaInsets ?? .zero
-        }
-
-        _safeAreaInsets = safeAreaInsets
-        return safeAreaInsets
+        return DMPUIManager.getCurrentWindow()?.safeAreaInsets ?? .zero
     }
 
     public func getDeviceDisplayInfo() -> [String: Any] {
-        if let cachedInfo = _deviceDisplayInfo {
-            return cachedInfo
-        }
-
-        let screenBounds = UIScreen.main.bounds
-        let screenScale = UIScreen.main.scale
+        let window = DMPUIManager.getCurrentWindow()
+        let screen = window?.screen ?? UIScreen.main
+        let screenBounds = screen.bounds
+        let windowBounds = window?.bounds ?? screenBounds
+        let screenScale = screen.scale
 
         let safeAreaInsets = getSafeAreaInsets()
 
-        let windowWidth = screenBounds.width - (safeAreaInsets.left + safeAreaInsets.right)
-        let windowHeight = screenBounds.height - (safeAreaInsets.top + safeAreaInsets.bottom)
+        // windowWidth 与菜单按钮坐标必须使用同一个窗口坐标系；安全区域单独通过
+        // safeArea 描述，不能从横向宽度中再次扣除，否则横屏会产生负的右侧间距。
+        let windowWidth = windowBounds.width
+        let windowHeight = max(windowBounds.height - safeAreaInsets.top - safeAreaInsets.bottom, 0)
 
         let statusBarHeight = getStatusBarHeight()
 
         let safeArea: [String: Any] = [
             "left": safeAreaInsets.left,
-            "right": screenBounds.width - (safeAreaInsets.right),
+            "right": windowBounds.width - safeAreaInsets.right,
             "top": safeAreaInsets.top,
-            "bottom": screenBounds.height - (safeAreaInsets.bottom),
-            "width": screenBounds.width - (safeAreaInsets.left) - (safeAreaInsets.right),
-            "height": screenBounds.height - (safeAreaInsets.top) - (safeAreaInsets.bottom),
+            "bottom": windowBounds.height - safeAreaInsets.bottom,
+            "width": max(windowBounds.width - safeAreaInsets.left - safeAreaInsets.right, 0),
+            "height": windowHeight,
         ]
 
         let displayInfo: [String: Any] = [
-            "pixelRatio": UIScreen.main.scale,
+            "pixelRatio": screenScale,
             "screenWidth": screenBounds.width,
             "screenHeight": screenBounds.height,
             "screenScale": screenScale,
@@ -89,7 +56,6 @@ public class DMPUIManager {
             "safeArea": safeArea,
         ]
 
-        _deviceDisplayInfo = displayInfo
         return displayInfo
     }
 
@@ -100,9 +66,7 @@ public class DMPUIManager {
     }
 
     public func clearCache() {
-        _statusBarHeight = nil
-        _safeAreaInsets = nil
-        _deviceDisplayInfo = nil
+        // 动态窗口信息不再缓存。保留该方法兼容已有调用方。
     }
 
     // Function to get the current window

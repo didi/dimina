@@ -31,8 +31,13 @@ export class DMPChannelProxyNext {
         if (app.container.isResourceLoaded(webViewId)) {
           transMsg.set('type', 'resourceLoaded');
           const body: DMPMap = transMsg.get('body');
-          body.set('scene', DMPScene.fromMainEntry);
-          body.set('stackId', app.navigatorManager.findNavigatorByWebViewId(webViewId)?.id)
+          const navigator = app.navigatorManager.findNavigatorByWebViewId(webViewId)
+          const launchConfig = navigator?.getLaunchConfig()
+          body.set('scene', launchConfig?.scene ?? DMPScene.fromMainEntry);
+          if (launchConfig?.referrerInfo) {
+            body.set('referrerInfo', launchConfig.referrerInfo)
+          }
+          body.set('stackId', navigator?.id)
           app.service.postMessage(transMsg);
           app.container.resetStatus()
           app.invokeUpdateResult()
@@ -47,8 +52,13 @@ export class DMPChannelProxyNext {
         if (app.container.isResourceLoaded(webViewId)) {
           transMsg.set('type', 'resourceLoaded');
           const body: DMPMap = transMsg.get('body');
-          body.set('scene', DMPScene.fromMainEntry);
-          body.set('stackId', app.navigatorManager.findNavigatorByWebViewId(webViewId)?.id)
+          const navigator = app.navigatorManager.findNavigatorByWebViewId(webViewId)
+          const launchConfig = navigator?.getLaunchConfig()
+          body.set('scene', launchConfig?.scene ?? DMPScene.fromMainEntry);
+          if (launchConfig?.referrerInfo) {
+            body.set('referrerInfo', launchConfig.referrerInfo)
+          }
+          body.set('stackId', navigator?.id)
           app.service.postMessage(transMsg);
           app.container.resetStatus()
           app.invokeUpdateResult()

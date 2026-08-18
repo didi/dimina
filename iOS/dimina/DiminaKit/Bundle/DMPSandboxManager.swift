@@ -25,7 +25,7 @@ class DMPSandboxManager {
         if DMPFileUtil.createDirectory(at: sandbox) {
             return sandbox
         } else {
-            print("创建沙盒目录失败")
+            DMPLogger.debug("创建沙盒目录失败")
             return nil
         }
     }()
@@ -43,7 +43,7 @@ class DMPSandboxManager {
         if !DMPFileUtil.createDirectory(at: appBundlePath)
             || !DMPFileUtil.createDirectory(at: tmpPath)
             || !DMPFileUtil.createDirectory(at: storePath) {
-            print("创建目录失败")
+            DMPLogger.debug("创建目录失败")
             return false
         }
         

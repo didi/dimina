@@ -15,6 +15,7 @@ import { DMPDeviceUtil } from '../Utils/DMPDeviceUtils'
 import { DMPCapsuleButton } from '../Components/DMPCapsuleButton'
 import { DMPMiniProgramMenuDialog } from '../Components/DMPMiniProgramMenuDialog'
 import { DMPLaunchConfig } from '../DApp/config/DMPLaunchConfig'
+import { DMPMenuButtonLayout } from '../Utils/DMPMenuButtonLayout'
 
 @Component
 export struct DMPPageContainer {
@@ -35,6 +36,11 @@ export struct DMPPageContainer {
   @State
   keyboardHeight: number = 0
   @State selectedTabIndex: number = 0
+  @State menuButtonLeft: number = this.getInitialMenuButtonRect().getNumber('left') ?? 0
+  @State menuButtonTop: number = this.getInitialMenuButtonRect().getNumber('top') ?? 0
+  private readonly deviceMetricsChangeCallback = (_metrics: DMPMap): void => {
+    this.updateMenuButtonPosition()
+  }
 
   onWebViewIdChange() {
     DMPLogger.d(Tags.TABBAR, `WebViewId changed to: ${this.webViewId}`)
@@ -51,11 +57,13 @@ export struct DMPPageContainer {
   aboutToAppear(): void {
     this.showSafetyView = false
     this.updateTabBarSelection()
+    this.updateMenuButtonPosition()
+    DMPDeviceUtil.addMetricsChangeListener(this.deviceMetricsChangeCallback)
 
     window.getLastWindow(getContext(this)).then(currentWindow => {
       currentWindow.on('keyboardHeightChange', (data: number) => {
         this.keyboardHeight = px2vp(data);
-        console.log('victor', "keyBoardHeight=" + this.keyboardHeight)
+        DMPLogger.d('', "keyBoardHeight=" + this.keyboardHeight)
       })
     })
     getContext(this).eventHub.on('ps_safety_display', (data: Map<string, number>) => {
@@ -86,6 +94,7 @@ export struct DMPPageContainer {
   }
 
   aboutToDisappear(): void {
+    DMPDeviceUtil.removeMetricsChangeListener(this.deviceMetricsChangeCallback)
     if (this.pageRecord.webViewNodeController) {
       this.pageRecord.webViewNodeController.dispose()
     }
@@ -166,7 +175,7 @@ export struct DMPPageContainer {
             this.closeMiniProgram()
           }
         })
-          .position({ x: this.getMenuButtonLeft(), y: this.getMenuButtonTop() })
+          .position({ x: this.menuButtonLeft, y: this.menuButtonTop })
           .zIndex(10)
       }
     }
@@ -186,18 +195,14 @@ export struct DMPPageContainer {
     return undefined
   }
 
-  private getMenuButtonTop(): number {
-    const navigationBarContentHeight = 55
-    const capsuleHeight = 32
-    return (DMPDeviceUtil.getSafeAreaAndDisplayWHSync().get('statusBarHeight') as number) +
-      Math.round((navigationBarContentHeight - capsuleHeight) / 2)
+  private getInitialMenuButtonRect(): DMPMap {
+    return DMPMenuButtonLayout.buildFromWindowMetrics(DMPDeviceUtil.getSafeAreaAndDisplayWHSync())
   }
 
-  private getMenuButtonLeft(): number {
-    const capsuleWidth = 87
-    const capsuleRightMargin = 10
-    const windowWidth = DMPDeviceUtil.getSafeAreaAndDisplayWHSync().get('windowWidth') as number
-    return windowWidth - capsuleRightMargin - capsuleWidth
+  private updateMenuButtonPosition(): void {
+    const rect: DMPMap = this.getInitialMenuButtonRect()
+    this.menuButtonLeft = rect.getNumber('left') ?? 0
+    this.menuButtonTop = rect.getNumber('top') ?? 0
   }
 
   private showMiniProgramMenu() {
@@ -225,11 +230,11 @@ export struct DMPPageContainer {
     const launchConfig = new DMPLaunchConfig()
     launchConfig.appEntryPath = this.app.bundleManager.getJsAppModuleConfig().entryPagePath
     launchConfig.query = new DMPMap()
-    this.app.reLaunchRootStack(launchConfig)
+    this.app.reEnter(launchConfig)
   }
 
   private closeMiniProgram() {
-    this.app.navigatorManager.getCurNavigator()?.pop(999)
+    this.app.closeDimina()
   }
 
   private shouldShowTabBar(): boolean {
