@@ -3,6 +3,7 @@ package com.didi.dimina.common
 import android.content.Context
 import android.net.Uri
 import java.io.File
+import java.nio.file.Files
 
 /**
  * Author: Doslin
@@ -26,10 +27,29 @@ object PathUtils {
     }
 
     fun appUserRoot(context: Context, appId: String): File =
-        File(context.filesDir, "$FILE_SYSTEM_DIR/${validatedAppId(appId)}/$USER_DIR").apply { mkdirs() }
+        confinedStorageRoot(context.filesDir, validatedAppId(appId), USER_DIR)
 
     fun appTempRoot(context: Context, appId: String): File =
-        File(context.cacheDir, "$FILE_SYSTEM_DIR/${validatedAppId(appId)}/$TEMP_DIR").apply { mkdirs() }
+        confinedStorageRoot(context.cacheDir, validatedAppId(appId), TEMP_DIR)
+
+    internal fun confinedStorageRoot(platformRoot: File, appId: String, leaf: String): File {
+        val canonicalPlatformRoot = platformRoot.canonicalFile
+        val directories = listOf(
+            File(canonicalPlatformRoot, FILE_SYSTEM_DIR),
+            File(canonicalPlatformRoot, "$FILE_SYSTEM_DIR/$appId"),
+            File(canonicalPlatformRoot, "$FILE_SYSTEM_DIR/$appId/$leaf"),
+        )
+        directories.forEach { directory ->
+            require(!Files.isSymbolicLink(directory.toPath())) { "application storage contains a symbolic link" }
+            Files.createDirectories(directory.toPath())
+            require(!Files.isSymbolicLink(directory.toPath())) { "application storage contains a symbolic link" }
+            val canonicalDirectory = directory.canonicalFile
+            require(canonicalDirectory.path.startsWith(canonicalPlatformRoot.path + File.separator)) {
+                "application storage escapes platform sandbox"
+            }
+        }
+        return directories.last().canonicalFile
+    }
 
     fun appTempFile(context: Context, appId: String, relativePath: String): File =
         confinedFile(appTempRoot(context, appId), relativePath)

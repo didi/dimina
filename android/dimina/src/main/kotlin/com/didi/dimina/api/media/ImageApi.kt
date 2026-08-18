@@ -21,10 +21,31 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+import java.util.Base64
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+/**
+ * canvasToTempFilePath hands the same result to success/fail and to complete: mini programs read
+ * res.errMsg and res.tempFilePath inside complete, and complete without a result hands them
+ * undefined.
+ */
+internal fun canvasTempFileFailure(reason: String): AsyncResult = AsyncResult(
+    value = JSONObject().apply { put("errMsg", "canvasToTempFilePath:fail $reason") },
+    completeCarriesResult = true,
+)
+
+internal fun canvasTempFileSuccess(tempFilePath: String): AsyncResult = AsyncResult(
+    value = JSONObject().apply {
+        put("tempFilePath", tempFilePath)
+        put("errMsg", "canvasToTempFilePath:ok")
+    },
+    completeCarriesResult = true,
+)
 
 /**
  * Author: Doslin
@@ -32,14 +53,28 @@ import kotlinx.coroutines.withContext
 class ImageApi : BaseApiHandler() {
     private companion object {
         const val SAVE_IMAGE_TO_PHOTOS_ALBUM = "saveImageToPhotosAlbum"
+        const val SAVE_CANVAS_TEMP_FILE = "saveCanvasTempFile"
         const val PREVIEW_IMAGE = "previewImage"
         const val COMPRESS_IMAGE = "compressImage"
         const val CHOOSE_IMAGE = "chooseImage"
         const val CHOOSE_MESSAGE_FILE = "chooseMessageFile"
+        // Internal bridge safety ceiling, not a WeChat Canvas API limit. It bounds the
+        // extra native allocation and temp-file write after the data URL crosses the bridge.
+        const val MAX_CANVAS_IMAGE_BYTES = 32 * 1024 * 1024
+        const val MAX_CANVAS_BASE64_CHARS = (MAX_CANVAS_IMAGE_BYTES * 4 / 3) + 8
+        val SAFE_APP_ID = Regex("^[A-Za-z0-9._-]+$")
+        val STRICT_BASE64 = Regex("^[A-Za-z0-9+/]*={0,2}$")
     }
 
     override val apiNames =
-        setOf(SAVE_IMAGE_TO_PHOTOS_ALBUM, PREVIEW_IMAGE, COMPRESS_IMAGE, CHOOSE_IMAGE, CHOOSE_MESSAGE_FILE)
+        setOf(
+            SAVE_IMAGE_TO_PHOTOS_ALBUM,
+            SAVE_CANVAS_TEMP_FILE,
+            PREVIEW_IMAGE,
+            COMPRESS_IMAGE,
+            CHOOSE_IMAGE,
+            CHOOSE_MESSAGE_FILE,
+        )
 
     override fun handleAction(
         activity: DiminaActivity,
@@ -49,6 +84,8 @@ class ImageApi : BaseApiHandler() {
         responseCallback: (String) -> Unit,
     ): APIResult {
         return when (apiName) {
+            SAVE_CANVAS_TEMP_FILE -> saveCanvasTempFile(activity, appId, params)
+
             SAVE_IMAGE_TO_PHOTOS_ALBUM -> {
                 val filePath = params.optString("filePath")
                 if (PathUtils.isLegalPath(filePath)) {
@@ -347,4 +384,60 @@ class ImageApi : BaseApiHandler() {
     }
 
 
+    private fun saveCanvasTempFile(activity: DiminaActivity, appId: String, params: JSONObject): AsyncResult {
+        fun failure(reason: String) = canvasTempFileFailure(reason)
+
+        val dataURL = params.optString("dataURL")
+        if (dataURL.isEmpty()) return failure("dataURL is required")
+        val fileType = params.optString("fileType", "png")
+        if (fileType != "png" && fileType != "jpg") return failure("invalid file type")
+        if (!isValidCanvasAppId(appId)) return failure("invalid appId")
+
+        val prefix = Regex("^data:image/(png|jpeg|jpg);base64,").find(dataURL)
+        if (dataURL.startsWith("data:") && prefix == null) return failure("invalid dataURL")
+        val declaredType = prefix?.groupValues?.get(1)
+        if (declaredType != null && declaredType != fileType && !(declaredType == "jpeg" && fileType == "jpg")) {
+            return failure("file type mismatch")
+        }
+        val base64Data = prefix?.let { dataURL.substring(it.range.last + 1) } ?: dataURL
+        if (base64Data.isEmpty() || base64Data.length > MAX_CANVAS_BASE64_CHARS
+            || base64Data.length % 4 != 0 || !STRICT_BASE64.matches(base64Data)) {
+            return failure(if (base64Data.length > MAX_CANVAS_BASE64_CHARS) "data too large" else "base64 decode failed")
+        }
+
+        val imageBytes = try {
+            Base64.getDecoder().decode(base64Data)
+        } catch (_: IllegalArgumentException) {
+            return failure("base64 decode failed")
+        }
+        if (imageBytes.isEmpty() || imageBytes.size > MAX_CANVAS_IMAGE_BYTES || !matchesImageType(imageBytes, fileType)) {
+            return failure(if (imageBytes.size > MAX_CANVAS_IMAGE_BYTES) "data too large" else "invalid image data")
+        }
+
+        var cleanupFile: File? = null
+        return try {
+            val tempRoot = PathUtils.appTempRoot(activity, appId)
+            val stagingFile = File.createTempFile(".canvas_", ".tmp", tempRoot)
+            cleanupFile = stagingFile
+            stagingFile.outputStream().use { it.write(imageBytes) }
+            val publishedFile = File(tempRoot, "canvas_${UUID.randomUUID()}.$fileType")
+            Files.move(stagingFile.toPath(), publishedFile.toPath(), StandardCopyOption.ATOMIC_MOVE)
+            cleanupFile = publishedFile
+            canvasTempFileSuccess(PathUtils.pathToVirtual(publishedFile))
+        } catch (_: Exception) {
+            cleanupFile?.delete()
+            failure("write failed")
+        }
+    }
+
+    internal fun isValidCanvasAppId(appId: String): Boolean =
+        SAFE_APP_ID.matches(appId) && appId != "." && appId != ".."
+
+    internal fun matchesImageType(bytes: ByteArray, fileType: String): Boolean = when (fileType) {
+        "png" -> bytes.size >= 8 && bytes.copyOfRange(0, 8).contentEquals(
+            byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)
+        )
+        "jpg" -> bytes.size >= 3 && bytes[0] == 0xFF.toByte() && bytes[1] == 0xD8.toByte() && bytes[2] == 0xFF.toByte()
+        else -> false
+    }
 }

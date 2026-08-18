@@ -316,6 +316,41 @@ const VUE_RUNTIME_HELPERS = {
 }
 
 const CANVAS_NODE_TYPE = 'dimina-canvas-node'
+
+// Path snapshots only accept path-construction methods. Keeping this allowlist
+// separate prevents malformed bridge data from invoking arbitrary context methods.
+const CANVAS_PATH_STEP_METHOD_NAMES = [
+	'closePath', 'moveTo', 'lineTo', 'rect', 'arc', 'arcTo',
+	'quadraticCurveTo', 'bezierCurveTo',
+]
+const CANVAS_PATH_STEP_METHODS = new Set(CANVAS_PATH_STEP_METHOD_NAMES)
+
+const CANVAS_DIRECT_METHODS = new Set([
+	'beginPath', ...CANVAS_PATH_STEP_METHOD_NAMES,
+	'clearRect', 'fillRect', 'strokeRect',
+	'fillText', 'strokeText',
+	'save', 'restore',
+	'translate', 'rotate', 'scale', 'transform', 'setTransform',
+])
+
+// 只是给 context 上某个属性赋值的 action
+const CANVAS_PROPERTY_ACTIONS = {
+	setGlobalAlpha: 'globalAlpha',
+	setLineCap: 'lineCap',
+	setLineJoin: 'lineJoin',
+	setLineWidth: 'lineWidth',
+	setMiterLimit: 'miterLimit',
+	setTextAlign: 'textAlign',
+	setGlobalCompositeOperation: 'globalCompositeOperation',
+	setLineDashOffset: 'lineDashOffset',
+	setShadowBlur: 'shadowBlur',
+	setShadowColor: 'shadowColor',
+	setShadowOffsetX: 'shadowOffsetX',
+	setShadowOffsetY: 'shadowOffsetY',
+}
+
+const CANVAS_FONT_SIZE_PATTERN = /\d+\.?\d*px/
+
 const TYPED_ARRAY_CTORS = {
 	Int8Array,
 	Uint8Array,
@@ -578,6 +613,11 @@ class Runtime {
 		this.canvasResources = new Map()
 		this.canvasRafIds = new Map()
 		this.canvasCapabilities = null
+		// 队列和回放状态都按真实 canvas 元素隔离；canvas-id 只在组件作用域内唯一。
+		// WeakMap 让卸载后的画布及其队列、save/clip 状态可以一起回收。
+		this.canvasDrawQueues = new WeakMap()
+		this.canvasReplayStates = new WeakMap()
+		this.canvasImageTimeout = 10000
 		// 追踪"mC 已发出但 service 侧 created 尚未完成"的组件 setup
 		// key: moduleId, value: Promise（created 完成时 resolve）
 		this._pendingSetups = new Map()
@@ -2237,20 +2277,22 @@ class Runtime {
 
 	triggerCanvasFailure(bridgeId, params, errMsg) {
 		const result = { errMsg }
-		this.triggerCallback(bridgeId, params.fail, [result], result)
-		this.triggerCallback(bridgeId, params.complete, [result], result)
+		this.triggerCallback(bridgeId, params.fail, result, result)
+		this.triggerCallback(bridgeId, params.complete, result, result)
 	}
 
-	async getCanvasElement(canvasId, moduleId) {
+	async getCanvasElement(canvasId, moduleId, bridgeId) {
 		const selector = `canvas[canvas-id="${canvasId}"]`
-		const scope = moduleId ? await this.waitForEl(this.instance.get(moduleId)) : document.body
-		if (scope?.querySelector) {
-			const scopedCanvas = await this.waitForElement(scope, selector, 'querySelector')
-			if (scopedCanvas) {
-				return scopedCanvas
-			}
+		// 逻辑层在未显式传组件时使用页面 bridgeId；页面根本身则登记在另一套 pageId 下。
+		// bridgeId 明确代表当前页面作用域，可以直接落到 document.body，不能把它当成失效组件 id。
+		const isPageScope = !moduleId || moduleId === bridgeId
+		const scope = isPageScope ? document.body : await this.waitForEl(this.instance.get(moduleId))
+		if (!scope?.querySelector) {
+			return null
 		}
-		return document.querySelector(selector)
+		// 传入组件实例时 canvas-id 只在该组件作用域内解析。找不到不能回退到 document，
+		// 否则同名 canvas 会把绘制、像素读取或导出执行到另一个组件实例上。
+		return this.waitForElement(scope, selector, 'querySelector')
 	}
 
 	ensureCanvasResolution(canvas) {
@@ -2269,193 +2311,386 @@ class Runtime {
 	loadCanvasImage(src) {
 		return new Promise((resolve, reject) => {
 			const image = new Image()
+			let timer = null
+			const settle = (done, value) => {
+				if (timer !== null) {
+					clearTimeout(timer)
+					timer = null
+				}
+				image.onload = null
+				image.onerror = null
+				done(value)
+			}
 			image.crossOrigin = 'anonymous'
-			image.onload = () => resolve(image)
-			image.onerror = () => reject(new Error(`Failed to load image: ${src}`))
+			image.onload = () => settle(resolve, image)
+			image.onerror = () => settle(reject, new Error(`Failed to load image: ${src}`))
+			// 服务器把连接 hold 住时 onload/onerror 都不会来，没有这道超时会堵死整块画布的回放队列
+			timer = setTimeout(
+				() => settle(reject, new Error(`Timed out loading image: ${src}`)),
+				this.canvasImageTimeout,
+			)
 			image.src = src
 		})
 	}
 
-	async replayCanvasActions(context, actions = []) {
-		const state = {
-			fontSize: 10,
-		}
-
-		const applyFont = () => {
-			context.font = `${state.fontSize}px sans-serif`
-		}
-		applyFont()
-
+	/**
+	 * save / restore 一律直通，不做批内配平也不做批末补齐——
+	 * 逻辑层的状态栈本来就允许跨 draw() 批次存活，批末替开发者弹栈会把他有意保留的状态丢掉。
+	 * 单条 action 失败会终止整批并由 drawCanvas 走 fail/complete，与官方批级 try/catch 一致。
+	 */
+	async replayCanvasActions(context, actions = [], replayState) {
 		for (const action of actions) {
 			const { type, args = [] } = action || {}
-			switch (type) {
-				case 'beginPath':
-				case 'closePath':
-				case 'moveTo':
-				case 'lineTo':
-				case 'rect':
-				case 'arc':
-				case 'quadraticCurveTo':
-				case 'bezierCurveTo':
-				case 'fill':
-				case 'stroke':
-				case 'clearRect':
-				case 'save':
-				case 'restore':
-				case 'translate':
-				case 'rotate':
-				case 'scale':
-					context[type](...args)
-					break
-				case 'fillText':
-					context.fillText(args[0], args[1], args[2], args[3])
-					break
-				case 'drawImage': {
-					const [src, ...drawArgs] = args
-					const image = await this.loadCanvasImage(src)
-					context.drawImage(image, ...drawArgs)
-					break
-				}
-				case 'setFillStyle':
-					context.fillStyle = args[0]
-					break
-				case 'setStrokeStyle':
-					context.strokeStyle = args[0]
-					break
-				case 'setGlobalAlpha':
-					context.globalAlpha = args[0]
-					break
-				case 'setLineCap':
-					context.lineCap = args[0]
-					break
-				case 'setLineJoin':
-					context.lineJoin = args[0]
-					break
-				case 'setLineWidth':
-					context.lineWidth = args[0]
-					break
-				case 'setMiterLimit':
-					context.miterLimit = args[0]
-					break
-				case 'setFontSize':
-					state.fontSize = args[0]
-					applyFont()
-					break
-				case 'setShadow':
-					context.shadowOffsetX = args[0]
-					context.shadowOffsetY = args[1]
-					context.shadowBlur = args[2]
-					context.shadowColor = args[3]
-					break
-				default:
-					console.warn('[system]', '[render]', `Unsupported canvas action: ${type}`)
-			}
+			await this.applyCanvasAction(context, type, args)
+			this.updateCanvasReplayState(replayState, type)
 		}
 	}
 
-	async drawCanvas({ bridgeId, params }) {
-		const { canvasId, actions = [], reserve = false } = params
-		const canvas = await this.getCanvasElement(canvasId, params.moduleId)
-		if (!canvas) {
-			this.triggerCanvasFailure(bridgeId, params, `drawCanvas:fail canvas ${canvasId} not found`)
+	updateCanvasReplayState(state, type) {
+		if (!state) {
+			return
+		}
+		if (type === 'save') {
+			state.stack.push(state.clipped)
+		}
+		else if (type === 'restore' && state.stack.length > 0) {
+			state.clipped = state.stack.pop()
+		}
+		else if (type === 'clip') {
+			state.clipped = true
+		}
+	}
+
+	async applyCanvasAction(context, type, args) {
+		if (CANVAS_DIRECT_METHODS.has(type)) {
+			context[type](...args)
 			return
 		}
 
+		const property = CANVAS_PROPERTY_ACTIONS[type]
+		if (property) {
+			context[property] = args[0]
+			return
+		}
+
+		switch (type) {
+			case 'fillPath':
+			case 'strokePath':
+			case 'clip': {
+				if (Array.isArray(args[0])) {
+					this.replayCanvasPath(context, args[0])
+				}
+				context[type === 'fillPath' ? 'fill' : type === 'strokePath' ? 'stroke' : 'clip']()
+				break
+			}
+			case 'fill':
+			case 'stroke':
+				context[type](...args)
+				break
+			case 'drawImage': {
+				const [src, ...drawArgs] = args
+				const image = await this.loadCanvasImage(src)
+				context.drawImage(image, ...drawArgs)
+				break
+			}
+			case 'setFillStyle':
+			case 'setStrokeStyle': {
+				const style = await this.resolveCanvasStyle(context, args[0])
+				context[type === 'setFillStyle' ? 'fillStyle' : 'strokeStyle'] = style
+				break
+			}
+			case 'setShadow':
+				context.shadowOffsetX = args[0]
+				context.shadowOffsetY = args[1]
+				context.shadowBlur = args[2]
+				context.shadowColor = args[3]
+				break
+			case 'setLineDash':
+				context.setLineDash(args[0] || [])
+				context.lineDashOffset = args[1] || 0
+				break
+			case 'setTextBaseline':
+				// 'normal' 是微信文档列出的合法值，官方示例里也在用，但它不是 canvas 的合法枚举值——
+				// 直接赋过去会被静默忽略、停在上一次的基线上。官方回放层就是这么映射的。
+				context.textBaseline = args[0] === 'normal' ? 'alphabetic' : args[0]
+				break
+			case 'setFont':
+				context.font = args[0]
+				break
+			case 'setFontSize':
+				// 字号之外的字体分量只存在于 context.font 里，替换而不是重拼，免得丢掉字体族
+				context.font = String(context.font).replace(CANVAS_FONT_SIZE_PATTERN, `${args[0]}px`)
+				break
+			default:
+				throw new Error(`Unsupported canvas action: ${type}`)
+		}
+	}
+
+	replayCanvasPath(context, path = []) {
+		context.beginPath()
+		for (const step of path) {
+			const { type, args = [] } = step || {}
+			if (!CANVAS_PATH_STEP_METHODS.has(type)) {
+				throw new Error(`Unsupported canvas path action: ${type}`)
+			}
+			context[type](...args)
+		}
+	}
+
+	/**
+	 * fillStyle / strokeStyle 的值可能是颜色字符串，也可能是逻辑层传来的渐变、图案描述。
+	 */
+	async resolveCanvasStyle(context, value) {
+		if (!value || typeof value !== 'object') {
+			return value
+		}
+		if (value.__canvasStyle === 'gradient') {
+			const data = value.data || []
+			const gradient = value.type === 'radial'
+				// 旧版 createCircularGradient(x, y, r) 是以 (x, y) 为共同圆心的径向渐变
+				? context.createRadialGradient(data[0], data[1], 0, data[0], data[1], data[2])
+				: context.createLinearGradient(data[0], data[1], data[2], data[3])
+			for (const [stop, color] of value.colorStop || []) {
+				gradient.addColorStop(stop, color)
+			}
+			return gradient
+		}
+		if (value.__canvasStyle === 'pattern') {
+			const image = await this.loadCanvasImage(value.image)
+			return context.createPattern(image, value.repetition)
+		}
+		return value
+	}
+
+	/**
+	 * reserve:false 通过重建 backing store 同时清除像素、裁剪区、save 栈和绘图状态。
+	 * 微信 iOS 的底层字号是例外：它跨 draw(false) 以及同画布的新 CanvasContext 泄漏。
+	 */
+	resetCanvasForDraw(context, canvas) {
+		const font = context.font
+		const { width } = canvas
+		canvas.width = width
+		context.font = font
+	}
+
+	/**
+	 * 同一块画布上的异步操作必须串行：回放要等图片加载，导出和像素操作要等回放完成。
+	 * 实际 canvas 元素是队列身份的唯一真相源；同名但不同作用域的画布互不阻塞。
+	 */
+	enqueueCanvasTask(canvas, task) {
+		const previous = this.canvasDrawQueues.get(canvas) || Promise.resolve()
+		const current = previous.then(task)
+		const done = current.catch(() => {}).then(() => {
+			if (this.canvasDrawQueues.get(canvas) === done) {
+				this.canvasDrawQueues.delete(canvas)
+			}
+		})
+		this.canvasDrawQueues.set(canvas, done)
+		return done
+	}
+
+	async queueCanvasOperation({ bridgeId, params }, operation) {
+		if (params.canvasValidationError) {
+			return operation.call(this, { bridgeId, params, canvas: null, lookupError: null })
+		}
+		let canvas
+		let lookupError
 		try {
+			canvas = await this.getCanvasElement(params.canvasId, params.moduleId, bridgeId)
+		}
+		catch (error) {
+			lookupError = error
+		}
+		const task = () => operation.call(this, { bridgeId, params, canvas, lookupError })
+		return canvas ? this.enqueueCanvasTask(canvas, task) : task()
+	}
+
+	drawCanvas(request) {
+		return this.queueCanvasOperation(request, this.runCanvasDraw)
+	}
+
+	async runCanvasDraw({ bridgeId, params, canvas, lookupError }) {
+		const { canvasId, actions = [], reserve = false } = params
+		try {
+			if (lookupError) {
+				throw lookupError
+			}
+			if (!canvas) {
+				this.triggerCanvasFailure(bridgeId, params, `drawCanvas:fail canvas ${canvasId} not found`)
+				return
+			}
+
 			this.ensureCanvasResolution(canvas)
 			const context = canvas.getContext('2d')
+			const replayState = this.canvasReplayStates.get(canvas) || { clipped: false, stack: [] }
+
 			if (!reserve) {
-				context.clearRect(0, 0, canvas.width, canvas.height)
+				this.resetCanvasForDraw(context, canvas)
+				replayState.clipped = false
+				replayState.stack = []
 			}
-			await this.replayCanvasActions(context, actions)
+			await this.replayCanvasActions(context, actions, replayState)
+			if (replayState.clipped || replayState.stack.length > 0) {
+				this.canvasReplayStates.set(canvas, replayState)
+			}
+			else {
+				this.canvasReplayStates.delete(canvas)
+			}
 			const result = { errMsg: 'drawCanvas:ok' }
-			this.triggerCallback(bridgeId, params.success, [result], result)
-			this.triggerCallback(bridgeId, params.complete, [result], result)
+			this.triggerCallback(bridgeId, params.success, result, result)
+			this.triggerCallback(bridgeId, params.complete, result, result)
 		}
 		catch (error) {
 			this.triggerCanvasFailure(bridgeId, params, `drawCanvas:fail ${error.message}`)
 		}
 	}
 
-	async canvasToTempFilePath({ bridgeId, params }) {
-		const { canvasId, x = 0, y = 0, width, height, destWidth, destHeight, fileType = 'png', quality = 1 } = params
-		const canvas = await this.getCanvasElement(canvasId, params.moduleId)
-		if (!canvas) {
-			this.triggerCanvasFailure(bridgeId, params, `canvasToTempFilePath:fail canvas ${canvasId} not found`)
-			return
-		}
+	/**
+	 * 导出也排进这块画布的队列，否则会拍到刚被清屏、或者还在等图片的半成品画面。
+	 */
+	canvasToTempFilePath(request) {
+		return this.queueCanvasOperation(request, this.runCanvasToTempFilePath)
+	}
+
+	async runCanvasToTempFilePath({ bridgeId, params, canvas, lookupError }) {
+		const fileType = params.fileType === 'jpg' || params.fileType === 'png' ? params.fileType : 'png'
 
 		try {
-            const exportWidth = width || canvas.width;
-            const exportHeight = height || canvas.height;
-            const outputCanvas = document.createElement("canvas");
-            outputCanvas.width = destWidth || exportWidth;
-            outputCanvas.height = destHeight || exportHeight;
-            const outputContext = outputCanvas.getContext("2d");
-            outputContext.drawImage(
-                canvas,
-                x,
-                y,
-                exportWidth,
-                exportHeight,
-                0,
-                0,
-                outputCanvas.width,
-                outputCanvas.height,
-            );
+			if (params.canvasValidationError) {
+				this.triggerCanvasFailure(bridgeId, params, `canvasToTempFilePath:fail ${params.canvasValidationError}`)
+				return
+			}
+			if (lookupError) {
+				throw lookupError
+			}
+			if (!canvas) {
+				this.triggerCanvasFailure(bridgeId, params, `canvasToTempFilePath:fail canvas ${params.canvasId} not found`)
+				return
+			}
+			const requestedX = Number(params.x) || 0
+			const requestedY = Number(params.y) || 0
+			const x = requestedX < 0 || requestedX > canvas.width ? 0 : requestedX
+			const y = requestedY < 0 || requestedY > canvas.height ? 0 : requestedY
+			const requestedWidth = Number(params.width)
+			const requestedHeight = Number(params.height)
+			const exportWidth = requestedWidth ? Math.min(canvas.width - x, requestedWidth) : canvas.width - x
+			const exportHeight = requestedHeight ? Math.min(canvas.height - y, requestedHeight) : canvas.height - y
+			const requestedPixelRatio = Number(params.pixelRatio)
+			const pixelRatio = Number.isFinite(requestedPixelRatio) && requestedPixelRatio > 0 ? requestedPixelRatio : 1
+			const outputWidth = Number(params.destWidth) || exportWidth * pixelRatio
+			const outputHeight = Number(params.destHeight) || exportHeight * pixelRatio
+			const outputCanvas = document.createElement('canvas')
+			outputCanvas.width = outputWidth
+			outputCanvas.height = outputHeight
+			const outputContext = outputCanvas.getContext('2d')
+			if (!outputContext) {
+				throw new Error('2d context is unavailable')
+			}
+			outputContext.drawImage(
+				canvas,
+				x,
+				y,
+				exportWidth,
+				exportHeight,
+				0,
+				0,
+				outputWidth,
+				outputHeight,
+			)
 
-            const mimeType =
-                fileType === "jpg" || fileType === "jpeg"
-                    ? "image/jpeg"
-                    : "image/png";
-            const dataURL = outputCanvas.toDataURL(mimeType, quality);
+			const mimeType = fileType === 'jpg' ? 'image/jpeg' : 'image/png'
+			const numericQuality = Number(params.quality)
+			const quality = fileType !== 'jpg'
+				|| Number.isNaN(numericQuality)
+				|| numericQuality <= 0
+				|| numericQuality > 1
+				? 1
+				: numericQuality
+			const dataURL = outputCanvas
+				.toDataURL(mimeType, quality)
+				.replace(/^data:image\/(jpg|jpeg|png);base64,/, '')
 
-            // TODO: 添加一个 H5 的容器标识在 userAgent
-            // const byteString = atob(dataURL.split(",")[1]);
-            // const ab = new ArrayBuffer(byteString.length);
-            // const ia = new Uint8Array(ab);
-            // for (let i = 0; i < byteString.length; i++) {
-            //     ia[i] = byteString.charCodeAt(i);
-            // }
-            // const blob = new Blob([ab], { type: mimeType });
-            // const tempFilePath = URL.createObjectURL(blob);
-
-            // const result = {
-            //     tempFilePath,
-            //     errMsg: "canvasToTempFilePath:ok",
-            // };
-            // this.triggerCallback(
-            //     bridgeId,
-            //     params.success,
-            //     [result],
-            //     result,
-            // );
-            // this.triggerCallback(
-            //     bridgeId,
-            //     params.complete,
-            //     [result],
-            //     result,
-            // );
-
-            // Forward to Container to write base64 to a temp file and return a real file path
-            message.invoke({
-                type: "invokeAPI",
-                target: "container",
-                body: {
-                    name: "saveCanvasTempFile",
-                    bridgeId,
-                    params: {
-                        dataURL,
-                        fileType,
-                        success: params.success,
-                        fail: params.fail,
-                        complete: params.complete,
-                    },
-                },
-            });
-        }
+			message.invoke({
+				type: 'invokeAPI',
+				target: 'container',
+				body: {
+					name: 'saveCanvasTempFile',
+					bridgeId,
+					params: {
+						dataURL,
+						fileType,
+						success: params.success,
+						fail: params.fail,
+						complete: params.complete,
+					},
+				},
+			})
+		}
 		catch (error) {
 			this.triggerCanvasFailure(bridgeId, params, `canvasToTempFilePath:fail ${error.message}`)
+		}
+	}
+
+	canvasGetImageData(request) {
+		return this.queueCanvasOperation(request, this.runCanvasGetImageData)
+	}
+
+	async runCanvasGetImageData({ bridgeId, params, canvas, lookupError }) {
+		try {
+			if (params.canvasValidationError) {
+				this.triggerCanvasFailure(bridgeId, params, `canvasGetImageData:fail ${params.canvasValidationError}`)
+				return
+			}
+			if (lookupError) {
+				throw lookupError
+			}
+			if (!canvas) {
+				this.triggerCanvasFailure(bridgeId, params, `canvasGetImageData:fail canvas ${params.canvasId} not found`)
+				return
+			}
+			const context = canvas.getContext('2d')
+			const imageData = context.getImageData(params.x, params.y, params.width, params.height)
+			const result = {
+				width: imageData.width,
+				height: imageData.height,
+				data: Array.from(imageData.data),
+				errMsg: 'canvasGetImageData:ok',
+			}
+			this.triggerCallback(bridgeId, params.success, result, result)
+			this.triggerCallback(bridgeId, params.complete, result, result)
+		}
+		catch (error) {
+			this.triggerCanvasFailure(bridgeId, params, `canvasGetImageData:fail ${error.message}`)
+		}
+	}
+
+	canvasPutImageData(request) {
+		return this.queueCanvasOperation(request, this.runCanvasPutImageData)
+	}
+
+	async runCanvasPutImageData({ bridgeId, params, canvas, lookupError }) {
+		try {
+			if (params.canvasValidationError) {
+				this.triggerCanvasFailure(bridgeId, params, `canvasPutImageData:fail ${params.canvasValidationError}`)
+				return
+			}
+			if (lookupError) {
+				throw lookupError
+			}
+			if (!canvas) {
+				this.triggerCanvasFailure(bridgeId, params, `canvasPutImageData:fail canvas ${params.canvasId} not found`)
+				return
+			}
+			const context = canvas.getContext('2d')
+			const imageData = context.createImageData(params.width, params.height)
+			imageData.data.set(params.data || [])
+			context.putImageData(imageData, params.x, params.y)
+			const result = { errMsg: 'canvasPutImageData:ok' }
+			this.triggerCallback(bridgeId, params.success, result, result)
+			this.triggerCallback(bridgeId, params.complete, result, result)
+		}
+		catch (error) {
+			this.triggerCanvasFailure(bridgeId, params, `canvasPutImageData:fail ${error.message}`)
 		}
 	}
 

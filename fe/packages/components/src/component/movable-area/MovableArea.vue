@@ -3,6 +3,7 @@
 // https://developers.weixin.qq.com/miniprogram/dev/component/movable-area.html
 
 import { triggerEvent, useInfo } from '@/common/events'
+import { useTouchEvents } from '@/common/useTouchEvents'
 
 const props = defineProps({
 	/**
@@ -16,6 +17,7 @@ const props = defineProps({
 })
 
 const info = useInfo()
+const rootRef = ref(null)
 const movableViews = new Set()
 provide('registerMovableView', (handlers) => {
 	movableViews.add(handlers)
@@ -28,14 +30,16 @@ function handleScaleGesture(event, phase) {
 	for (const handlers of movableViews) handlers[phase]?.(event)
 }
 
-function onClicked(event) {
+function handleTap({ event }) {
 	triggerEvent('tap', { event, info })
 }
+
+useTouchEvents(info, rootRef, { tapHandler: handleTap })
 </script>
 
 <template>
 	<div
-		v-bind="$attrs" class="dd-movable-area" @click="onClicked"
+		ref="rootRef" v-bind="$attrs" class="dd-movable-area"
 		@touchstart="handleScaleGesture($event, 'start')" @touchmove="handleScaleGesture($event, 'move')"
 		@touchend="handleScaleGesture($event, 'end')" @touchcancel="handleScaleGesture($event, 'end')"
 	>

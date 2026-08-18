@@ -84,6 +84,9 @@ provide('pickerEvent', (type, event) => {
 	triggerEvent(type, {
 		event,
 		info,
+		// change 绑在 picker-view 上，事件的 id / dataset 要取自 picker-view 自己；
+		// 转发过来的这个事件的 currentTarget 还停在列内部被触摸的那个节点上。
+		currentTarget: pickerView.value,
 		detail,
 	})
 })

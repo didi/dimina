@@ -2,6 +2,10 @@
 // 多选项目
 // https://developers.weixin.qq.com/miniprogram/dev/component/checkbox.html
 
+import { triggerEvent, useInfo } from '@/common/events'
+import { useLabelActivation } from '@/common/labelActivation'
+import { useTouchEvents } from '@/common/useTouchEvents'
+
 const props = defineProps({
 	/**
 	 * id，为 label 使用
@@ -70,23 +74,41 @@ const computedStyle = computed(() => {
 	}
 })
 
-function handleClicked(event) {
-	if (!props.disabled) {
-		if (checkboxGroup) {
-			checkboxGroup.toggleCheckbox(checkboxControl, event)
-		}
-		else {
-			isOn.value = !isOn.value
-		}
+const info = useInfo()
+const rootRef = ref(null)
+// 被 label 激活时只做勾选本身，不补发控件自己的 tap
+function activate(event) {
+	if (props.disabled) {
+		return
+	}
+	if (checkboxGroup) {
+		checkboxGroup.toggleCheckbox(checkboxControl, event)
+	}
+	else {
+		isOn.value = !isOn.value
 	}
 }
+
+function handleTap({ event }) {
+	if (!props.disabled) {
+		activate(event)
+		triggerEvent('tap', { event, info })
+	}
+}
+
+function handleKeyboard() {
+	rootRef.value?.click()
+}
+
+useTouchEvents(info, rootRef, { tapHandler: handleTap })
+useLabelActivation(rootRef, activate)
 </script>
 
 <template>
 	<div
-		:id="id" v-bind="$attrs" class="dd-checkbox" data-dd-label-target role="checkbox"
-		:tabindex="disabled ? -1 : 0" :aria-checked="isOn" :aria-disabled="disabled" @click="handleClicked"
-		@keydown.enter.prevent="handleClicked" @keydown.space.prevent="handleClicked"
+		:id="id" ref="rootRef" v-bind="$attrs" class="dd-checkbox" data-dd-label-target role="checkbox"
+		:tabindex="disabled ? -1 : 0" :aria-checked="isOn" :aria-disabled="disabled"
+		@keydown.enter.prevent="handleKeyboard" @keydown.space.prevent="handleKeyboard"
 	>
 		<div class="dd-checkbox-wrapper">
 			<div

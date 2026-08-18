@@ -2,7 +2,7 @@
 // 画布
 // https://developers.weixin.qq.com/miniprogram/dev/component/canvas.html
 
-import { hasEvent, triggerEvent, useInfo } from '@/common/events'
+import { triggerEvent, useInfo } from '@/common/events'
 import { useTouchEvents } from '@/common/useTouchEvents'
 
 const props = defineProps({
@@ -37,11 +37,8 @@ const canvasRef = ref(null)
 const rootRef = ref(null)
 const isError = ref(false)
 
-const hasTouchEvents = ['touchstart', 'touchmove', 'touchend', 'touchcancel', 'longpress', 'longtap']
-	.some(eventName => hasEvent(info, eventName))
-if (hasTouchEvents) {
-	useTouchEvents(info, rootRef)
-}
+// 触摸点额外携带相对画布左上角的 x / y；传播和 currentTarget 与普通节点一致。
+useTouchEvents(info, rootRef, { relativeTo: canvasRef })
 
 function preventScroll(event) {
 	if (props.disableScroll && event.cancelable) {

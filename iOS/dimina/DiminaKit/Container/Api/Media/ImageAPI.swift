@@ -28,10 +28,149 @@ public class ImageAPI: DMPContainerApi {
     
     // API method names
     private static let SAVE_IMAGE_TO_PHOTOS_ALBUM = "saveImageToPhotosAlbum"
+    private static let SAVE_CANVAS_TEMP_FILE = "saveCanvasTempFile"
     private static let PREVIEW_IMAGE = "previewImage"
     private static let COMPRESS_IMAGE = "compressImage"
     private static let CHOOSE_IMAGE = "chooseImage"
+    // Internal bridge safety ceiling, not a WeChat Canvas API limit. It bounds the
+    // extra native allocation and temp-file write after the data URL crosses the bridge.
+    private static let maxCanvasImageBytes = 32 * 1024 * 1024
+    private static let maxCanvasBase64Characters = (maxCanvasImageBytes * 4 / 3) + 8
+
+    static func invokeCanvasFailure(callback: DMPBridgeCallback?, reason: String) {
+        let result = DMPMap()
+        result.set("errMsg", "canvasToTempFilePath:fail \(reason)")
+        DMPContainerApi.invokeFailure(
+            callback: callback,
+            param: result,
+            errMsg: "canvasToTempFilePath:fail \(reason)",
+            completeCarriesResult: true
+        )
+    }
+
+    static func invokeCanvasSuccess(callback: DMPBridgeCallback?, result: DMPMap) {
+        DMPContainerApi.invokeSuccess(
+            callback: callback,
+            param: result,
+            completeCarriesResult: true
+        )
+    }
+
+    static func isValidCanvasAppId(_ appId: String) -> Bool {
+        guard appId != ".", appId != ".." else { return false }
+        return appId.range(of: "^[A-Za-z0-9._-]+$", options: .regularExpression) != nil
+    }
+
+    static func matchesCanvasImageType(_ data: Data, fileType: String) -> Bool {
+        let bytes = [UInt8](data.prefix(8))
+        if fileType == "png" {
+            return bytes == [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]
+        }
+        return bytes.count >= 3 && bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF
+    }
+
+    static func resolvedCanvasAppDirectory(sandboxRoot: URL, appId: String) -> URL? {
+        let resolvedRoot = sandboxRoot.standardizedFileURL.resolvingSymlinksInPath()
+        let appURL = resolvedRoot.appendingPathComponent(appId, isDirectory: true).standardizedFileURL
+        let resolvedAppURL = appURL.resolvingSymlinksInPath()
+        guard !resolvedRoot.path.isEmpty,
+              resolvedAppURL.path.hasPrefix(resolvedRoot.path + "/") else {
+            return nil
+        }
+        return resolvedAppURL
+    }
     
+    // Save canvas to temp file (canvasToTempFilePath second hop: dataURL → file)
+    @BridgeMethod(SAVE_CANVAS_TEMP_FILE)
+    var saveCanvasTempFile: DMPBridgeMethodHandler = { param, env, callback in
+        guard let dataURL = param.getMap()["dataURL"] as? String, !dataURL.isEmpty else {
+            ImageAPI.invokeCanvasFailure(callback: callback, reason: "dataURL is required")
+            return DMPAsyncResult()
+        }
+        let fileType = (param.getMap()["fileType"] as? String) ?? "png"
+        guard fileType == "png" || fileType == "jpg" else {
+            ImageAPI.invokeCanvasFailure(callback: callback, reason: "invalid file type")
+            return DMPAsyncResult()
+        }
+        guard ImageAPI.isValidCanvasAppId(env.appId) else {
+            ImageAPI.invokeCanvasFailure(callback: callback, reason: "invalid appId")
+            return DMPAsyncResult()
+        }
+
+        let prefixExpression = try? NSRegularExpression(pattern: "^data:image/(png|jpeg|jpg);base64,")
+        let fullRange = NSRange(dataURL.startIndex..<dataURL.endIndex, in: dataURL)
+        let prefixMatch = prefixExpression?.firstMatch(in: dataURL, range: fullRange)
+        if dataURL.hasPrefix("data:") && prefixMatch == nil {
+            ImageAPI.invokeCanvasFailure(callback: callback, reason: "invalid dataURL")
+            return DMPAsyncResult()
+        }
+        if let match = prefixMatch, let mimeRange = Range(match.range(at: 1), in: dataURL) {
+            let mime = String(dataURL[mimeRange])
+            if mime != fileType && !(mime == "jpeg" && fileType == "jpg") {
+                ImageAPI.invokeCanvasFailure(callback: callback, reason: "file type mismatch")
+                return DMPAsyncResult()
+            }
+        }
+        let base64Data: String
+        if let match = prefixMatch, let range = Range(match.range, in: dataURL) {
+            base64Data = String(dataURL[range.upperBound...])
+        } else {
+            base64Data = dataURL
+        }
+        guard !base64Data.isEmpty, base64Data.count <= ImageAPI.maxCanvasBase64Characters else {
+            ImageAPI.invokeCanvasFailure(callback: callback, reason: base64Data.isEmpty ? "base64 decode failed" : "data too large")
+            return DMPAsyncResult()
+        }
+        guard let imageData = Data(base64Encoded: base64Data),
+              !imageData.isEmpty,
+              imageData.count <= ImageAPI.maxCanvasImageBytes,
+              ImageAPI.matchesCanvasImageType(imageData, fileType: fileType) else {
+            ImageAPI.invokeCanvasFailure(callback: callback, reason: "invalid image data")
+            return DMPAsyncResult()
+        }
+
+        let sandboxRoot = URL(fileURLWithPath: DMPSandboxManager.sandboxPath(), isDirectory: true)
+        guard let resolvedAppURL = ImageAPI.resolvedCanvasAppDirectory(
+            sandboxRoot: sandboxRoot,
+            appId: env.appId
+        ) else {
+            ImageAPI.invokeCanvasFailure(callback: callback, reason: "invalid appId")
+            return DMPAsyncResult()
+        }
+        let tmpDirectoryName = URL(
+            fileURLWithPath: DMPSandboxManager.appTmpResourceDirectoryPath(appId: env.appId)
+        ).lastPathComponent
+        let tmpURL = resolvedAppURL.appendingPathComponent(tmpDirectoryName, isDirectory: true)
+
+        do {
+            try FileManager.default.createDirectory(at: tmpURL, withIntermediateDirectories: true)
+        } catch {
+            ImageAPI.invokeCanvasFailure(callback: callback, reason: "cannot create temp directory")
+            return DMPAsyncResult()
+        }
+
+        let resolvedTmpURL = tmpURL.resolvingSymlinksInPath()
+        guard resolvedTmpURL.path.hasPrefix(resolvedAppURL.path + "/") else {
+            ImageAPI.invokeCanvasFailure(callback: callback, reason: "invalid appId")
+            return DMPAsyncResult()
+        }
+        let fileURL = resolvedTmpURL.appendingPathComponent("canvas_\(UUID().uuidString).\(fileType)", isDirectory: false)
+        do {
+            try imageData.write(to: fileURL, options: .atomic)
+        } catch {
+            try? FileManager.default.removeItem(at: fileURL)
+            ImageAPI.invokeCanvasFailure(callback: callback, reason: "write failed")
+            return DMPAsyncResult()
+        }
+
+        let tempFilePath = DMPFileUtil.vPathFromSandboxPath(sandboxPath: fileURL.path, appId: env.appId)
+        let result = DMPMap()
+        result.set("tempFilePath", tempFilePath)
+        result.set("errMsg", "canvasToTempFilePath:ok")
+        ImageAPI.invokeCanvasSuccess(callback: callback, result: result)
+        return DMPAsyncResult()
+    }
+
     // Save image to photos album
     @BridgeMethod(SAVE_IMAGE_TO_PHOTOS_ALBUM)
     var saveImageToPhotosAlbum: DMPBridgeMethodHandler = { param, env, callback in

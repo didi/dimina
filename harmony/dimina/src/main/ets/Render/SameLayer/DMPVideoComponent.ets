@@ -291,7 +291,9 @@ struct VideoComponent {
       src.startsWith('resource://') || src.startsWith('data:') || src.startsWith('internal://')) {
       return src
     }
-    const localPath = DMPFileUrlConvertor.localPathFromVPath(src)
+    const appId = DMPAppManager.sharedInstance().getApp(this.appIndex())?.appConfig.appId ?? ''
+    const canvasTempRoot = DMPFileUrlConvertor.canvasTempRoot(appId)
+    const localPath = DMPFileUrlConvertor.localPathFromVPath(src, canvasTempRoot)
     if (localPath.startsWith('/')) {
       return `file://${localPath}`
     }

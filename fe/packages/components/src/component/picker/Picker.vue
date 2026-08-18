@@ -3,6 +3,7 @@
 // https://developers.weixin.qq.com/miniprogram/dev/component/picker.html
 
 import { triggerEvent, useInfo } from '@/common/events'
+import { useTouchEvents } from '@/common/useTouchEvents'
 import PickerColumn from './PickerColumn.vue'
 
 const props = defineProps({
@@ -139,7 +140,7 @@ watch(() => props.mode, () => {
 }, { immediate: true })
 
 // 点击触发选择器显示
-const handleTriggerClick = () => {
+const handleTrigger = () => {
 	if (props.disabled) return
 	if (props.mode === 'region') {
 		triggerEvent('error', {
@@ -390,10 +391,19 @@ const handleDateChange = (_event, index, value) => {
 		tempValue.value = parts.join('-')
 	}
 }
+
+const rootRef = ref(null)
+function handleTap({ event }) {
+	if (props.disabled) return
+	triggerEvent('tap', { event, info })
+	handleTrigger()
+}
+
+useTouchEvents(info, rootRef, { tapHandler: handleTap })
 </script>
 
 <template>
-	<div v-bind="$attrs" class="dd-picker" @click="handleTriggerClick">
+	<div ref="rootRef" v-bind="$attrs" class="dd-picker">
 		<slot />
 	</div>
 	

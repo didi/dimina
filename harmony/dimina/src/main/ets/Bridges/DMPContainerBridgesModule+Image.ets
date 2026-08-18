@@ -28,7 +28,7 @@ export class DMPContainerBridgesModuleImage extends DMPContainerBridgesModule {
   }
 
   getImageInfo(data: DMPMap, callback: DMPBridgeCallback) {
-    const localPath: string = data.get('src')
+    const localPath = this.localPathFromVPath(data.getString('src') ?? '')
     const imageSourceApi = image.createImageSource(localPath);
     imageSourceApi.getImageInfo(0, (error, imageInfo) => {
       if (error) {
@@ -280,7 +280,7 @@ export class DMPContainerBridgesModuleImage extends DMPContainerBridgesModule {
   }
 
   async saveImage(data: DMPMap, callback: DMPBridgeCallback) {
-    let filePath: string = data.get('filePath')
+    let filePath = this.localPathFromVPath(data.getString('filePath') ?? '')
     try {
       const bundleInfo =
         bundleManager.getBundleInfoForSelfSync(bundleManager.BundleFlag.GET_BUNDLE_INFO_WITH_APPLICATION)
@@ -327,8 +327,8 @@ export class DMPContainerBridgesModuleImage extends DMPContainerBridgesModule {
   }
 
   previewImage(data: DMPMap, callback: DMPBridgeCallback) {
-    const urls: [string] = data.get('urls');
-    const currentUrl: string = data.get('current');
+    const urls = (data.get('urls') as string[] ?? []).map((url: string) => this.localPathFromVPath(url));
+    const currentUrl = this.localPathFromVPath(data.getString('current') ?? '');
     const showmenu: boolean = data.get('showmenu') ?? true;
     let index = urls.indexOf(currentUrl)
     if (index === -1) {
@@ -345,7 +345,7 @@ export class DMPContainerBridgesModuleImage extends DMPContainerBridgesModule {
 
   compressImage(data: DMPMap, callback: DMPBridgeCallback) {
     const dataQuality: number = data.get('quality');
-    const url = DMPFileUrlConvertor.localPathFromVPath(data.get('src'));
+    const url = this.localPathFromVPath(data.getString('src') ?? '');
     let quality = 80
     if (dataQuality > 0 && dataQuality < 100) {
       quality = dataQuality

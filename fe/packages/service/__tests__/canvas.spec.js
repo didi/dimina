@@ -1,8 +1,11 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { callback } from '@dimina/common'
+import hostEnv from '../src/core/host-env.js'
 import router from '../src/core/router.js'
 import { createSelectorQuery } from '../src/api/core/wxml/selector-query/index.js'
 import {
+	canvasGetImageData,
+	canvasPutImageData,
 	canvasToTempFilePath,
 	createCanvas,
 	createCanvasContext,
@@ -11,7 +14,6 @@ import {
 } from '../src/api/core/ui/canvas/index.js'
 import { resetMiniGameCanvas } from '../src/api/core/ui/canvas/canvas-node.js'
 import { createImage } from '../src/api/core/media/image/index.js'
-import hostEnv from '../src/core/host-env.js'
 
 describe('canvas api', () => {
 	function installWebGLCapabilities(overrides = {}) {
@@ -55,6 +57,10 @@ describe('canvas api', () => {
 		globalThis.DiminaServiceBridge.publish = vi.fn()
 	})
 
+	afterEach(() => {
+		hostEnv.reset()
+	})
+
 	it('uses the first createCanvas call as the screen canvas and later calls as offscreen canvases', () => {
 		hostEnv.init({ systemInfo: { windowWidth: 390, windowHeight: 844 } })
 		const screen = createCanvas()
@@ -91,11 +97,14 @@ describe('canvas api', () => {
 		context.stroke()
 
 		expect(context.getActions()).toEqual([
-			{ type: 'beginPath', args: [] },
-			{ type: 'moveTo', args: [0, 0] },
-			{ type: 'lineTo', args: [10, 10] },
 			{ type: 'setStrokeStyle', args: ['#f00'] },
-			{ type: 'stroke', args: [] },
+			{
+				type: 'strokePath',
+				args: [[
+					{ type: 'moveTo', args: [0, 0] },
+					{ type: 'lineTo', args: [10, 10] },
+				]],
+			},
 		])
 	})
 
@@ -104,6 +113,7 @@ describe('canvas api', () => {
 		const context = createCanvasContext('main-canvas', { __id__: 'component_1' })
 
 		context.rect(0, 0, 20, 20)
+		context.fill()
 		context.draw(false, success)
 
 		expect(globalThis.DiminaServiceBridge.publish).toHaveBeenCalledTimes(1)
@@ -114,8 +124,15 @@ describe('canvas api', () => {
 		expect(message.body.name).toBe('drawCanvas')
 		expect(message.body.params.canvasId).toBe('main-canvas')
 		expect(message.body.params.moduleId).toBe('component_1')
-		expect(message.body.params.actions).toEqual([{ type: 'rect', args: [0, 0, 20, 20] }])
-		expect(typeof message.body.params.success).toBe('string')
+		expect(message.body.params.actions).toEqual([{
+			type: 'fillPath',
+			args: [[{ type: 'rect', args: [0, 0, 20, 20] }]],
+		}])
+		// draw's user callback is wired to the `complete` channel, matching the official
+		// WAService `draw` implementation, which fires `complete` on both success and failure
+		// (whereas `success` only fires on success, leaking the stored callback.store() entry
+		// whenever the render side reports a failure).
+		expect(typeof message.body.params.complete).toBe('string')
 		expect(context.getActions()).toEqual([])
 	})
 
@@ -129,6 +146,68 @@ describe('canvas api', () => {
 		expect(message.body.params.canvasId).toBe('main-canvas')
 		expect(message.body.params.moduleId).toBe('component_2')
 		expect(result).toBeInstanceOf(Promise)
+	})
+
+	it('forwards the simulated device pixel ratio for default export dimensions', () => {
+		hostEnv.init({ systemInfo: { pixelRatio: 3 } })
+
+		canvasToTempFilePath({ canvasId: 'main-canvas' })
+
+		const [, message] = globalThis.DiminaServiceBridge.publish.mock.calls[0]
+		expect(message.body.params.pixelRatio).toBe(3)
+	})
+
+	it('publishes canvasGetImageData and normalizes returned bytes to Uint8ClampedArray', () => {
+		const success = vi.fn()
+		canvasGetImageData({
+			canvasId: 'main-canvas',
+			x: 1,
+			y: 2,
+			width: 3,
+			height: 4,
+			success,
+		}, { __id__: 'component_pixels' })
+
+		const [, message] = globalThis.DiminaServiceBridge.publish.mock.calls[0]
+		expect(message.body.name).toBe('canvasGetImageData')
+		expect(message.body.params.moduleId).toBe('component_pixels')
+		callback.invoke(message.body.params.success, { width: 1, height: 1, data: [1, 2, 3, 4] })
+		expect(success).toHaveBeenCalledWith(expect.objectContaining({
+			data: new Uint8ClampedArray([1, 2, 3, 4]),
+		}))
+	})
+
+	it('leaves a failed canvasGetImageData complete result without a synthetic data field', () => {
+		const complete = vi.fn()
+		canvasGetImageData({
+			canvasId: 'main-canvas',
+			x: 0,
+			y: 0,
+			width: 1,
+			height: 1,
+			complete,
+		})
+
+		const [, message] = globalThis.DiminaServiceBridge.publish.mock.calls[0]
+		callback.invoke(message.body.params.complete, { errMsg: 'canvasGetImageData:fail unavailable' })
+		expect(complete).toHaveBeenCalledWith({ errMsg: 'canvasGetImageData:fail unavailable' })
+		expect(complete.mock.calls[0][0]).not.toHaveProperty('data')
+	})
+
+	it('publishes canvasPutImageData with transport-safe byte data', () => {
+		canvasPutImageData({
+			canvasId: 'main-canvas',
+			x: 0,
+			y: 0,
+			width: 1,
+			height: 1,
+			data: new Uint8ClampedArray([5, 6, 7, 8]),
+			success: vi.fn(),
+		}, { __id__: 'component_pixels' })
+
+		const [, message] = globalThis.DiminaServiceBridge.publish.mock.calls[0]
+		expect(message.body.name).toBe('canvasPutImageData')
+		expect(message.body.params.data).toEqual([5, 6, 7, 8])
 	})
 
 	it('should hydrate selector query canvas node results', () => {
