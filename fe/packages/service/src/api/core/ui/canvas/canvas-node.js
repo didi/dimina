@@ -746,6 +746,12 @@ export class CanvasNode {
 		this.flushScheduled = false
 		this._width = width
 		this._height = height
+
+		// Send initial dimensions to native so the bitmap context is created
+		// before any drawing operations arrive.
+		this.enqueueOperation({ op: 'setCanvasProperty', prop: 'width', value: width })
+		this.enqueueOperation({ op: 'setCanvasProperty', prop: 'height', value: height })
+
 		console.log('[canvas-node] CanvasNode created nodeId=' + nodeId + ' bridgeId=' + bridgeId + ' size=' + width + 'x' + height + ' type=' + type + ' offscreen=' + offscreen)
 	}
 

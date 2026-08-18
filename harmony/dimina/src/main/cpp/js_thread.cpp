@@ -5,6 +5,7 @@
 #include <future>
 #include "utils.h"
 #include "canvas_bindings.h"
+#include "dimina_canvas2d.h"
 #include "types/qjs_extension/settimeout.h"
 #include <sys/mman.h> // 包含 mmap, munmap 等函数
 #include <unistd.h>   // 包含 close 函数
