@@ -91,6 +91,18 @@ export class DMPPageStyle {
     return '#ffffff';
   }
 
+  isHomeButtonHidden(): boolean {
+    return this.navStyle.get('hideHomeButton') === true
+  }
+
+  getHomeButtonConfig(): boolean {
+    return this.navStyle.get('homeButton') === true
+  }
+
+  isNavigationBarLoading(): boolean {
+    return this.navStyle.get('navigationBarLoading') === true
+  }
+
   getNavigationBarBackGroundColor(): string {
     if (this.navStyle.get('navigationBarBackgroundColor')) {
       return this.navStyle.get('navigationBarBackgroundColor');

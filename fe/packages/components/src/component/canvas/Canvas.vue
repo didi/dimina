@@ -2,7 +2,9 @@
 // Canvas 组件
 // https://developers.weixin.qq.com/miniprogram/dev/component/canvas.html
 import { isHarmonyOS, isDesktop, isAndroid, isIOS, isEmbedEnabled } from '@dimina/common'
-import { invokeAPI, useInfo } from '@/common/events'
+import { hasEvent, invokeAPI, triggerEvent, useInfo } from '@/common/events'
+import { useTapEvents } from '@/common/useTapEvents'
+import { useTouchEvents } from '@/common/useTouchEvents'
 
 const props = defineProps({
 	id: {
@@ -25,6 +27,32 @@ const props = defineProps({
 
 const rootRef = ref()
 const info = useInfo()
+
+// 判断是否有tap事件属性
+const hasTapEvent = hasEvent(info, 'tap')
+if (hasTapEvent) {
+	useTapEvents(rootRef, (event) => {
+		triggerEvent('tap', { event, info })
+	})
+}
+
+// 判断是否有触摸相关事件属性
+const hasTouchEvents = hasEvent(info, 'touchstart') || hasEvent(info, 'touchmove')
+	|| hasEvent(info, 'touchend') || hasEvent(info, 'touchcancel')
+	|| hasEvent(info, 'longpress')
+
+if (hasTouchEvents) {
+	useTouchEvents(info, rootRef)
+}
+
+// disable-scroll: 当在 canvas 中移动时且有绑定手势事件时，禁止屏幕滚动以及下拉刷新
+if (props.disableScroll && hasTouchEvents) {
+	onMounted(() => {
+		rootRef.value?.addEventListener('touchmove', (e) => {
+			e.cancelable && e.preventDefault()
+		}, { passive: false })
+	})
+}
 const isNativeCanvas = computed(() => isEmbedEnabled && (isAndroid || isIOS || isHarmonyOS))
 console.log('[render] [Canvas] embedEnabled=' + isEmbedEnabled + ' isAndroid=' + isAndroid + ' isIOS=' + isIOS + ' isHarmonyOS=' + isHarmonyOS + ' isNativeCanvas=' + isNativeCanvas.value)
 let syncFrameId = 0

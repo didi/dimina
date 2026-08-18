@@ -6,10 +6,12 @@ import { DMPContainerBridgesModule } from './DMPContainerBridgesModule';
 
 import { DMPBridgeCallback } from './DMPTSUtil';
 
+const VALID_FRONT_COLORS: string[] = ['#ffffff', '#000000']
+
 export class DMPContainerBridgesModuleNavigationBar extends DMPContainerBridgesModule {
   getExportMethods(): string[] {
     return ['setNavigationBarTitle', 'setNavigationBarColor', 'setNavigationTitleColor', 'showNavigationBar',
-      'hideNavigationBar'];
+      'hideNavigationBar', 'hideHomeButton', 'showNavigationBarLoading', 'hideNavigationBarLoading'];
   }
 
   setNavigationBarTitle(data: DMPMap, callback: DMPBridgeCallback, webViewId: number) {
@@ -25,12 +27,27 @@ export class DMPContainerBridgesModuleNavigationBar extends DMPContainerBridgesM
   setNavigationBarColor(data: DMPMap, callback: DMPBridgeCallback, webViewId: number) {
     const frontColor: string = data.get("frontColor")
     const backgroundColor: string = data.get('backgroundColor');
+
+    // frontColor 校验：只接受 #ffffff 和 #000000
+    if (frontColor && !VALID_FRONT_COLORS.includes(frontColor.toLowerCase())) {
+      this.invokeFailureCallback(callback, null,
+        'invalid frontColor, only #ffffff and #000000 are accepted')
+      return
+    }
+
     const navStyle =
       DMPMap.createFromDMPMap(this.app.navigatorManager.getPageRecordById(webViewId)!.pageStyle?.navStyle)
-    navStyle.set("navigationBarTextStyle", (frontColor === "white" || frontColor === "#ffffff") ? "white" : "black")
-    navStyle.set('navigationBarBackgroundColor', backgroundColor)
+    if (frontColor) {
+      navStyle.set("navigationBarTextStyle",
+        frontColor.toLowerCase() === "#ffffff" ? "white" : "black")
+    }
+    if (backgroundColor) {
+      navStyle.set('navigationBarBackgroundColor', backgroundColor)
+    }
+
     this.app.navigatorManager.getPageRecordById(webViewId)!.pageStyle =
       new DMPPageStyle(navStyle ?? new DMPMap(), this.app.appIndex)
+
     DMPLogger.d(Tags.BRIDGE, 'navStyle=' + navStyle.toStr())
     this.invokeSuccessCallback(callback, null)
   }
@@ -62,7 +79,31 @@ export class DMPContainerBridgesModuleNavigationBar extends DMPContainerBridgesM
       new DMPPageStyle(navStyle ?? new DMPMap(), this.app.appIndex)
     this.invokeSuccessCallback(callback, null)
   }
+
+  hideHomeButton(data: DMPMap, callback: DMPBridgeCallback, webViewId: number) {
+    const navStyle =
+      DMPMap.createFromDMPMap(this.app.navigatorManager.getPageRecordById(webViewId)!.pageStyle?.navStyle)
+    navStyle.set('hideHomeButton', true)
+    this.app.navigatorManager.getPageRecordById(webViewId)!.pageStyle =
+      new DMPPageStyle(navStyle ?? new DMPMap(), this.app.appIndex)
+    this.invokeSuccessCallback(callback, null)
+  }
+
+  showNavigationBarLoading(data: DMPMap, callback: DMPBridgeCallback, webViewId: number) {
+    const navStyle =
+      DMPMap.createFromDMPMap(this.app.navigatorManager.getPageRecordById(webViewId)!.pageStyle?.navStyle)
+    navStyle.set('navigationBarLoading', true)
+    this.app.navigatorManager.getPageRecordById(webViewId)!.pageStyle =
+      new DMPPageStyle(navStyle ?? new DMPMap(), this.app.appIndex)
+    this.invokeSuccessCallback(callback, null)
+  }
+
+  hideNavigationBarLoading(data: DMPMap, callback: DMPBridgeCallback, webViewId: number) {
+    const navStyle =
+      DMPMap.createFromDMPMap(this.app.navigatorManager.getPageRecordById(webViewId)!.pageStyle?.navStyle)
+    navStyle.set('navigationBarLoading', false)
+    this.app.navigatorManager.getPageRecordById(webViewId)!.pageStyle =
+      new DMPPageStyle(navStyle ?? new DMPMap(), this.app.appIndex)
+    this.invokeSuccessCallback(callback, null)
+  }
 }
-
-
-

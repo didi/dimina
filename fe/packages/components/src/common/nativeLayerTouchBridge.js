@@ -89,7 +89,6 @@ function sendTouch(action, actionPointerId) {
 
 function consume(event) {
 	event.preventDefault()
-	event.stopImmediatePropagation()
 }
 
 function onTouchStart(event) {

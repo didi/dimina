@@ -112,6 +112,8 @@ export class DMPBundleAppConfigNext {
     mergedConfig.set('navigationStyle',
       pagePrivateConfig['navigationStyle'] || appWindowConfig['navigationStyle'] || 'default');
     mergedConfig.set('usingComponents', pagePrivateConfig['usingComponents'] || {});
+    mergedConfig.set('homeButton',
+      pagePrivateConfig['homeButton'] ?? appWindowConfig['homeButton'] ?? false)
 
     return mergedConfig;
   }
