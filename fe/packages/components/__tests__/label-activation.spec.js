@@ -186,6 +186,24 @@ describe('tapping a label with a control inside', () => {
 		expect(countMethod('onLabelTap')).toBe(1)
 	})
 
+	// 激活由 activateTarget 显式完成，浏览器随后对 label 的默认激活必须被取消，否则 for/内嵌
+	// 指向的原生 labelable 控件会被再切换一次，两次相抵后回到原值。jsdom 不实现 label 的
+	// 默认激活，`forwardedClicks` 为空在这里恒真，抓不住这个回归；改判 click 有没有被取消。
+	it('cancels the click that would let the browser activate the control a second time', async () => {
+		const container = mount(() => h(Label, { bindtap: 'onLabelTap' }, {
+			default: () => [h(Input, {}), h('span', { class: 'text' }, 'text')],
+		}))
+
+		const point = { pointerId: 1, pointerType: 'mouse', button: 0, clientX: 10, clientY: 10, pageX: 10, pageY: 10 }
+		fire(container.querySelector('.text'), 'pointerdown', point)
+		fire(document, 'pointerup', point)
+		await flush()
+		const click = fire(container.querySelector('.text'), 'click', { ...point, detail: 1 })
+		await flush()
+
+		expect(click.defaultPrevented).toBe(true)
+	})
+
 	// 勾选类控件被激活时不派发自己的 tap，button 派发，而且那次 tap 会冒泡：
 	// 微信里点 label 文字，button 一次、label 与外层 view 各两次，
 	// 顺序是 button 补发的那次先走完整条链，原始触摸序列的 tap 再走一遍。
