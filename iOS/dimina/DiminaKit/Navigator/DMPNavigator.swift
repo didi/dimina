@@ -24,6 +24,12 @@ public class DMPNavigator: NSObject {
     // 当前的导航控制器
     public private(set) weak var navigationController: UINavigationController?
 
+    /// Whether the installed navigation controller participates in per-page orientation decisions.
+    /// The host must both opt in and provide a forwarding navigation controller; the old setup overload remains disabled.
+    public private(set) var pageOrientationSupport: DMPPageOrientationSupport = .notConfigured
+    /// What the host asked for. Kept so re-attaching to a navigation controller resolves the same way the first setup did.
+    private(set) var pageOrientationEnabled: Bool = false
+
     // 页面记录
     private var pageRecords: [DMPPageRecord] = []
     @MainActor private var pageRouteOperationDepth = 0
@@ -45,14 +51,24 @@ public class DMPNavigator: NSObject {
     }
 
     public func setup(navigationController: UINavigationController) {
+        setup(navigationController: navigationController, pageOrientationEnabled: false)
+    }
+
+    public func setup(
+        navigationController: UINavigationController,
+        pageOrientationEnabled: Bool
+    ) {
+        self.pageOrientationEnabled = pageOrientationEnabled
         miniProgramBaseViewControllers = nil
         attach(to: navigationController)
     }
 
     func setup(
         navigationController: UINavigationController,
-        preserving baseViewControllers: [UIViewController]
+        preserving baseViewControllers: [UIViewController],
+        pageOrientationEnabled: Bool
     ) {
+        self.pageOrientationEnabled = pageOrientationEnabled
         miniProgramBaseViewControllers = baseViewControllers
         attach(to: navigationController)
     }
@@ -80,7 +96,25 @@ public class DMPNavigator: NSObject {
         return pageRouteOperationDepth > 0
     }
 
+    /// 两道门都成立才启用：显式 capability 保证旧接入升级后行为不变，marker contract 保证 UIKit 的三个方向查询确实转给当前小程序页。
+    private func resolvePageOrientationSupport(for navigationController: UINavigationController) {
+        if !pageOrientationEnabled {
+            pageOrientationSupport = .disabled
+        } else if navigationController is DMPPageOrientationForwarding {
+            pageOrientationSupport = .supported
+        } else {
+            pageOrientationSupport = .unsupportedNavigationController
+            DMPLogger.debug(
+                "[dimina] page orientation was enabled with a controller without "
+                    + "DMPPageOrientationForwarding. Use DMPNavigationController or a "
+                    + "conforming subclass."
+            )
+        }
+    }
+
     private func attach(to navigationController: UINavigationController) {
+        resolvePageOrientationSupport(for: navigationController)
+
         capsuleView?.removeFromSuperview()
         capsuleView = nil
         navigationController.view.subviews
@@ -95,6 +129,21 @@ public class DMPNavigator: NSObject {
         // 禁用系统返回手势
         navigationController.interactivePopGestureRecognizer?.isEnabled = false
         installCapsule(in: navigationController)
+    }
+
+    /// Keeps the exact old call shape disabled; enabling the capability is always explicit.
+    public func setup(navigationController: DMPNavigationController) {
+        setup(navigationController: navigationController as UINavigationController)
+    }
+
+    public func setup(
+        navigationController: DMPNavigationController,
+        pageOrientationEnabled: Bool
+    ) {
+        setup(
+            navigationController: navigationController as UINavigationController,
+            pageOrientationEnabled: pageOrientationEnabled
+        )
     }
 
     func setCapsuleVisible(_ visible: Bool) {
@@ -235,6 +284,37 @@ public class DMPNavigator: NSObject {
         }
         return (navigationController?.topViewController as? DMPTabBarContainerController)?
             .currentPageController
+    }
+
+    private func pageController(webViewId: Int) -> DMPPageController? {
+        for controller in (navigationController?.viewControllers ?? []).reversed() {
+            if let pageController = controller as? DMPPageController,
+               pageController.getWebView().getWebViewId() == webViewId
+            {
+                return pageController
+            }
+            if let pageController = (controller as? DMPTabBarContainerController)?
+                .pageController(webViewId: webViewId)
+            {
+                return pageController
+            }
+        }
+        return nil
+    }
+
+    /// The single pageShow scheduler.
+    /// With orientation disabled it preserves the old immediate lifecycle path.
+    /// When enabled, the visible controller serializes pageShow behind the first authoritative target geometry so synchronous getWindowInfo() in onShow cannot read the page being replaced.
+    private func notifyPageShow(webViewId: Int) {
+        guard pageOrientationSupport == .supported,
+              let controller = pageController(webViewId: webViewId)
+        else {
+            pageLifecycle?.onShow(webviewId: webViewId)
+            return
+        }
+        controller.notifyPageShowAfterOrientationSettles { [weak self] in
+            await self?.pageLifecycle?.onShowAsync(webviewId: webViewId)
+        }
     }
 
     @objc private func capsuleMoreButtonTapped() {
@@ -412,7 +492,7 @@ public class DMPNavigator: NSObject {
             }
             navigationController.pushViewController(tabBarController, animated: animated)
 
-            pageLifecycle?.onShow(webviewId: pageRecord.webViewId)
+            notifyPageShow(webViewId: pageRecord.webViewId)
             return
         }
 
@@ -442,7 +522,7 @@ public class DMPNavigator: NSObject {
         }
         navigationController.pushViewController(pageController, animated: animated)
 
-        pageLifecycle?.onShow(webviewId: pageController.getWebView().getWebViewId())
+        notifyPageShow(webViewId: pageController.getWebView().getWebViewId())
     }
 
     /// 导航到指定页面
@@ -498,7 +578,7 @@ public class DMPNavigator: NSObject {
 
         navigationController.pushViewController(pageController, animated: animated)
 
-        pageLifecycle?.onShow(webviewId: pageController.getWebView().getWebViewId())
+        notifyPageShow(webViewId: pageController.getWebView().getWebViewId())
     }
 
     /// 返回上一页或多页
@@ -560,7 +640,7 @@ public class DMPNavigator: NSObject {
 
         // 显示前一个页面
         if let previousPageRecord = pageRecords.last {
-            pageLifecycle?.onShow(webviewId: previousPageRecord.webViewId)
+            notifyPageShow(webViewId: previousPageRecord.webViewId)
         }
     }
 
@@ -646,7 +726,7 @@ public class DMPNavigator: NSObject {
             let viewControllers = [pageController]
             navigationController.setViewControllers(viewControllers, animated: false)
 
-            pageLifecycle?.onShow(webviewId: pageController.getWebView().getWebViewId())
+            notifyPageShow(webViewId: pageController.getWebView().getWebViewId())
 
             return
         }
@@ -678,7 +758,7 @@ public class DMPNavigator: NSObject {
         viewControllers.removeLast()
         viewControllers.append(pageController)
         navigationController.setViewControllers(viewControllers, animated: false)
-        pageLifecycle?.onShow(webviewId: pageController.getWebView().getWebViewId())
+        notifyPageShow(webViewId: pageController.getWebView().getWebViewId())
     }
 
     @MainActor
@@ -849,7 +929,7 @@ public class DMPNavigator: NSObject {
             updateRootTabRecord(currentRecord)
 
             if !wasPreviousTabVisible || previousRecord?.webViewId != currentRecord.webViewId {
-                pageLifecycle?.onShow(webviewId: currentRecord.webViewId)
+                notifyPageShow(webViewId: currentRecord.webViewId)
             }
 
             tabBarContainerController = tabBarController
@@ -884,7 +964,7 @@ public class DMPNavigator: NSObject {
         nextViewControllers.append(tabBarController)
         navigationController.setViewControllers(nextViewControllers, animated: animated)
 
-        pageLifecycle?.onShow(webviewId: pageRecord.webViewId)
+        notifyPageShow(webViewId: pageRecord.webViewId)
         return true
     }
 

@@ -333,6 +333,59 @@ class Bridge(
         flushPageVisibility()
     }
 
+    /**
+     * 通知 service 线程本页所在窗口的尺寸/设备方向，负载形状对齐 runtime.js pageResize 的入参（`{ bridgeId, size, deviceOrientation, pageOrientation }`）。
+     *
+     * `size` 里屏幕尺寸和窗口尺寸都要给：`screenWidth`/`screenHeight` 是整块屏幕，`windowWidth`/`windowHeight` 是扣掉状态栏与导航栏后页面真正可用的部分，旋转时两组都会换宽高。
+     * 基础库把 `size` 原样透给业务回调，带哪些字段由宿主决定。
+     *
+     * 这里只上报原始事实：哪一页该收到 `Page.onResize` 由宿主指名（就是这次调用的接收方），`wx.onWindowResize` 要不要响、固定方向页要不要保持沉默都由 service 的 `resolveResizeDispatch` 判定。
+     * 容器侧只在「窗口几何真的动了」和「路由刚落地」两个时机调用它，见 DiminaActivity。
+     *
+     * @return 是否真的送了出去。service 资源还没加载完时这条上报无处可去，调用方据此决定
+     *   是记账还是留着重试。
+     */
+    fun pageResize(
+        screenWidth: Int,
+        screenHeight: Int,
+        windowWidth: Int,
+        windowHeight: Int,
+        deviceOrientation: String,
+        originalPageOrientation: String,
+    ): Boolean {
+        if (!isResourceLoaded()) {
+            return false
+        }
+
+        options.jscore.postMessage(
+            JSONObject().apply {
+                put("type", "pageResize")
+                put("body", JSONObject().apply {
+                    put("bridgeId", id)
+                    put("size", JSONObject().apply {
+                        put("screenWidth", screenWidth)
+                        put("screenHeight", screenHeight)
+                        put("windowWidth", windowWidth)
+                        put("windowHeight", windowHeight)
+                    })
+                    put("deviceOrientation", deviceOrientation)
+                    put("pageOrientation", JSONObject().apply {
+                        put("originalPageOrientation", originalPageOrientation)
+                    })
+                })
+            }.toString()
+        )
+        return true
+    }
+
+    /**
+     * pageShow 真的送到 service 的那一刻回调一次。
+     *
+     * 新建页的 pageShow 不由容器发出：资源装好时这里自己就发了（见 [forwardToService]），容器的 pageShow 门根本不在这条路上。
+     * 路由落地那次几何上报必须跟着「pageShow 确实送出去了」这个事实走，否则新建页永远收不到它——而那正是绝大多数路由。
+     */
+    var onPageShownToService: ((Bridge) -> Unit)? = null
+
     @Synchronized
     private fun flushPageVisibility() {
         val visible = desiredPageVisible
@@ -345,6 +398,9 @@ class Bridge(
             mapOf("bridgeId" to id)
         )
         sentPageVisible = visible
+        if (visible) {
+            onPageShownToService?.invoke(this)
+        }
     }
 
     private fun flushPendingAppShow() {

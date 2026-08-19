@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import runtime from '../src/core/runtime'
 import { Component } from '../src/instance/component/component'
 import { ComponentModule } from '../src/instance/component/component-module'
@@ -32,6 +32,7 @@ describe('behavior runtime alignment', () => {
 
 	it('runs page behavior lifetimes and observers', async () => {
 		const calls = []
+		let pageResizeRes
 		const pageModule = new PageModule({
 			behaviors: [{
 				created() {
@@ -53,8 +54,8 @@ describe('behavior runtime alignment', () => {
 					hide() {
 						calls.push('behavior:hide')
 					},
-					resize(size) {
-						calls.push(`behavior:resize:${size?.width}`)
+					resize(res) {
+						calls.push(`behavior:resize:${res?.size?.windowWidth}`)
 					},
 				},
 				observers: {
@@ -93,8 +94,9 @@ describe('behavior runtime alignment', () => {
 			onUnload() {
 				calls.push('page:onUnload')
 			},
-			onResize(size) {
-				calls.push(`page:onResize:${size?.width}`)
+			onResize(res) {
+				calls.push(`page:onResize:${res?.size?.windowWidth}`)
+				pageResizeRes = res
 			},
 			observers: {
 				count(value) {
@@ -118,7 +120,7 @@ describe('behavior runtime alignment', () => {
 		page.setData({ count: 1 })
 		page.pageShow()
 		page.pageHide()
-		page.pageResize({ width: 320 })
+		page.pageResize({ size: { windowWidth: 320, windowHeight: 640 }, deviceOrientation: 'portrait' })
 		page.pageReady()
 		page.pageUnload()
 
@@ -143,10 +145,14 @@ describe('behavior runtime alignment', () => {
 			'page:detached',
 			'page:onUnload',
 		])
+
+		expect(pageResizeRes.size.windowWidth).toBe(320)
+		expect(pageResizeRes.deviceOrientation).toBe('portrait')
 	})
 
 	it('runs component behavior page lifetimes before component page lifetimes', async () => {
 		const calls = []
+		let componentResizeRes
 		const componentModule = new ComponentModule({
 			behaviors: [{
 				pageLifetimes: {
@@ -156,8 +162,8 @@ describe('behavior runtime alignment', () => {
 					hide() {
 						calls.push('behavior:hide')
 					},
-					resize(size) {
-						calls.push(`behavior:resize:${size?.width}`)
+					resize(res) {
+						calls.push(`behavior:resize:${res?.size?.windowWidth}`)
 					},
 					routeDone() {
 						calls.push('behavior:routeDone')
@@ -171,8 +177,9 @@ describe('behavior runtime alignment', () => {
 				hide() {
 					calls.push('component:hide')
 				},
-				resize(size) {
-					calls.push(`component:resize:${size?.width}`)
+				resize(res) {
+					calls.push(`component:resize:${res?.size?.windowWidth}`)
+					componentResizeRes = res
 				},
 				routeDone() {
 					calls.push('component:routeDone')
@@ -198,7 +205,7 @@ describe('behavior runtime alignment', () => {
 		await component.init()
 		component.pageShow()
 		component.pageHide()
-		component.pageResize({ width: 375 })
+		component.pageResize({ size: { windowWidth: 375, windowHeight: 667 }, deviceOrientation: 'portrait' })
 		component.componentRouteDone()
 
 		expect(calls).toEqual([
@@ -211,15 +218,21 @@ describe('behavior runtime alignment', () => {
 			'behavior:routeDone',
 			'component:routeDone',
 		])
+
+		expect(componentResizeRes.size.windowWidth).toBe(375)
+		expect(componentResizeRes.deviceOrientation).toBe('portrait')
 	})
 
 	it('dispatches resize and routeDone to runtime page and component instances', async () => {
 		const calls = []
 		const bridgeId = 'bridge-runtime'
+		let pageResizeRes
+		let componentResizeRes
 
 		const pageModule = new PageModule({
-			onResize(size) {
-				calls.push(`page:resize:${size?.width}`)
+			onResize(res) {
+				calls.push(`page:resize:${res?.size?.windowWidth}`)
+				pageResizeRes = res
 			},
 		}, {
 			path: 'pages/demo/index',
@@ -234,8 +247,9 @@ describe('behavior runtime alignment', () => {
 
 		const componentModule = new ComponentModule({
 			pageLifetimes: {
-				resize(size) {
-					calls.push(`component:resize:${size?.width}`)
+				resize(res) {
+					calls.push(`component:resize:${res?.size?.windowWidth}`)
+					componentResizeRes = res
 				},
 				routeDone() {
 					calls.push('component:routeDone')
@@ -267,13 +281,34 @@ describe('behavior runtime alignment', () => {
 			},
 		}
 		await runtime.moduleAttached({ bridgeId, moduleId: component.__id__ })
+		runtime.pageShow({ bridgeId })
 
-		runtime.pageResize({ bridgeId, size: { width: 414 } })
+		// pageResize 结算走 16ms 合并窗口，两次上报之间推进定时器让它们分别结算。
+		vi.useFakeTimers()
+
+		// deviceOrientation 缺失时按屏幕宽高比兜底：宽 > 高判定为 landscape。
+		runtime.pageResize({ bridgeId, size: { windowWidth: 800, windowHeight: 400 } })
+		vi.advanceTimersByTime(16)
+		expect(pageResizeRes.size.windowWidth).toBe(800)
+		expect(pageResizeRes.deviceOrientation).toBe('landscape')
+		expect(componentResizeRes.size.windowWidth).toBe(800)
+		expect(componentResizeRes.deviceOrientation).toBe('landscape')
+
+		// 宽 <= 高判定为 portrait。
+		runtime.pageResize({ bridgeId, size: { windowWidth: 400, windowHeight: 800 } })
+		vi.advanceTimersByTime(16)
+		expect(pageResizeRes.deviceOrientation).toBe('portrait')
+		expect(componentResizeRes.deviceOrientation).toBe('portrait')
+
+		vi.useRealTimers()
+
 		runtime.componentRouteDone({ bridgeId })
 
 		expect(calls).toEqual([
-			'component:resize:414',
-			'page:resize:414',
+			'component:resize:800',
+			'page:resize:800',
+			'component:resize:400',
+			'page:resize:400',
 			'component:routeDone',
 		])
 	})

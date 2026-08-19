@@ -76,6 +76,8 @@ export class DMPContainerBridgesModuleNavigationBar extends DMPContainerBridgesM
     record.pageStyle = new DMPPageStyle(navStyle ?? new DMPMap(), this.app.appIndex)
     this.invokeSuccessCallback(callback, null)
   }
+
+
 }
 
 

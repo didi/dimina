@@ -45,7 +45,10 @@ struct ContentView: View {
         let app = manager.appWithConfig(appConfig: appConfig)
 
         // 设置DMPNavigator
-        app.getNavigator()!.setup(navigationController: navController)
+        app.getNavigator()!.setup(
+            navigationController: navController,
+            pageOrientationEnabled: true
+        )
 
         // 启动小程序
         Task { @MainActor in
@@ -152,9 +155,10 @@ struct ContentView: View {
                 if let navController = rootVC as? UINavigationController {
                     ContentView.navigationController = navController
                 } else {
-                    // 如果没有导航控制器，替换根视图控制器为导航控制器
-                    let navController = UINavigationController()
-                    
+                    // 如果没有导航控制器，替换根视图控制器为导航控制器。
+                    // 必须是 DMPNavigationController：UIKit 只问窗口根控制器要 supportedInterfaceOrientations，普通 UINavigationController 不会把这个问题转给 topViewController，页面级 pageOrientation 就永远不参与判定
+                    let navController = DMPNavigationController()
+
                     // 使用UIHostingController包装当前视图，避免重复创建ContentView
                     let hostingController = UIHostingController(rootView: self)
                     hostingController.navigationItem.title = "星河小程序"

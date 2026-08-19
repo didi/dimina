@@ -88,10 +88,14 @@ class MiniApp private constructor() {
      * @param miniProgram The MiniProgram to open
      */
     fun openApp(context: Activity, miniProgram: MiniProgram) {
+        openApp(context, miniProgram, null)
+    }
+
+    fun openApp(context: Activity, miniProgram: MiniProgram, pageOrientation: String?) {
         // Initialize or get JsCore for this MiniProgram
         getOrCreateJsCore(miniProgram.appId, context)
 
-        DiminaActivity.launch(context, miniProgram)
+        DiminaActivity.launch(context, miniProgram, flag = null, pageOrientation = pageOrientation)
     }
 
     @Synchronized

@@ -8,6 +8,7 @@ class App: Application() {
         super.onCreate()
         Dimina.init(this, Dimina.DiminaConfig.Builder()
             .setDebugMode(true)
+            .setPageOrientationEnabled(true)
             .build()
         )
     }

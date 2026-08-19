@@ -61,10 +61,29 @@ class MyApplication : Application() {
             // 是否启用调试模式：影响日志显示，并允许 pageFrame 初始化 vConsole
             // 调试模式不检测 App 是否已更新，都会进入 JSSDK 和 JSApp 的更新检测逻辑
             .setDebugMode(true)
+            // 横竖屏能力默认关闭；显式启用后 pageOrientation 才生效
+            .setPageOrientationEnabled(true)
             .build()
         )
     }
 }
+```
+
+`setPageOrientationEnabled` 默认为 `false`。旧宿主只升级 SDK、不修改初始化代码时继续沿用原有 `DiminaActivity` 竖屏策略，不注册方向几何监听；`pageOrientation` 配置不生效。完整配置、事件语义与平台差异见[页面方向与窗口尺寸](../docs/page-orientation.md)。
+
+启用能力时，宿主还需要在自己的 AndroidManifest.xml 覆盖 SDK Activity 的方向与配置变化处理；这部分不放进 library manifest，避免只升级依赖就改变旧宿主的 Activity 重建语义：
+
+```xml
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <application>
+        <activity
+            android:name="com.didi.dimina.ui.container.DiminaActivity"
+            android:screenOrientation="unspecified"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"
+            tools:replace="android:screenOrientation" />
+    </application>
+</manifest>
 ```
 
 #### 调试模式与 vConsole

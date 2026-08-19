@@ -73,11 +73,18 @@ export struct DMPPage {
     .hideTitleBar(true)
     .expandSafeArea([SafeAreaType.KEYBOARD])
     .onShown(() => {
+      // 共享窗口只有一个，谁的页面被 Navigation 显示出来（包括被上层 push 盖住后又因为上层 pop 重新露出），谁就是当前拥有窗口的 app——单一权威见 DMPAppManager
+      if (this.app) {
+        DMPAppManager.sharedInstance().notifyPageShown(this.app.appIndex)
+      }
       DMPWindowUtil.setWindowBarDarkMode(getContext(this), this.getPageStyle()?.isStatusBarDarkMode() ?? false)
 
     })
     .onHidden(() => {
-
+      // 这一页隐去也记一笔：账本按可见页计数，同一个 app 内部换页（新页 onShown 与旧页 onHidden 顺序没有保证）不会误清归属，而整个小程序被盖住、最后一页隐去时窗口如实交还——否则看不见的 app 还会继续收几何变化并把自己的方向按回宿主窗口
+      if (this.app) {
+        DMPAppManager.sharedInstance().notifyPageHidden(this.app.appIndex)
+      }
     })
     .onBackPressed(() => {
       // 如果页面还没有 onready 添加事件拦截

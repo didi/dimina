@@ -163,6 +163,10 @@ export class Page {
 	// 开发者自定义函数
 	#initMembers() {
 		for (const attr in this.__info__) {
+			// data 由构造函数按实例深拷贝，这里再赋一次会让所有实例共享 moduleInfo 上那一份模块级对象，setData 将原地写穿到模块默认值上。
+			if (attr === 'data') {
+				continue
+			}
 			const member = this.__info__[attr]
 			if (isFunction(member)) {
 				this[attr] = member.bind(this)

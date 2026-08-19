@@ -14,6 +14,13 @@
         android:theme="@style/Theme.DiminaAndroid"
         android:networkSecurityConfig="@xml/network_security_config"
         tools:targetApi="31">
+        <!-- The SDK library keeps its historical portrait manifest for existing hosts. The demo
+             opts into runtime page orientation by overriding the activity lifecycle contract. -->
+        <activity
+            android:name="com.didi.dimina.ui.container.DiminaActivity"
+            android:screenOrientation="unspecified"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"
+            tools:replace="android:screenOrientation" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

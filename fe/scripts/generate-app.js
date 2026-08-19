@@ -10,16 +10,15 @@ const sharedJsappPath = path.resolve(__dirname, '../../shared/jsapp')
 
 // Helper function to create zip file
 async function createZip(sourceDir, outputPath) {
-	// archiver 的当前版本导出的是 ZipArchive 类，没有可直接调用的默认导出。取 default 得到的是
-	// undefined，调用它抛 TypeError；这个错误发生在 createWriteStream 之后，于是每个包都留下一个
-	// 0 字节的 zip。generate-sdk.js 用的也是这个类。
+	// archiver 的当前版本只导出具名的 ZipArchive。
+	// 构造放在 createWriteStream 之前，避免构造失败时先把已有目标文件截成 0 字节。
 	const { ZipArchive } = await import('archiver')
 
 	return new Promise((resolve, reject) => {
-		const output = fs.createWriteStream(outputPath)
 		const archive = new ZipArchive({
 			zlib: { level: 9 }, // Maximum compression
 		})
+		const output = fs.createWriteStream(outputPath)
 
 		output.on('close', () => {
 			console.log(`Successfully created ${outputPath} (${archive.pointer()} bytes)`)
@@ -42,6 +41,8 @@ async function createZip(sourceDir, outputPath) {
 
 // Main async function
 async function main() {
+	const failedAppIds = []
+
 	// Check if the shared/jsapp directory exists
 	if (!fs.existsSync(sharedJsappPath)) {
 		console.error(`Error: Directory ${sharedJsappPath} does not exist.`)
@@ -135,7 +136,13 @@ async function main() {
 		}
 		catch (error) {
 			console.error(`Error creating zip for ${appId}:`, error)
+			failedAppIds.push(appId)
 		}
+	}
+
+	// 打包失败必须让退出码非零：失败时目标 zip 已被写入流截成 0 字节，若仍然报成功，下游会把这个空包当成有效产物装进宿主。
+	if (failedAppIds.length > 0) {
+		throw new Error(`Failed to create zip for: ${failedAppIds.join(', ')}`)
 	}
 
 	console.log('App generation completed successfully!')

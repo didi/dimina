@@ -11,6 +11,7 @@ import dmpMiniProgramPresentationStackTest from './DMPMiniProgramPresentationSta
 import dmpAppModuleManagerLifecycleTest from './DMPAppModuleManagerLifecycle.test';
 import dmpWorkerFlushBarrierTest from './DMPWorkerFlushBarrier.test';
 import dmpMiniProgramNavigationCallbackTest from './DMPMiniProgramNavigationCallback.test';
+import pageOrientationGeometryGateTest from './PageOrientationGeometryGate.test';
 
 export default function testsuite() {
   localUnitTest();
@@ -26,4 +27,5 @@ export default function testsuite() {
   dmpAppModuleManagerLifecycleTest();
   dmpWorkerFlushBarrierTest();
   dmpMiniProgramNavigationCallbackTest();
+  pageOrientationGeometryGateTest();
 }

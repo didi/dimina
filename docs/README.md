@@ -15,6 +15,7 @@ Dimina（星河小程序）由 DMCC 编译器、逻辑层与渲染层运行时�
 | 编译和运行微信小游戏 | [微信小游戏运行](./Mini-Game.md) | `game.js`、Canvas 与三端运行类型透传 |
 | 接入内置包或远程更新 | [小程序包更新](./MiniProgram-Update.md) | 对应平台的 Bundle Loader 实现 |
 | 查看 WebSocket API、事件与平台限制 | [WebSocket 能力](./websocket-architecture.md) | 对应平台的 Manager 与校验源码 |
+| 接入横竖屏与窗口 resize | [页面方向与窗口尺寸](./page-orientation.md) | 对应平台的 SDK 接入文档 |
 | 参与前端框架开发 | [前端工程说明](../fe/README.md) | [贡献指南](../CONTRIBUTING.md) |
 
 ## 核心阅读路径
@@ -27,6 +28,7 @@ Dimina（星河小程序）由 DMCC 编译器、逻辑层与渲染层运行时�
 6. [微信小游戏运行](./Mini-Game.md)：小游戏工程识别、编译产物、Canvas 入口和当前边界。
 7. [小程序包更新](./MiniProgram-Update.md)：内置包、远程 manifest、校验、安装与 `wx.getUpdateManager()`。
 8. [WebSocket 能力](./websocket-architecture.md)：公开 API、`SocketTask` 方法、事件数据、连接规则与平台限制。
+9. [页面方向与窗口尺寸](./page-orientation.md)：配置、resize 派发、原生宿主接入与平台限制。
 
 ## 平台接入
 
