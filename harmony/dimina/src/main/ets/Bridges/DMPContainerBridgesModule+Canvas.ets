@@ -6,7 +6,7 @@ import { DMPFileManager } from '../Bundle/Util/DMPFileManager'
 import { DMPApp } from '../DApp/DMPApp'
 import { DMPLogger } from '../EventTrack/DMPLogger'
 import fs from '@ohos.file.fs'
-import { buffer, util } from '@kit.ArkTS'
+import { util } from '@kit.ArkTS'
 
 export function invokeCanvasResult(callback: DMPBridgeCallback, result: DMPMap,
   type: DMPBridgeCallbackType) {
@@ -43,16 +43,16 @@ export class DMPContainerBridgesModuleCanvas extends DMPContainerBridgesModule {
     return bytes.byteLength >= 3 && bytes[0] === 0xFF && bytes[1] === 0xD8 && bytes[2] === 0xFF
   }
 
-  private removePartialFile(filePath: string) {
+  private async removePartialFile(filePath: string) {
     if (!filePath) return
     try {
-      fs.unlinkSync(filePath)
+      await fs.unlink(filePath)
     } catch (_) {
       // A path that was never created has nothing to clean up.
     }
   }
 
-  private ensureCanvasDirectory(fileTmpDir: string, sandboxPath: string, appId: string): boolean {
+  private async ensureCanvasDirectory(fileTmpDir: string, sandboxPath: string, appId: string): Promise<boolean> {
     const directories: string[] = [
       sandboxPath,
       `${sandboxPath}/${appId}`,
@@ -62,15 +62,15 @@ export class DMPContainerBridgesModuleCanvas extends DMPContainerBridgesModule {
     if (fileTmpDir !== directories[directories.length - 1]) return false
     try {
       for (const directory of directories) {
-        if (!fs.accessSync(directory)) {
+        if (!(await fs.access(directory))) {
           try {
-            fs.mkdirSync(directory)
+            await fs.mkdir(directory)
           } catch (_) {
             // A concurrently created directory still passes the type and symlink checks below.
-            if (!fs.accessSync(directory)) return false
+            if (!(await fs.access(directory))) return false
           }
         }
-        const stat = fs.lstatSync(directory)
+        const stat = await fs.lstat(directory)
         if (stat.isSymbolicLink() || !stat.isDirectory()) return false
       }
       return true
@@ -79,7 +79,7 @@ export class DMPContainerBridgesModuleCanvas extends DMPContainerBridgesModule {
     }
   }
 
-  saveCanvasTempFile(data: DMPMap, callback: DMPBridgeCallback) {
+  async saveCanvasTempFile(data: DMPMap, callback: DMPBridgeCallback) {
     const dataURL = data.getString('dataURL') ?? ''
     const fileType = data.getString('fileType') ?? 'png'
     if (!dataURL) {
@@ -128,14 +128,14 @@ export class DMPContainerBridgesModuleCanvas extends DMPContainerBridgesModule {
       return
     }
 
+    // 解码最多 32 MB 的 base64 再落盘是这条链上唯一的重活。saveCanvasTempFile 由 render 层
+    // 发起，走的是主线程的模块表（worker 上只注册了 Http/Storage/File），同步做会直接卡住画面。
+    // 因此解码走 Base64Helper 的 Promise 接口，文件操作全部走 fs 的 Promise 接口。
     let stagingPath = ''
     let finalPath = ''
     let openedFile: fs.File | null = null
     try {
-      const decoded = buffer.from(base64Data, 'base64')
-      const bytes = new Uint8Array(decoded.length)
-      const copied = decoded.copy(bytes, 0, 0, decoded.length)
-      if (copied !== decoded.length) throw new Error('short base64 copy')
+      const bytes = await new util.Base64Helper().decode(base64Data, util.Type.BASIC)
       if (!bytes.byteLength || bytes.byteLength > DMPContainerBridgesModuleCanvas.MAX_IMAGE_BYTES) {
         this.invokeCanvasFailure(callback, bytes.byteLength ? 'data too large' : 'invalid image data')
         return
@@ -144,26 +144,31 @@ export class DMPContainerBridgesModuleCanvas extends DMPContainerBridgesModule {
         this.invokeCanvasFailure(callback, 'invalid image data')
         return
       }
+      // 解码结果不保证独占整个 ArrayBuffer，而 fs.write 收的是整个 buffer——直接交出去会把
+      // 视图之外的字节也写进文件。只有确实带偏移时才用 slice 付这一次拷贝。
+      const payload = bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength
+        ? bytes
+        : bytes.slice()
 
       const fileMgr = DMPFileManager.sharedInstance()
       const fileTmpDir = fileMgr.appTmpDirectory(appId)
       if (!fileTmpDir) throw new Error('temp directory unavailable')
-      if (!this.ensureCanvasDirectory(fileTmpDir, fileMgr.sandboxPath, appId)) {
+      if (!(await this.ensureCanvasDirectory(fileTmpDir, fileMgr.sandboxPath, appId))) {
         throw new Error('unsafe temp directory')
       }
 
       const token = util.generateRandomUUID()
       stagingPath = `${fileTmpDir}/.canvas_${token}.tmp`
       finalPath = `${fileTmpDir}/canvas_${token}.${fileType}`
-      openedFile = fs.openSync(
+      openedFile = await fs.open(
         stagingPath,
         fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.NOFOLLOW
       )
-      const written = fs.writeSync(openedFile.fd, bytes.buffer, { length: bytes.byteLength })
-      if (written !== bytes.byteLength) throw new Error('short write')
-      fs.closeSync(openedFile)
+      const written = await fs.write(openedFile.fd, payload.buffer, { length: payload.byteLength })
+      if (written !== payload.byteLength) throw new Error('short write')
+      await fs.close(openedFile)
       openedFile = null
-      fs.moveFileSync(stagingPath, finalPath, 0)
+      await fs.moveFile(stagingPath, finalPath, 0)
       stagingPath = ''
 
       const result = new DMPMap()
@@ -173,15 +178,21 @@ export class DMPContainerBridgesModuleCanvas extends DMPContainerBridgesModule {
     } catch (error) {
       if (openedFile) {
         try {
-          fs.closeSync(openedFile)
+          await fs.close(openedFile)
         } catch (_) {
           // Cleanup below remains authoritative.
         }
       }
-      this.removePartialFile(stagingPath)
-      this.removePartialFile(finalPath)
+      await this.removePartialFile(stagingPath)
+      await this.removePartialFile(finalPath)
       DMPLogger.e('saveCanvasTempFile error: ' + error)
-      this.invokeCanvasFailure(callback, 'write failed')
+      // 这个方法变成 async 之后，bridge 的 try/catch（只接同步抛错）不再兜得住它，
+      // 回调链再抛就成了没有任何日志的 unhandled rejection。
+      try {
+        this.invokeCanvasFailure(callback, 'write failed')
+      } catch (notifyError) {
+        DMPLogger.e('saveCanvasTempFile failed to notify: ' + notifyError)
+      }
     }
   }
 }

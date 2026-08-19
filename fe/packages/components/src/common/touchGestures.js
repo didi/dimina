@@ -69,6 +69,8 @@ export function attachTouchEvents(info, element, options = {}) {
 	let sequenceGeneration = 0
 	let attached = true
 	let detachRequested = false
+	// detach 被推迟时等着的回调；调用方靠它把"换 owner"排在当前这次触摸收口之后。
+	const detachedCallbacks = []
 	let activeInputType = null
 	let activeTouchIdentifier = null
 	let activePointerId = null
@@ -322,7 +324,7 @@ export function attachTouchEvents(info, element, options = {}) {
 			releaseTouchInputIfEmpty(event)
 			endSequence(event, event.touches, event.changedTouches, activePoint || ORIGIN_POINT)
 		}
-		finishPendingDetach()
+		finishPendingDetach(event)
 	}
 
 	function onTouchCancel(event) {
@@ -341,7 +343,7 @@ export function attachTouchEvents(info, element, options = {}) {
 			sequenceGeneration += 1
 			cancelSequence(event, event.touches, event.changedTouches, activePoint || ORIGIN_POINT)
 		}
-		finishPendingDetach()
+		finishPendingDetach(event)
 	}
 
 	function detachPointerTracking() {
@@ -387,7 +389,7 @@ export function attachTouchEvents(info, element, options = {}) {
 		detachPointerTracking()
 		sequenceGeneration += 1
 		cancelSequence(event, [], [touch], touch)
-		finishPendingDetach()
+		finishPendingDetach(event)
 	}
 
 	function onPointerUp(event) {
@@ -397,7 +399,7 @@ export function attachTouchEvents(info, element, options = {}) {
 		const touch = pointerToTouch(event)
 		detachPointerTracking()
 		endSequence(event, [], [touch], touch)
-		finishPendingDetach()
+		finishPendingDetach(event)
 	}
 
 	function onPointerCancel(event) {
@@ -408,7 +410,7 @@ export function attachTouchEvents(info, element, options = {}) {
 		detachPointerTracking()
 		sequenceGeneration += 1
 		cancelSequence(event, [], [touch], touch)
-		finishPendingDetach()
+		finishPendingDetach(event)
 	}
 
 	// click 只作为兜底，覆盖程序化 el.click() 与键盘、无障碍触发。
@@ -480,19 +482,37 @@ export function attachTouchEvents(info, element, options = {}) {
 		element.removeEventListener('pointerdown', onPointerDown)
 		element.removeEventListener('click', onClick)
 		element.removeEventListener(ACTIVATION_TAP_EVENT, onActivationTap)
+		// 放在最后：回调常常是"装上新 owner"，要等 __ddGestureDetach 让出来、监听器全摘掉之后再跑。
+		while (detachedCallbacks.length) {
+			detachedCallbacks.shift()()
+		}
 	}
 
-	function finishPendingDetach() {
-		if (detachRequested && activeInputType === null) finalizeDetach()
+	// 终态 tap 是 endSequence 排进 touchend 微任务里派发的，收掉 owner 必须排在它后面：
+	// finalizeDetach 会把 attached 置否并推进 generation，早一步收掉正好吃掉这一次的 tap。
+	function finishPendingDetach(nativeEvent) {
+		if (!detachRequested || activeInputType !== null) return
+		if (!nativeEvent) {
+			finalizeDetach()
+			return
+		}
+		enqueueAfterTouchEnd(nativeEvent, () => {
+			if (detachRequested && activeInputType === null) finalizeDetach()
+		})
 	}
 
-	function detach({ preserveActive = false } = {}) {
-		if (!attached) return
+	function detach({ preserveActive = false, onDetached = null } = {}) {
+		if (!attached) {
+			onDetached?.()
+			return
+		}
 		if (preserveActive && activeInputType !== null) {
 			detachRequested = true
+			if (onDetached) detachedCallbacks.push(onDetached)
 			return
 		}
 		finalizeDetach()
+		onDetached?.()
 	}
 
 	element.__ddGestureDetach = detach

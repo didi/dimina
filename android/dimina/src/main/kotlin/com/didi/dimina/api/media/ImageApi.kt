@@ -25,7 +25,9 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.util.Base64
 import java.util.UUID
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -38,6 +40,27 @@ internal fun canvasTempFileFailure(reason: String): AsyncResult = AsyncResult(
     value = JSONObject().apply { put("errMsg", "canvasToTempFilePath:fail $reason") },
     completeCarriesResult = true,
 )
+
+/**
+ * 按同步路径（MiniApp.invokeAPI）的契约派发结果：errMsg 以 ":ok" 结尾走 success，否则走 fail，
+ * complete 无论如何都发且携带同一个 result。canvas 的写盘挪到后台后没有人再替它做这件事，
+ * 所以这段是手写的，单独可测。
+ */
+internal fun dispatchCanvasResult(
+    params: JSONObject,
+    result: JSONObject,
+    responseCallback: (String) -> Unit,
+) {
+    try {
+        if (result.optString("errMsg").endsWith(":ok")) {
+            ApiUtils.invokeSuccess(params, result, responseCallback)
+        } else {
+            ApiUtils.invokeFail(params, result, responseCallback)
+        }
+    } finally {
+        ApiUtils.invokeComplete(params, responseCallback, result)
+    }
+}
 
 internal fun canvasTempFileSuccess(tempFilePath: String): AsyncResult = AsyncResult(
     value = JSONObject().apply {
@@ -64,6 +87,12 @@ class ImageApi : BaseApiHandler() {
         const val MAX_CANVAS_BASE64_CHARS = (MAX_CANVAS_IMAGE_BYTES * 4 / 3) + 8
         val SAFE_APP_ID = Regex("^[A-Za-z0-9._-]+$")
         val STRICT_BASE64 = Regex("^[A-Za-z0-9+/]*={0,2}$")
+
+        // 每个页面是自己的 DiminaActivity（navigateTo 走 startActivity），而 QuickJS 按 appId 共享。
+        // 绑 activity.lifecycleScope 的话，用户在写盘途中返回上一页就会取消协程，success/fail/complete
+        // 一个都不发，等 complete 的小程序永远挂住。写盘的真正归属是 JS 引擎而不是页面，所以用独立
+        // scope；引擎已销毁时迟到的回调由 JsCore.postMessage 丢弃。
+        val canvasIoScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     }
 
     override val apiNames =
@@ -84,7 +113,7 @@ class ImageApi : BaseApiHandler() {
         responseCallback: (String) -> Unit,
     ): APIResult {
         return when (apiName) {
-            SAVE_CANVAS_TEMP_FILE -> saveCanvasTempFile(activity, appId, params)
+            SAVE_CANVAS_TEMP_FILE -> saveCanvasTempFile(activity, appId, params, responseCallback)
 
             SAVE_IMAGE_TO_PHOTOS_ALBUM -> {
                 val filePath = params.optString("filePath")
@@ -384,7 +413,12 @@ class ImageApi : BaseApiHandler() {
     }
 
 
-    private fun saveCanvasTempFile(activity: DiminaActivity, appId: String, params: JSONObject): AsyncResult {
+    private fun saveCanvasTempFile(
+        activity: DiminaActivity,
+        appId: String,
+        params: JSONObject,
+        responseCallback: (String) -> Unit,
+    ): APIResult {
         fun failure(reason: String) = canvasTempFileFailure(reason)
 
         val dataURL = params.optString("dataURL")
@@ -405,30 +439,58 @@ class ImageApi : BaseApiHandler() {
             return failure(if (base64Data.length > MAX_CANVAS_BASE64_CHARS) "data too large" else "base64 decode failed")
         }
 
+        // 解码最多 32 MB 的 base64 再落盘是这条链上唯一的重活，而 handleAction 跑在主线程上
+        // （JsCore 把 QuickJS 的每次 evaluate 都 post 到主 Looper），同步做会卡住画面。
+        // 参数校验很便宜，留在调用线程上以保持同步失败语义。
+        val context = activity.applicationContext
+        canvasIoScope.launch {
+            // appTempRoot 自己也做 canonicalFile 与 createDirectories，并且会对符号链接抛错。
+            // 它必须留在这个 try 里：抛出去就没有人再发 complete，小程序会永远等下去。
+            val result = try {
+                writeCanvasTempFile(PathUtils.appTempRoot(context, appId), base64Data, fileType)
+            } catch (_: Exception) {
+                canvasTempFileFailure("write failed").value
+            }
+            // responseCallback 会一路回到 QuickJS，而 QuickJS 只在主线程上执行。
+            withContext(Dispatchers.Main) {
+                dispatchCanvasResult(params, result, responseCallback)
+            }
+        }
+        return NoneResult()
+    }
+
+    /**
+     * Decodes the canvas data URL payload and publishes it into the app temp directory. Returns the
+     * same result shape the synchronous validation failures use, so both paths reach the mini
+     * program identically.
+     */
+    internal fun writeCanvasTempFile(tempRoot: File, base64Data: String, fileType: String): JSONObject {
         val imageBytes = try {
             Base64.getDecoder().decode(base64Data)
         } catch (_: IllegalArgumentException) {
-            return failure("base64 decode failed")
+            return canvasTempFileFailure("base64 decode failed").value
         }
         if (imageBytes.isEmpty() || imageBytes.size > MAX_CANVAS_IMAGE_BYTES || !matchesImageType(imageBytes, fileType)) {
-            return failure(if (imageBytes.size > MAX_CANVAS_IMAGE_BYTES) "data too large" else "invalid image data")
+            return canvasTempFileFailure(
+                if (imageBytes.size > MAX_CANVAS_IMAGE_BYTES) "data too large" else "invalid image data"
+            ).value
         }
 
         var cleanupFile: File? = null
         return try {
-            val tempRoot = PathUtils.appTempRoot(activity, appId)
             val stagingFile = File.createTempFile(".canvas_", ".tmp", tempRoot)
             cleanupFile = stagingFile
             stagingFile.outputStream().use { it.write(imageBytes) }
             val publishedFile = File(tempRoot, "canvas_${UUID.randomUUID()}.$fileType")
             Files.move(stagingFile.toPath(), publishedFile.toPath(), StandardCopyOption.ATOMIC_MOVE)
             cleanupFile = publishedFile
-            canvasTempFileSuccess(PathUtils.pathToVirtual(publishedFile))
+            canvasTempFileSuccess(PathUtils.pathToVirtual(publishedFile)).value
         } catch (_: Exception) {
             cleanupFile?.delete()
-            failure("write failed")
+            canvasTempFileFailure("write failed").value
         }
     }
+
 
     internal fun isValidCanvasAppId(appId: String): Boolean =
         SAFE_APP_ID.matches(appId) && appId != "." && appId != ".."

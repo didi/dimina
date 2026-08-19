@@ -215,7 +215,25 @@ function mountCanvasGestures(el, vnode) {
 		disableScroll: () => canvasDisableScroll(info.attrs),
 		getRelativeElement: () => el,
 	})
-	canvasGestures.set(el, { detach, info, gestureSignature: canvasGestureSignature(info.attrs) })
+	canvasGestures.set(el, { detach, info, gestureSignature: canvasGestureSignature(info.attrs), latestVNode: vnode })
+}
+
+// passive 选项只能在注册监听器时决定，所以 catch 绑定或 disable-scroll 变化必须重装监听器。但重装
+// 会清掉活动序列、长按计时器和 tap 状态，正在进行的这次触摸就再也发不出 tap / longpress /
+// canceltap，所以要等它自己以 touchend / touchcancel 收口之后再换 owner。
+// 期间到达的属性更新只更新 latestVNode，换 owner 时按最新的一份重新解析。
+function swapCanvasGestures(el, state) {
+	if (state.pendingSwap) return
+	state.pendingSwap = true
+	state.detach({
+		preserveActive: true,
+		onDetached: () => {
+			// 卸载或被组件接管时这条登记已经作废，不能拿它把手势再装回去。
+			if (canvasGestures.get(el) !== state) return
+			canvasGestures.delete(el)
+			mountCanvasGestures(el, state.latestVNode)
+		},
+	})
 }
 
 function updateCanvasGestures(el, vnode) {
@@ -230,16 +248,14 @@ function updateCanvasGestures(el, vnode) {
 		mountCanvasGestures(el, vnode)
 		return
 	}
+	state.latestVNode = vnode
+	// 交互事件全部撤掉时也走同一条路：mountCanvasGestures 对没有交互事件的 canvas 不装手势。
 	if (!hasInteractionEvent({ attrs }) && !canvasDisableScroll(attrs)) {
-		state.detach()
-		canvasGestures.delete(el)
+		swapCanvasGestures(el, state)
 		return
 	}
-	const nextGestureSignature = canvasGestureSignature(attrs)
-	if (state.gestureSignature !== nextGestureSignature) {
-		state.detach()
-		canvasGestures.delete(el)
-		mountCanvasGestures(el, vnode)
+	if (state.gestureSignature !== canvasGestureSignature(attrs)) {
+		swapCanvasGestures(el, state)
 		return
 	}
 	state.info.attrs = attrs

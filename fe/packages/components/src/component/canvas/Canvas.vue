@@ -1,7 +1,14 @@
-<script setup>
+<script>
 // 画布
 // https://developers.weixin.qq.com/miniprogram/dev/component/canvas.html
 
+// canvas-id 判重按“页面 + 宿主组件实例 + canvas-id”登记，与渲染层 getCanvasElement 的 moduleId
+// 作用域一致：两个相同自定义组件的实例各自持有同名 canvas-id 是合法的。整页 DOM 查询做不到这件事，
+// 而且它会把先挂载的那个也一起算成重复，两边同时被隐藏。
+const claimedCanvasIds = new Set()
+</script>
+
+<script setup>
 import { triggerEvent, useInfo } from '@/common/events'
 import { useTouchEvents } from '@/common/useTouchEvents'
 
@@ -46,22 +53,32 @@ function preventScroll(event) {
 	}
 }
 
+// 出错的实例从不登记，所以这里也只在登记成功时才归还；否则后来者会把先到者的 key 删掉。
+let claimedKey = null
+
 onMounted(() => {
 	if (props.type) return
+	const key = `${info.bridgeId}|${info.moduleId}|${props.canvasId}`
 	let errMsg
 	if (!props.canvasId) {
 		errMsg = 'canvas-id attribute is undefined'
 	}
-	else {
-		const scope = rootRef.value.closest('.dd-page') || document
-		const duplicates = Array.from(scope.querySelectorAll('canvas[canvas-id]'))
-			.filter(canvas => canvas.getAttribute('canvas-id') === props.canvasId)
-		if (duplicates.length > 1) errMsg = `canvas-id ${props.canvasId} in this page has already existed`
+	else if (claimedCanvasIds.has(key)) {
+		errMsg = `canvas-id ${props.canvasId} in this page has already existed`
 	}
 	if (errMsg) {
 		isError.value = true
 		triggerEvent('error', { info, detail: { errMsg } })
+		return
 	}
+	claimedKey = key
+	claimedCanvasIds.add(key)
+})
+
+onUnmounted(() => {
+	if (claimedKey === null) return
+	claimedCanvasIds.delete(claimedKey)
+	claimedKey = null
 })
 </script>
 

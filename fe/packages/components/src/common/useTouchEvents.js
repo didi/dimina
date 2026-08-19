@@ -18,6 +18,7 @@ export function useTouchEvents(info, elementRef, options = {}) {
 	let detach = null
 	let catchSignature = ''
 	let installedElement = null
+	let pendingReinstall = false
 
 	const currentCatchSignature = () => ['touchstart', 'touchmove', 'touchend', 'touchcancel']
 		.map(type => Boolean(info.attrs?.[`catch${type}`] || info.attrs?.[`catch:${type}`]))
@@ -25,7 +26,6 @@ export function useTouchEvents(info, elementRef, options = {}) {
 
 	const install = () => {
 		if (!elementRef.value) return
-		detach?.()
 		detach = attachTouchEvents(info, elementRef.value, {
 			...rest,
 			// 组件的上下文与选项比指令兜底的更权威，可以从已装上的指令手里接管
@@ -34,6 +34,7 @@ export function useTouchEvents(info, elementRef, options = {}) {
 		})
 		catchSignature = currentCatchSignature()
 		installedElement = elementRef.value
+		pendingReinstall = false
 	}
 
 	onMounted(install)
@@ -43,16 +44,35 @@ export function useTouchEvents(info, elementRef, options = {}) {
 	// 判据是「装在哪个节点上」而不是 ref 是否变动：重装会作废正在结算的触摸序列，
 	// 节点没换却重装一次，正好会吃掉这一次 tap。
 	watch(elementRef, () => {
-		if (elementRef.value && elementRef.value !== installedElement) install()
+		if (!elementRef.value || elementRef.value === installedElement) return
+		// 旧节点已经不在树上，它那一次序列没有收口的意义，直接摘掉。
+		pendingReinstall = false
+		detach?.()
+		install()
 	}, { flush: 'post' })
 
 	onUpdated(() => {
-		// passive 选项只能在注册监听器时决定；bind/catch 动态切换时精确重装。
-		if (catchSignature !== currentCatchSignature()) install()
+		// passive 选项只能在注册监听器时决定，所以 bind/catch 变化必须重装监听器。但重装会清掉
+		// 活动序列、长按计时器和 tap 状态，正在进行的这次触摸就再也发不出 tap / longpress /
+		// canceltap，所以要等它自己以 touchend / touchcancel 收口之后再换 owner。
+		if (pendingReinstall || catchSignature === currentCatchSignature()) return
+		if (!detach) {
+			install()
+			return
+		}
+		pendingReinstall = true
+		detach({
+			preserveActive: true,
+			onDetached: () => {
+				if (!pendingReinstall) return
+				install()
+			},
+		})
 	})
 
 	onUnmounted(() => {
 		// 已开始的原生序列仍以真实 touchend/touchcancel 收口；卸载不能伪造终态。
+		pendingReinstall = false
 		detach?.({ preserveActive: true })
 		detach = null
 	})

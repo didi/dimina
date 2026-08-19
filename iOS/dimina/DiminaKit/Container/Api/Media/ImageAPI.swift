@@ -80,6 +80,55 @@ public class ImageAPI: DMPContainerApi {
         return resolvedAppURL
     }
     
+    enum CanvasTempFileOutcome {
+        case success(URL)
+        case failure(String)
+    }
+
+    /// 解码 base64 并把图片写进该 appId 的 tmp 目录，返回写成的文件 URL。
+    /// 沙箱根与 tmp 目录名由调用方传入，好让校验逻辑能在测试里指向真实的临时目录。
+    static func writeCanvasTempFile(
+        base64Data: String,
+        fileType: String,
+        appId: String,
+        sandboxRoot: URL,
+        tmpDirectoryName: String
+    ) -> CanvasTempFileOutcome {
+        guard let imageData = Data(base64Encoded: base64Data),
+              !imageData.isEmpty,
+              imageData.count <= maxCanvasImageBytes,
+              matchesCanvasImageType(imageData, fileType: fileType) else {
+            return .failure("invalid image data")
+        }
+
+        guard let resolvedAppURL = resolvedCanvasAppDirectory(sandboxRoot: sandboxRoot, appId: appId) else {
+            return .failure("invalid appId")
+        }
+        let tmpURL = resolvedAppURL.appendingPathComponent(tmpDirectoryName, isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: tmpURL, withIntermediateDirectories: true)
+        } catch {
+            return .failure("cannot create temp directory")
+        }
+
+        let resolvedTmpURL = tmpURL.resolvingSymlinksInPath()
+        guard resolvedTmpURL.path.hasPrefix(resolvedAppURL.path + "/") else {
+            return .failure("invalid appId")
+        }
+        let fileURL = resolvedTmpURL.appendingPathComponent(
+            "canvas_\(UUID().uuidString).\(fileType)",
+            isDirectory: false
+        )
+        do {
+            try imageData.write(to: fileURL, options: .atomic)
+        } catch {
+            try? FileManager.default.removeItem(at: fileURL)
+            return .failure("write failed")
+        }
+        return .success(fileURL)
+    }
+
+
     // Save canvas to temp file (canvasToTempFilePath second hop: dataURL → file)
     @BridgeMethod(SAVE_CANVAS_TEMP_FILE)
     var saveCanvasTempFile: DMPBridgeMethodHandler = { param, env, callback in
@@ -121,53 +170,36 @@ public class ImageAPI: DMPContainerApi {
             ImageAPI.invokeCanvasFailure(callback: callback, reason: base64Data.isEmpty ? "base64 decode failed" : "data too large")
             return DMPAsyncResult()
         }
-        guard let imageData = Data(base64Encoded: base64Data),
-              !imageData.isEmpty,
-              imageData.count <= ImageAPI.maxCanvasImageBytes,
-              ImageAPI.matchesCanvasImageType(imageData, fileType: fileType) else {
-            ImageAPI.invokeCanvasFailure(callback: callback, reason: "invalid image data")
-            return DMPAsyncResult()
-        }
-
+        // 解码最多 32 MB 的 base64 再落盘是这条链上唯一的重活，而 bridge handler 跑在主线程上，
+        // 同一条主线程还要结算 render 的触摸与 setData。参数校验很便宜，留在原地保持同步失败语义。
         let sandboxRoot = URL(fileURLWithPath: DMPSandboxManager.sandboxPath(), isDirectory: true)
-        guard let resolvedAppURL = ImageAPI.resolvedCanvasAppDirectory(
-            sandboxRoot: sandboxRoot,
-            appId: env.appId
-        ) else {
-            ImageAPI.invokeCanvasFailure(callback: callback, reason: "invalid appId")
-            return DMPAsyncResult()
-        }
         let tmpDirectoryName = URL(
             fileURLWithPath: DMPSandboxManager.appTmpResourceDirectoryPath(appId: env.appId)
         ).lastPathComponent
-        let tmpURL = resolvedAppURL.appendingPathComponent(tmpDirectoryName, isDirectory: true)
-
-        do {
-            try FileManager.default.createDirectory(at: tmpURL, withIntermediateDirectories: true)
-        } catch {
-            ImageAPI.invokeCanvasFailure(callback: callback, reason: "cannot create temp directory")
-            return DMPAsyncResult()
+        let appId = env.appId
+        DispatchQueue.global(qos: .userInitiated).async {
+            let outcome = ImageAPI.writeCanvasTempFile(
+                base64Data: base64Data,
+                fileType: fileType,
+                appId: appId,
+                sandboxRoot: sandboxRoot,
+                tmpDirectoryName: tmpDirectoryName
+            )
+            DispatchQueue.main.async {
+                switch outcome {
+                case .failure(let reason):
+                    ImageAPI.invokeCanvasFailure(callback: callback, reason: reason)
+                case .success(let fileURL):
+                    let result = DMPMap()
+                    result.set(
+                        "tempFilePath",
+                        DMPFileUtil.vPathFromSandboxPath(sandboxPath: fileURL.path, appId: appId)
+                    )
+                    result.set("errMsg", "canvasToTempFilePath:ok")
+                    ImageAPI.invokeCanvasSuccess(callback: callback, result: result)
+                }
+            }
         }
-
-        let resolvedTmpURL = tmpURL.resolvingSymlinksInPath()
-        guard resolvedTmpURL.path.hasPrefix(resolvedAppURL.path + "/") else {
-            ImageAPI.invokeCanvasFailure(callback: callback, reason: "invalid appId")
-            return DMPAsyncResult()
-        }
-        let fileURL = resolvedTmpURL.appendingPathComponent("canvas_\(UUID().uuidString).\(fileType)", isDirectory: false)
-        do {
-            try imageData.write(to: fileURL, options: .atomic)
-        } catch {
-            try? FileManager.default.removeItem(at: fileURL)
-            ImageAPI.invokeCanvasFailure(callback: callback, reason: "write failed")
-            return DMPAsyncResult()
-        }
-
-        let tempFilePath = DMPFileUtil.vPathFromSandboxPath(sandboxPath: fileURL.path, appId: env.appId)
-        let result = DMPMap()
-        result.set("tempFilePath", tempFilePath)
-        result.set("errMsg", "canvasToTempFilePath:ok")
-        ImageAPI.invokeCanvasSuccess(callback: callback, result: result)
         return DMPAsyncResult()
     }
 

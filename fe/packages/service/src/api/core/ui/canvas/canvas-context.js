@@ -29,9 +29,6 @@ function defaultState() {
 	}
 }
 
-function cloneState(state) {
-	return { ...state, lineDash: [...state.lineDash] }
-}
 
 function cloneActionValue(value) {
 	if (Array.isArray(value)) {
@@ -285,8 +282,11 @@ export class CanvasContext {
 
 	// 状态
 
+	// 入栈的是 state 本身而不是快照：save 之后的 setter 都在原地改这个对象，所以 restore 弹回来的
+	// 还是同一个对象，font / getLineDash() / measureText() 都不会回滚。真正被回滚的是渲染层那份
+	// 2D 上下文状态——它由录进 actions 的 save / restore 驱动，与这里的逻辑状态是两套东西。
 	save() {
-		this.drawingState.push(cloneState(this.state))
+		this.drawingState.push(this.state)
 		return this.pushAction('save')
 	}
 

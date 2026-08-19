@@ -168,24 +168,25 @@ describe('legacy CanvasContext api', () => {
 			])
 		})
 
-		it('actually restores prior state, unlike the official implementation which pushes a shared reference', () => {
+		// 微信入栈的是 state 本身，setter 又在原地改它，所以 restore 弹回来的是同一个对象，
+		// 逻辑层状态不回滚。只有渲染层那份 2D 上下文状态会被 save / restore 动作真正回滚。
+		it('does not roll back font or fontSize on restore', () => {
 			const context = createContext()
 			context.save()
 			context.setFontSize(24)
 			context.restore()
 
-			expect(context.font).toBe('10px sans-serif')
+			expect(context.font).toBe('24px sans-serif')
 		})
 
-		it('deep-copies the lineDash array on save so a later external mutation of the original array cannot leak into the restored state', () => {
+		it('does not roll back lineDash on restore', () => {
 			const context = createContext()
-			const pattern = [1, 2]
-			context.setLineDash(pattern)
+			context.setLineDash([1, 2])
 			context.save()
-			pattern.push(99)
+			context.setLineDash([5, 6], 3)
 			context.restore()
 
-			expect(context.getLineDash()).toEqual([1, 2])
+			expect(context.getLineDash()).toEqual([5, 6])
 		})
 
 		it('resets to the documented initial state when restore is called with an empty stack', () => {
