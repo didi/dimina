@@ -85,6 +85,23 @@ public class ImageAPI: DMPContainerApi {
         case failure(String)
     }
 
+    // 同一个小程序同时只做一次解码加写盘。同步实现时主线程天然给它排队，挪到后台之后就没有这层
+    // 约束了，而单次解码上限已经是 32 MB。这条队列只约束解码与写盘阶段，排队中的每个请求仍各自
+    // 持有自己那份 base64 字符串。
+    private static let canvasQueueLock = NSLock()
+    private static var canvasQueues: [String: DispatchQueue] = [:]
+
+    static func canvasExportQueue(appId: String) -> DispatchQueue {
+        canvasQueueLock.lock()
+        defer { canvasQueueLock.unlock() }
+        if let queue = canvasQueues[appId] {
+            return queue
+        }
+        let queue = DispatchQueue(label: "com.didi.dimina.canvas.export.\(appId)", qos: .userInitiated)
+        canvasQueues[appId] = queue
+        return queue
+    }
+
     /// 解码 base64 并把图片写进该 appId 的 tmp 目录，返回写成的文件 URL。
     /// 沙箱根与 tmp 目录名由调用方传入，好让校验逻辑能在测试里指向真实的临时目录。
     static func writeCanvasTempFile(
@@ -177,7 +194,7 @@ public class ImageAPI: DMPContainerApi {
             fileURLWithPath: DMPSandboxManager.appTmpResourceDirectoryPath(appId: env.appId)
         ).lastPathComponent
         let appId = env.appId
-        DispatchQueue.global(qos: .userInitiated).async {
+        ImageAPI.canvasExportQueue(appId: appId).async {
             let outcome = ImageAPI.writeCanvasTempFile(
                 base64Data: base64Data,
                 fileType: fileType,

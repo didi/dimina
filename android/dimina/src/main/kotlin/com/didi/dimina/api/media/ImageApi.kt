@@ -12,6 +12,7 @@ import com.didi.dimina.api.AsyncResult
 import com.didi.dimina.api.BaseApiHandler
 import com.didi.dimina.api.NoneResult
 import com.didi.dimina.common.ApiUtils
+import com.didi.dimina.common.LogUtils
 import com.didi.dimina.common.PathUtils
 import com.didi.dimina.common.Utils
 import com.didi.dimina.ui.container.DiminaActivity
@@ -25,10 +26,14 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.util.Base64
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
@@ -40,6 +45,18 @@ internal fun canvasTempFileFailure(reason: String): AsyncResult = AsyncResult(
     value = JSONObject().apply { put("errMsg", "canvasToTempFilePath:fail $reason") },
     completeCarriesResult = true,
 )
+
+/**
+ * 同一个小程序同时只做一次解码加写盘。同步实现时主线程天然给它排队，挪到后台之后就没有这层
+ * 约束了，而单次解码上限已经是 32 MB。这条锁只约束解码与写盘阶段，排队中的每个请求仍各自
+ * 持有自己那份 base64 字符串。
+ */
+internal object CanvasExportQueue {
+    private val locks = ConcurrentHashMap<String, Mutex>()
+
+    suspend fun <T> serialized(appId: String, block: suspend () -> T): T =
+        locks.computeIfAbsent(appId) { Mutex() }.withLock { block() }
+}
 
 /**
  * 按同步路径（MiniApp.invokeAPI）的契约派发结果：errMsg 以 ":ok" 结尾走 success，否则走 fail，
@@ -92,7 +109,14 @@ class ImageApi : BaseApiHandler() {
         // 绑 activity.lifecycleScope 的话，用户在写盘途中返回上一页就会取消协程，success/fail/complete
         // 一个都不发，等 complete 的小程序永远挂住。写盘的真正归属是 JS 引擎而不是页面，所以用独立
         // scope；引擎已销毁时迟到的回调由 JsCore.postMessage 丢弃。
-        val canvasIoScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        // 同步路径上派发回调抛错会被 MiniApp.invokeAPI 接住转成 fail，进程照常活着。挪进协程之后
+        // 没有处理器的未捕获异常会走 Thread.uncaughtExceptionHandler 直接崩宿主，所以这里补一个。
+        val canvasIoScope = CoroutineScope(
+            SupervisorJob() + Dispatchers.IO +
+                CoroutineExceptionHandler { _, error ->
+                    LogUtils.e("ImageApi", "canvas export failed: $error")
+                },
+        )
     }
 
     override val apiNames =
@@ -447,7 +471,9 @@ class ImageApi : BaseApiHandler() {
             // appTempRoot 自己也做 canonicalFile 与 createDirectories，并且会对符号链接抛错。
             // 它必须留在这个 try 里：抛出去就没有人再发 complete，小程序会永远等下去。
             val result = try {
-                writeCanvasTempFile(PathUtils.appTempRoot(context, appId), base64Data, fileType)
+                CanvasExportQueue.serialized(appId) {
+                    writeCanvasTempFile(PathUtils.appTempRoot(context, appId), base64Data, fileType)
+                }
             } catch (_: Exception) {
                 canvasTempFileFailure("write failed").value
             }

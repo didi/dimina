@@ -97,7 +97,12 @@ export class CanvasContext {
 	}
 
 	getActions() {
-		const actions = this.actions.map(cloneActionValue)
+		// 录制时的守卫拦不住返回之后的突变：setLineDash 按官方语义存的是调用方那个数组本身，
+		// 调用方在 draw() 之前把它改成 NaN，就能让本该整条丢弃的调用走到 payload 里。
+		// 快照之后在这个唯一出口再查一次，规则与手搓 actions 入口（drawCanvas）一致。
+		const actions = this.actions
+			.map(cloneActionValue)
+			.filter(action => !hasJsonUnsafeValue(action.args))
 		this.actions = []
 		this.path = []
 		return actions
@@ -329,8 +334,9 @@ export class CanvasContext {
 	}
 
 	setLineDash(pattern, offset) {
-		// 存拷贝：直接留调用方那个数组的引用的话，它之后改自己的数组会串改这里的状态和已录的 action
-		const dash = Array.isArray(pattern) && pattern.length ? [...pattern] : [0, 0]
+		// 官方 `[].slice.apply(arguments,[0,2])` 拷的是实参表而不是数组，`state.lineDash` 拿到的就是
+		// 调用方那个数组本身：调用之后再改它，getLineDash() 与还没提交的 action 都会跟着变。这里保持同一引用。
+		const dash = Array.isArray(pattern) && pattern.length ? pattern : [0, 0]
 		// 相位省略时按 0 处理；但显式传进来的非有限数要整条丢弃，不能被 `offset || 0` 悄悄吞成 0
 		// ——那样 NaN 会变成"实线"、Infinity 却原样漏过去，两种非有限值待遇还不一致。
 		const phase = offset === undefined || offset === null ? 0 : offset

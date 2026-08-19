@@ -409,22 +409,36 @@ describe('legacy CanvasContext api', () => {
 			expect(context.getLineDash()).toEqual([5, 10])
 		})
 
-		it('copies the pattern array instead of aliasing the caller-supplied array, so a later external mutation cannot leak into state', () => {
+		// 别名让录制时的守卫可以被绕过：守住的是「发出去的 payload 里不出现会被 JSON 折成 null 的值」，
+		// 所以复查点必须在 getActions() 这个出口，而不是在录制那一刻。
+		it('drops an action whose aliased array is mutated to a non-finite value after the guard ran', () => {
 			const context = createContext()
-			const pattern = [5, 5]
+			const pattern = [10, 10]
 			context.setLineDash(pattern)
-			pattern[0] = 100
+			context.setLineWidth(2)
+			pattern[1] = Number.NaN
 
-			expect(context.getLineDash()).toEqual([5, 5])
+			expect(context.getActions()).toEqual([{ type: 'setLineWidth', args: [2] }])
 		})
 
-		it('copies the pattern array into the recorded action too, unaffected by a later external mutation', () => {
+		// 官方存的是调用方那个数组本身，所以调用之后改它是会穿透的。
+		it('keeps the caller-supplied array, so a later external mutation shows up in getLineDash', () => {
 			const context = createContext()
 			const pattern = [5, 5]
 			context.setLineDash(pattern)
 			pattern[0] = 100
 
-			expect(context.getActions()).toEqual([{ type: 'setLineDash', args: [[5, 5], 0] }])
+			expect(context.getLineDash()).toEqual([100, 5])
+		})
+
+		// action 在 getActions() 取走时才快照，取走之前它读的还是同一个数组。
+		it('records the same array, so a mutation before getActions shows up in the snapshot', () => {
+			const context = createContext()
+			const pattern = [5, 5]
+			context.setLineDash(pattern)
+			pattern[0] = 100
+
+			expect(context.getActions()).toEqual([{ type: 'setLineDash', args: [[100, 5], 0] }])
 		})
 	})
 

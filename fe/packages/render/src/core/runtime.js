@@ -2290,6 +2290,14 @@ class Runtime {
 		if (!scope?.querySelector) {
 			return null
 		}
+		// canvas-id 判重的作用域是宿主组件实例，所以「页面一个、组件里一个」同名 canvas 是合法的。
+		// 而页面作用域的查询会一路扫进组件内部，按文档序取第一个就可能画到组件私有的 canvas 上。
+		// 先按归属精确命中；归属不明确的写法（例如 canvas 作为插槽内容传进组件）再走下面的回退。
+		const owner = isPageScope ? this.pageId : moduleId
+		const owned = scope.querySelector(`${selector}[data-canvas-owner="${owner}"]`)
+		if (owned) {
+			return owned
+		}
 		// 传入组件实例时 canvas-id 只在该组件作用域内解析。找不到不能回退到 document，
 		// 否则同名 canvas 会把绘制、像素读取或导出执行到另一个组件实例上。
 		return this.waitForElement(scope, selector, 'querySelector')

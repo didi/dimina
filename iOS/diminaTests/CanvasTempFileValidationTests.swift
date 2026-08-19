@@ -120,4 +120,40 @@ final class CanvasTempFileValidationTests: XCTestCase {
         wait(for: [settled], timeout: 5)
         XCTAssertEqual(callbackTypes.last, .complete)
     }
+
+    // 单次上限只约束一次请求，导出改成后台执行之后并发几次就能把峰值叠起来；串行是那个上限之所以
+    // 还成立的前提。
+    func testCanvasExportsOfOneAppRunOneAtATime() {
+        let queue = ImageAPI.canvasExportQueue(appId: "wx92269e3b2f304afc")
+        let lock = NSLock()
+        var active = 0
+        var peak = 0
+        let done = expectation(description: "all exports finish")
+        done.expectedFulfillmentCount = 6
+
+        for _ in 0..<6 {
+            queue.async {
+                lock.lock()
+                active += 1
+                peak = max(peak, active)
+                lock.unlock()
+                Thread.sleep(forTimeInterval: 0.01)
+                lock.lock()
+                active -= 1
+                lock.unlock()
+                done.fulfill()
+            }
+        }
+
+        wait(for: [done], timeout: 10)
+        XCTAssertEqual(peak, 1)
+    }
+
+    func testCanvasExportQueueIsPerApp() {
+        let first = ImageAPI.canvasExportQueue(appId: "wx-first")
+        let second = ImageAPI.canvasExportQueue(appId: "wx-second")
+
+        XCTAssertTrue(first === ImageAPI.canvasExportQueue(appId: "wx-first"))
+        XCTAssertFalse(first === second)
+    }
 }

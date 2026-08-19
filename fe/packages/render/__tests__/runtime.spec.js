@@ -1206,3 +1206,64 @@ describe('mini-program dynamic slots', () => {
 		expect(slots.footer()).toEqual(['footer'])
 	})
 })
+
+// canvas-id 的判重作用域是宿主组件实例，「页面一个、组件里一个」同名 canvas 合法共存。
+// 页面作用域的查询会一路扫进组件内部，所以解析必须先认归属，不能按文档序取第一个。
+describe('canvas element resolution', () => {
+	let dom
+	let runtime
+
+	beforeEach(async () => {
+		dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost/' })
+		globalThis.window = dom.window
+		globalThis.document = dom.window.document
+		globalThis.Node = dom.window.Node
+		globalThis.Element = dom.window.Element
+		globalThis.HTMLElement = dom.window.HTMLElement
+		globalThis.MutationObserver = dom.window.MutationObserver
+		globalThis.navigator = dom.window.navigator
+
+		const runtimeModule = await import('../src/core/runtime.js')
+		runtime = runtimeModule.default
+		runtime.pageId = 'page-1'
+	})
+
+	afterEach(() => {
+		vi.restoreAllMocks()
+		dom.window.close()
+	})
+
+	function seedCanvases() {
+		// 组件的 canvas 排在文档序更前面，按 querySelector 取第一个就会命中它。
+		document.body.innerHTML = `
+			<div id="component">
+				<canvas canvas-id="chart" data-canvas-owner="module-a_1"></canvas>
+			</div>
+			<canvas canvas-id="chart" data-canvas-owner="page-1"></canvas>
+		`
+	}
+
+	it('页面作用域命中页面自己的 canvas，而不是组件内的同名 canvas', async () => {
+		seedCanvases()
+
+		const el = await runtime.getCanvasElement('chart', null, 'bridge-1')
+
+		expect(el?.dataset.canvasOwner).toBe('page-1')
+	})
+
+	it('传 bridgeId 当 moduleId 时同样按页面归属解析', async () => {
+		seedCanvases()
+
+		const el = await runtime.getCanvasElement('chart', 'bridge-1', 'bridge-1')
+
+		expect(el?.dataset.canvasOwner).toBe('page-1')
+	})
+
+	it('归属不明确时回退到作用域内的第一个同名 canvas', async () => {
+		document.body.innerHTML = '<canvas canvas-id="chart"></canvas>'
+
+		const el = await runtime.getCanvasElement('chart', null, 'bridge-1')
+
+		expect(el?.getAttribute('canvas-id')).toBe('chart')
+	})
+})

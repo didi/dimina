@@ -8,6 +8,14 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import org.json.JSONObject
 import java.util.Base64
+import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.joinAll
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 
 class ImageApiCanvasValidationTest {
     private val api = ImageApi()
@@ -118,6 +126,61 @@ class ImageApiCanvasValidationTest {
 
         assertEquals(listOf("success-id", "complete-id"), calls)
         assertTrue(thrown.isFailure)
+    }
+
+    // 单次上限只约束一次请求，导出改成后台执行之后并发几次就能把峰值叠起来；串行是那个上限之所以
+    // 还成立的前提。
+    @Test
+    fun serializesConcurrentCanvasExportsOfOneApp() = runBlocking {
+        val active = AtomicInteger(0)
+        val peak = AtomicInteger(0)
+
+        (1..6).map {
+            launch(Dispatchers.Default) {
+                CanvasExportQueue.serialized("app-a") {
+                    val now = active.incrementAndGet()
+                    peak.updateAndGet { seen -> maxOf(seen, now) }
+                    delay(5)
+                    active.decrementAndGet()
+                }
+            }
+        }.joinAll()
+
+        assertEquals(1, peak.get())
+    }
+
+    @Test
+    fun oneAppsExportDoesNotBlockAnother() = runBlocking {
+        val parked = CompletableDeferred<Unit>()
+        val entered = CompletableDeferred<Unit>()
+        val holder = launch(Dispatchers.Default) {
+            CanvasExportQueue.serialized("app-parked") {
+                entered.complete(Unit)
+                parked.await()
+            }
+        }
+        entered.await()
+
+        withTimeout(2_000) {
+            CanvasExportQueue.serialized("app-other") { }
+        }
+
+        parked.complete(Unit)
+        holder.join()
+    }
+
+    // 一次失败不能把后面排队的导出一起堵死。
+    @Test
+    fun aThrowingExportReleasesTheQueue() = runBlocking {
+        runCatching {
+            CanvasExportQueue.serialized("app-failing") { throw IllegalStateException("boom") }
+        }
+
+        val ran = withTimeout(2_000) {
+            CanvasExportQueue.serialized("app-failing") { true }
+        }
+
+        assertTrue(ran)
     }
 
     private fun callbackParams() = JSONObject().apply {
