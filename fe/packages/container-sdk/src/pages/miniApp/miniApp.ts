@@ -950,9 +950,9 @@ export class MiniApp {
 	onPresentOut(): void {
 		const currentBridge = this.navigator.top
 
+		currentBridge?.pageHide()
 		this.webSocketManager.onAppHide()
 		this.jscore.appHide()
-		currentBridge?.pageHide()
 	}
 
 	/**

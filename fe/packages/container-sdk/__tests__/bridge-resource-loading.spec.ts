@@ -50,7 +50,7 @@ describe('Bridge resource loading protocol', () => {
 		])
 	})
 
-	it('keeps only the latest queued visibility and suppresses duplicate notifications', () => {
+	it('suppresses duplicate visibility notifications after the page becomes visible', () => {
 		const jscore = { postMessage: vi.fn(), notifyServiceReady: vi.fn() }
 		const bridge = createBridge({
 			jscore,
@@ -62,7 +62,6 @@ describe('Bridge resource loading protocol', () => {
 		bridge.resourceLoadId = 'load-hidden'
 
 		bridge.pageShow()
-		bridge.pageHide()
 		bridge.messageInvoke('service', {
 			type: 'serviceResourceLoaded',
 			target: 'service',
@@ -74,14 +73,16 @@ describe('Bridge resource loading protocol', () => {
 			body: { bridgeId: bridge.id, resourceLoadId: bridge.resourceLoadId },
 		})
 		bridge.pageHide()
+		bridge.pageHide()
 
 		expect(jscore.postMessage.mock.calls.map(([message]) => message.type)).toEqual([
 			'resourceLoaded',
+			'pageShow',
 			'pageHide',
 		])
 	})
 
-	it('does not overwrite an early pageHide when start uses its default visibility', () => {
+	it('does not emit pageHide for a page that never became visible', () => {
 		const jscore = { postMessage: vi.fn(), notifyServiceReady: vi.fn() }
 		const bridge = createBridge({
 			jscore,
@@ -118,8 +119,8 @@ describe('Bridge resource loading protocol', () => {
 		expect(jscore.postMessage.mock.calls.map(([message]) => message.type)).toEqual([
 			'loadResource',
 			'resourceLoaded',
-			'pageHide',
 		])
+		expect(bridge.sentPageVisible).toBe(false)
 	})
 
 	it('uses the per-app resource base for both render and service loaders', () => {

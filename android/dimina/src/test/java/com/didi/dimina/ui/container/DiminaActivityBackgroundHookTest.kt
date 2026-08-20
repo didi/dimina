@@ -34,10 +34,10 @@ class DiminaActivityBackgroundHookTest {
         found.readText()
     }
 
-    /** The brace-matched body of `override fun [name]`, or a failure if that override is gone. */
+    /** The brace-matched body of `fun [name]`, or a failure if that declaration is gone. */
     private fun bodyOf(name: String): String {
-        val signature = Regex("""\n\s*override fun $name\(""").find(source)
-            ?: throw AssertionError("DiminaActivity no longer declares `override fun $name(`")
+        val signature = Regex("""\n\s*(?:private\s+)?(?:override\s+)?fun $name\(""").find(source)
+            ?: throw AssertionError("DiminaActivity no longer declares `fun $name(`")
         val open = source.indexOf('{', signature.range.last)
         if (open < 0) throw AssertionError("no body found for `$name`")
 
@@ -65,7 +65,7 @@ class DiminaActivityBackgroundHookTest {
         )
         assertTrue(
             "onStart must report the mini program back to the *foreground*; found:\n$onStart",
-            Regex("""setBackgrounded\(\s*miniProgram\.appId\s*,\s*false\s*\)""").containsMatchIn(onStart),
+            onStart.contains("dispatchMiniProgramShow"),
         )
 
         val onStop = bodyOf("onStop")
@@ -76,40 +76,77 @@ class DiminaActivityBackgroundHookTest {
         )
         assertTrue(
             "onStop must report the mini program to the *background*; found:\n$onStop",
-            Regex("""setBackgrounded\(\s*miniProgram\.appId\s*,\s*true\s*\)""").containsMatchIn(onStop),
+            onStop.contains("dispatchMiniProgramHide"),
         )
     }
 
     @Test
-    fun `onResume and onPause do not touch the background verdict`() {
-        for (name in listOf("onResume", "onPause")) {
-            val body = bodyOf(name)
-            assertFalse(
-                "$name must not drive the WebSocket background verdict: a permission dialog, a system share " +
-                    "sheet and a dialog-style picker all pause the activity while the mini program is still on " +
-                    "screen, so a user who lingers past the background grace period would lose every connection",
-                body.contains("setBackgrounded"),
-            )
-            assertFalse(
-                "$name must not consult the visibility tracker either - the tracker's accounting only lines up " +
-                    "when it is fed from onStart/onStop",
-                body.contains("visibilityTracker"),
-            )
-        }
+    fun `onPause does not change app visibility and onResume only repairs a failed cross app launch`() {
+        val onPause = bodyOf("onPause")
+        assertFalse(onPause.contains("setBackgrounded"))
+        assertFalse(onPause.contains("visibilityTracker"))
+
+        val onResume = bodyOf("onResume")
+        assertFalse(onResume.contains("setBackgrounded"))
+        assertTrue(onResume.contains("suspendedForMiniProgramNavigation"))
+        assertTrue(onResume.contains("visibilityTracker.onActivityVisible"))
     }
 
     @Test
-    fun `onStart and onStop are the only callers of setBackgrounded`() {
+    fun `page and app visibility follow their distinct Android lifecycle facts`() {
+        val onStart = bodyOf("onStart")
+        assertTrue(onStart.contains("dispatchMiniProgramShow"))
+        assertFalse(onStart.contains(".pageShow("))
+
+        val onResume = bodyOf("onResume")
+        assertTrue(onResume.contains(".pageShow("))
+        assertFalse(onResume.contains(".appShow("))
+        assertFalse(onResume.contains("consumePendingAppShowOptions"))
+
+        val onPause = bodyOf("onPause")
+        assertTrue(onPause.contains(".pageHide("))
+        assertFalse(onPause.contains(".appHide("))
+
+        val onStop = bodyOf("onStop")
+        assertTrue(onStop.contains("dispatchMiniProgramHide"))
+        assertFalse(onStop.contains(".pageHide("))
+
+        val appShow = bodyOf("dispatchMiniProgramShow")
+        assertTrue(appShow.contains(".appShow("))
+        assertTrue(appShow.contains("getJsCore"))
+        assertTrue(appShow.contains("consumePendingAppShowOptions"))
+
+        val appHide = bodyOf("dispatchMiniProgramHide")
+        assertTrue(appHide.contains(".appHide("))
+        assertTrue(appHide.contains("getJsCore"))
+    }
+
+    @Test
+    fun `app visibility dispatchers are the only callers of setBackgrounded`() {
         val calls = Regex("""setBackgrounded""")
-        val inHooks = calls.findAll(bodyOf("onStart") + bodyOf("onStop")).count()
+        val inHooks = calls.findAll(
+            bodyOf("dispatchMiniProgramShow") + bodyOf("dispatchMiniProgramHide"),
+        ).count()
         val inWholeFile = calls.findAll(source).count()
 
         assertEquals(
             "the mini program's foreground/background state has exactly one source of truth. Something " +
-                "outside onStart/onStop now calls setBackgrounded; if that caller is genuinely needed, it " +
+            "outside the app visibility dispatchers now calls setBackgrounded; if that caller is genuinely needed, it " +
                 "has to be reconciled with the tracker's accounting rather than added alongside it.",
             inHooks,
             inWholeFile,
         )
+    }
+
+    @Test
+    fun `cross mini program suspension dispatches page hide before app hide`() {
+        val suspend = bodyOf("suspendForMiniProgramNavigation")
+        val pageHide = suspend.indexOf(".pageHide(")
+        val appHide = suspend.indexOf("dispatchMiniProgramHide")
+
+        assertTrue(pageHide >= 0)
+        assertTrue(appHide > pageHide)
+        assertTrue(bodyOf("navigateToMiniProgram").contains("suspendForMiniProgramNavigation"))
+        assertTrue(bodyOf("navigateBackMiniProgram").contains("suspendForMiniProgramNavigation"))
     }
 }
