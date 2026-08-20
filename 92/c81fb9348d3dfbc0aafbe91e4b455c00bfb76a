@@ -1,0 +1,25 @@
+fe/package.json
+  961a36988a33a535 17
+fe/packages/container/vite.config.mjs
+  961a36988a33a535 13-18,28-40,42-44
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "92c81fb9348d3dfbc0aafbe91e4b455c00bfb76a",
+  "prompts": {
+    "961a36988a33a535": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a01f50-dc77-7c11-8060-ece0ffe98f96",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 24,
+      "total_deletions": 10,
+      "accepted_lines": 23,
+      "overriden_lines": 0
+    }
+  }
+}
