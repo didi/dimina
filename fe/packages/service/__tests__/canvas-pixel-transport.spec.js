@@ -72,6 +72,42 @@ describe('legacy canvas numeric transport normalization', () => {
 		expect(publishedParams().canvasValidationError).toContain('invalid data format')
 	})
 
+	it('rejects a pixel read that exceeds the shared bridge budget before it reaches render', () => {
+		canvasGetImageData({
+			canvasId: 'main',
+			x: 0,
+			y: 0,
+			width: 4096,
+			height: 4096,
+			fail: vi.fn(),
+		})
+
+		expect(publishedParams().canvasValidationError).toContain('maximum transferable pixel data')
+	})
+
+	it('rejects oversized putImageData before converting the typed array to a boxed array', () => {
+		const data = new Uint8ClampedArray(2048 * 1025 * 4)
+		const arrayFrom = vi.spyOn(Array, 'from')
+
+		try {
+			canvasPutImageData({
+				canvasId: 'main',
+				x: 0,
+				y: 0,
+				width: 2048,
+				height: 1025,
+				data,
+				fail: vi.fn(),
+			})
+
+			expect(publishedParams().canvasValidationError).toContain('maximum transferable pixel data')
+			expect(arrayFrom).not.toHaveBeenCalled()
+		}
+		finally {
+			arrayFrom.mockRestore()
+		}
+	})
+
 	it('removes non-finite export crop values so the render side applies official omitted-value defaults', () => {
 		canvasToTempFilePath({
 			canvasId: 'main',

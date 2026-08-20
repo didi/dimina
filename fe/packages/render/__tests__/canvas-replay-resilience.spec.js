@@ -129,9 +129,10 @@ describe('legacy canvas replay failures', () => {
 		expect(ctx.fillRect).not.toHaveBeenCalled()
 	})
 
-	it('contains selector errors even when the caller does not await drawCanvas', async () => {
+	it('contains canvas lookup errors even when the caller does not await drawCanvas', async () => {
 		const message = (await import('../src/core/message.js')).default
 		const sendSpy = vi.spyOn(message, 'send').mockImplementation(() => {})
+		const lookup = vi.spyOn(runtime, 'getCanvasElement').mockRejectedValueOnce(new Error('lookup failed'))
 		const unhandled = []
 		const onUnhandledRejection = reason => unhandled.push(reason)
 		process.on('unhandledRejection', onUnhandledRejection)
@@ -146,8 +147,10 @@ describe('legacy canvas replay failures', () => {
 					complete: 'onComplete',
 				},
 			})
-			await new Promise(resolve => setTimeout(resolve, 0))
-			await new Promise(resolve => setTimeout(resolve, 0))
+			await vi.waitFor(() => {
+				const ids = sendSpy.mock.calls.map(([msg]) => msg?.body?.id)
+				expect(ids.filter(id => id === 'onComplete')).toHaveLength(1)
+			})
 
 			expect(unhandled).toEqual([])
 			const ids = sendSpy.mock.calls.map(([msg]) => msg?.body?.id)
@@ -156,6 +159,7 @@ describe('legacy canvas replay failures', () => {
 		}
 		finally {
 			process.off('unhandledRejection', onUnhandledRejection)
+			lookup.mockRestore()
 		}
 	})
 })

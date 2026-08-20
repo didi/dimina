@@ -7,9 +7,13 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import org.json.JSONObject
+import java.io.File
 import java.util.Base64
+import java.util.ArrayDeque
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.joinAll
@@ -183,6 +187,169 @@ class ImageApiCanvasValidationTest {
         assertTrue(ran)
     }
 
+    // 排队中的每个请求各自持有一份 base64 副本，单次上限只约束其中一份。连续入队时占用是累加的，
+    // 所以预算必须在把字符串交给后台之前判：拒绝之后那份副本才可回收。
+    @Test
+    fun rejectsExportsThatWouldExceedThePendingBudget() {
+        val half = (MAX_PENDING_CANVAS_BASE64_CHARS / 2).toInt()
+
+        assertTrue(CanvasExportQueue.tryReserve("app-budget", half))
+        assertTrue(CanvasExportQueue.tryReserve("app-budget", half))
+        assertFalse(CanvasExportQueue.tryReserve("app-budget", half))
+
+        CanvasExportQueue.release("app-budget", half)
+        assertTrue(CanvasExportQueue.tryReserve("app-budget", half))
+    }
+
+    @Test
+    fun rejectsTheThirdPendingExportEvenWhenPayloadsAreTiny() {
+        val appId = "app-count-${System.nanoTime()}"
+        val chars = 12
+        val first = CanvasExportQueue.tryReserve(appId, chars)
+        val second = CanvasExportQueue.tryReserve(appId, chars)
+        val third = CanvasExportQueue.tryReserve(appId, chars)
+
+        try {
+            assertTrue(first)
+            assertTrue(second)
+            assertFalse(third)
+        } finally {
+            if (first) CanvasExportQueue.release(appId, chars)
+            if (second) CanvasExportQueue.release(appId, chars)
+            if (third) CanvasExportQueue.release(appId, chars)
+        }
+    }
+
+    @Test
+    fun invalidationReleasesReservationsThatHaveNotStarted() {
+        val appId = "app-reset-${System.nanoTime()}"
+        val half = (MAX_PENDING_CANVAS_BASE64_CHARS / 2).toInt()
+
+        assertTrue(CanvasExportQueue.tryReserve(appId, half))
+        assertTrue(CanvasExportQueue.tryReserve(appId, half))
+        CanvasExportGeneration.invalidate(appId)
+
+        assertTrue(CanvasExportQueue.tryReserve(appId, half))
+        assertTrue(CanvasExportQueue.tryReserve(appId, half))
+    }
+
+    @Test
+    fun invalidationCancelsOnlyQueuedJobsAndLetsTheNewRuntimeUseTheRemainingSlot() = runBlocking {
+        val appId = "app-running-reset-${System.nanoTime()}"
+        val running = requireNotNull(CanvasExportQueue.reserve(appId, 4, "old1"))
+        val queued = requireNotNull(CanvasExportQueue.reserve(appId, 4, "old2"))
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val runningTask = launch(Dispatchers.Default) {
+            CanvasExportQueue.run(running) {
+                entered.complete(Unit)
+                release.await()
+            }
+        }
+        entered.await()
+
+        CanvasExportGeneration.invalidate(appId)
+
+        assertTrue(queued.cancelled)
+        assertEquals(null, queued.payload)
+        val current = CanvasExportQueue.reserve(appId, 4, "new1")
+        assertTrue(current != null)
+        assertEquals(null, CanvasExportQueue.reserve(appId, 4, "new2"))
+
+        release.complete(Unit)
+        runningTask.join()
+        CanvasExportQueue.finish(running)
+        assertTrue(CanvasExportQueue.reserve(appId, 4, "new2") != null)
+    }
+
+    @Test
+    fun releasesAnIdleGenerationQueueAfterTheLastJobFinishes() {
+        val appId = "app-idle-queue-${System.nanoTime()}"
+        val first = requireNotNull(CanvasExportQueue.reserve(appId, 4, "first"))
+        val firstMutex = first.mutex
+        CanvasExportQueue.finish(first)
+
+        val second = requireNotNull(CanvasExportQueue.reserve(appId, 4, "next"))
+
+        assertFalse(firstMutex === second.mutex)
+        CanvasExportQueue.finish(second)
+    }
+
+    @Test
+    fun oneAppsPendingExportsDoNotConsumeAnothersBudget() {
+        val whole = MAX_PENDING_CANVAS_BASE64_CHARS.toInt()
+
+        assertTrue(CanvasExportQueue.tryReserve("app-full", whole))
+        assertFalse(CanvasExportQueue.tryReserve("app-full", 1))
+        assertTrue(CanvasExportQueue.tryReserve("app-empty", whole))
+    }
+
+    // 一次导出属于发起它的那一代 runtime。小程序退出重开后 appId 照旧，所以"这个 appId 是不是
+    // 还活着"判不出迟到的结果该不该交付。
+    @Test
+    fun refusesToDeliverAnExportIssuedByAPreviousRuntime() {
+        val generation = CanvasExportGeneration.current("app-gen")
+        assertTrue(shouldDeliverCanvasExport("app-gen", generation))
+
+        CanvasExportGeneration.invalidate("app-gen")
+
+        assertFalse(shouldDeliverCanvasExport("app-gen", generation))
+        assertTrue(shouldDeliverCanvasExport("app-gen", CanvasExportGeneration.current("app-gen")))
+    }
+
+    @Test
+    fun invalidationWhileMainDeliveryIsQueuedDropsTheCallbackAndPublishedFile() = runBlocking {
+        val appId = "app-queued-delivery"
+        val generation = CanvasExportGeneration.current(appId)
+        val tempRoot = tempFolder.newFolder()
+        val published = File(tempRoot, "canvas_orphan.png")
+        published.writeBytes(byteArrayOf(1, 2, 3))
+        val result = canvasTempFileSuccess("/dimina/app/tmp/${published.name}").value
+        val mainDispatcher = QueuedDispatcher()
+        var delivered = false
+
+        val delivery = launch(start = CoroutineStart.UNDISPATCHED) {
+            deliverCanvasExport(
+                appId = appId,
+                generation = generation,
+                tempRoot = tempRoot,
+                result = result,
+                deliveryDispatcher = mainDispatcher,
+            ) {
+                delivered = true
+            }
+        }
+
+        assertEquals(1, mainDispatcher.pendingCount)
+        CanvasExportGeneration.invalidate(appId)
+        mainDispatcher.runNext()
+        delivery.join()
+
+        assertFalse(delivered)
+        assertFalse(published.exists())
+    }
+
+    // 没有接收方的导出已经把文件写出去了，留着就是谁也取不到的永久占用。
+    @Test
+    fun deletesThePublishedFileOfAnUndeliverableExport() {
+        val tempRoot = tempFolder.newFolder()
+        val published = File(tempRoot, "canvas_orphan.png")
+        published.writeBytes(byteArrayOf(1, 2, 3))
+        val result = canvasTempFileSuccess("/dimina/app/tmp/${published.name}").value
+
+        discardPublishedCanvasFile(tempRoot, result)
+
+        assertFalse(published.exists())
+    }
+
+    // 失败的导出没有文件可删，也不能因为路径缺失就抛错打断结算。
+    @Test
+    fun discardingAFailedExportIsANoOp() {
+        val tempRoot = tempFolder.newFolder()
+
+        discardPublishedCanvasFile(tempRoot, canvasTempFileFailure("write failed").value)
+    }
+
     private fun callbackParams() = JSONObject().apply {
         put("success", "success-id")
         put("fail", "fail-id")
@@ -192,5 +359,18 @@ class ImageApiCanvasValidationTest {
     private fun parseCallback(payload: String): Pair<String, String?> {
         val body = JSONObject(payload).getJSONObject("body")
         return body.getString("id") to body.optJSONObject("args")?.optString("errMsg")
+    }
+
+    private class QueuedDispatcher : CoroutineDispatcher() {
+        private val tasks = ArrayDeque<Runnable>()
+        val pendingCount: Int get() = tasks.size
+
+        override fun dispatch(context: kotlin.coroutines.CoroutineContext, block: Runnable) {
+            tasks.addLast(block)
+        }
+
+        fun runNext() {
+            tasks.removeFirst().run()
+        }
     }
 }

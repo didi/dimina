@@ -3,8 +3,8 @@ import { attachTouchEvents } from './touchGestures'
 /**
  * 组件版的手势安装：把 attachTouchEvents 绑到组件的挂载/卸载生命周期上。
  *
- * 手势语义本身全部在 touchGestures.js 里，编译产物中保持为原生元素的 canvas
- * 走 c-event-node 指令调用同一个 attachTouchEvents，两条路径不会各自实现一套。
+ * 手势语义本身全部在 touchGestures.js 里。已编译的旧包里 canvas 是原生元素，走 c-event-node
+ * 指令调用同一个 attachTouchEvents，两条路径不会各自实现一套。
  *
  * @param {object} info 组件信息
  * @param {object} elementRef 元素引用

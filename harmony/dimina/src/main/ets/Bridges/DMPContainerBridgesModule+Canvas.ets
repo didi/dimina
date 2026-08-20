@@ -7,6 +7,7 @@ import { DMPApp } from '../DApp/DMPApp'
 import { DMPLogger } from '../EventTrack/DMPLogger'
 import fs from '@ohos.file.fs'
 import { util } from '@kit.ArkTS'
+import { CanvasExportJob, CanvasExportJobRegistry } from './CanvasExportJobRegistry'
 
 // 小程序在 complete 里读 errMsg，所以 success/fail 派发抛错也不能把 complete 一起吞掉。
 export function invokeCanvasResult(callback: DMPBridgeCallback, result: DMPMap,
@@ -27,21 +28,25 @@ export class DMPContainerBridgesModuleCanvas extends DMPContainerBridgesModule {
   // 同一个小程序同时只做一次解码加写盘。同步实现时主线程天然给它排队，改成异步之后就没有这层
   // 约束了，而单次解码上限已经是 32 MB。作用域是 appId 而不是模块实例：模块图会随 runtime 重建，
   // 挂在实例上的话，重启瞬间旧链还在写、新链已经能起第二次解码。
-  // 这条链只约束解码与写盘阶段，排队中的每个请求仍各自持有自己那份 base64 字符串。
+  // 这条链只约束解码与写盘阶段，排队中的每个请求仍各自持有自己那份 base64 字符串，总量由下面的预算框住。
   private static writeQueues: Map<string, Promise<void>> = new Map()
 
-  private static enqueueWrite(appId: string, work: () => Promise<void>) {
-    const previous = DMPContainerBridgesModuleCanvas.writeQueues.get(appId) ?? Promise.resolve()
+  // 排队中的每个请求都各自留着自己那份 base64，直到轮到它才释放。单次上限只约束其中一份，
+  // 连续入队时占用是累加的。允许「一份在写盘、一份在等」，再多就是纯堆积；预算判在入队之前，
+  // 被拒的那份字符串不会被闭包捕获，随即可回收。
+  private static enqueueWrite(job: CanvasExportJob, work: () => Promise<void>) {
+    const queueKey = `${job.appId}:${job.owner}`
+    const previous = DMPContainerBridgesModuleCanvas.writeQueues.get(queueKey) ?? Promise.resolve()
     const next: Promise<void> = previous.then(work).catch((error: Object) => {
       // 队列本身不能被一次失败打断，后面排着的导出还要接着做。
       DMPLogger.e('saveCanvasTempFile queue error: ' + error)
     }).then(() => {
       // 链尾已经空了才回收，否则会丢掉后来者排在上面的那一段。
-      if (DMPContainerBridgesModuleCanvas.writeQueues.get(appId) === next) {
-        DMPContainerBridgesModuleCanvas.writeQueues.delete(appId)
+      if (DMPContainerBridgesModuleCanvas.writeQueues.get(queueKey) === next) {
+        DMPContainerBridgesModuleCanvas.writeQueues.delete(queueKey)
       }
     })
-    DMPContainerBridgesModuleCanvas.writeQueues.set(appId, next)
+    DMPContainerBridgesModuleCanvas.writeQueues.set(queueKey, next)
   }
 
   getExportMethods(): string[] {
@@ -168,8 +173,19 @@ export class DMPContainerBridgesModuleCanvas extends DMPContainerBridgesModule {
     // 声明成 async 会让返回值变成 pending Promise 穿过代理，也会让校验段的抛错逃出 bridge 的
     // 同步 try/catch，变成没有任何日志的 unhandled rejection。
     const generation = app.runtimeGeneration
-    DMPContainerBridgesModuleCanvas.enqueueWrite(appId, async () => {
-      await this.performCanvasWrite(base64Data, fileType, appId, app, generation, callback)
+    const job = CanvasExportJobRegistry.reserve(appId, app.canvasExportOwner, base64Data)
+    if (!job) {
+      this.invokeCanvasFailure(callback, 'too many pending exports')
+      return
+    }
+    DMPContainerBridgesModuleCanvas.enqueueWrite(job, async () => {
+      const reservedPayload = CanvasExportJobRegistry.begin(job)
+      if (reservedPayload === null) return
+      try {
+        await this.performCanvasWrite(reservedPayload, fileType, appId, app, generation, callback)
+      } finally {
+        CanvasExportJobRegistry.finish(job)
+      }
     })
   }
 

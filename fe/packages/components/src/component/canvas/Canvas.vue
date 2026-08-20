@@ -15,6 +15,14 @@ const pendingClaims = new Set()
 </script>
 
 <script setup>
+import {
+	CANVAS_ACTIVE_PROP,
+	CANVAS_CONTRACT_CHANGE_EVENT,
+	CANVAS_NODE_PROP,
+	CANVAS_OWNER_PROP,
+	canvasPixelBudgetError,
+	normalizeCanvasBitmapDimension,
+} from '@dimina/common'
 import { triggerEvent, useInfo } from '@/common/events'
 import { useTouchEvents } from '@/common/useTouchEvents'
 
@@ -49,9 +57,31 @@ const info = useInfo()
 const canvasRef = ref(null)
 const rootRef = ref(null)
 const isError = ref(false)
+let contractCanvas = null
+let contractRoot = null
+const defaultRenderSize = Object.freeze({ width: 300, height: 150 })
+const safeRenderSize = computed(() => {
+	try {
+		const width = normalizeCanvasBitmapDimension(props.renderWidth, defaultRenderSize.width)
+		const height = normalizeCanvasBitmapDimension(props.renderHeight, defaultRenderSize.height)
+		return canvasPixelBudgetError(width, height, { allowZero: true })
+			? defaultRenderSize
+			: { width, height }
+	}
+	catch {
+		return defaultRenderSize
+	}
+})
 
 // 触摸点额外携带相对画布左上角的 x / y；传播和 currentTarget 与普通节点一致。
-useTouchEvents(info, rootRef, { relativeTo: canvasRef })
+// 画布本身是组件搭出来的内部节点，小程序声明的 id 与 data-* 都在根节点上，所以事件源归到根节点；
+// 覆盖层里的节点是开发者自己写的组件，保持它们自己的事件源。
+// 相对坐标以根节点为基准：小程序写的 canvas 是根节点这一个节点，border 按 CSS 属于它，内层 canvas 绝对定位在 border 内侧。
+// 拿内层算会让带 border 的画布上每个触摸点都偏移一个 border 宽度，而开发者说的「画布左上角」就是他写的那个节点的左上角。
+useTouchEvents(info, rootRef, {
+	relativeTo: rootRef,
+	resolveTarget: target => (target === canvasRef.value ? rootRef.value : target),
+})
 
 function preventScroll(event) {
 	if (props.disableScroll && event.cancelable) {
@@ -63,7 +93,42 @@ function preventScroll(event) {
 const owner = {}
 let claimedKey = null
 
-function canvasKey() {
+function syncCanvasContract() {
+	const active = desiredKey() !== null && !isError.value
+	if (!contractCanvas) return
+	const previousActive = contractCanvas[CANVAS_ACTIVE_PROP]
+	const previousOwner = contractCanvas[CANVAS_OWNER_PROP]
+	Object.defineProperty(contractCanvas, CANVAS_ACTIVE_PROP, {
+		configurable: true,
+		value: active,
+	})
+	if (!active) {
+		if (contractCanvas[CANVAS_OWNER_PROP] === info.moduleId) {
+			delete contractCanvas[CANVAS_OWNER_PROP]
+		}
+		return
+	}
+	Object.defineProperty(contractCanvas, CANVAS_OWNER_PROP, {
+		configurable: true,
+		value: info.moduleId,
+	})
+	if (previousActive !== contractCanvas[CANVAS_ACTIVE_PROP]
+		|| previousOwner !== contractCanvas[CANVAS_OWNER_PROP]) {
+		const EventConstructor = contractCanvas.ownerDocument?.defaultView?.Event
+		if (EventConstructor) {
+			contractCanvas.dispatchEvent(new EventConstructor(CANVAS_CONTRACT_CHANGE_EVENT, { bubbles: true }))
+		}
+	}
+}
+
+// 该占哪个 key 是一个由当前属性算出来的值，不是若干次属性变化累积出来的状态：指定 type 的画布
+// 用 id 定位、不参与 canvas-id 判重，所以 type 和 canvas-id 一起决定结果。逐个属性挂监听时，
+// 每漏一个属性就多一条不会重算的路径，而算式漏不掉自己读到的东西。
+// null 表示不参与判重，'' 表示参与判重但没给 canvas-id。
+function desiredKey() {
+	if (props.type) {
+		return null
+	}
 	return props.canvasId ? `${info.bridgeId}|${info.moduleId}|${props.canvasId}` : ''
 }
 
@@ -79,7 +144,7 @@ function releaseCanvasId() {
 
 // 重试不报错也不撤销别人的登记：拿到就转正，拿不到就继续等。
 function retryClaim() {
-	const key = canvasKey()
+	const key = desiredKey()
 	if (!key || claimedCanvasIds.has(key)) return
 	pendingClaims.delete(retryClaim)
 	claimedKey = key
@@ -87,11 +152,20 @@ function retryClaim() {
 	isError.value = false
 }
 
-// canvas-id 是可以改的，模板上的 canvas-id 会跟着改，登记表也必须跟着改：不然旧 id 一直被自己占着，
-// 新 id 谁都没占。先归还再登记，中间不留窗口。
-function claimCanvasId() {
+// 属性变了就把登记改到当前该占的那个 key 上：不然旧 id 一直被自己占着，新 id 谁都没占。
+// 先归还再登记，中间不留窗口。
+function syncClaim() {
+	const key = desiredKey()
+	// 已经占着该占的那个 key 时不能重新登记：归还会放走排在后面等这个 key 的实例。
+	if (key && claimedKey === key) {
+		return
+	}
 	releaseCanvasId()
-	const key = canvasKey()
+	// 不参与判重的画布既不占 key，也不该停在上一次的错误态上。
+	if (key === null) {
+		isError.value = false
+		return
+	}
 	if (!key) {
 		isError.value = true
 		triggerEvent('error', { info, detail: { errMsg: 'canvas-id attribute is undefined' } })
@@ -113,25 +187,41 @@ function claimCanvasId() {
 	})
 }
 
+// 依赖由 desiredKey() 自己读到的属性决定，新增属性参与判重时不需要再补一条监听。
+watchEffect(syncClaim)
+watchEffect(syncCanvasContract)
+
+// 根节点承载小程序声明的 id、dataset 和布局，内部 canvas 承载真正的 Canvas API。两者通过
+// 共享 DOM contract 关联，SelectorQuery 不需要猜组件子树，也不会误取 slot 里的 canvas。
 onMounted(() => {
-	if (props.type) return
-	claimCanvasId()
+	contractCanvas = canvasRef.value
+	contractRoot = rootRef.value
+	syncCanvasContract()
+	Object.defineProperty(contractRoot, CANVAS_NODE_PROP, {
+		configurable: true,
+		value: contractCanvas,
+	})
 })
 
-watch(() => props.canvasId, () => {
-	if (props.type) return
-	claimCanvasId()
+onUnmounted(() => {
+	releaseCanvasId()
+	if (contractRoot?.[CANVAS_NODE_PROP] === contractCanvas) {
+		delete contractRoot[CANVAS_NODE_PROP]
+	}
+	if (contractCanvas?.[CANVAS_OWNER_PROP] === info.moduleId) {
+		delete contractCanvas[CANVAS_OWNER_PROP]
+	}
+	if (contractCanvas && CANVAS_ACTIVE_PROP in contractCanvas) {
+		delete contractCanvas[CANVAS_ACTIVE_PROP]
+	}
 })
-
-onUnmounted(releaseCanvasId)
 </script>
 
 <template>
 	<div ref="rootRef" v-bind="$attrs" class="dd-canvas" :style="isError ? { display: 'none' } : undefined" @touchmove="preventScroll">
 		<canvas
-			ref="canvasRef" :canvas-id="canvasId" :data-type="type || undefined"
-			:data-canvas-owner="info.moduleId"
-			:width="renderWidth" :height="renderHeight"
+			ref="canvasRef" :canvas-id="canvasId" :type="type || undefined"
+			:width="safeRenderSize.width" :height="safeRenderSize.height"
 		/>
 		<div class="dd-canvas-slot">
 			<slot />

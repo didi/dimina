@@ -13,6 +13,7 @@ import dmpWorkerFlushBarrierTest from './DMPWorkerFlushBarrier.test';
 import dmpMiniProgramNavigationCallbackTest from './DMPMiniProgramNavigationCallback.test';
 import dmpFileUrlConvertorTest from './DMPFileUrlConvertor.test';
 import dmpCanvasCallbackTest from './DMPCanvasCallback.test';
+import dmpCanvasExportJobRegistryTest from './DMPCanvasExportJobRegistry.test';
 
 export default function testsuite() {
   localUnitTest();
@@ -30,4 +31,5 @@ export default function testsuite() {
   dmpMiniProgramNavigationCallbackTest();
   dmpFileUrlConvertorTest();
   dmpCanvasCallbackTest();
+  dmpCanvasExportJobRegistryTest();
 }

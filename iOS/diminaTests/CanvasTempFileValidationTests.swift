@@ -2,6 +2,173 @@ import XCTest
 @testable import dimina
 
 final class CanvasTempFileValidationTests: XCTestCase {
+    func testBase64BudgetRejectsUnicodeThatHasFewGraphemesButManyBytes() {
+        let combiningPayload = "a" + String(repeating: "\u{0301}", count: 100_000)
+
+        XCTAssertEqual(combiningPayload.count, 1)
+        XCTAssertNil(ImageAPI.validatedCanvasBase64ByteCount(combiningPayload))
+        XCTAssertEqual(ImageAPI.validatedCanvasBase64ByteCount("iVBORw0KGgo="), 12)
+        XCTAssertNil(ImageAPI.validatedCanvasBase64ByteCount("iVBORw0KGgo==="))
+    }
+
+    // 排队中的每个请求各自持有一份 base64 副本。单次上限只约束其中一份，连续入队时占用是累加的，
+    // 所以预算必须在把字符串交给后台队列之前判：拒绝之后那份副本才可回收。
+    func testRejectsExportsThatWouldExceedThePendingBudget() {
+        let half = ImageAPI.maxPendingCanvasBase64Bytes / 2
+
+        XCTAssertTrue(ImageAPI.tryReserveCanvasExport(appId: "app-budget", bytes: half))
+        XCTAssertTrue(ImageAPI.tryReserveCanvasExport(appId: "app-budget", bytes: half))
+        XCTAssertFalse(ImageAPI.tryReserveCanvasExport(appId: "app-budget", bytes: half))
+
+        ImageAPI.releaseCanvasExport(appId: "app-budget", bytes: half)
+        XCTAssertTrue(ImageAPI.tryReserveCanvasExport(appId: "app-budget", bytes: half))
+    }
+
+    func testRejectsTheThirdPendingExportEvenWhenPayloadsAreTiny() {
+        let appId = "app-count-\(UUID().uuidString)"
+        let chars = 12
+        let first = ImageAPI.tryReserveCanvasExport(appId: appId, bytes: chars)
+        let second = ImageAPI.tryReserveCanvasExport(appId: appId, bytes: chars)
+        let third = ImageAPI.tryReserveCanvasExport(appId: appId, bytes: chars)
+
+        XCTAssertTrue(first)
+        XCTAssertTrue(second)
+        XCTAssertFalse(third)
+        if first { ImageAPI.releaseCanvasExport(appId: appId, bytes: chars) }
+        if second { ImageAPI.releaseCanvasExport(appId: appId, bytes: chars) }
+        if third { ImageAPI.releaseCanvasExport(appId: appId, bytes: chars) }
+    }
+
+    @MainActor
+    func testInvalidationReleasesReservationsThatHaveNotStarted() {
+        let appId = "app-reset-\(UUID().uuidString)"
+        let half = ImageAPI.maxPendingCanvasBase64Bytes / 2
+
+        XCTAssertTrue(ImageAPI.tryReserveCanvasExport(appId: appId, bytes: half))
+        XCTAssertTrue(ImageAPI.tryReserveCanvasExport(appId: appId, bytes: half))
+        ImageAPI.clearApp(appId)
+
+        XCTAssertTrue(ImageAPI.tryReserveCanvasExport(appId: appId, bytes: half))
+        XCTAssertTrue(ImageAPI.tryReserveCanvasExport(appId: appId, bytes: half))
+    }
+
+    @MainActor
+    func testInvalidationCancelsOnlyQueuedJobsAndLetsTheNewRuntimeUseTheRemainingSlot() {
+        let appId = "app-running-reset-\(UUID().uuidString)"
+        let running = ImageAPI.reserveCanvasExport(appId: appId, bytes: 4, payload: "old1")!
+        let queued = ImageAPI.reserveCanvasExport(appId: appId, bytes: 4, payload: "old2")!
+        XCTAssertEqual(ImageAPI.beginCanvasExport(running), "old1")
+
+        ImageAPI.clearApp(appId)
+
+        XCTAssertTrue(queued.cancelled)
+        XCTAssertNil(queued.payload)
+        XCTAssertNotNil(ImageAPI.reserveCanvasExport(appId: appId, bytes: 4, payload: "new1"))
+        XCTAssertNil(ImageAPI.reserveCanvasExport(appId: appId, bytes: 4, payload: "new2"))
+
+        ImageAPI.finishCanvasExport(running)
+        XCTAssertNotNil(ImageAPI.reserveCanvasExport(appId: appId, bytes: 4, payload: "new2"))
+    }
+
+    @MainActor
+    func testReleasesAnIdleGenerationQueueWhenTheRuntimeIsInvalidated() {
+        let appId = "app-idle-queue-\(UUID().uuidString)"
+        let first = ImageAPI.reserveCanvasExport(appId: appId, bytes: 4, payload: "first")!
+        let firstQueue = first.queue
+        ImageAPI.finishCanvasExport(first)
+        ImageAPI.clearApp(appId)
+
+        let second = ImageAPI.reserveCanvasExport(appId: appId, bytes: 4, payload: "next")!
+
+        XCTAssertFalse(firstQueue === second.queue)
+        ImageAPI.finishCanvasExport(second)
+    }
+
+    func testOneAppsPendingExportsDoNotConsumeAnothersBudget() {
+        let whole = ImageAPI.maxPendingCanvasBase64Bytes
+
+        XCTAssertTrue(ImageAPI.tryReserveCanvasExport(appId: "app-full", bytes: whole))
+        XCTAssertFalse(ImageAPI.tryReserveCanvasExport(appId: "app-full", bytes: 1))
+        XCTAssertTrue(ImageAPI.tryReserveCanvasExport(appId: "app-empty", bytes: whole))
+    }
+
+    // 小程序退出重开后 appId 照旧，只有代次能判出迟到的结果属于哪一次运行。
+    @MainActor
+    func testRefusesToDeliverAnExportIssuedByAPreviousRuntime() {
+        let generation = ImageAPI.canvasExportGeneration(appId: "app-gen")
+        XCTAssertTrue(ImageAPI.shouldDeliverCanvasExport(appId: "app-gen", generation: generation))
+
+        ImageAPI.clearApp("app-gen")
+
+        XCTAssertFalse(ImageAPI.shouldDeliverCanvasExport(appId: "app-gen", generation: generation))
+        XCTAssertTrue(
+            ImageAPI.shouldDeliverCanvasExport(
+                appId: "app-gen",
+                generation: ImageAPI.canvasExportGeneration(appId: "app-gen")
+            )
+        )
+    }
+
+    @MainActor
+    func testDestroyAfterWritingButBeforeMainDeliveryDropsCallbackAndPublishedFile() throws {
+        _ = ImageAPI(app: nil)
+        let appId = "canvas-queued-delivery-\(UUID().uuidString)"
+        let tmpDirectory = URL(
+            fileURLWithPath: DMPSandboxManager.appTmpResourceDirectoryPath(appId: appId),
+            isDirectory: true
+        )
+        defer { try? FileManager.default.removeItem(at: tmpDirectory.deletingLastPathComponent()) }
+        var callbackCount = 0
+        let writeFinished = DispatchSemaphore(value: 0)
+        let param = DMPBridgeParam(value: [
+            "dataURL": "data:image/png;base64,iVBORw0KGgo=",
+            "fileType": "png",
+        ] as [String: Any])
+        let env = DMPBridgeEnv(appIndex: 0, appId: appId, webViewId: 0)
+        guard let handler = DMPContainerApi.bridgeHandlerMap["saveCanvasTempFile"] else {
+            return XCTFail("saveCanvasTempFile is not registered")
+        }
+
+        _ = handler(param, env) { _, _ in callbackCount += 1 }
+        ImageAPI.canvasExportQueue(appId: appId).async { writeFinished.signal() }
+
+        XCTAssertEqual(writeFinished.wait(timeout: .now() + 5), .success)
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(
+                at: tmpDirectory,
+                includingPropertiesForKeys: nil
+            ).count,
+            1
+        )
+
+        ImageAPI.clearApp(appId)
+        let mainDeliveryDrained = expectation(description: "main delivery queue drained")
+        DispatchQueue.main.async { mainDeliveryDrained.fulfill() }
+        wait(for: [mainDeliveryDrained], timeout: 1)
+
+        XCTAssertEqual(callbackCount, 0)
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(
+                at: tmpDirectory,
+                includingPropertiesForKeys: nil
+            ).count,
+            0
+        )
+    }
+
+    // 没有接收方的导出已经把文件写出去了；iOS 的 tmp 在 Documents/Dimina 下，进程结束也不会回收。
+    func testDeletesThePublishedFileOfAnUndeliverableExport() throws {
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let published = directory.appendingPathComponent("canvas_orphan.png")
+        try Data([1, 2, 3]).write(to: published)
+
+        ImageAPI.discardPublishedCanvasFile(at: published)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: published.path))
+    }
+
     func testCanvasAppIdRejectsTraversalAndSeparators() {
         XCTAssertFalse(ImageAPI.isValidCanvasAppId("../other-app"))
         XCTAssertFalse(ImageAPI.isValidCanvasAppId("foo/bar"))

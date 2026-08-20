@@ -20,7 +20,7 @@ import {
  * tap / canceltap 的唯一来源，tap 由触摸序列合成而不是监听原生 click，
  * 这样 canvas 这类只有触摸通道的节点也能拿到 tap，长按也才能按官方语义抑制随后的 tap。
  *
- * 纯 DOM 实现，不依赖 Vue：组件走 useTouchEvents 薄壳，编译产物里保持为原生元素的
+ * 纯 DOM 实现，不依赖 Vue：组件走 useTouchEvents 薄壳，已编译的旧包里保持为原生元素的
  * canvas 走 c-event-node 指令，两条路径共用这一份。
  *
  * @param {object} info 节点信息，需含 attrs / bridgeId / moduleId
@@ -31,6 +31,7 @@ import {
  * @param {Function} [options.getRelativeElement] 返回一个元素；给定后每个触摸点额外带上相对该元素左上角的 x / y
  * @param {Function} [options.tapHandler] 组件内建动作与 tap 派发的统一处理器
  * @param {boolean|Function} [options.disableScroll] 是否阻止原生 touchmove 默认滚动
+ * @param {Function} [options.resolveTarget] 把原生事件源换成小程序看得见的那个节点
  * @returns {Function} 卸载函数
  */
 export function attachTouchEvents(info, element, options = {}) {
@@ -52,6 +53,7 @@ export function attachTouchEvents(info, element, options = {}) {
 		getRelativeElement = null,
 		tapHandler = null,
 		disableScroll = false,
+		resolveTarget = null,
 	} = options
 
 	let longPressTimer = null
@@ -85,7 +87,9 @@ export function attachTouchEvents(info, element, options = {}) {
 	 */
 	function makeEvent(type, nativeEvent, payload) {
 		return {
-			target: payload.target,
+			// 组件用来搭出自己形态的内部节点不是小程序声明过的节点，事件源必须换回组件自己的
+			// 根节点，否则 target 上取不到开发者写的 id 与 data-*。
+			target: resolveTarget ? resolveTarget(payload.target) : payload.target,
 			currentTarget: element,
 			touches: payload.touches,
 			changedTouches: payload.changedTouches,

@@ -28,8 +28,10 @@ import java.util.Base64
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -46,16 +48,184 @@ internal fun canvasTempFileFailure(reason: String): AsyncResult = AsyncResult(
     completeCarriesResult = true,
 )
 
+// Internal bridge safety ceiling, not a WeChat Canvas API limit. It bounds the
+// extra native allocation and temp-file write after the data URL crosses the bridge.
+internal const val MAX_CANVAS_IMAGE_BYTES = 32 * 1024 * 1024
+internal const val MAX_CANVAS_BASE64_CHARS = (MAX_CANVAS_IMAGE_BYTES * 4 / 3) + 8
+
+// 排队中的每个请求都各自持有一份 base64 副本，单次上限只约束其中一份。允许「一份在写盘、
+// 一份在等」，再多就是纯堆积。预算是在把字符串交给后台协程之前判的，被拒的那份随即可回收。
+internal const val MAX_IN_FLIGHT_CANVAS_EXPORTS = 2
+internal const val MAX_PENDING_CANVAS_BASE64_CHARS =
+    MAX_IN_FLIGHT_CANVAS_EXPORTS.toLong() * MAX_CANVAS_BASE64_CHARS
+
 /**
  * 同一个小程序同时只做一次解码加写盘。同步实现时主线程天然给它排队，挪到后台之后就没有这层
- * 约束了，而单次解码上限已经是 32 MB。这条锁只约束解码与写盘阶段，排队中的每个请求仍各自
- * 持有自己那份 base64 字符串。
+ * 约束了，而单次解码上限已经是 32 MB。锁只约束解码与写盘阶段，排队中的每个请求仍各自持有
+ * 自己那份 base64 字符串，所以这里同时按 app 记账，把还没轮到的总量也框住。
  */
+internal class CanvasExportReservation internal constructor(
+    val appId: String,
+    val generation: Long,
+    val chars: Int,
+    internal val mutex: Mutex,
+    internal var payload: String?,
+) {
+    internal var started = false
+    internal var cancelled = false
+    internal var job: Job? = null
+}
+
 internal object CanvasExportQueue {
-    private val locks = ConcurrentHashMap<String, Mutex>()
+    private data class AppState(
+        var generation: Long = 0,
+        val jobs: LinkedHashSet<CanvasExportReservation> = linkedSetOf(),
+        val mutexes: MutableMap<Long, Mutex> = mutableMapOf(),
+    )
+
+    private val monitor = Any()
+    private val states = mutableMapOf<String, AppState>()
+    private val legacyReservations = mutableMapOf<String, ArrayDeque<CanvasExportReservation>>()
+    private val legacyLocks = ConcurrentHashMap<String, Mutex>()
+
+    private fun state(appId: String) = states.getOrPut(appId) { AppState() }
+
+    fun reserve(appId: String, chars: Int, payload: String? = null): CanvasExportReservation? = synchronized(monitor) {
+        val state = state(appId)
+        val pendingChars = state.jobs.sumOf { it.chars.toLong() }
+        if (state.jobs.size >= MAX_IN_FLIGHT_CANVAS_EXPORTS
+            || pendingChars + chars > MAX_PENDING_CANVAS_BASE64_CHARS) return@synchronized null
+        CanvasExportReservation(
+            appId = appId,
+            generation = state.generation,
+            chars = chars,
+            mutex = state.mutexes.getOrPut(state.generation) { Mutex() },
+            payload = payload,
+        ).also(state.jobs::add)
+    }
+
+    fun attach(reservation: CanvasExportReservation, job: Job) = synchronized(monitor) {
+        val active = state(reservation.appId).jobs.contains(reservation) && !reservation.cancelled
+        if (active) reservation.job = job else job.cancel()
+    }
+
+    private fun begin(reservation: CanvasExportReservation): String? = synchronized(monitor) {
+        val active = state(reservation.appId).jobs.contains(reservation) && !reservation.cancelled
+        if (!active) return@synchronized null
+        reservation.started = true
+        reservation.payload.also { reservation.payload = null }
+    }
+
+    suspend fun <T> run(reservation: CanvasExportReservation, block: suspend (String) -> T): T? =
+        reservation.mutex.withLock {
+            val payload = begin(reservation) ?: return@withLock null
+            block(payload)
+        }
+
+    fun finish(reservation: CanvasExportReservation) = synchronized(monitor) {
+        reservation.payload = null
+        val state = state(reservation.appId)
+        state.jobs.remove(reservation)
+        if (state.jobs.none { it.generation == reservation.generation }) {
+            state.mutexes.remove(reservation.generation)
+        }
+    }
+
+    fun invalidate(appId: String) = synchronized(monitor) {
+        val state = state(appId)
+        state.generation++
+        val pending = state.jobs.filterNot { it.started }
+        for (reservation in pending) {
+            reservation.cancelled = true
+            reservation.payload = null
+            reservation.job?.cancel()
+            state.jobs.remove(reservation)
+        }
+        state.mutexes.keys.removeAll { generation ->
+            state.jobs.none { it.generation == generation }
+        }
+        legacyReservations.remove(appId)
+    }
+
+    fun currentGeneration(appId: String): Long = synchronized(monitor) { state(appId).generation }
+    fun isCurrent(appId: String, generation: Long): Boolean = synchronized(monitor) {
+        state(appId).generation == generation
+    }
+    fun pendingChars(appId: String): Long = synchronized(monitor) {
+        state(appId).jobs.sumOf { it.chars.toLong() }
+    }
+
+    // 兼容现有单元测试使用的低层记账入口；生产路径使用带 generation/payload 的 reservation。
+    fun tryReserve(appId: String, chars: Int): Boolean {
+        val reservation = reserve(appId, chars) ?: return false
+        synchronized(monitor) {
+            legacyReservations.getOrPut(appId) { ArrayDeque() }.addLast(reservation)
+        }
+        return true
+    }
+
+    fun release(appId: String, chars: Int) {
+        val reservation = synchronized(monitor) {
+            val queue = legacyReservations[appId] ?: return@synchronized null
+            val match = queue.firstOrNull { it.chars == chars }
+            if (match != null) queue.remove(match)
+            match
+        }
+        if (reservation != null) finish(reservation)
+    }
 
     suspend fun <T> serialized(appId: String, block: suspend () -> T): T =
-        locks.computeIfAbsent(appId) { Mutex() }.withLock { block() }
+        legacyLocks.computeIfAbsent(appId) { Mutex() }.withLock { block() }
+}
+
+/**
+ * 导出发起时属于某一代 runtime。小程序退出或重启后，回调已经没有接收方，写出去的文件也不会
+ * 有任何人来取，所以结算时必须按代次判断，而不是看这个 appId 现在是不是又活着。
+ */
+internal object CanvasExportGeneration {
+    fun current(appId: String): Long = CanvasExportQueue.currentGeneration(appId)
+
+    @androidx.annotation.MainThread
+    fun invalidate(appId: String) {
+        CanvasExportQueue.invalidate(appId)
+    }
+}
+
+/**
+ * 结算这次导出该不该交给小程序：发起它的那一代 runtime 已经不在时就不该交。
+ */
+internal fun shouldDeliverCanvasExport(appId: String, generation: Long): Boolean =
+    CanvasExportQueue.isCurrent(appId, generation)
+
+/**
+ * 丢弃一次没有接收方的导出：已经发布的文件不会有人来取，留着就是永久占用临时目录。
+ */
+internal fun discardPublishedCanvasFile(tempRoot: File, result: JSONObject) {
+    val publishedName = File(result.optString("tempFilePath")).name
+    if (publishedName.isEmpty()) return
+    // 只按文件名在临时目录里删，虚拟路径不参与拼接：结算路径不该有能被入参左右的目录跳转。
+    runCatching { File(tempRoot, publishedName).delete() }
+}
+
+/**
+ * 把“这一代是否仍存活”与实际回调放在同一个主线程结算点。runtime 销毁也在主线程更新代次，
+ * 因而两者只能按先后完整执行，不会再出现后台检查通过、等待切主线程期间 owner 已失效的窗口。
+ * dispatcher 作为参数只用于让单元测试确定性地暂停这个结算点；生产始终使用 Main.immediate。
+ */
+internal suspend fun deliverCanvasExport(
+    appId: String,
+    generation: Long,
+    tempRoot: File?,
+    result: JSONObject,
+    deliveryDispatcher: CoroutineDispatcher = Dispatchers.Main.immediate,
+    dispatch: (JSONObject) -> Unit,
+): Boolean = withContext(deliveryDispatcher) {
+    if (!shouldDeliverCanvasExport(appId, generation)) {
+        tempRoot?.let { discardPublishedCanvasFile(it, result) }
+        return@withContext false
+    }
+    dispatch(result)
+    true
 }
 
 /**
@@ -98,10 +268,6 @@ class ImageApi : BaseApiHandler() {
         const val COMPRESS_IMAGE = "compressImage"
         const val CHOOSE_IMAGE = "chooseImage"
         const val CHOOSE_MESSAGE_FILE = "chooseMessageFile"
-        // Internal bridge safety ceiling, not a WeChat Canvas API limit. It bounds the
-        // extra native allocation and temp-file write after the data URL crosses the bridge.
-        const val MAX_CANVAS_IMAGE_BYTES = 32 * 1024 * 1024
-        const val MAX_CANVAS_BASE64_CHARS = (MAX_CANVAS_IMAGE_BYTES * 4 / 3) + 8
         val SAFE_APP_ID = Regex("^[A-Za-z0-9._-]+$")
         val STRICT_BASE64 = Regex("^[A-Za-z0-9+/]*={0,2}$")
 
@@ -467,21 +633,34 @@ class ImageApi : BaseApiHandler() {
         // （JsCore 把 QuickJS 的每次 evaluate 都 post 到主 Looper），同步做会卡住画面。
         // 参数校验很便宜，留在调用线程上以保持同步失败语义。
         val context = activity.applicationContext
-        canvasIoScope.launch {
+        // 排队中的每个请求都各自留着自己那份 base64，等轮到它才释放。预算判在启动协程之前：
+        // 到了协程里再拒，这份副本已经被闭包捕获，拒绝就省不下内存了。
+        val reservation = CanvasExportQueue.reserve(appId, base64Data.length, base64Data)
+        if (reservation == null) {
+            return failure("too many pending exports")
+        }
+        val exportJob = canvasIoScope.launch {
             // appTempRoot 自己也做 canonicalFile 与 createDirectories，并且会对符号链接抛错。
             // 它必须留在这个 try 里：抛出去就没有人再发 complete，小程序会永远等下去。
+            val tempRoot = runCatching { PathUtils.appTempRoot(context, appId) }.getOrNull()
             val result = try {
-                CanvasExportQueue.serialized(appId) {
-                    writeCanvasTempFile(PathUtils.appTempRoot(context, appId), base64Data, fileType)
-                }
+                CanvasExportQueue.run(reservation) { reservedPayload ->
+                    writeCanvasTempFile(requireNotNull(tempRoot), reservedPayload, fileType)
+                } ?: return@launch
             } catch (_: Exception) {
                 canvasTempFileFailure("write failed").value
             }
-            // responseCallback 会一路回到 QuickJS，而 QuickJS 只在主线程上执行。
-            withContext(Dispatchers.Main) {
-                dispatchCanvasResult(params, result, responseCallback)
+            deliverCanvasExport(
+                appId = appId,
+                generation = reservation.generation,
+                tempRoot = tempRoot,
+                result = result,
+            ) { deliveredResult ->
+                dispatchCanvasResult(params, deliveredResult, responseCallback)
             }
         }
+        CanvasExportQueue.attach(reservation, exportJob)
+        exportJob.invokeOnCompletion { CanvasExportQueue.finish(reservation) }
         return NoneResult()
     }
 

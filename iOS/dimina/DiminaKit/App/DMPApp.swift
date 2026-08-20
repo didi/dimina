@@ -364,6 +364,9 @@ public class DMPApp {
             BluetoothAPIManager.shared.clearApp(self.appId)
             LocalNetworkAPIManager.shared.clearApp(self.appId)
             NetworkAPI.clearApp(self.appId)
+            // 正在后台写盘的 canvas 导出属于这一代 runtime；换代之后它的回调没有接收方，
+            // 已经发布的文件也不会有人来取。
+            ImageAPI.clearApp(self.appId)
             DMPWebSocketManager.shared.disposeOwner(appId: self.appId)
             let registeredExtModules = self.container?.extModules ?? [:]
             self.container?.resetForReload()
@@ -426,6 +429,7 @@ public class DMPApp {
         container?.registerExtModule(moduleName, handler: handler)
     }
 
+    @MainActor
     public func destroy() {
         guard !isDestroyed else {
             return
@@ -435,6 +439,7 @@ public class DMPApp {
         BluetoothAPIManager.shared.clearApp(appId)
         LocalNetworkAPIManager.shared.clearApp(appId)
         NetworkAPI.clearApp(appId)
+        ImageAPI.clearApp(appId)
 
         let serviceToDestroy = service
         let containerToDestroy = container

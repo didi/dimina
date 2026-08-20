@@ -1,6 +1,7 @@
 import { invokeAPI } from '@/api/common'
 import hostEnv from '@/core/host-env'
 import router from '@/core/router'
+import { canvasPixelBudgetError } from '@dimina/common'
 import { CanvasContext, hasJsonUnsafeValue } from './canvas-context'
 
 export { createCanvas, createOffscreenCanvas } from './canvas-node'
@@ -86,6 +87,10 @@ export function canvasGetImageData(opts = {}, component) {
 	normalizePixelCoordinate(params, 'y')
 	normalizePixelExtent(params, 'width')
 	normalizePixelExtent(params, 'height')
+	const budgetError = canvasPixelBudgetError(params.width, params.height, { transferable: true })
+	if (budgetError) {
+		setCanvasValidationError(params, budgetError)
+	}
 	if (typeof success === 'function') {
 		params.success = result => success(normalizeImageDataResult(result))
 	}
@@ -109,9 +114,6 @@ export function canvasPutImageData(opts = {}, component) {
 	if (Object.prototype.toString.call(params.data) !== '[object Uint8ClampedArray]') {
 		setCanvasValidationError(params, 'data argument must be an Uint8ClampedArray')
 	}
-	else {
-		params.data = Array.from(params.data)
-	}
 	const dataLength = params.data?.length
 	const height = typeof params.height === 'number'
 		? params.height
@@ -119,6 +121,13 @@ export function canvasPutImageData(opts = {}, component) {
 	params.height = height
 	if (!Number.isFinite(height) || params.width * height * 4 !== dataLength) {
 		setCanvasValidationError(params, 'invalid data format')
+	}
+	const budgetError = canvasPixelBudgetError(params.width, height, { transferable: true })
+	if (budgetError) {
+		setCanvasValidationError(params, budgetError)
+	}
+	if (!params.canvasValidationError) {
+		params.data = Array.from(params.data)
 	}
 	return invokeAPI('canvasPutImageData', params, 'render')
 }

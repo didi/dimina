@@ -54,7 +54,7 @@ Dimina 的手势事件由渲染层合成：组件在自己的根元素上安装�
 | `changedTouches` | 本次事件涉及的触摸点 |
 | `detail` | 带坐标的手势事件（`tap`、`longpress`、`longtap`、`canceltap`）统一带 `x`、`y`，取 `pageX` / `pageY`；组件事件的 `detail` 由各组件按自身语义填充 |
 
-触摸点字段为 `identifier`、`clientX`、`clientY`、`pageX`、`pageY`、`screenX`、`screenY`、`force`。`canvas` 的触摸点额外带 `x`、`y`，即相对画布左上角的坐标，对应官方的 `CanvasTouch`。
+触摸点字段为 `identifier`、`clientX`、`clientY`、`pageX`、`pageY`、`screenX`、`screenY`、`force`。`canvas` 的触摸点额外带 `x`、`y`，即相对小程序声明的 canvas 根节点 border box 左上角的坐标，对应官方的 `CanvasTouch`；内部 backing canvas 位于边框内侧，不能用它作为坐标原点。
 
 `tap` 使用序列起点的触摸点，`touchmove` 与 `touchend` 使用各自时刻的触摸点。
 

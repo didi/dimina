@@ -1,4 +1,4 @@
-import { deepEqual, getDataAttributes, normalizePropertyValues as normalizeMiniProgramPropertyValues, set, uuid } from '@dimina/common'
+import { CANVAS_ACTIVE_PROP, CANVAS_CONTRACT_CHANGE_EVENT, CANVAS_NODE_PROP, CANVAS_OWNER_PROP, canvasPixelBudgetError, deepEqual, getDataAttributes, normalizePropertyValues as normalizeMiniProgramPropertyValues, set, uuid } from '@dimina/common'
 import { Components, deepToRaw, triggerEvent } from '@dimina/components'
 import {
 	createApp,
@@ -35,6 +35,7 @@ import {
 } from 'vue'
 import loader from './loader'
 import message from './message'
+import { resolveCanvasExportSize } from './canvas-export-limits'
 import { createMiniProgramSlots } from './slots'
 
 const COMPONENT_HOST_ATTRIBUTE = 'data-dd-component-host'
@@ -479,6 +480,23 @@ function serializeCanvasResult(value, resolveResourceId) {
 	return undefined
 }
 
+function readCanvas2DState(context, stateSequences = {}) {
+	const state = []
+	for (const [prop, sequence] of Object.entries(stateSequences)) {
+		let value
+		try {
+			value = context[prop]
+		}
+		catch {
+			continue
+		}
+		if (value === null || ['string', 'number', 'boolean'].includes(typeof value)) {
+			state.push({ prop, sequence, value })
+		}
+	}
+	return state
+}
+
 function describeWebGLContext(context, includeExtensionConstants = true) {
 	if (!context) {
 		return null
@@ -595,6 +613,15 @@ function isCanvasElement(element) {
 	return element?.tagName?.toLowerCase() === 'canvas'
 }
 
+function resolveCanvasNodeElement(element) {
+	if (isCanvasElement(element)) {
+		return element
+	}
+	const canvas = element?.[CANVAS_NODE_PROP]
+	// DOM contract 必须仍指向这个宿主里的真实 canvas；卸载或错误复用后的陈旧引用不能登记。
+	return isCanvasElement(canvas) && element.contains?.(canvas) ? canvas : null
+}
+
 class Runtime {
 	constructor() {
 		this.app = null
@@ -616,6 +643,9 @@ class Runtime {
 		// 队列和回放状态都按真实 canvas 元素隔离；canvas-id 只在组件作用域内唯一。
 		// WeakMap 让卸载后的画布及其队列、save/clip 状态可以一起回收。
 		this.canvasDrawQueues = new WeakMap()
+		// DOM 解析本身也可能异步等待节点。按页面/组件作用域先排住「解析 + 操作」，否则先发的
+		// 请求还在等 MutationObserver 时，后发请求可能先找到节点并越过它执行。
+		this.canvasScopeQueues = new Map()
 		this.canvasReplayStates = new WeakMap()
 		this.canvasImageTimeout = 10000
 		// 追踪"mC 已发出但 service 侧 created 尚未完成"的组件 setup
@@ -654,13 +684,12 @@ class Runtime {
 			observer.disconnect()
 		}
 		this.performanceObservers.clear()
-		for (const node of this.canvasNodes.values()) {
-			node.cleanup?.()
-		}
+		for (const nodeId of [...this.canvasNodes.keys()]) this.disposeCanvasNode(nodeId)
 		for (const frameId of this.canvasRafIds.values()) {
 			cancelAnimationFrame(frameId)
 		}
 		this.canvasRafIds.clear()
+		this.canvasScopeQueues.clear()
 	}
 
 	syncReactiveState(state, nextState = {}) {
@@ -1543,7 +1572,8 @@ class Runtime {
 		const rect = canvas.getBoundingClientRect?.()
 		const width = Math.round(rect?.width || 0)
 		const height = Math.round(rect?.height || 0)
-		if (isNewNode && width > 0 && height > 0) {
+		const layoutError = canvasPixelBudgetError(width, height, { allowZero: true })
+		if (isNewNode && !layoutError && width > 0 && height > 0) {
 			if (canvas.width !== width) {
 				canvas.width = width
 			}
@@ -1556,20 +1586,23 @@ class Runtime {
 			this.canvasNodes.set(nodeId, {
 				canvas,
 				contexts: new Map(),
+				resourceIds: new Set(),
 			})
 		}
 		return {
 			__diminaNodeType: CANVAS_NODE_TYPE,
 			nodeId,
 			type,
-			width: canvas.width || width || 300,
-			height: canvas.height || height || 150,
+			width: canvas.width ?? (!layoutError && width > 0 ? width : 300),
+			height: canvas.height ?? (!layoutError && height > 0 ? height : 150),
 			webglCapabilities: this.getCanvasCapabilities(),
 		}
 	}
 
 	createOffscreenCanvas({ bridgeId, params }) {
 		const { nodeId, width = 300, height = 150, type = '2d' } = params
+		const budgetError = canvasPixelBudgetError(width, height, { allowZero: true })
+		if (budgetError) throw new RangeError(budgetError)
 		const canvas = document.createElement('canvas')
 		canvas.width = width
 		canvas.height = height
@@ -1577,6 +1610,8 @@ class Runtime {
 			canvas,
 			type,
 			contexts: new Map(),
+			resourceIds: new Set(),
+			bridgeId,
 		})
 		if (type === 'webgl' || type === 'experimental-webgl' || type === 'webgl2') {
 			this.publishCanvasCapabilities(bridgeId)
@@ -1585,6 +1620,8 @@ class Runtime {
 
 	createGameCanvas({ bridgeId, params }) {
 		const { nodeId, width = 300, height = 150, type = '2d' } = params
+		const budgetError = canvasPixelBudgetError(width, height, { allowZero: true })
+		if (budgetError) throw new RangeError(budgetError)
 		const existing = this.canvasNodes.get(nodeId)
 		if (existing) {
 			return
@@ -1688,6 +1725,8 @@ class Runtime {
 			canvas,
 			type,
 			contexts: new Map(),
+			resourceIds: new Set(),
+			bridgeId,
 			cleanup: () => {
 				for (const [eventType, handler] of handlers) {
 					canvas.removeEventListener(eventType, handler)
@@ -1698,13 +1737,39 @@ class Runtime {
 		this.publishCanvasCapabilities(bridgeId)
 	}
 
-	resolveCanvasArg(value) {
+	disposeCanvasNode(nodeId, bridgeId) {
+		const node = this.canvasNodes.get(nodeId)
+		if (!node || (node.bridgeId && bridgeId && node.bridgeId !== bridgeId)) return
+		node.cleanup?.()
+		for (const resourceId of node.resourceIds || []) {
+			const resource = this.canvasResources.get(resourceId)
+			if (resource && (typeof resource === 'object' || typeof resource === 'function')) {
+				if ('onload' in resource) resource.onload = null
+				if ('onerror' in resource) resource.onerror = null
+			}
+			this.canvasResources.delete(resourceId)
+		}
+		for (const contextId of node.contexts?.keys() || []) this.canvasResources.delete(contextId)
+		for (const [key, frameId] of [...this.canvasRafIds]) {
+			if (!key.startsWith(`${nodeId}:`)) continue
+			cancelAnimationFrame(frameId)
+			this.canvasRafIds.delete(key)
+		}
+		this.canvasReplayStates.delete(node.canvas)
+		this.canvasNodes.delete(nodeId)
+	}
+
+	disposeCanvasNodes({ bridgeId, params }) {
+		for (const nodeId of new Set(params.nodeIds || [])) this.disposeCanvasNode(nodeId, bridgeId)
+	}
+
+	resolveCanvasArg(value, context) {
 		if (value === null || value === undefined) {
 			return value
 		}
 
 		if (Array.isArray(value)) {
-			return value.map(item => this.resolveCanvasArg(item))
+			return value.map(item => this.resolveCanvasArg(item, context))
 		}
 
 		if (typeof value !== 'object') {
@@ -1733,9 +1798,21 @@ class Runtime {
 			return new Uint8Array(value.data || []).buffer
 		}
 
+		if (value.__canvasImageData) {
+			const budgetError = canvasPixelBudgetError(value.width, value.height, { transferable: true })
+			if (budgetError) throw new RangeError(budgetError)
+			const imageData = context?.createImageData?.(value.width, value.height)
+			if (!imageData?.data) throw new TypeError('target context cannot create ImageData')
+			if (imageData.data.length !== value.data?.length) {
+				throw new RangeError('ImageData data length does not match its dimensions')
+			}
+			imageData.data.set(value.data)
+			return imageData
+		}
+
 		const result = {}
 		for (const [key, item] of Object.entries(value)) {
-			result[key] = this.resolveCanvasArg(item)
+			result[key] = this.resolveCanvasArg(item, context)
 		}
 		return result
 	}
@@ -1756,27 +1833,35 @@ class Runtime {
 		return null
 	}
 
-	setCanvasResource(id, value) {
+	setCanvasResource(id, value, node) {
 		if (id) {
 			this.canvasResources.set(id, value)
+			node?.resourceIds?.add(id)
 		}
 	}
 
-	getCanvasImage(imageId) {
+	getCanvasImage(imageId, node) {
 		let image = this.getCanvasResource(imageId)
 		if (!image) {
 			image = new Image()
 			image.crossOrigin = "anonymous";
-			this.setCanvasResource(imageId, image)
+			this.setCanvasResource(imageId, image, node)
 		}
 		return image
 	}
 
 	executeCanvasOperation(node, operation, bridgeId) {
 		switch (operation.op) {
-			case 'setCanvasProperty':
+			case 'setCanvasProperty': {
+				if (operation.prop === 'width' || operation.prop === 'height') {
+					const width = operation.prop === 'width' ? operation.value : node.canvas.width
+					const height = operation.prop === 'height' ? operation.value : node.canvas.height
+					const budgetError = canvasPixelBudgetError(width, height, { allowZero: true })
+					if (budgetError) throw new RangeError(budgetError)
+				}
 				node.canvas[operation.prop] = operation.value
 				break
+			}
 			case 'getContext': {
 				let context = null
 				let statusMessage
@@ -1790,7 +1875,7 @@ class Runtime {
 					statusMessage = error instanceof Error ? error.message : String(error)
 				}
 				node.contexts.set(operation.contextId, context)
-				this.setCanvasResource(operation.contextId, context)
+				this.setCanvasResource(operation.contextId, context, node)
 				const isWebGL = operation.contextType === 'webgl'
 					|| operation.contextType === 'experimental-webgl'
 					|| operation.contextType === 'webgl2'
@@ -1810,11 +1895,35 @@ class Runtime {
 			case 'contextSetProperty': {
 				const context = this.getCanvasResource(operation.contextId)
 				if (context) {
-					try {
-						context[operation.prop] = this.resolveCanvasArg(operation.value)
+					const supported = operation.prop in context
+					if (supported) {
+						try {
+							context[operation.prop] = this.resolveCanvasArg(operation.value)
+						}
+						catch (error) {
+							console.warn('[system]', '[render]', `Canvas context property ${operation.prop} failed: ${error}`)
+						}
 					}
-					catch (error) {
-						console.warn('[system]', '[render]', `Canvas context property ${operation.prop} failed: ${error}`)
+					if (operation.feedback === 'state') {
+						let value
+						try {
+							value = supported
+								? context[operation.prop]
+								: this.resolveCanvasArg(operation.previousValue)
+						}
+						catch {
+							break
+						}
+						if (value === null || ['string', 'number', 'boolean'].includes(typeof value)) {
+							return {
+								contextId: operation.contextId,
+								state: {
+									prop: operation.prop,
+									sequence: operation.sequence,
+									value,
+								},
+							}
+						}
 					}
 				}
 				break
@@ -1822,13 +1931,36 @@ class Runtime {
 			case 'contextCall': {
 				const context = this.getCanvasResource(operation.contextId)
 				const method = context?.[operation.method]
-				if (typeof method !== 'function') {
+				const resetFallback = operation.method === 'reset' && context && typeof method !== 'function'
+				if (typeof method !== 'function' && !resetFallback) {
 					break
 				}
-				const args = (operation.args || []).map(arg => this.resolveCanvasArg(arg))
+				const args = (operation.args || []).map(arg => this.resolveCanvasArg(arg, context))
+				// 兼容 active ImageData wire contract 之前发布的基础库：旧 service 会把 ImageData
+				// 序列化成普通 {width,height,data}，新 render 在真正调用前补回浏览器对象。
+				if (operation.method === 'putImageData' && args[0]?.data instanceof Uint8ClampedArray
+					&& Object.prototype.toString.call(args[0]) !== '[object ImageData]') {
+					const legacy = args[0]
+					const budgetError = canvasPixelBudgetError(legacy.width, legacy.height, { transferable: true })
+					if (budgetError) throw new RangeError(budgetError)
+					const imageData = context.createImageData(legacy.width, legacy.height)
+					if (imageData.data.length !== legacy.data.length) {
+						throw new RangeError('ImageData data length does not match its dimensions')
+					}
+					imageData.data.set(legacy.data)
+					args[0] = imageData
+				}
 				try {
-					const result = method.apply(context, args)
-					this.setCanvasResource(operation.resultId, result)
+					if (resetFallback) {
+						// 老 WebKit 没有 CanvasRenderingContext2D.reset()；重设相同 backing width
+						// 是 HTML Canvas 规范提供的等价全状态/像素/路径/clip 重置入口。
+						const backingWidth = node.canvas.width
+						node.canvas.width = backingWidth
+					}
+					else {
+						const result = method.apply(context, args)
+						this.setCanvasResource(operation.resultId, result, node)
+					}
 				}
 				catch (error) {
 					console.warn('[system]', '[render]', `Canvas context call ${operation.method} failed: ${error}`)
@@ -1879,7 +2011,18 @@ class Runtime {
 						value: serializeCanvasResult(args[operation.typedArrayArgIndex]),
 					}
 				}
+				if (operation.feedback === 'stateSnapshot') {
+					feedback.state = readCanvas2DState(context, operation.stateSequences)
+				}
 				return feedback
+			}
+			case 'contextStateSnapshot': {
+				const context = this.getCanvasResource(operation.contextId)
+				if (!context) break
+				return {
+					contextId: operation.contextId,
+					state: readCanvas2DState(context, operation.stateSequences),
+				}
 			}
 			case 'contextQuery': {
 				const context = this.getCanvasResource(operation.contextId)
@@ -1913,7 +2056,7 @@ class Runtime {
 				catch (error) {
 					console.warn('[system]', '[render]', `Canvas extension ${operation.name} failed: ${error}`)
 				}
-				this.setCanvasResource(operation.extensionId, extension)
+				this.setCanvasResource(operation.extensionId, extension, node)
 				break
 			}
 			case 'extensionCall': {
@@ -1922,7 +2065,7 @@ class Runtime {
 				if (typeof method === 'function') {
 					try {
 						const result = method.apply(extension, (operation.args || []).map(arg => this.resolveCanvasArg(arg)))
-						this.setCanvasResource(operation.resultId, result)
+						this.setCanvasResource(operation.resultId, result, node)
 					}
 					catch (error) {
 						console.warn('[system]', '[render]', `Canvas extension call ${operation.method} failed: ${error}`)
@@ -1935,25 +2078,31 @@ class Runtime {
 				const method = resource?.[operation.method]
 				if (typeof method === 'function') {
 					const result = method.apply(resource, (operation.args || []).map(arg => this.resolveCanvasArg(arg)))
-					this.setCanvasResource(operation.resultId, result)
+					this.setCanvasResource(operation.resultId, result, node)
 				}
 				break
 			}
 			case 'createImage':
-				this.getCanvasImage(operation.imageId)
+				this.getCanvasImage(operation.imageId, node)
 				break
 			case 'imageSetSrc': {
-				const image = this.getCanvasImage(operation.imageId)
+				const image = this.getCanvasImage(operation.imageId, node)
+				const settle = (outcome) => {
+					image.onload = null
+					image.onerror = null
+					if (operation.callback) {
+						this.triggerCallback(bridgeId, operation.callback, outcome)
+					}
+					else {
+						const callbackId = outcome.ok ? operation.onload : operation.onerror
+						this.triggerCallback(bridgeId, callbackId, outcome.value)
+					}
+				}
 				image.onload = () => {
-					this.triggerCallback(bridgeId, operation.onload, {
-						width: image.width,
-						height: image.height,
-					})
+					settle({ ok: true, value: { width: image.width, height: image.height } })
 				}
 				image.onerror = () => {
-					this.triggerCallback(bridgeId, operation.onerror, {
-						errMsg: `createImage:fail ${operation.src}`,
-					})
+					settle({ ok: false, value: { errMsg: `createImage:fail ${operation.src}` } })
 				}
 				image.src = operation.src
 				break
@@ -1961,12 +2110,23 @@ class Runtime {
 			case 'getImageData': {
 				const context = this.getCanvasResource(operation.contextId)
 				if (context) {
+					const budgetError = canvasPixelBudgetError(operation.width, operation.height, { transferable: true })
+					if (budgetError) throw new RangeError(budgetError)
 					const imageData = context.getImageData(operation.x, operation.y, operation.width, operation.height)
-					this.triggerCallback(bridgeId, operation.callback, {
-						data: Array.from(imageData.data),
-						width: imageData.width,
-						height: imageData.height,
-					})
+					const value = operation.resultEnvelope
+						? {
+							__canvasImageData: true,
+							data: Array.from(imageData.data),
+							width: imageData.width,
+							height: imageData.height,
+						}
+						: {
+							data: Array.from(imageData.data),
+							width: imageData.width,
+							height: imageData.height,
+						}
+					this.triggerCallback(bridgeId, operation.callback,
+						operation.resultEnvelope ? { ok: true, value } : value)
 				}
 				break
 			}
@@ -1975,7 +2135,8 @@ class Runtime {
 				const dataURL = operation.quality !== undefined
 					? node.canvas.toDataURL(mimeType, operation.quality)
 					: node.canvas.toDataURL(mimeType)
-				this.triggerCallback(bridgeId, operation.callback, dataURL)
+				this.triggerCallback(bridgeId, operation.callback,
+					operation.resultEnvelope ? { ok: true, value: dataURL } : dataURL)
 				break
 			}
 			default:
@@ -1987,6 +2148,10 @@ class Runtime {
 		const node = this.canvasNodes.get(params.nodeId)
 		if (!node) {
 			console.warn('[system]', '[render]', `canvas node ${params.nodeId} not found`)
+			for (const operation of params.operations || []) {
+				this.triggerCallback(bridgeId, operation.callback,
+					operation.resultEnvelope ? { ok: false, error: 'canvas node not found' } : undefined)
+			}
 			this.triggerCallback(bridgeId, params.feedback, {})
 			return
 		}
@@ -2000,7 +2165,17 @@ class Runtime {
 			if (operation.contextId) {
 				touchedContexts.add(operation.contextId)
 			}
-			const result = this.executeCanvasOperation(node, operation, bridgeId)
+			let result
+			try {
+				result = this.executeCanvasOperation(node, operation, bridgeId)
+			}
+			catch (error) {
+				const reason = error instanceof Error ? error.message : String(error)
+				console.warn('[system]', '[render]', `Canvas operation ${operation.op} failed: ${reason}`)
+				this.triggerCallback(bridgeId, operation.callback,
+					operation.resultEnvelope ? { ok: false, error: reason } : undefined)
+				continue
+			}
 			if (!result) {
 				continue
 			}
@@ -2016,6 +2191,10 @@ class Runtime {
 				if (result.query) {
 					feedback.contexts[result.contextId].queries ||= []
 					feedback.contexts[result.contextId].queries.push(result.query)
+				}
+				if (result.state) {
+					feedback.contexts[result.contextId].state ||= []
+					feedback.contexts[result.contextId].state.push(...(Array.isArray(result.state) ? result.state : [result.state]))
 				}
 			}
 			if (result.typedArray) {
@@ -2239,8 +2418,9 @@ class Runtime {
 		}
 
 		if (fields.node) {
-			data.node = isCanvasElement(targetElement)
-				? this.registerCanvasNode(targetElement)
+			const canvas = resolveCanvasNodeElement(targetElement)
+			data.node = canvas
+				? this.registerCanvasNode(canvas)
 				: null
 		}
 		// TODO: 支持获取 VideoContext、CanvasContext、LivePlayerContext、EditorContext和 MapContext
@@ -2282,7 +2462,6 @@ class Runtime {
 	}
 
 	async getCanvasElement(canvasId, moduleId, bridgeId) {
-		const selector = `canvas[canvas-id="${canvasId}"]`
 		// 逻辑层在未显式传组件时使用页面 bridgeId；页面根本身则登记在另一套 pageId 下。
 		// bridgeId 明确代表当前页面作用域，可以直接落到 document.body，不能把它当成失效组件 id。
 		const isPageScope = !moduleId || moduleId === bridgeId
@@ -2290,23 +2469,68 @@ class Runtime {
 		if (!scope?.querySelector) {
 			return null
 		}
-		// canvas-id 判重的作用域是宿主组件实例，所以「页面一个、组件里一个」同名 canvas 是合法的。
-		// 而页面作用域的查询会一路扫进组件内部，按文档序取第一个就可能画到组件私有的 canvas 上。
-		// 先按归属精确命中；归属不明确的写法（例如 canvas 作为插槽内容传进组件）再走下面的回退。
 		const owner = isPageScope ? this.pageId : moduleId
-		const owned = scope.querySelector(`${selector}[data-canvas-owner="${owner}"]`)
-		if (owned) {
-			return owned
+		const candidates = () => [
+			...(scope.matches?.('canvas[canvas-id]') ? [scope] : []),
+			...scope.querySelectorAll('canvas[canvas-id]'),
+		]
+			.filter(el => el.getAttribute('canvas-id') === String(canvasId) && !el.getAttribute('type'))
+		const belongsToLegacyScope = (canvas) => {
+			const componentHost = canvas.closest?.(`[${COMPONENT_HOST_ATTRIBUTE}]`)
+			if (isPageScope) return componentHost === null
+			return componentHost === null || componentHost === scope
 		}
-		// 传入组件实例时 canvas-id 只在该组件作用域内解析。找不到不能回退到 document，
-		// 否则同名 canvas 会把绘制、像素读取或导出执行到另一个组件实例上。
-		return this.waitForElement(scope, selector, 'querySelector')
+		const resolve = () => {
+			const matches = candidates()
+			const activeOwned = matches.find(el => el[CANVAS_OWNER_PROP] === owner
+				&& el[CANVAS_ACTIVE_PROP] === true)
+			if (activeOwned) return activeOwned
+
+			// 兼容已经发布过 owner、但早于 active contract 的基础库。旧实现隐藏的 duplicate
+			// 不得借兼容路径重新成为候选。
+			const legacyOwned = matches.find(el => el[CANVAS_OWNER_PROP] === owner
+				&& el[CANVAS_ACTIVE_PROP] === undefined
+				&& el.closest?.('.dd-canvas')?.style.display !== 'none')
+			if (legacyOwned) return legacyOwned
+
+			return matches.find(el => el[CANVAS_OWNER_PROP] === undefined
+				&& el[CANVAS_ACTIVE_PROP] === undefined
+				&& belongsToLegacyScope(el)) || null
+		}
+
+		const resolved = resolve()
+		if (resolved) return resolved
+		return new Promise((done) => {
+			const settle = () => {
+				const canvas = resolve()
+				if (!canvas) return false
+				observer.disconnect()
+				scope.removeEventListener(CANVAS_CONTRACT_CHANGE_EVENT, settle)
+				done(canvas)
+				return true
+			}
+			const observer = new MutationObserver(settle)
+			observer.observe(scope, {
+				attributes: true,
+				attributeFilter: ['canvas-id', 'type'],
+				childList: true,
+				subtree: true,
+			})
+			scope.addEventListener(CANVAS_CONTRACT_CHANGE_EVENT, settle)
+			setTimeout(() => {
+				observer.disconnect()
+				scope.removeEventListener(CANVAS_CONTRACT_CHANGE_EVENT, settle)
+				done(null)
+			}, 500)
+		})
 	}
 
 	ensureCanvasResolution(canvas) {
 		const rect = canvas.getBoundingClientRect()
 		const width = Math.max(Math.round(rect.width), 1)
 		const height = Math.max(Math.round(rect.height), 1)
+		const layoutError = canvasPixelBudgetError(width, height)
+		if (layoutError) throw new RangeError(layoutError)
 
 		if (canvas.width !== width) {
 			canvas.width = width
@@ -2497,20 +2721,41 @@ class Runtime {
 		return done
 	}
 
-	async queueCanvasOperation({ bridgeId, params }, operation) {
-		if (params.canvasValidationError) {
-			return operation.call(this, { bridgeId, params, canvas: null, lookupError: null })
-		}
-		let canvas
-		let lookupError
-		try {
-			canvas = await this.getCanvasElement(params.canvasId, params.moduleId, bridgeId)
-		}
-		catch (error) {
-			lookupError = error
-		}
-		const task = () => operation.call(this, { bridgeId, params, canvas, lookupError })
-		return canvas ? this.enqueueCanvasTask(canvas, task) : task()
+	enqueueCanvasScopeTask(scopeKey, task) {
+		const previous = this.canvasScopeQueues.get(scopeKey) || Promise.resolve()
+		const current = previous.then(task)
+		const done = current.catch(() => {}).then(() => {
+			if (this.canvasScopeQueues.get(scopeKey) === done) {
+				this.canvasScopeQueues.delete(scopeKey)
+			}
+		})
+		this.canvasScopeQueues.set(scopeKey, done)
+		return done
+	}
+
+	queueCanvasOperation({ bridgeId, params }, operation) {
+		const scopeKey = JSON.stringify([bridgeId, params.moduleId || bridgeId])
+		let resolution
+		const lookupDone = this.enqueueCanvasScopeTask(scopeKey, async () => {
+			if (params.canvasValidationError) {
+				resolution = { canvas: null, lookupError: null }
+				return
+			}
+			let canvas
+			let lookupError
+			try {
+				canvas = await this.getCanvasElement(params.canvasId, params.moduleId, bridgeId)
+			}
+			catch (error) {
+				lookupError = error
+			}
+			resolution = { canvas, lookupError }
+		})
+		return lookupDone.then(() => {
+			const { canvas, lookupError } = resolution
+			const task = () => operation.call(this, { bridgeId, params, canvas, lookupError })
+			return canvas ? this.enqueueCanvasTask(canvas, task) : task()
+		})
 	}
 
 	drawCanvas(request) {
@@ -2583,10 +2828,13 @@ class Runtime {
 			const requestedHeight = Number(params.height)
 			const exportWidth = requestedWidth ? Math.min(canvas.width - x, requestedWidth) : canvas.width - x
 			const exportHeight = requestedHeight ? Math.min(canvas.height - y, requestedHeight) : canvas.height - y
-			const requestedPixelRatio = Number(params.pixelRatio)
-			const pixelRatio = Number.isFinite(requestedPixelRatio) && requestedPixelRatio > 0 ? requestedPixelRatio : 1
-			const outputWidth = Number(params.destWidth) || exportWidth * pixelRatio
-			const outputHeight = Number(params.destHeight) || exportHeight * pixelRatio
+			const { height: outputHeight, width: outputWidth } = resolveCanvasExportSize({
+				destHeight: params.destHeight,
+				destWidth: params.destWidth,
+				fallbackHeight: exportHeight,
+				fallbackWidth: exportWidth,
+				pixelRatio: params.pixelRatio,
+			})
 			const outputCanvas = document.createElement('canvas')
 			outputCanvas.width = outputWidth
 			outputCanvas.height = outputHeight
@@ -2656,6 +2904,11 @@ class Runtime {
 				this.triggerCanvasFailure(bridgeId, params, `canvasGetImageData:fail canvas ${params.canvasId} not found`)
 				return
 			}
+			const budgetError = canvasPixelBudgetError(params.width, params.height, { transferable: true })
+			if (budgetError) {
+				this.triggerCanvasFailure(bridgeId, params, `canvasGetImageData:fail ${budgetError}`)
+				return
+			}
 			const context = canvas.getContext('2d')
 			const imageData = context.getImageData(params.x, params.y, params.width, params.height)
 			const result = {
@@ -2687,6 +2940,11 @@ class Runtime {
 			}
 			if (!canvas) {
 				this.triggerCanvasFailure(bridgeId, params, `canvasPutImageData:fail canvas ${params.canvasId} not found`)
+				return
+			}
+			const budgetError = canvasPixelBudgetError(params.width, params.height, { transferable: true })
+			if (budgetError) {
+				this.triggerCanvasFailure(bridgeId, params, `canvasPutImageData:fail ${budgetError}`)
 				return
 			}
 			const context = canvas.getContext('2d')

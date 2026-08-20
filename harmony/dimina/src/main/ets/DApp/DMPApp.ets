@@ -33,6 +33,7 @@ import { DMPDeviceUtil } from '../Utils/DMPDeviceUtils'
 import { DMPRemoteUpdateManager } from '../Bundle/DMPRemoteUpdateManager'
 import { DMPWebSocketManager } from '../Bridges/Network/DMPWebSocketManager'
 import { DMPAppModuleManagerLifecycle } from '../Bridges/DMPAppModuleManagerLifecycle'
+import { CanvasExportJobRegistry } from '../Bridges/CanvasExportJobRegistry'
 export type DMPBundleUpdateCallback = () => void;
 
 export interface DMPAppInitOptions {
@@ -72,6 +73,7 @@ export class DMPApp {
   constructor(appConfig: DMPAppConfig, appIndex: number) {
     this.appIndex = appIndex;
     this.appConfig = appConfig
+    CanvasExportJobRegistry.activate(this.appConfig.appId, this.canvasExportOwner)
     this._appModuleManagerLifecycle = new DMPAppModuleManagerLifecycle(
       new DMPAppModuleManager(this),
       (): DMPAppModuleManager => new DMPAppModuleManager(this)
@@ -130,6 +132,10 @@ export class DMPApp {
 
   public get runtimeGeneration(): number {
     return this._runtimeGeneration
+  }
+
+  public get canvasExportOwner(): string {
+    return `${this.appIndex}:${this._runtimeGeneration}`
   }
 
   private _bottomSafeHeight = -1
@@ -254,6 +260,7 @@ export class DMPApp {
   resetAndStartDimina(config: DMPLaunchConfig) {
     this.onUpdateResults = []
     this._runtimeGeneration++
+    CanvasExportJobRegistry.activate(this.appConfig.appId, this.canvasExportOwner)
     // destroyEngine disposes app-scoped native listeners. A cold restart must use a fresh bridge
     // module graph; the lifecycle also replays host ext modules registered on this DMPApp.
     this._appModuleManagerLifecycle.rebuild()
@@ -464,6 +471,7 @@ export class DMPApp {
   destroyEngine() {
     // Invalidate bundle/bootstrap callbacks and delayed cache work before disposing their owners.
     this._runtimeGeneration++
+    CanvasExportJobRegistry.activate(this.appConfig.appId, this.canvasExportOwner)
     // 销毁前取消所有 extOnBridge 订阅，防止内存泄漏
     this._appModuleManagerLifecycle.disposeCurrent();
     // 先于 service 销毁：静默清理该 appId 全部 WebSocket 连接/监听/定时器，杜绝事件竞入将死引擎
@@ -473,6 +481,7 @@ export class DMPApp {
   }
 
   destroyApp() {
+    CanvasExportJobRegistry.deactivate(this.appConfig.appId, this.canvasExportOwner)
     DMPAppManager.sharedInstance().exitApp(this.appConfig.appId, this.appIndex)
   }
 

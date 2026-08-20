@@ -1,7 +1,15 @@
-import { callback, isFunction, uuid } from '@dimina/common'
+import {
+	callback,
+	canvasPixelBudgetError,
+	isFunction,
+	normalizeCanvasBitmapDimension,
+	uuid,
+} from '@dimina/common'
+import colorNames from 'color-name'
 import hostEnv from '@/core/host-env'
 import message from '@/core/message'
 import router from '@/core/router'
+import { createMeasureContext, measureTextWidth, parseFont } from './canvas-style'
 
 export const CANVAS_NODE_TYPE = 'dimina-canvas-node'
 
@@ -65,6 +73,7 @@ const WEBGL_DEFAULT_CONTEXT_ATTRIBUTES = {
 }
 
 const webglCapabilitiesByBridge = new Map()
+const canvasNodesByBridge = new Map()
 let miniGameScreenCanvas = null
 let miniGameImageCanvas = null
 
@@ -403,6 +412,9 @@ function deserializeCanvasValue(value) {
 		}
 		return value.data || []
 	}
+	if (value.__canvasImageData) {
+		return createCanvasImageData(value.width, value.height, new Uint8ClampedArray(value.data || []))
+	}
 	const result = {}
 	for (const [key, item] of Object.entries(value)) {
 		result[key] = deserializeCanvasValue(item)
@@ -418,6 +430,10 @@ message.on('resourceLoaded', ({ bridgeId, canvasCapabilities }) => {
 	setWebGLCapabilities(bridgeId, canvasCapabilities)
 })
 
+message.on('pageUnload', ({ bridgeId }) => {
+	disposeCanvasNodes(bridgeId)
+})
+
 let canvasResourceSerial = 1
 let canvasRafSerial = 1
 
@@ -426,12 +442,44 @@ function getCurrentBridgeId() {
 	return pageInfo?.bridgeId || pageInfo?.id || ''
 }
 
-function normalizeCanvasDimension(value, fallback) {
-	if (value === undefined) {
-		return fallback
+function assertCanvasBitmapSize(width, height, options) {
+	const error = canvasPixelBudgetError(width, height, options)
+	if (error) throw new RangeError(error)
+}
+
+class CanvasImageDataValue {
+	constructor(data, width, height) {
+		this.data = data
+		this.width = width
+		this.height = height
+		Object.defineProperty(this, '__diminaCanvasImageData', { value: true })
 	}
-	const number = Number(value)
-	return Number.isFinite(number) && number >= 0 ? Math.floor(number) : fallback
+
+	get [Symbol.toStringTag]() {
+		return 'ImageData'
+	}
+}
+
+function createCanvasImageData(width, height, data) {
+	// Canvas 2D 以尺寸绝对值创建 ImageData；负值表示相反方向，返回对象本身的宽高仍为正数。
+	const normalizedWidth = Math.abs(Math.trunc(Number(width)))
+	const normalizedHeight = Math.abs(Math.trunc(Number(height)))
+	assertCanvasBitmapSize(normalizedWidth, normalizedHeight)
+	const pixels = data instanceof Uint8ClampedArray
+		? data
+		: new Uint8ClampedArray(data || normalizedWidth * normalizedHeight * 4)
+	if (pixels.length !== normalizedWidth * normalizedHeight * 4) {
+		throw new RangeError('ImageData data length does not match its dimensions')
+	}
+	if (typeof globalThis.ImageData === 'function') {
+		try {
+			return new globalThis.ImageData(pixels, normalizedWidth, normalizedHeight)
+		}
+		catch {
+			// QuickJS and older WebViews may expose an incomplete ImageData constructor.
+		}
+	}
+	return new CanvasImageDataValue(pixels, normalizedWidth, normalizedHeight)
 }
 
 function sendCanvasMessage(bridgeId, name, params) {
@@ -481,6 +529,18 @@ function serializeCanvasArg(value) {
 
 	if (value.__diminaCanvasNode) {
 		return { __canvasNodeId: value.nodeId }
+	}
+
+	if (value.__diminaCanvasImageData
+		|| (Object.prototype.toString.call(value) === '[object ImageData]'
+			&& value.data instanceof Uint8ClampedArray)) {
+		assertCanvasBitmapSize(value.width, value.height, { transferable: true })
+		return {
+			__canvasImageData: true,
+			width: value.width,
+			height: value.height,
+			data: Array.from(value.data),
+		}
 	}
 
 	const typedArray = serializeTypedArray(value)
@@ -575,6 +635,7 @@ class CanvasImage {
 		this.width = 0
 		this.height = 0
 		this._src = ''
+		this._pendingCallback = null
 
 		this.canvas.enqueueOperation({
 			op: 'createImage',
@@ -588,112 +649,350 @@ class CanvasImage {
 
 	set src(value) {
 		this._src = value
-		const onload = callback.store((event = {}) => {
-			this.width = event.width || this.width
-			this.height = event.height || this.height
-			if (isFunction(this.onload)) {
-				this.onload(event)
+		this.canvas.removeCallback(this._pendingCallback)
+		const callbackId = this.canvas.storeCallback((outcome = {}) => {
+			if (this._pendingCallback === callbackId) this._pendingCallback = null
+			const event = outcome.value || {}
+			if (outcome.ok) {
+				this.width = event.width || this.width
+				this.height = event.height || this.height
+				if (isFunction(this.onload)) this.onload(event)
 			}
-		})
-		const onerror = callback.store((event = {}) => {
-			if (isFunction(this.onerror)) {
+			else if (isFunction(this.onerror)) {
 				this.onerror(event)
 			}
 		})
+		this._pendingCallback = callbackId
 
-		this.canvas.enqueueOperation({
-			op: 'imageSetSrc',
-			imageId: this.imageId,
-			src: value,
-			onload,
-			onerror,
-		})
+		try {
+			this.canvas.enqueueOperation({
+				op: 'imageSetSrc',
+				imageId: this.imageId,
+				src: value,
+				callback: callbackId,
+			})
+		}
+		catch (error) {
+			this.canvas.removeCallback(callbackId, error)
+			this._pendingCallback = null
+			throw error
+		}
 	}
 }
 
+const INVALID_CANVAS_2D_STATE = Symbol('invalid canvas 2d state')
+const CANVAS_2D_ENUM_VALUES = {
+	direction: new Set(['inherit', 'ltr', 'rtl']),
+	fontKerning: new Set(['auto', 'normal', 'none']),
+	fontStretch: new Set([
+		'ultra-condensed', 'extra-condensed', 'condensed', 'semi-condensed', 'normal',
+		'semi-expanded', 'expanded', 'extra-expanded', 'ultra-expanded',
+	]),
+	fontVariantCaps: new Set([
+		'normal', 'small-caps', 'all-small-caps', 'petite-caps', 'all-petite-caps', 'unicase', 'titling-caps',
+	]),
+	globalCompositeOperation: new Set([
+		'source-over', 'source-in', 'source-out', 'source-atop',
+		'destination-over', 'destination-in', 'destination-out', 'destination-atop',
+		'lighter', 'copy', 'xor', 'multiply', 'screen', 'overlay', 'darken', 'lighten',
+		'color-dodge', 'color-burn', 'hard-light', 'soft-light', 'difference', 'exclusion',
+		'hue', 'saturation', 'color', 'luminosity', 'plus-lighter',
+	]),
+	imageSmoothingQuality: new Set(['low', 'medium', 'high']),
+	lineCap: new Set(['butt', 'round', 'square']),
+	lineJoin: new Set(['round', 'bevel', 'miter']),
+	textAlign: new Set(['start', 'end', 'left', 'right', 'center']),
+	textBaseline: new Set(['top', 'hanging', 'middle', 'alphabetic', 'ideographic', 'bottom']),
+	textRendering: new Set(['auto', 'optimizeSpeed', 'optimizeLegibility', 'geometricPrecision']),
+}
+const CANVAS_2D_POSITIVE_NUMBERS = new Set(['lineWidth', 'miterLimit'])
+const CANVAS_2D_NON_NEGATIVE_NUMBERS = new Set(['shadowBlur'])
+const CANVAS_2D_FINITE_NUMBERS = new Set(['lineDashOffset', 'shadowOffsetX', 'shadowOffsetY'])
+const CANVAS_SYSTEM_COLORS = new Set([
+	'accentcolor', 'accentcolortext', 'activetext', 'buttonborder', 'buttonface', 'buttontext',
+	'canvas', 'canvastext', 'field', 'fieldtext', 'graytext', 'highlight', 'highlighttext',
+	'linktext', 'mark', 'marktext', 'selecteditem', 'selecteditemtext', 'visitedtext',
+])
+const CSS_SYSTEM_FONTS = new Set(['caption', 'icon', 'menu', 'message-box', 'small-caption', 'status-bar'])
+const CSS_NUMBER = '[-+]?(?:\\d*\\.?\\d+)(?:[eE][-+]?\\d+)?'
+const CSS_LENGTH_UNIT = '(?:%|cap|ch|cm|dvh|dvw|em|ex|ic|in|lh|mm|pc|pt|px|q|rcap|rch|rem|rex|ric|rlh|svh|svw|vmax|vmin|vh|vi|vb|vw)'
+const CSS_FONT_SIZE = new RegExp(`(?:^|\\s)(?:(?:xx?-small|small|medium|large|xx?-large|xxx-large|smaller|larger)|${CSS_NUMBER}${CSS_LENGTH_UNIT})(?:\\s*\\/[^\\s]+)?\\s+.+$`, 'i')
+const CSS_SPACING = new RegExp(`^(?:normal|0|${CSS_NUMBER}${CSS_LENGTH_UNIT})$`, 'i')
+const CSS_PLAUSIBLE_LENGTH = new RegExp(`^${CSS_NUMBER}[a-z%]*$`, 'i')
+
+function isEscapedAt(value, index) {
+	let slashCount = 0
+	for (let cursor = index - 1; cursor >= 0 && value[cursor] === '\\'; cursor--) slashCount++
+	return slashCount % 2 === 1
+}
+
+function balancedCSSFunctionEnd(value, openIndex) {
+	let depth = 1
+	let quote = ''
+	for (let index = openIndex + 1; index < value.length; index++) {
+		const char = value[index]
+		if (quote) {
+			if (char === quote && !isEscapedAt(value, index)) quote = ''
+			continue
+		}
+		if (char === '"' || char === "'") quote = char
+		else if (char === '(') depth++
+		else if (char === ')' && --depth === 0) return index + 1
+	}
+	return -1
+}
+
+function hasBalancedCSSSyntax(value) {
+	let depth = 0
+	let quote = ''
+	for (let index = 0; index < value.length; index++) {
+		const char = value[index]
+		if (quote) {
+			if (char === quote && !isEscapedAt(value, index)) quote = ''
+			continue
+		}
+		if (char === '"' || char === "'") quote = char
+		else if (char === '(') depth++
+		else if (char === ')' && --depth < 0) return false
+	}
+	return depth === 0 && !quote
+}
+
+function containsUnquotedCSSVar(value) {
+	let quote = ''
+	for (let index = 0; index < value.length; index++) {
+		const char = value[index]
+		if (quote) {
+			if (char === quote && !isEscapedAt(value, index)) quote = ''
+			continue
+		}
+		if (char === '"' || char === "'") quote = char
+		else if (/^var\s*\(/i.test(value.slice(index))) return true
+	}
+	return false
+}
+
+function isCanvasColor(value) {
+	if (typeof value !== 'string') return false
+	const normalized = value.trim()
+	if (!normalized || normalized.includes('\0') || containsUnquotedCSSVar(normalized)) return false
+	const lower = normalized.toLowerCase()
+	if (lower === 'transparent' || lower === 'currentcolor'
+		|| Object.prototype.hasOwnProperty.call(colorNames, lower)
+		|| CANVAS_SYSTEM_COLORS.has(lower)) return true
+	if (/^#[\da-f]{3,4}(?:[\da-f]{3,4})?$/i.test(normalized)) return true
+	return normalized.includes('(') && hasBalancedCSSSyntax(normalized)
+}
+
+function normalizeCanvasCSSState(prop, value) {
+	const normalized = String(value).trim()
+	if (!normalized || normalized.includes('\0') || containsUnquotedCSSVar(normalized)) {
+		return INVALID_CANVAS_2D_STATE
+	}
+	if (prop === 'font') {
+		let plausible = CSS_SYSTEM_FONTS.has(normalized.toLowerCase()) || CSS_FONT_SIZE.test(normalized)
+		for (const match of normalized.matchAll(/\b(calc|clamp|max|min)\s*\(/gi)) {
+			const openIndex = match.index + match[0].lastIndexOf('(')
+			const end = balancedCSSFunctionEnd(normalized, openIndex)
+			if (end > 0 && /^(?:\s*\/[^\s]+)?\s+.+$/.test(normalized.slice(end))) plausible = true
+		}
+		plausible ||= hasBalancedCSSSyntax(normalized) && /\s/.test(normalized)
+		return plausible
+			? normalized
+			: INVALID_CANVAS_2D_STATE
+	}
+	if (prop === 'filter') {
+		return normalized === 'none' || (normalized.includes('(') && hasBalancedCSSSyntax(normalized))
+			? normalized
+			: INVALID_CANVAS_2D_STATE
+	}
+	return CSS_SPACING.test(normalized)
+		|| CSS_PLAUSIBLE_LENGTH.test(normalized)
+		|| (normalized.includes('(') && hasBalancedCSSSyntax(normalized))
+		? normalized
+		: INVALID_CANVAS_2D_STATE
+}
+
+function normalizeCanvas2DState(prop, value) {
+	if (prop === 'globalCompositeOperation' && String(value) === 'normal') return 'source-over'
+	if (CANVAS_2D_ENUM_VALUES[prop]) {
+		const normalized = String(value)
+		return CANVAS_2D_ENUM_VALUES[prop].has(normalized) ? normalized : INVALID_CANVAS_2D_STATE
+	}
+	if (CANVAS_2D_POSITIVE_NUMBERS.has(prop)) {
+		const normalized = Number(value)
+		return Number.isFinite(normalized) && normalized > 0 ? normalized : INVALID_CANVAS_2D_STATE
+	}
+	if (CANVAS_2D_NON_NEGATIVE_NUMBERS.has(prop)) {
+		const normalized = Number(value)
+		return Number.isFinite(normalized) && normalized >= 0 ? normalized : INVALID_CANVAS_2D_STATE
+	}
+	if (CANVAS_2D_FINITE_NUMBERS.has(prop)) {
+		const normalized = Number(value)
+		return Number.isFinite(normalized) ? normalized : INVALID_CANVAS_2D_STATE
+	}
+	if (prop === 'globalAlpha') {
+		const normalized = Number(value)
+		return Number.isFinite(normalized) && normalized >= 0 && normalized <= 1
+			? normalized
+			: INVALID_CANVAS_2D_STATE
+	}
+	if (prop === 'imageSmoothingEnabled') return Boolean(value)
+	if (['font', 'filter', 'letterSpacing', 'wordSpacing'].includes(prop)) return normalizeCanvasCSSState(prop, value)
+	if (prop === 'shadowColor') return isCanvasColor(value) ? value : INVALID_CANVAS_2D_STATE
+	if (prop === 'fillStyle' || prop === 'strokeStyle') {
+		return (typeof value === 'string' && isCanvasColor(value)) || value?.__canvasResourceId
+			? value
+			: INVALID_CANVAS_2D_STATE
+	}
+	return value
+}
+
+const CANVAS_2D_DEFAULT_STATE = Object.freeze({
+	direction: 'inherit',
+	fillStyle: '#000000',
+	filter: 'none',
+	font: '10px sans-serif',
+	fontKerning: 'auto',
+	fontStretch: 'normal',
+	fontVariantCaps: 'normal',
+	globalAlpha: 1,
+	globalCompositeOperation: 'source-over',
+	imageSmoothingEnabled: true,
+	imageSmoothingQuality: 'low',
+	letterSpacing: '0px',
+	lineCap: 'butt',
+	lineDashOffset: 0,
+	lineJoin: 'miter',
+	lineWidth: 1,
+	miterLimit: 10,
+	shadowBlur: 0,
+	shadowColor: 'rgba(0, 0, 0, 0)',
+	shadowOffsetX: 0,
+	shadowOffsetY: 0,
+	strokeStyle: '#000000',
+	textAlign: 'start',
+	textBaseline: 'alphabetic',
+	textRendering: 'auto',
+	wordSpacing: '0px',
+})
+
 class CanvasRenderingContext2DProxy {
-    constructor(canvas, contextId) {
-        this.canvas = canvas;
-        this.contextId = contextId;
-        this.state = {
-            fillStyle: "#000000",
-            strokeStyle: "#000000",
-            font: "10px sans-serif",
-            globalAlpha: 1,
-            lineWidth: 1,
-        };
+	constructor(canvas, contextId) {
+		this.canvas = canvas
+		this.contextId = contextId
+		this.measureContext = undefined
+		this.stateSequences = Object.create(null)
+		this.state = { ...CANVAS_2D_DEFAULT_STATE }
+		this.confirmedState = { ...CANVAS_2D_DEFAULT_STATE }
+		this.confirmedStateSequences = Object.create(null)
+		this.stateStack = []
 
-        return new Proxy(this, {
-            get(target, prop) {
-                if (prop in target) {
-                    return target[prop];
-                }
-                if (prop in target.state) {
-                    return target.state[prop];
-                }
-                if (typeof prop === "symbol") {
-                    return undefined;
-                }
-                return (...args) => target.call(prop, args);
-            },
-            set(target, prop, value) {
-                target.state[prop] = value;
-                target.canvas.enqueueOperation({
-                    op: "contextSetProperty",
-                    contextId,
-                    prop,
-                    value: serializeCanvasArg(value),
-                });
-                return true;
-            },
-        });
-    }
+		return new Proxy(this, {
+			get(target, prop) {
+				if (prop in target) return typeof target[prop] === 'function' ? target[prop].bind(target) : target[prop]
+				if (prop in target.state) return target.state[prop]
+				if (typeof prop === 'symbol') return undefined
+				return (...args) => target.call(prop, args)
+			},
+			set(target, prop, value) {
+				if (typeof prop === 'symbol') return Reflect.set(target, prop, value)
+				if (!(prop in target.state)) return Reflect.set(target, prop, value)
+				const previousValue = target.confirmedState[prop]
+				const normalized = normalizeCanvas2DState(prop, value)
+				if (normalized === INVALID_CANVAS_2D_STATE) return true
+				target.state[prop] = normalized
+				const sequence = (target.stateSequences[prop] || 0) + 1
+				target.stateSequences[prop] = sequence
+				target.canvas.enqueueOperation({
+					op: 'contextSetProperty',
+					contextId,
+					prop,
+					value: serializeCanvasArg(normalized),
+					previousValue: serializeCanvasArg(previousValue),
+					feedback: 'state',
+					sequence,
+				})
+				return true
+			},
+		})
+	}
 
-    async getImageData(x, y, w, h) {
-        const result = await this.canvas.getImageData({
-            contextId: this.contextId,
-            x,
-            y,
-            width: w,
-            height: h,
-        });
-        return result;
-    }
+	applyFeedback(feedback = {}) {
+		for (const update of feedback.state || []) {
+			const value = deserializeCanvasValue(update.value)
+			if ((this.confirmedStateSequences[update.prop] || 0) <= update.sequence) {
+				this.confirmedState[update.prop] = value
+				this.confirmedStateSequences[update.prop] = update.sequence
+			}
+			if (this.stateSequences[update.prop] === update.sequence) this.state[update.prop] = value
+			for (const frame of this.stateStack) {
+				if (frame.sequences[update.prop] === update.sequence) frame.state[update.prop] = value
+			}
+		}
+	}
 
-    toDataURL(type, quality) {
-        return this.canvas.toDataURL(type, quality);
-    }
+	stateSequenceSnapshot() {
+		return Object.fromEntries(Object.keys(this.state).map(prop => [prop, this.stateSequences[prop] || 0]))
+	}
 
-    call(method, args) {
-        if (method === "measureText") {
-            return { width: String(args[0] ?? "").length * 10 };
-        }
+	replaceState(state, { clearStack = false } = {}) {
+		for (const prop of Object.keys(this.state)) {
+			this.stateSequences[prop] = (this.stateSequences[prop] || 0) + 1
+		}
+		this.state = { ...state }
+		if (clearStack) this.stateStack = []
+	}
 
-        if (method === "createImageData") {
-            const w = args[0];
-            const h = args[1];
-            return {
-                width: w,
-                height: h,
-                data: new Uint8ClampedArray(w * h * 4),
-            };
-        }
+	resetStateForBitmapResize() {
+		this.replaceState(CANVAS_2D_DEFAULT_STATE, { clearStack: true })
+		this.confirmedState = { ...CANVAS_2D_DEFAULT_STATE }
+		this.confirmedStateSequences = { ...this.stateSequenceSnapshot() }
+		return this.stateSequenceSnapshot()
+	}
 
-        const resultId = CANVAS_2D_RESOURCE_METHODS.has(method)
-            ? makeResourceId()
-            : undefined;
-        this.canvas.enqueueOperation({
-            op: "contextCall",
-            contextId: this.contextId,
-            method,
-            args: serializeCanvasArgs(args),
-            resultId,
-        });
+	getImageData(x, y, width, height) {
+		return this.canvas.getImageData({ contextId: this.contextId, x, y, width, height })
+	}
 
-        if (resultId) {
-            return new CanvasResource(this.canvas, resultId);
-        }
-    }
+	toDataURL(type, quality) {
+		return this.canvas.toDataURL(type, quality)
+	}
+
+	call(method, args) {
+		const stateTransition = method === 'save' || method === 'restore' || method === 'reset'
+		if (method === 'save') {
+			this.stateStack.push({ state: { ...this.state }, sequences: this.stateSequenceSnapshot() })
+		}
+		else if (method === 'restore' && this.stateStack.length > 0) this.replaceState(this.stateStack.pop().state)
+		else if (method === 'reset') this.resetStateForBitmapResize()
+
+		if (method === 'measureText') {
+			this.measureContext ??= createMeasureContext()
+			const fontSize = parseFont(this.state.font)?.fontSize || 10
+			return { width: measureTextWidth(this.measureContext, args[0], this.state.font, fontSize) }
+		}
+
+		if (method === 'createImageData') {
+			if (args.length === 1 && args[0]?.data instanceof Uint8ClampedArray) {
+				return createCanvasImageData(args[0].width, args[0].height)
+			}
+			return createCanvasImageData(args[0], args[1])
+		}
+
+		const resultId = CANVAS_2D_RESOURCE_METHODS.has(method) ? makeResourceId() : undefined
+		this.canvas.enqueueOperation({
+			op: 'contextCall',
+			contextId: this.contextId,
+			method,
+			args: serializeCanvasArgs(args),
+			resultId,
+			feedback: stateTransition ? 'stateSnapshot' : undefined,
+			stateSequences: stateTransition ? this.stateSequenceSnapshot() : undefined,
+		})
+
+		if (resultId) return new CanvasResource(this.canvas, resultId)
+	}
 }
 
 class WebGLExtensionProxy {
@@ -1258,23 +1557,47 @@ export class CanvasNode {
 		this.activeContextType = null
 		this.eventListeners = new Map()
 		this.pendingTypedArrayUpdates = new Map()
+		this.pendingCallbacks = new Map()
+		this.pendingStateFeedbacks = new Map()
+		this.stateFeedbackByProperty = new Map()
+		this.rafCallbacks = new Map()
 		this.pendingOperations = []
 		this.flushScheduled = false
-		this._width = normalizeCanvasDimension(width, 300)
-		this._height = normalizeCanvasDimension(height, 150)
+		this.disposed = false
+		this._width = normalizeCanvasBitmapDimension(width, 300)
+		this._height = normalizeCanvasBitmapDimension(height, 150)
+		assertCanvasBitmapSize(this._width, this._height, { allowZero: true })
+		if (!canvasNodesByBridge.has(bridgeId)) canvasNodesByBridge.set(bridgeId, new Set())
+		canvasNodesByBridge.get(bridgeId).add(this)
 	}
 
 	get width() {
 		return this._width
 	}
 
+	reset2DStateAfterBitmapResize() {
+		for (const [contextId, context] of this.contextsById) {
+			const stateSequences = context.resetStateForBitmapResize?.()
+			if (!stateSequences) continue
+			this.enqueueOperation({
+				op: 'contextStateSnapshot',
+				contextId,
+				feedback: 'stateSnapshot',
+				stateSequences,
+			})
+		}
+	}
+
 	set width(value) {
-		this._width = normalizeCanvasDimension(value, 300)
+		const width = normalizeCanvasBitmapDimension(value, 300)
+		assertCanvasBitmapSize(width, this._height, { allowZero: true })
+		this._width = width
 		this.enqueueOperation({
 			op: 'setCanvasProperty',
 			prop: 'width',
 			value: this._width,
 		})
+		this.reset2DStateAfterBitmapResize()
 	}
 
 	get height() {
@@ -1282,12 +1605,15 @@ export class CanvasNode {
 	}
 
 	set height(value) {
-		this._height = normalizeCanvasDimension(value, 150)
+		const height = normalizeCanvasBitmapDimension(value, 150)
+		assertCanvasBitmapSize(this._width, height, { allowZero: true })
+		this._height = height
 		this.enqueueOperation({
 			op: 'setCanvasProperty',
 			prop: 'height',
 			value: this._height,
 		})
+		this.reset2DStateAfterBitmapResize()
 	}
 
 	getContext(type = '2d', attributes) {
@@ -1414,22 +1740,64 @@ export class CanvasNode {
 		return new CanvasImage(this, makeResourceId('canvas_image'))
 	}
 
+	storeCallback(handler, onDispose) {
+		if (this.disposed) throw new Error('canvas node is disposed')
+		let callbackId
+		callbackId = callback.store((value) => {
+			this.pendingCallbacks.delete(callbackId)
+			handler(value)
+		})
+		this.pendingCallbacks.set(callbackId, onDispose)
+		return callbackId
+	}
+
+	releaseStateFeedback(callbackId) {
+		const keys = this.pendingStateFeedbacks.get(callbackId)
+		if (!keys) return
+		this.pendingStateFeedbacks.delete(callbackId)
+		for (const key of keys) {
+			if (this.stateFeedbackByProperty.get(key) === callbackId) {
+				this.stateFeedbackByProperty.delete(key)
+			}
+		}
+	}
+
+	removeCallback(callbackId, reason) {
+		if (!callbackId || !this.pendingCallbacks.has(callbackId)) return
+		const onDispose = this.pendingCallbacks.get(callbackId)
+		this.pendingCallbacks.delete(callbackId)
+		this.releaseStateFeedback(callbackId)
+		callback.remove(callbackId)
+		onDispose?.(reason)
+	}
+
 	requestAnimationFrame(fn) {
 		const requestId = canvasRafSerial++
-		const callbackId = callback.store((timestamp) => {
+		const callbackId = this.storeCallback((timestamp) => {
+			this.rafCallbacks.delete(requestId)
 			if (isFunction(fn)) {
 				fn(timestamp)
 			}
 		})
-		sendCanvasMessage(this.bridgeId, 'canvasNodeRequestAnimationFrame', {
-			nodeId: this.nodeId,
-			requestId,
-			callback: callbackId,
-		})
+		this.rafCallbacks.set(requestId, callbackId)
+		try {
+			sendCanvasMessage(this.bridgeId, 'canvasNodeRequestAnimationFrame', {
+				nodeId: this.nodeId,
+				requestId,
+				callback: callbackId,
+			})
+		}
+		catch (error) {
+			this.removeCallback(callbackId, error)
+			this.rafCallbacks.delete(requestId)
+			throw error
+		}
 		return requestId
 	}
 
 	cancelAnimationFrame(requestId) {
+		this.removeCallback(this.rafCallbacks.get(requestId))
+		this.rafCallbacks.delete(requestId)
 		sendCanvasMessage(this.bridgeId, 'canvasNodeCancelAnimationFrame', {
 			nodeId: this.nodeId,
 			requestId,
@@ -1437,37 +1805,87 @@ export class CanvasNode {
 	}
 
 	getImageData({ contextId, x, y, width, height }) {
+		const budgetError = canvasPixelBudgetError(width, height, { transferable: true })
+		if (budgetError) return Promise.reject(new RangeError(budgetError))
 		return new Promise((resolve, reject) => {
-			const callbackId = callback.store((res) => {
-                resolve(res);
-			})
-			this.enqueueOperation({
-				op: 'getImageData',
-				contextId,
-				x,
-				y,
-				width,
-				height,
-				callback: callbackId,
-			})
+			const callbackId = this.storeCallback((outcome = {}) => {
+				if (!outcome.ok) {
+					reject(new Error(outcome.error || 'canvas pixel read failed'))
+					return
+				}
+				resolve(deserializeCanvasValue(outcome.value))
+			}, reason => reject(reason || new Error('canvas node disposed')))
+			try {
+				this.enqueueOperation({
+					op: 'getImageData',
+					contextId,
+					x,
+					y,
+					width,
+					height,
+					callback: callbackId,
+					resultEnvelope: true,
+				})
+			}
+			catch (error) {
+				this.removeCallback(callbackId, error)
+			}
 		})
 	}
 
 	toDataURL(type = 'image/png', quality) {
-		return new Promise((resolve) => {
-			const callbackId = callback.store((dataURL) => {
-				resolve(dataURL)
-			})
-			this.enqueueOperation({
-				op: 'toDataURL',
-				mimeType: type,
-				quality,
-				callback: callbackId,
-			})
+		assertCanvasBitmapSize(this._width, this._height, { allowZero: true })
+		return new Promise((resolve, reject) => {
+			const callbackId = this.storeCallback((outcome = {}) => {
+				if (!outcome.ok) {
+					reject(new Error(outcome.error || 'canvas export failed'))
+					return
+				}
+				resolve(outcome.value)
+			}, reason => reject(reason || new Error('canvas node disposed')))
+			try {
+				this.enqueueOperation({
+					op: 'toDataURL',
+					mimeType: type,
+					quality,
+					callback: callbackId,
+					resultEnvelope: true,
+				})
+			}
+			catch (error) {
+				this.removeCallback(callbackId, error)
+			}
 		})
 	}
 
+	dispose({ notifyRender = true } = {}) {
+		if (this.disposed) return
+		this.disposed = true
+		const reason = new Error('canvas node disposed')
+		for (const callbackId of [...this.pendingCallbacks.keys()]) {
+			this.removeCallback(callbackId, reason)
+		}
+		this.rafCallbacks.clear()
+		this.pendingOperations = []
+		this.pendingTypedArrayUpdates.clear()
+		this.pendingStateFeedbacks.clear()
+		this.stateFeedbackByProperty.clear()
+		this.eventListeners.clear()
+		const nodes = canvasNodesByBridge.get(this.bridgeId)
+		nodes?.delete(this)
+		if (nodes?.size === 0) canvasNodesByBridge.delete(this.bridgeId)
+		if (notifyRender) {
+			try {
+				sendCanvasMessage(this.bridgeId, 'disposeCanvasNodes', { nodeIds: [this.nodeId] })
+			}
+			catch {
+				// 本地 owner teardown 不能被已经退出的 render bridge 阻断。
+			}
+		}
+	}
+
 	enqueueOperation(operation) {
+		if (this.disposed) throw new Error('canvas node is disposed')
 		this.pendingOperations.push(operation)
 		if (this.flushScheduled) {
 			return
@@ -1483,19 +1901,52 @@ export class CanvasNode {
 		}
 		const operations = this.pendingOperations
 		this.pendingOperations = []
-		const needsFeedback = operations.some(operation => operation.op === 'getContext'
+		const stateKeys = operations.flatMap((operation) => {
+			if (operation.feedback === 'state') return [`${operation.contextId}:${operation.prop}`]
+			if (operation.feedback === 'stateSnapshot') {
+				return Object.keys(operation.stateSequences || {}).map(prop => `${operation.contextId}:${prop}`)
+			}
+			return []
+		})
+		const needsDurableFeedback = operations.some(operation => operation.op === 'getContext'
 			|| operation.op === 'contextQuery'
 			|| operation.op === 'contextFeedback'
-			|| operation.feedback
+			|| (operation.feedback && operation.feedback !== 'state' && operation.feedback !== 'stateSnapshot')
 			|| operation.typedArrayUpdateId)
-		const feedback = needsFeedback
-			? callback.store(result => this.applyFlushFeedback(result))
-			: undefined
-		sendCanvasMessage(this.bridgeId, 'canvasNodeFlush', {
-			nodeId: this.nodeId,
-			operations,
-			feedback,
-		})
+		let feedback
+		if (needsDurableFeedback || stateKeys.length > 0) {
+			if (!needsDurableFeedback) {
+				for (const key of stateKeys) {
+					const previousId = this.stateFeedbackByProperty.get(key)
+					const previousKeys = this.pendingStateFeedbacks.get(previousId)
+					if (!previousKeys) continue
+					previousKeys.delete(key)
+					this.stateFeedbackByProperty.delete(key)
+					if (previousKeys.size === 0) this.removeCallback(previousId)
+				}
+			}
+			feedback = this.storeCallback((result) => {
+				this.releaseStateFeedback(feedback)
+				this.applyFlushFeedback(result)
+			})
+			if (!needsDurableFeedback) {
+				const ownedKeys = new Set(stateKeys)
+				this.pendingStateFeedbacks.set(feedback, ownedKeys)
+				for (const key of ownedKeys) this.stateFeedbackByProperty.set(key, feedback)
+			}
+		}
+		try {
+			sendCanvasMessage(this.bridgeId, 'canvasNodeFlush', {
+				nodeId: this.nodeId,
+				operations,
+				feedback,
+			})
+		}
+		catch (error) {
+			this.removeCallback(feedback, error)
+			for (const operation of operations) this.removeCallback(operation.callback, error)
+			throw error
+		}
 	}
 }
 
@@ -1534,8 +1985,9 @@ export function hydrateSelectorQueryResult(value, bridgeId = getCurrentBridgeId(
 }
 
 export function createOffscreenCanvas(options = {}) {
-	const width = normalizeCanvasDimension(options.width, 300)
-	const height = normalizeCanvasDimension(options.height, 150)
+	const width = normalizeCanvasBitmapDimension(options.width, 300)
+	const height = normalizeCanvasBitmapDimension(options.height, 150)
+	assertCanvasBitmapSize(width, height, { allowZero: true })
 	const type = options.type || '2d'
 	const nodeId = makeResourceId('offscreen_canvas')
 	const bridgeId = getCurrentBridgeId()
@@ -1566,8 +2018,9 @@ export function createCanvas(options = {}) {
 	}
 
 	const systemInfo = hostEnv.getSystemInfo() || {}
-	const width = normalizeCanvasDimension(options.width, systemInfo.windowWidth || 300)
-	const height = normalizeCanvasDimension(options.height, systemInfo.windowHeight || 150)
+	const width = normalizeCanvasBitmapDimension(options.width, systemInfo.windowWidth || 300)
+	const height = normalizeCanvasBitmapDimension(options.height, systemInfo.windowHeight || 150)
+	assertCanvasBitmapSize(width, height, { allowZero: true })
 	const type = options.type || '2d'
 	const nodeId = makeResourceId('game_canvas')
 	const bridgeId = getCurrentBridgeId()
@@ -1612,6 +2065,26 @@ export function installMiniGameGlobals() {
 
 // 仅供 runtime 重建和单元测试清理同一个 service 上下文中的全局状态。
 export function resetMiniGameCanvas() {
+	miniGameScreenCanvas?.dispose()
+	miniGameImageCanvas?.dispose()
 	miniGameScreenCanvas = null
 	miniGameImageCanvas = null
+}
+
+export function disposeCanvasNodes(bridgeId) {
+	const nodes = [...(canvasNodesByBridge.get(bridgeId) || [])]
+	const nodeIds = nodes.map(node => node.nodeId)
+	for (const node of nodes) node.dispose({ notifyRender: false })
+	if (nodeIds.length > 0) {
+		try {
+			sendCanvasMessage(bridgeId, 'disposeCanvasNodes', { nodeIds })
+		}
+		catch {
+			// page unload 时容器可能已先关闭 render；本地资源仍必须完成释放。
+		}
+	}
+	canvasNodesByBridge.delete(bridgeId)
+	webglCapabilitiesByBridge.delete(bridgeId)
+	if (miniGameScreenCanvas?.bridgeId === bridgeId) miniGameScreenCanvas = null
+	if (miniGameImageCanvas?.bridgeId === bridgeId) miniGameImageCanvas = null
 }

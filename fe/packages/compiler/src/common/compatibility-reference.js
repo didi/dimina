@@ -121,6 +121,8 @@ const supportedWxApis = [
 	"createOffscreenCanvas",
 	"createCanvas",
 	"createImage",
+	"canvasGetImageData",
+	"canvasPutImageData",
 	"canvasToTempFilePath",
 	"onTouchStart",
 	"offTouchStart",

@@ -168,7 +168,8 @@ function removeEventBindingRecord(el, binding, vnode) {
 	}
 }
 
-// canvas 在编译产物里保持为原生元素，不经过组件层，手势要按元素安装在这里。
+// 已编译的旧包里 canvas 是原生元素、不经过组件层，手势只能按元素安装在这里。
+// 新产物把 canvas 编译成 dd-canvas，由组件自己安装，下面按 tagName 判断天然把它排除在外。
 // key 是 canvas 元素，value 是 { detach, info }，info 复用同一个对象引用，
 // 属性更新时改写它的 attrs 就能让已安装的手势跟上新的处理函数名。
 const canvasGestures = new WeakMap()

@@ -10,16 +10,17 @@ import Canvas from '../src/component/canvas/Canvas.vue'
 const mounts = []
 
 // 模拟一个自定义组件实例：它给自己的子树注入独立的 path 与 info.id，useInfo() 由此拿到 moduleId。
-function mountHost({ moduleId, canvasId, bridgeId = 'bridge-1' }) {
+function mountHost({ moduleId, canvasId, bridgeId = 'bridge-1', type = '' }) {
 	const host = document.createElement('div')
 	document.body.append(host)
 	const canvasIdRef = ref(canvasId)
+	const typeRef = ref(type)
 	const app = createApp({
 		setup() {
 			provide('bridgeId', bridgeId)
 			provide('path', `path-${moduleId}`)
 			provide(`path-${moduleId}`, { id: moduleId })
-			return () => h(Canvas, { binderror: 'onCanvasError', canvasId: canvasIdRef.value })
+			return () => h(Canvas, { binderror: 'onCanvasError', canvasId: canvasIdRef.value, type: typeRef.value })
 		},
 	})
 	app.mount(host)
@@ -28,6 +29,10 @@ function mountHost({ moduleId, canvasId, bridgeId = 'bridge-1' }) {
 		host,
 		async setCanvasId(next) {
 			canvasIdRef.value = next
+			await nextTick()
+		},
+		async setType(next) {
+			typeRef.value = next
 			await nextTick()
 		},
 	}
@@ -113,6 +118,53 @@ describe('canvas-id duplicate detection is scoped to the owning component instan
 	})
 })
 
+// 是否参与判重由 type 决定：指定 type 的画布用 id 定位，不占用 canvas-id。type 和 canvas-id
+// 一样是可以改的数据，所以「该占哪个 key」必须每次更新重算，而不是逐个属性挂监听。
+describe('canvas-id duplicate detection follows a type that changes', () => {
+	it('frees the canvas-id when the canvas turns into a 2d one', async () => {
+		const moving = mountHost({ canvasId: 'chart', moduleId: 'module-a' })
+		await nextTick()
+		await moving.setType('2d')
+		expect(moving.host.querySelector('canvas').__ddCanvasOwner).toBeUndefined()
+		expect(moving.host.querySelector('canvas').__ddCanvasActive).toBe(false)
+
+		const taker = mountHost({ canvasId: 'chart', moduleId: 'module-a' })
+		await nextTick()
+
+		expect(isHidden(taker)).toBe(false)
+		expect(errorMessages()).toEqual([])
+	})
+
+	it('claims the canvas-id when a 2d canvas turns back into a legacy one', async () => {
+		const moving = mountHost({ canvasId: 'chart', moduleId: 'module-a', type: '2d' })
+		await nextTick()
+		expect(moving.host.querySelector('canvas').__ddCanvasOwner).toBeUndefined()
+		expect(moving.host.querySelector('canvas').__ddCanvasActive).toBe(false)
+		await moving.setType('')
+		expect(moving.host.querySelector('canvas').__ddCanvasOwner).toBe('module-a')
+		expect(moving.host.querySelector('canvas').__ddCanvasActive).toBe(true)
+
+		const duplicate = mountHost({ canvasId: 'chart', moduleId: 'module-a' })
+		await nextTick()
+
+		expect(isHidden(moving)).toBe(false)
+		expect(isHidden(duplicate)).toBe(true)
+		expect(errorMessages()).toEqual(['canvas-id chart in this page has already existed'])
+	})
+
+	it('shows a canvas that was hidden as a duplicate once it turns into a 2d one', async () => {
+		mountHost({ canvasId: 'chart', moduleId: 'module-a' })
+		const rejected = mountHost({ canvasId: 'chart', moduleId: 'module-a' })
+		await nextTick()
+		expect(isHidden(rejected)).toBe(true)
+
+		await rejected.setType('2d')
+		expect(isHidden(rejected)).toBe(false)
+		expect(rejected.host.querySelector('canvas').__ddCanvasOwner).toBeUndefined()
+		expect(rejected.host.querySelector('canvas').__ddCanvasActive).toBe(false)
+	})
+})
+
 // canvas-id 绑的是数据，改它和改别的属性一样合法，模板上的 canvas-id 也确实会跟着变。
 describe('canvas-id duplicate detection follows a canvas-id that changes', () => {
 	it('gives up the old id so another canvas can take it', async () => {
@@ -148,10 +200,14 @@ describe('canvas-id duplicate detection follows a canvas-id that changes', () =>
 		await moving.setCanvasId('chart')
 		expect(isHidden(moving)).toBe(true)
 		expect(isHidden(holder)).toBe(false)
+		expect(moving.host.querySelector('canvas').__ddCanvasOwner).toBeUndefined()
+		expect(holder.host.querySelector('canvas').__ddCanvasActive).toBe(true)
 		expect(errorMessages()).toEqual(['canvas-id chart in this page has already existed'])
 
 		await moving.setCanvasId('other')
 		expect(isHidden(moving)).toBe(false)
+		expect(moving.host.querySelector('canvas').__ddCanvasOwner).toBe('module-a')
+		expect(moving.host.querySelector('canvas').__ddCanvasActive).toBe(true)
 	})
 
 	it('reports the empty id as undefined rather than silently keeping the old registration', async () => {
@@ -191,13 +247,19 @@ function hiddenStates({ host }) {
 	return [...host.querySelectorAll('.dd-canvas')].map(el => el.style.display === 'none')
 }
 
-// 渲染层按 data-canvas-owner 精确命中归属，判重 key 用的是同一个 moduleId。
-// 两边分开测都会绿，所以这里把属性名和取值钉在一起。
-it('canvas 元素带上与判重 key 同源的归属标记', async () => {
+// 渲染层按归属标记精确命中，判重 key 用的是同一个 moduleId。两边分开测都会绿，
+// 所以这里把承载方式和取值钉在一起。
+// 标记不能落在 data-* 上：事件序列化整份复制 target.dataset，框架内部的组件实例 id
+// 会变成开发者从未声明过的 dataset 字段交到小程序手里。
+it('canvas 元素带上与判重 key 同源的归属标记，且不写进 dataset', async () => {
 	const { host } = mountHost({ canvasId: 'chart', moduleId: 'module-a' })
 	await nextTick()
 
-	expect(host.querySelector('canvas').dataset.canvasOwner).toBe('module-a')
+	const canvas = host.querySelector('canvas')
+	expect(canvas.__ddCanvasOwner).toBe('module-a')
+	expect(canvas.__ddCanvasActive).toBe(true)
+	expect(Object.keys(canvas.dataset)).toEqual([])
+	expect(canvas.outerHTML).not.toContain('module-a')
 })
 
 describe('同一 tick 内的让出与接手', () => {

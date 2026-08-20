@@ -185,6 +185,51 @@ describe('legacy canvas export and pixels', () => {
 		expect(messages.find(message => message.body.id === 'put-ok').body.args.errMsg).toBe('canvasPutImageData:ok')
 	})
 
+	it('defends old service bundles by rejecting oversized pixel reads before allocating ImageData', async () => {
+		const context = { getImageData: vi.fn() }
+		mountCanvas('canvas-oversized-read', context)
+		window.DiminaRenderBridge.publish = vi.fn()
+
+		await runtime.canvasGetImageData({
+			bridgeId: 'bridge-oversized-read',
+			params: {
+				canvasId: 'canvas-oversized-read',
+				x: 0,
+				y: 0,
+				width: 4096,
+				height: 4096,
+				fail: 'get-fail',
+			},
+		})
+
+		expect(context.getImageData).not.toHaveBeenCalled()
+		const messages = window.DiminaRenderBridge.publish.mock.calls.map(([payload]) => JSON.parse(payload))
+		expect(messages.find(message => message.body.id === 'get-fail').body.args.errMsg)
+			.toContain('maximum transferable pixel data')
+	})
+
+	it('defends direct bridge calls by rejecting oversized pixel writes before creating ImageData', async () => {
+		const context = { createImageData: vi.fn(), putImageData: vi.fn() }
+		mountCanvas('canvas-oversized-write', context)
+		window.DiminaRenderBridge.publish = vi.fn()
+
+		await runtime.canvasPutImageData({
+			bridgeId: 'bridge-oversized-write',
+			params: {
+				canvasId: 'canvas-oversized-write',
+				x: 0,
+				y: 0,
+				width: 2048,
+				height: 1025,
+				data: [],
+				fail: 'put-fail',
+			},
+		})
+
+		expect(context.createImageData).not.toHaveBeenCalled()
+		expect(context.putImageData).not.toHaveBeenCalled()
+	})
+
 	describe('per-canvas draw queue bookkeeping', () => {
 		function hasQueueEntryFor(canvasId) {
 			const canvas = document.querySelector(`canvas[canvas-id="${canvasId}"]`)
@@ -238,10 +283,7 @@ describe('legacy canvas export and pixels', () => {
 					],
 				},
 			})
-			await Promise.resolve()
-			await Promise.resolve()
-			await Promise.resolve()
-			expect(hasQueueEntryFor('canvas-queue-pending')).toBe(true)
+			await vi.waitFor(() => expect(hasQueueEntryFor('canvas-queue-pending')).toBe(true))
 
 			const secondBatch = runtime.drawCanvas({
 				bridgeId: 'bridge-queue-pending-2',

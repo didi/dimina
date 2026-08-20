@@ -432,6 +432,7 @@ class MiniApp private constructor() {
      *
      * @param appId The ID of the MiniProgram to clear resources for
      */
+    @androidx.annotation.MainThread
     fun clear(appId: String) {
         updateCheckRegistry.reset(appId)
         synchronized(this) {
@@ -445,6 +446,9 @@ class MiniApp private constructor() {
         apiRegistry.clearExtSubscriptions(appId)
         bluetoothApi.clearApp(appId)
         localNetworkApi.clearApp(appId)
+        // 正在后台写盘的 canvas 导出属于这一代 runtime；换代之后它的回调没有接收方，
+        // 已经发布的文件也不会有人来取。
+        com.didi.dimina.api.media.CanvasExportGeneration.invalidate(appId)
 
         // Detach this generation immediately so a rapid reopen creates a fresh runtime, but place
         // native engine destruction behind lifecycle messages already queued by Bridge.destroy().
@@ -462,6 +466,7 @@ class MiniApp private constructor() {
     /**
      * Clears all API resources and callbacks for all MiniPrograms
      */
+    @androidx.annotation.MainThread
     fun clearAll() {
         updateCheckRegistry.resetAll()
         synchronized(this) {
@@ -475,6 +480,7 @@ class MiniApp private constructor() {
         jsCoreMap.clear()
         jsCoresToDestroy.forEach { (appId, jsCore) ->
             LogUtils.d(tag, "Scheduling JsCore destruction for appId: $appId")
+            com.didi.dimina.api.media.CanvasExportGeneration.invalidate(appId)
             jsCore.destroyAfterMessages()
         }
 

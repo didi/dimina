@@ -35,7 +35,31 @@ public class ImageAPI: DMPContainerApi {
     // Internal bridge safety ceiling, not a WeChat Canvas API limit. It bounds the
     // extra native allocation and temp-file write after the data URL crosses the bridge.
     private static let maxCanvasImageBytes = 32 * 1024 * 1024
-    private static let maxCanvasBase64Characters = (maxCanvasImageBytes * 4 / 3) + 8
+    private static let maxCanvasBase64Bytes = (maxCanvasImageBytes * 4 / 3) + 8
+
+    /// Base64 是 ASCII 协议，预算也必须按实际 UTF-8 字节计。逐 byte 校验可以在遇到第一个
+    /// 非 ASCII 字节时立即退出，避免用 String.count 扫完整个恶意 Unicode 输入后仍低估内存。
+    static func validatedCanvasBase64ByteCount(_ value: String) -> Int? {
+        var count = 0
+        var padding = 0
+        var sawPadding = false
+        for byte in value.utf8 {
+            count += 1
+            guard count <= maxCanvasBase64Bytes else { return nil }
+            switch byte {
+            case 65...90, 97...122, 48...57, 43, 47:
+                guard !sawPadding else { return nil }
+            case 61:
+                sawPadding = true
+                padding += 1
+                guard padding <= 2 else { return nil }
+            default:
+                return nil
+            }
+        }
+        guard count > 0, count.isMultiple(of: 4) else { return nil }
+        return count
+    }
 
     static func invokeCanvasFailure(callback: DMPBridgeCallback?, reason: String) {
         let result = DMPMap()
@@ -85,20 +109,194 @@ public class ImageAPI: DMPContainerApi {
         case failure(String)
     }
 
-    // 同一个小程序同时只做一次解码加写盘。同步实现时主线程天然给它排队，挪到后台之后就没有这层
-    // 约束了，而单次解码上限已经是 32 MB。这条队列只约束解码与写盘阶段，排队中的每个请求仍各自
-    // 持有自己那份 base64 字符串。
+    final class CanvasExportJob {
+        let id = UUID()
+        let appId: String
+        let generation: Int
+        let bytes: Int
+        let queue: DispatchQueue
+        var payload: String?
+        var started = false
+        var cancelled = false
+        var workItem: DispatchWorkItem?
+
+        init(appId: String, generation: Int, bytes: Int, queue: DispatchQueue, payload: String?) {
+            self.appId = appId
+            self.generation = generation
+            self.bytes = bytes
+            self.queue = queue
+            self.payload = payload
+        }
+    }
+
     private static let canvasQueueLock = NSLock()
-    private static var canvasQueues: [String: DispatchQueue] = [:]
+    private static var canvasQueues: [String: [Int: DispatchQueue]] = [:]
+    private static let maxInFlightCanvasExports = 2
+    static let maxPendingCanvasBase64Bytes = maxInFlightCanvasExports * maxCanvasBase64Bytes
+    private static var canvasJobs: [String: [UUID: CanvasExportJob]] = [:]
+    private static var canvasLegacyReservations: [String: [CanvasExportJob]] = [:]
+    private static var canvasGenerations: [String: Int] = [:]
+
+    static func reserveCanvasExport(appId: String, bytes: Int, payload: String? = nil) -> CanvasExportJob? {
+        canvasQueueLock.lock()
+        defer { canvasQueueLock.unlock() }
+        let generation = canvasGenerations[appId] ?? 0
+        let jobs = canvasJobs[appId] ?? [:]
+        let pendingBytes = jobs.values.reduce(0) { $0 + $1.bytes }
+        guard jobs.count < maxInFlightCanvasExports,
+              pendingBytes + bytes <= maxPendingCanvasBase64Bytes else {
+            return nil
+        }
+        let queues = canvasQueues[appId] ?? [:]
+        let queue = queues[generation]
+            ?? DispatchQueue(label: "com.didi.dimina.canvas.export.\(appId).\(generation)", qos: .userInitiated)
+        canvasQueues[appId, default: [:]][generation] = queue
+        let job = CanvasExportJob(
+            appId: appId,
+            generation: generation,
+            bytes: bytes,
+            queue: queue,
+            payload: payload
+        )
+        canvasJobs[appId, default: [:]][job.id] = job
+        return job
+    }
+
+    static func attachCanvasExport(_ job: CanvasExportJob, workItem: DispatchWorkItem) {
+        canvasQueueLock.lock()
+        let active = canvasJobs[job.appId]?[job.id] === job && !job.cancelled
+        if active { job.workItem = workItem }
+        canvasQueueLock.unlock()
+        if !active { workItem.cancel() }
+    }
+
+    static func beginCanvasExport(_ job: CanvasExportJob) -> String? {
+        canvasQueueLock.lock()
+        defer { canvasQueueLock.unlock() }
+        guard canvasJobs[job.appId]?[job.id] === job, !job.cancelled else { return nil }
+        job.started = true
+        defer { job.payload = nil }
+        return job.payload
+    }
+
+    static func finishCanvasExport(_ job: CanvasExportJob) {
+        canvasQueueLock.lock()
+        defer { canvasQueueLock.unlock() }
+        job.payload = nil
+        canvasJobs[job.appId]?.removeValue(forKey: job.id)
+        if canvasJobs[job.appId]?.isEmpty == true { canvasJobs.removeValue(forKey: job.appId) }
+        pruneCanvasQueuesLocked(appId: job.appId)
+    }
+
+    static func tryReserveCanvasExport(appId: String, bytes: Int) -> Bool {
+        guard let job = reserveCanvasExport(appId: appId, bytes: bytes) else { return false }
+        canvasQueueLock.lock()
+        canvasLegacyReservations[appId, default: []].append(job)
+        canvasQueueLock.unlock()
+        return true
+    }
+
+    static func releaseCanvasExport(appId: String, bytes: Int) {
+        canvasQueueLock.lock()
+        let index = canvasLegacyReservations[appId]?.firstIndex { $0.bytes == bytes }
+        let job = index.map { canvasLegacyReservations[appId]!.remove(at: $0) }
+        if canvasLegacyReservations[appId]?.isEmpty == true {
+            canvasLegacyReservations.removeValue(forKey: appId)
+        }
+        canvasQueueLock.unlock()
+        if let job { finishCanvasExport(job) }
+    }
+
+    static func canvasExportGeneration(appId: String) -> Int {
+        canvasQueueLock.lock()
+        defer { canvasQueueLock.unlock() }
+        return canvasGenerations[appId] ?? 0
+    }
+
+    /// runtime 被销毁时调用：之后发起于上一代的导出结果都不再交付。
+    @MainActor
+    static func clearApp(_ appId: String) {
+        canvasQueueLock.lock()
+        canvasGenerations[appId] = (canvasGenerations[appId] ?? 0) + 1
+        let pending = (canvasJobs[appId] ?? [:]).values.filter { !$0.started }
+        for job in pending {
+            job.cancelled = true
+            job.payload = nil
+            job.workItem?.cancel()
+            canvasJobs[appId]?.removeValue(forKey: job.id)
+        }
+        if canvasJobs[appId]?.isEmpty == true { canvasJobs.removeValue(forKey: appId) }
+        pruneCanvasQueuesLocked(appId: appId)
+        canvasLegacyReservations.removeValue(forKey: appId)
+        canvasQueueLock.unlock()
+    }
+
+    private static func pruneCanvasQueuesLocked(appId: String) {
+        guard var queues = canvasQueues[appId] else { return }
+        let currentGeneration = canvasGenerations[appId] ?? 0
+        let activeGenerations = Set((canvasJobs[appId] ?? [:]).values.map(\.generation))
+        for generation in queues.keys
+        where generation != currentGeneration && !activeGenerations.contains(generation) {
+            queues.removeValue(forKey: generation)
+        }
+        if queues.isEmpty {
+            canvasQueues.removeValue(forKey: appId)
+        } else {
+            canvasQueues[appId] = queues
+        }
+    }
+
+    static func shouldDeliverCanvasExport(appId: String, generation: Int) -> Bool {
+        return canvasExportGeneration(appId: appId) == generation
+    }
+
+    /// 丢弃一次没有接收方的导出：已经发布的文件不会有人来取，留着就是永久占用 tmp 目录。
+    /// iOS 的 tmp 位于 Documents/Dimina，进程结束不会自动清理。
+    static func discardPublishedCanvasFile(at fileURL: URL) {
+        try? FileManager.default.removeItem(at: fileURL)
+    }
+
+    /// generation 判定和 callback 必须在与 runtime 销毁相同的 MainActor 上连续结算。后台队列只
+    /// 负责解码与写盘；如果在后台先判再 enqueue main，排队期间 owner 仍可能被销毁。
+    @MainActor
+    @discardableResult
+    static func deliverCanvasExport(
+        appId: String,
+        generation: Int,
+        outcome: CanvasTempFileOutcome,
+        callback: DMPBridgeCallback?
+    ) -> Bool {
+        guard shouldDeliverCanvasExport(appId: appId, generation: generation) else {
+            if case .success(let fileURL) = outcome {
+                discardPublishedCanvasFile(at: fileURL)
+            }
+            return false
+        }
+
+        switch outcome {
+        case .failure(let reason):
+            invokeCanvasFailure(callback: callback, reason: reason)
+        case .success(let fileURL):
+            let result = DMPMap()
+            result.set(
+                "tempFilePath",
+                DMPFileUtil.vPathFromSandboxPath(sandboxPath: fileURL.path, appId: appId)
+            )
+            result.set("errMsg", "canvasToTempFilePath:ok")
+            invokeCanvasSuccess(callback: callback, result: result)
+        }
+        return true
+    }
 
     static func canvasExportQueue(appId: String) -> DispatchQueue {
         canvasQueueLock.lock()
         defer { canvasQueueLock.unlock() }
-        if let queue = canvasQueues[appId] {
+        let generation = canvasGenerations[appId] ?? 0
+        if let queue = canvasQueues[appId]?[generation] {
             return queue
         }
-        let queue = DispatchQueue(label: "com.didi.dimina.canvas.export.\(appId)", qos: .userInitiated)
-        canvasQueues[appId] = queue
+        let queue = DispatchQueue(label: "com.didi.dimina.canvas.export.\(appId).\(generation)", qos: .userInitiated)
+        canvasQueues[appId, default: [:]][generation] = queue
         return queue
     }
 
@@ -183,8 +381,8 @@ public class ImageAPI: DMPContainerApi {
         } else {
             base64Data = dataURL
         }
-        guard !base64Data.isEmpty, base64Data.count <= ImageAPI.maxCanvasBase64Characters else {
-            ImageAPI.invokeCanvasFailure(callback: callback, reason: base64Data.isEmpty ? "base64 decode failed" : "data too large")
+        guard let reservedBytes = ImageAPI.validatedCanvasBase64ByteCount(base64Data) else {
+            ImageAPI.invokeCanvasFailure(callback: callback, reason: base64Data.isEmpty ? "base64 decode failed" : "invalid or oversized base64")
             return DMPAsyncResult()
         }
         // 解码最多 32 MB 的 base64 再落盘是这条链上唯一的重活，而 bridge handler 跑在主线程上，
@@ -194,29 +392,37 @@ public class ImageAPI: DMPContainerApi {
             fileURLWithPath: DMPSandboxManager.appTmpResourceDirectoryPath(appId: env.appId)
         ).lastPathComponent
         let appId = env.appId
-        ImageAPI.canvasExportQueue(appId: appId).async {
+        // 排队中的每个请求都各自留着自己那份 base64，等轮到它才释放。预算判在入队之前：
+        // 到了闭包里再拒，这份副本已经被捕获，拒绝就省不下内存了。
+        guard let job = ImageAPI.reserveCanvasExport(
+            appId: appId,
+            bytes: reservedBytes,
+            payload: base64Data
+        ) else {
+            ImageAPI.invokeCanvasFailure(callback: callback, reason: "too many pending exports")
+            return DMPAsyncResult()
+        }
+        let workItem = DispatchWorkItem {
+            guard let reservedPayload = ImageAPI.beginCanvasExport(job) else { return }
+            defer { ImageAPI.finishCanvasExport(job) }
             let outcome = ImageAPI.writeCanvasTempFile(
-                base64Data: base64Data,
+                base64Data: reservedPayload,
                 fileType: fileType,
                 appId: appId,
                 sandboxRoot: sandboxRoot,
                 tmpDirectoryName: tmpDirectoryName
             )
             DispatchQueue.main.async {
-                switch outcome {
-                case .failure(let reason):
-                    ImageAPI.invokeCanvasFailure(callback: callback, reason: reason)
-                case .success(let fileURL):
-                    let result = DMPMap()
-                    result.set(
-                        "tempFilePath",
-                        DMPFileUtil.vPathFromSandboxPath(sandboxPath: fileURL.path, appId: appId)
-                    )
-                    result.set("errMsg", "canvasToTempFilePath:ok")
-                    ImageAPI.invokeCanvasSuccess(callback: callback, result: result)
-                }
+                ImageAPI.deliverCanvasExport(
+                    appId: appId,
+                    generation: job.generation,
+                    outcome: outcome,
+                    callback: callback
+                )
             }
         }
+        ImageAPI.attachCanvasExport(job, workItem: workItem)
+        job.queue.async(execute: workItem)
         return DMPAsyncResult()
     }
 

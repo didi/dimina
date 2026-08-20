@@ -10,6 +10,7 @@ describe('mini game render surface', () => {
 		send.mockReset()
 		document.body.innerHTML = ''
 		runtime.canvasNodes.clear()
+		runtime.canvasResources.clear()
 	})
 
 	it('mounts one full-screen canvas and forwards touch and simulated mouse events to service', () => {
@@ -88,5 +89,32 @@ describe('mini game render surface', () => {
 				touches: [expect.objectContaining({ clientX: 90, clientY: 120 })],
 			}),
 		}))
+	})
+
+	it('releases the old game surface and its resources before a replacement is created', () => {
+		runtime.createGameCanvas({
+			bridgeId: 'bridge-game',
+			params: { nodeId: 'game-old', width: 390, height: 844, type: '2d' },
+		})
+		const oldCanvas = document.querySelector('[data-dimina-game-canvas]')
+		const oldContext = { fillRect: vi.fn() }
+		runtime.canvasNodes.get('game-old').contexts.set('context-old', oldContext)
+		runtime.canvasNodes.get('game-old').resourceIds.add('context-old')
+		runtime.canvasResources.set('context-old', oldContext)
+
+		runtime.disposeCanvasNodes({
+			bridgeId: 'bridge-game',
+			params: { nodeIds: ['game-old'] },
+		})
+		runtime.createGameCanvas({
+			bridgeId: 'bridge-game',
+			params: { nodeId: 'game-new', width: 320, height: 568, type: '2d' },
+		})
+
+		expect(oldCanvas.isConnected).toBe(false)
+		expect(runtime.canvasNodes.has('game-old')).toBe(false)
+		expect(runtime.canvasResources.has('context-old')).toBe(false)
+		expect(document.querySelectorAll('[data-dimina-game-canvas]')).toHaveLength(1)
+		expect(runtime.canvasNodes.has('game-new')).toBe(true)
 	})
 })
