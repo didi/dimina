@@ -486,7 +486,7 @@ final class DMPNavigatorCapsuleTests: XCTestCase {
             ["appId": "target", "extraData": ["source": "navigateBackMiniProgram"]]
         )])
 
-        XCTAssertEqual(events, ["appHide", "pageHide", "appShow", "pageShow"])
+        XCTAssertEqual(events, ["pageHide", "appHide", "appShow", "pageShow"])
     }
 
     func testExitMiniProgramLifecycleRunsOnceInOrder() async {
@@ -495,13 +495,13 @@ final class DMPNavigatorCapsuleTests: XCTestCase {
             ["appId": "target"]
         )])
 
-        XCTAssertEqual(events, ["appHide", "pageHide", "appShow", "pageShow"])
+        XCTAssertEqual(events, ["pageHide", "appHide", "appShow", "pageShow"])
     }
 
     func testFailedTargetLaunchRollsLifecycleBackOnceInOrder() async {
         let events = await captureMiniProgramLifecycle(rounds: [(nil, nil)])
 
-        XCTAssertEqual(events, ["appHide", "pageHide", "appShow", "pageShow"])
+        XCTAssertEqual(events, ["pageHide", "appHide", "appShow", "pageShow"])
     }
 
     func testCrossMiniProgramLifecycleRemainsBalancedAcrossTwoRounds() async {
@@ -511,8 +511,8 @@ final class DMPNavigatorCapsuleTests: XCTestCase {
         ])
 
         XCTAssertEqual(events, [
-            "appHide", "pageHide", "appShow", "pageShow",
-            "appHide", "pageHide", "appShow", "pageShow",
+            "pageHide", "appHide", "appShow", "pageShow",
+            "pageHide", "appHide", "appShow", "pageShow",
         ])
     }
 
@@ -569,7 +569,7 @@ final class DMPNavigatorCapsuleTests: XCTestCase {
         let pageShow = try XCTUnwrap(
             harmonyApp.range(of: "navigatorManager.dispatchPageShow(bridgeId)")
         )
-        XCTAssertLessThan(appHide.lowerBound, pageHide.lowerBound)
+        XCTAssertLessThan(pageHide.lowerBound, appHide.lowerBound)
         XCTAssertLessThan(appShow.lowerBound, pageShow.lowerBound)
     }
 

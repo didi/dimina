@@ -421,9 +421,10 @@ public class DMPApp {
 
     @MainActor
     func notifyMiniProgramHide(webViewId: Int) {
+        if webViewId > 0 {
+            navigator?.dispatchPageHide(webViewId: webViewId)
+        }
         notifyAppHide()
-        guard webViewId > 0 else { return }
-        navigator?.dispatchPageHide(webViewId: webViewId)
     }
 
     @MainActor

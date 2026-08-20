@@ -393,13 +393,13 @@ export class DMPApp {
   /** Hide only this mini program; unlike DMPAppLifecycle this never broadcasts to every pooled app. */
   public notifyMiniProgramHide() {
     const bridgeId = this.currentWebViewId
+    if (bridgeId > 0) {
+      this.navigatorManager.dispatchPageHide(bridgeId)
+    }
     DMPChannelProxyNext.ContainerToService(new DMPMap({
       type: 'appHide',
       body: { bridgeId }
     }), this.appIndex)
-    if (bridgeId > 0) {
-      this.navigatorManager.dispatchPageHide(bridgeId)
-    }
   }
 
   /** Reveal only this mini program and update App.onShow/GetEnterOptionsSync data. */
