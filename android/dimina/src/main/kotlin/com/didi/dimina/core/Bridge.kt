@@ -221,8 +221,24 @@ class Bridge(
                     parent.onDomReady()
                 }
             }
+
+            "webview" -> {
+                if (type == "invokeAPI") {
+                    return handleApiInvocation(body)
+                }
+            }
         }
         return null
+    }
+
+    fun handleEmbeddedWebViewMessage(message: JSONObject) {
+        val normalizedMessage = JSONObject(message.toString())
+        val body = normalizedMessage.optJSONObject("body") ?: return
+        body.put("bridgeId", id)
+        if (body.has("parentWebViewId")) {
+            body.put("parentWebViewId", id)
+        }
+        messageInvoke("webview", normalizedMessage)
     }
 
     /**

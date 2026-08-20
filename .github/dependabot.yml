@@ -9,13 +9,3 @@ updates:
     open-pull-requests-limit: 10
     labels:
       - "pnpm-dependencies"
-
-  # Android dependencies (Gradle)
-  - package-ecosystem: "gradle"
-    directory: "/android"
-    schedule:
-      interval: "weekly"
-      day: "saturday"
-    open-pull-requests-limit: 10
-    labels:
-      - "gradle-dependencies"

@@ -1,6 +1,6 @@
 Page({
 	data: {
-		src: 'https://example.com/',
+		src: 'https://www.baidu.com/',
 	},
 	bindLoad(e) {
 		console.log('web-view 加载成功', e.detail)

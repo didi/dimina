@@ -1379,17 +1379,28 @@ class DiminaActivity : ComponentActivity() {
     private fun bindNativeComponentHost() {
         val currentWebView = webView ?: return
         val overlay = nativeOverlay ?: return
-        nativeComponentHost = NativeComponentHost(this, currentWebView, overlay)
+        nativeComponentHost = NativeComponentHost(this, currentWebView, overlay) { message ->
+            bridgeForWebView(currentWebView)?.handleEmbeddedWebViewMessage(message)
+        }
     }
 
     private fun bindNativeComponentHost(index: Int) {
         val state = tabPageStates[index] ?: return
         val currentWebView = state.webView ?: return
         val overlay = state.nativeOverlay ?: return
-        state.nativeComponentHost = NativeComponentHost(this, currentWebView, overlay)
+        state.nativeComponentHost = NativeComponentHost(this, currentWebView, overlay) { message ->
+            bridgeForWebView(currentWebView)?.handleEmbeddedWebViewMessage(message)
+        }
         if (index == selectedTabIndex.intValue) {
             nativeComponentHost = state.nativeComponentHost
         }
+    }
+
+    private fun bridgeForWebView(sourceWebView: WebView): Bridge? {
+        tabPageStates.values.firstOrNull { it.webView === sourceWebView }?.bridge?.let {
+            return it
+        }
+        return bridge.takeIf { webView === sourceWebView }
     }
 
     fun <T> runWithBridgeContext(sourceBridge: Bridge, action: () -> T): T {

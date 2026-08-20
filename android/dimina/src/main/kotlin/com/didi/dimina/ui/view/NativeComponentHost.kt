@@ -1,12 +1,15 @@
 package com.didi.dimina.ui.view
 
+import android.annotation.SuppressLint
 import android.content.res.ColorStateList
+import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.media.MediaPlayer
 import android.net.Uri
+import android.net.http.SslError
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -15,7 +18,14 @@ import android.view.Gravity
 import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.View
+import android.webkit.JavascriptInterface
+import android.webkit.SslErrorHandler
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
+import android.webkit.WebSettings
 import android.webkit.WebView
+import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.ImageButton
@@ -46,6 +56,7 @@ class NativeComponentHost(
     private val activity: DiminaActivity,
     private val webView: WebView,
     private val overlay: FrameLayout,
+    private val embeddedMessageHandler: (JSONObject) -> Unit = {},
 ) {
     private val components = mutableMapOf<String, NativeComponent>()
     private val touchDownTimes = mutableMapOf<String, Long>()
@@ -273,7 +284,9 @@ class NativeComponentHost(
         return when (type) {
             COVER_VIEW_TYPE -> NativeCoverViewComponent(id)
             COVER_IMAGE_TYPE -> NativeCoverImageComponent(id)
-            else -> NativeVideoComponent(id)
+            WEB_VIEW_TYPE -> NativeWebViewComponent(id)
+            VIDEO_TYPE -> NativeVideoComponent(id)
+            else -> error("Unsupported native component type: $type")
         }
     }
 
@@ -493,6 +506,176 @@ class NativeComponentHost(
                         put("errMsg", e.message ?: "cover-image load failed")
                     })
                 }
+            }
+        }
+    }
+
+    @SuppressLint("SetJavaScriptEnabled")
+    private inner class NativeWebViewComponent(id: String) :
+        BaseNativeComponent(id, WEB_VIEW_TYPE) {
+        override val view: WebView = WebView(activity).apply {
+            overScrollMode = WebView.OVER_SCROLL_NEVER
+            isHorizontalScrollBarEnabled = false
+            settings.apply {
+                javaScriptEnabled = true
+                domStorageEnabled = true
+                allowFileAccess = false
+                allowContentAccess = false
+                javaScriptCanOpenWindowsAutomatically = false
+                loadWithOverviewMode = true
+                useWideViewPort = true
+                mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+                userAgentString = "$userAgentString dimina miniProgram"
+            }
+            addJavascriptInterface(
+                EmbeddedWebViewBridge { message -> embeddedMessageHandler(message) },
+                EMBEDDED_WEB_VIEW_BRIDGE,
+            )
+            webViewClient = object : WebViewClient() {
+                override fun shouldOverrideUrlLoading(
+                    view: WebView,
+                    request: WebResourceRequest,
+                ): Boolean = !NativeWebViewPolicy.isSupportedSource(request.url.toString())
+
+                @Suppress("DEPRECATION")
+                override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean =
+                    !NativeWebViewPolicy.isSupportedSource(url)
+
+                override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
+                    super.onPageStarted(view, url, favicon)
+                    loadFailed = false
+                    reportedErrorKey = null
+                }
+
+                override fun onPageFinished(view: WebView, url: String) {
+                    super.onPageFinished(view, url)
+                    if (released || loadFailed || url == ABOUT_BLANK_URL) return
+                    injectComponentScript()
+                    sendEvent("bindload", eventBody(url))
+                }
+
+                override fun onReceivedError(
+                    view: WebView,
+                    request: WebResourceRequest,
+                    error: WebResourceError,
+                ) {
+                    super.onReceivedError(view, request, error)
+                    if (request.isForMainFrame) {
+                        reportError(
+                            request.url.toString(),
+                            "${error.errorCode}: ${error.description}",
+                        )
+                    }
+                }
+
+                override fun onReceivedHttpError(
+                    view: WebView,
+                    request: WebResourceRequest,
+                    errorResponse: WebResourceResponse,
+                ) {
+                    super.onReceivedHttpError(view, request, errorResponse)
+                    if (request.isForMainFrame) {
+                        reportError(
+                            request.url.toString(),
+                            "HTTP ${errorResponse.statusCode} ${errorResponse.reasonPhrase}",
+                        )
+                    }
+                }
+
+                override fun onReceivedSslError(
+                    view: WebView,
+                    handler: SslErrorHandler,
+                    error: SslError,
+                ) {
+                    handler.cancel()
+                    reportError(error.url, "SSL ${error.primaryError}")
+                }
+            }
+        }
+
+        private var src = ""
+        private var bridgeId = ""
+        private var attributes: JSONObject? = null
+        private var loadFailed = false
+        private var reportedErrorKey: String? = null
+        private var released = false
+
+        override fun update(params: JSONObject) {
+            super.update(params)
+            bridgeId = params.optString("bridgeId", bridgeId)
+            attributes = params.optJSONObject("attributes")
+
+            val nextSrc = params.optString("url").ifEmpty {
+                params.optString("src", src)
+            }
+            if (nextSrc == src) return
+
+            src = nextSrc
+            loadSource()
+        }
+
+        override fun release() {
+            released = true
+            view.stopLoading()
+            view.removeJavascriptInterface(EMBEDDED_WEB_VIEW_BRIDGE)
+            view.webViewClient = WebViewClient()
+            view.loadUrl(ABOUT_BLANK_URL)
+            view.clearHistory()
+            view.removeAllViews()
+            view.destroy()
+        }
+
+        private fun loadSource() {
+            loadFailed = false
+            reportedErrorKey = null
+            if (src.isEmpty()) {
+                view.stopLoading()
+                view.loadUrl(ABOUT_BLANK_URL)
+                return
+            }
+            if (!NativeWebViewPolicy.isSupportedSource(src)) {
+                reportError(src, "unsupported web-view URL")
+                return
+            }
+            view.loadUrl(src)
+        }
+
+        private fun injectComponentScript() {
+            view.evaluateJavascript(
+                NativeWebViewPolicy.bootstrapScript(bridgeId, attributes),
+                null,
+            )
+        }
+
+        private fun reportError(url: String, message: String) {
+            val errorKey = "$url|$message"
+            if (reportedErrorKey == errorKey) return
+            loadFailed = true
+            reportedErrorKey = errorKey
+            LogUtils.e(TAG, "Failed to load web-view $url: $message")
+            sendEvent("binderror", eventBody(url).apply {
+                put("fullUrl", url)
+                put("errMsg", message)
+            })
+        }
+
+        private fun eventBody(url: String): JSONObject = JSONObject().apply {
+            put("id", id)
+            put("src", src)
+            put("url", url)
+        }
+    }
+
+    private class EmbeddedWebViewBridge(
+        private val messageHandler: (JSONObject) -> Unit,
+    ) {
+        @Suppress("unused")
+        @JavascriptInterface
+        fun invoke(message: String) {
+            try {
+                messageHandler(JSONObject(message))
+            } catch (e: Exception) {
+                LogUtils.e(TAG, "Embedded web-view bridge failed: ${e.message}")
             }
         }
     }
@@ -908,6 +1091,9 @@ class NativeComponentHost(
         private const val VIDEO_TYPE = "native/video"
         private const val COVER_VIEW_TYPE = "native/cover-view"
         private const val COVER_IMAGE_TYPE = "native/cover-image"
+        private const val WEB_VIEW_TYPE = NativeWebViewPolicy.TYPE
+        private const val EMBEDDED_WEB_VIEW_BRIDGE = "DiminaEmbeddedWebViewBridge"
+        private const val ABOUT_BLANK_URL = "about:blank"
         private const val TIME_UPDATE_INTERVAL_MS = 250L
         private const val FIRST_FRAME_SEEK_MS = 1
         private const val TOUCH_ACTION_DOWN = "down"
@@ -916,7 +1102,7 @@ class NativeComponentHost(
         private const val TOUCH_ACTION_POINTER_UP = "pointerUp"
         private const val TOUCH_ACTION_UP = "up"
         private const val TOUCH_ACTION_CANCEL = "cancel"
-        private val SUPPORTED_TYPES = setOf(VIDEO_TYPE, COVER_VIEW_TYPE, COVER_IMAGE_TYPE)
+        private val SUPPORTED_TYPES = NativeWebViewPolicy.supportedComponentTypes
     }
 
     private fun pxToSp(px: Float): Float {

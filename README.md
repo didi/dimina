@@ -27,19 +27,19 @@ Dimina（星河小程序）是滴滴开源的跨端小程序框架。它将 WXML
 
 下图是仓库内同一套“官方组件展示”示例在 Android、iOS 和 Harmony 上的实际运行效果。想直接上手，也可以打开 Web 端的[在线演示](https://didi.github.io/dimina/)。
 
-<table>
+<table width="100%">
   <thead>
     <tr>
-      <th align="center">Android</th>
-      <th align="center">iOS</th>
-      <th align="center">Harmony</th>
+      <th width="33.33%" align="center">Android</th>
+      <th width="33.33%" align="center">iOS</th>
+      <th width="33.33%" align="center">Harmony</th>
     </tr>
   </thead>
   <tbody>
     <tr>
-      <td align="center"><a href="./static/android.jpg"><img src="./static/android.jpg" width="240" alt="Dimina 官方组件示例运行在 Android"></a></td>
-      <td align="center"><a href="./static/ios.jpg"><img src="./static/ios.jpg" width="240" alt="Dimina 官方组件示例运行在 iOS"></a></td>
-      <td align="center"><a href="./static/harmony.jpg"><img src="./static/harmony.jpg" width="240" alt="Dimina 官方组件示例运行在 Harmony"></a></td>
+      <td width="33.33%" align="center"><a href="./static/android.jpg"><img src="./static/android.jpg" width="240" alt="Dimina 官方组件示例运行在 Android"></a></td>
+      <td width="33.33%" align="center"><a href="./static/ios.jpg"><img src="./static/ios.jpg" width="240" alt="Dimina 官方组件示例运行在 iOS"></a></td>
+      <td width="33.33%" align="center"><a href="./static/harmony.jpg"><img src="./static/harmony.jpg" width="240" alt="Dimina 官方组件示例运行在 Harmony"></a></td>
     </tr>
   </tbody>
 </table>

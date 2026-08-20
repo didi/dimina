@@ -27,19 +27,19 @@ Dimina is Didi's open-source framework for running mini programs across platform
 
 The screenshots below show the same “Official Components Showcase” example running on Android, iOS, and Harmony. To try it yourself, open the [live demo](https://didi.github.io/dimina/) in your browser.
 
-<table>
+<table width="100%">
   <thead>
     <tr>
-      <th align="center">Android</th>
-      <th align="center">iOS</th>
-      <th align="center">Harmony</th>
+      <th width="33.33%" align="center">Android</th>
+      <th width="33.33%" align="center">iOS</th>
+      <th width="33.33%" align="center">Harmony</th>
     </tr>
   </thead>
   <tbody>
     <tr>
-      <td align="center"><a href="./static/android.jpg"><img src="./static/android.jpg" width="240" alt="Dimina official component example running on Android"></a></td>
-      <td align="center"><a href="./static/ios.jpg"><img src="./static/ios.jpg" width="240" alt="Dimina official component example running on iOS"></a></td>
-      <td align="center"><a href="./static/harmony.jpg"><img src="./static/harmony.jpg" width="240" alt="Dimina official component example running on Harmony"></a></td>
+      <td width="33.33%" align="center"><a href="./static/android.jpg"><img src="./static/android.jpg" width="240" alt="Dimina official component example running on Android"></a></td>
+      <td width="33.33%" align="center"><a href="./static/ios.jpg"><img src="./static/ios.jpg" width="240" alt="Dimina official component example running on iOS"></a></td>
+      <td width="33.33%" align="center"><a href="./static/harmony.jpg"><img src="./static/harmony.jpg" width="240" alt="Dimina official component example running on Harmony"></a></td>
     </tr>
   </tbody>
 </table>

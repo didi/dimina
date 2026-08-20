@@ -1,8 +1,9 @@
 <script setup>
 // 承载网页的容器
 // https://developers.weixin.qq.com/miniprogram/dev/component/web-view.html
-import { isDesktop } from '@dimina/common'
+import { isAndroid, isDesktop } from '@dimina/common'
 import { invokeAPI, onEvent, triggerEvent, useInfo } from '@/common/events'
+import { ensureNativeLayerTouchBridge } from '@/common/nativeLayerTouchBridge'
 
 const props = defineProps({
 	id: { type: String, default: () => `webview-${useId()}` },
@@ -20,6 +21,29 @@ const url = computed(() => props.src
 const type = 'native/webview'
 const info = useInfo()
 const nativeEventOffs = []
+let syncFrameId = 0
+let lastRectKey = ''
+let resizeObserver
+let nativeMounted = false
+
+function getRect() {
+	const element = rootRef.value
+	if (!element) return {}
+
+	const rect = element.getBoundingClientRect()
+	return {
+		left: rect.left,
+		top: rect.top,
+		width: rect.width,
+		height: rect.height,
+		pageLeft: rect.left + window.scrollX,
+		pageTop: rect.top + window.scrollY,
+		scrollX: window.scrollX,
+		scrollY: window.scrollY,
+		viewportWidth: window.innerWidth,
+		viewportHeight: window.innerHeight,
+	}
+}
 
 function getEventAttrs() {
 	const eventAttrs = {}
@@ -37,6 +61,9 @@ function getNativeParams() {
 		url: url.value,
 		src: url.value,
 		id: props.id,
+		bridgeId: info.bridgeId,
+		hidden: rootRef.value?.hasAttribute('hidden') || false,
+		rect: getRect(),
 		attributes: {
 			moduleId: info.moduleId,
 			attrs: getEventAttrs(),
@@ -56,7 +83,27 @@ function getNativeParams() {
 
 function invokeNative(apiName) {
 	if (isDesktop) return
+	if (apiName === 'propsUpdate' && !nativeMounted) return
 	invokeAPI(apiName, { bridgeId: info.bridgeId, params: getNativeParams() })
+}
+
+function syncRect(force = false) {
+	const rectKey = JSON.stringify({
+		...getRect(),
+		hidden: rootRef.value?.hasAttribute('hidden') || false,
+	})
+	if (force || rectKey !== lastRectKey) {
+		lastRectKey = rectKey
+		invokeNative('propsUpdate')
+	}
+}
+
+function scheduleSyncRect() {
+	if (syncFrameId) return
+	syncFrameId = requestAnimationFrame(() => {
+		syncFrameId = 0
+		syncRect()
+	})
 }
 
 function bindNativeEvent(nativeEvent, eventType, detailFactory = msg => msg) {
@@ -111,7 +158,19 @@ onMounted(() => {
 		fullUrl: msg.fullUrl,
 		id: msg.id,
 	}))
+	if (isAndroid) ensureNativeLayerTouchBridge()
+	nativeMounted = true
 	invokeNative('componentMount')
+	lastRectKey = JSON.stringify({
+		...getRect(),
+		hidden: rootRef.value?.hasAttribute('hidden') || false,
+	})
+	window.addEventListener('resize', scheduleSyncRect)
+	window.addEventListener('scroll', scheduleSyncRect, true)
+	if (window.ResizeObserver && rootRef.value) {
+		resizeObserver = new ResizeObserver(scheduleSyncRect)
+		resizeObserver.observe(rootRef.value)
+	}
 })
 
 watch(
@@ -121,7 +180,12 @@ watch(
 
 onBeforeUnmount(() => {
 	window.removeEventListener('message', handleDesktopMessage)
+	if (syncFrameId) cancelAnimationFrame(syncFrameId)
+	resizeObserver?.disconnect()
+	window.removeEventListener('resize', scheduleSyncRect)
+	window.removeEventListener('scroll', scheduleSyncRect, true)
 	invokeNative('componentUnmount')
+	nativeMounted = false
 	nativeEventOffs.splice(0).forEach(off => off())
 })
 </script>
@@ -137,7 +201,16 @@ onBeforeUnmount(() => {
 		@load="handleDesktopLoad"
 		@error="handleDesktopError"
 	/>
-	<embed v-else :id="id" ref="rootRef" v-bind="$attrs" class="dd-web-view" :type="type" />
+	<embed
+		v-else
+		:id="id"
+		ref="rootRef"
+		v-bind="$attrs"
+		class="dd-web-view"
+		:type="type"
+		:data-dimina-native-id="id"
+		:data-dimina-native-type="type"
+	/>
 </template>
 
 <style lang="scss">
