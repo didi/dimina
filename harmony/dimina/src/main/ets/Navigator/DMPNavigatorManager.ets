@@ -81,6 +81,14 @@ export class DMPNavigatorManager {
     return this.globalPageRecordStack.peek()
   }
 
+  dispatchPageShow(webViewId: number) {
+    this.getCurNavigator()?.getNavigator().dispatchPageShow(webViewId)
+  }
+
+  dispatchPageHide(webViewId: number) {
+    this.getCurNavigator()?.getNavigator().dispatchPageHide(webViewId)
+  }
+
   getPageRecordById(webViewId: number): DMPPageRecord | undefined {
     const record = this.webViewIdAndPageRecordMaps.get(webViewId);
     if (!record) {
