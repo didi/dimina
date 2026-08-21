@@ -14,9 +14,9 @@
 #define LOGD(...) ((void)0)
 #endif
 
-/* ─── Android / Harmony (real EGL) ─────────────────────────────────────── */
+/* ─── Android / Harmony / iOS (real EGL) ─────────────────────────────── */
 
-#if defined(DIMINA_PLATFORM_ANDROID) || defined(DIMINA_PLATFORM_HARMONY)
+#if defined(DIMINA_PLATFORM_ANDROID) || defined(DIMINA_PLATFORM_HARMONY) || defined(DIMINA_PLATFORM_IOS)
 
 int egl_init(EGLState *state) {
     /* Skip if already initialized — prevents leaking EGL contexts on retry */
@@ -25,7 +25,28 @@ int egl_init(EGLState *state) {
         return 0;
     }
 
+#if defined(DIMINA_PLATFORM_IOS)
+    /* ANGLE on iOS: request the Metal backend via eglGetPlatformDisplayEXT.
+       This creates an EGL display backed by Metal, translating all GLES2
+       calls to Metal API internally. */
+    PFNEGLGETPLATFORMDISPLAYEXTPROC eglGetPlatformDisplayEXT =
+        (PFNEGLGETPLATFORMDISPLAYEXTPROC)eglGetProcAddress("eglGetPlatformDisplayEXT");
+    if (eglGetPlatformDisplayEXT) {
+        EGLint displayAttribs[] = {
+            EGL_PLATFORM_ANGLE_TYPE_ANGLE, EGL_PLATFORM_ANGLE_TYPE_METAL_ANGLE,
+            EGL_NONE
+        };
+        state->display = eglGetPlatformDisplayEXT(
+            EGL_PLATFORM_ANGLE_ANGLE, EGL_DEFAULT_DISPLAY, displayAttribs);
+    }
+    if (state->display == EGL_NO_DISPLAY) {
+        /* Fallback to default display if platform extension unavailable */
+        state->display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+    }
+#else
     state->display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+#endif
+
     if (state->display == EGL_NO_DISPLAY) {
         LOGE("egl_init: eglGetDisplay failed");
         return -1;
@@ -135,19 +156,5 @@ void egl_cleanup(EGLState *state) {
     state->display = EGL_NO_DISPLAY;
     state->ownsDisplay = false;
 }
-
-#elif defined(DIMINA_PLATFORM_IOS)
-
-/*
- * iOS: ANGLE EGL or Metal backend — stub implementation.
- * The real ANGLE initialization is in platform/ios/canvas_metal_angle.mm
- */
-
-int  egl_init(EGLState *) { return 0; }
-int  egl_create_surface(EGLState *, void *) { return 0; }
-void egl_destroy_surface(EGLState *) {}
-int  egl_make_current(EGLState *) { return 0; }
-void egl_swap_buffers(EGLState *) {}
-void egl_cleanup(EGLState *) {}
 
 #endif

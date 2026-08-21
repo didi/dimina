@@ -70,7 +70,7 @@ private final class DMPIOSNativeComponentHost {
     private let webViewId: Int
     private let overlayView = DMPPassthroughView()
     private var videos: [String: DMPIOSNativeVideoComponent] = [:]
-    private var canvases: [String: NativeCanvasView] = [:]
+    private var canvasGLViews: [String: NativeCanvasGLView] = [:]
     private var scrollObservation: NSKeyValueObservation?
 
     static func host(for webview: DMPWebview, app: DMPApp, webViewId: Int) -> DMPIOSNativeComponentHost {
@@ -142,12 +142,12 @@ private final class DMPIOSNativeComponentHost {
         scrollObservation = nil
         videos.values.forEach { $0.release() }
         videos.removeAll()
-        canvases.forEach { (id, view) in
-            CanvasManager.shared.unregister(id)
-            view.clearAll()
+        canvasGLViews.forEach { (id, view) in
+            CanvasImageLoader.shared.unregisterView(nodeId: id)
+            view.destroy()
             view.removeFromSuperview()
         }
-        canvases.removeAll()
+        canvasGLViews.removeAll()
         overlayView.removeFromSuperview()
     }
 
@@ -174,20 +174,46 @@ private final class DMPIOSNativeComponentHost {
         video.view.removeFromSuperview()
     }
 
-    // MARK: - Canvas
+    // MARK: - Canvas (NativeCanvasGLView — NanoVG + GLES2 via ANGLE)
 
     private func mountCanvas(id: String, params: DMPMap) {
-        let canvasView = canvases[id] ?? NativeCanvasView()
-        if canvases[id] == nil {
-            canvases[id] = canvasView
-            overlayView.addSubview(canvasView)
-            CanvasManager.shared.register(id, canvasView)
+        let glView: NativeCanvasGLView
+        if let existing = canvasGLViews[id] {
+            glView = existing
+        } else {
+            glView = NativeCanvasGLView()
+            canvasGLViews[id] = glView
+            overlayView.addSubview(glView)
         }
-        updateCanvasLayout(id: id, params: params)
+
+        // Calculate layout first so the view has non-zero bounds for the GL surface
+        if let frame = calculateLayout(params) {
+            let hidden = params.getBool(key: "hidden") ?? false
+            glView.isHidden = hidden
+            glView.frame = frame
+        }
+
+        // Determine canvas drawing buffer size from params
+        let rect = params.getDMPMap(key: "rect")
+        let scale = UIScreen.main.scale
+        let width = Int((rect?.getDouble(key: "width") ?? Double(glView.bounds.width)) * scale)
+        let height = Int((rect?.getDouble(key: "height") ?? Double(glView.bounds.height)) * scale)
+
+        if width > 0 && height > 0 {
+            glView.initCanvas(nodeId: id, width: width, height: height)
+
+            // Register with CanvasImageLoader for image downloads
+            CanvasImageLoader.shared.registerView(nodeId: id, view: glView)
+
+            // Bind GL handle to DMPEngineCanvas so JS ops route to this canvas
+            if let canvas = glView.getCanvasHandle() {
+                app?.service?.getEngine().canvasBindings.setCanvasGLHandle(nodeId: id, glCanvas: canvas)
+            }
+        }
     }
 
     private func updateCanvas(id: String, params: DMPMap) {
-        if canvases[id] != nil {
+        if canvasGLViews[id] != nil {
             updateCanvasLayout(id: id, params: params)
         } else {
             mountCanvas(id: id, params: params)
@@ -195,18 +221,19 @@ private final class DMPIOSNativeComponentHost {
     }
 
     private func unmountCanvas(id: String) {
-        guard let canvasView = canvases.removeValue(forKey: id) else { return }
-        CanvasManager.shared.unregister(id)
-        canvasView.clearAll()
-        canvasView.removeFromSuperview()
+        guard let glView = canvasGLViews.removeValue(forKey: id) else { return }
+        CanvasImageLoader.shared.unregisterView(nodeId: id)
+        app?.service?.getEngine().canvasBindings.removeCanvasState(nodeId: id)
+        glView.destroy()
+        glView.removeFromSuperview()
     }
 
     private func updateCanvasLayout(id: String, params: DMPMap) {
-        guard let canvasView = canvases[id],
+        guard let glView = canvasGLViews[id],
               let frame = calculateLayout(params) else { return }
         let hidden = params.getBool(key: "hidden") ?? false
-        canvasView.isHidden = hidden
-        canvasView.frame = frame
+        glView.isHidden = hidden
+        glView.frame = frame
     }
 
     fileprivate func updateLayouts() {

@@ -19,6 +19,9 @@ public class DMPEngine: NSObject {
 
     /// Timer state is engine-scoped. No other mini program can cancel this manager's sources.
     private let timerManager = DMPEngineTimer()
+
+    /// Canvas bindings — manages native GL canvas state and JS interop.
+    let canvasBindings = DMPEngineCanvas()
     
     private var jsThread: Thread
     private let jsThreadStopped = DispatchSemaphore(value: 0)
@@ -131,10 +134,8 @@ public class DMPEngine: NSObject {
         DMPEngineInvoke.registerInvoke(to: context, appResolver: resolver)
         DMPEnginePublish.registerPublish(to: context, appResolver: resolver)
 
-        // Register __GLCanvas stub for NanoVG + GL canvas detection.
-        // When the GL canvas backend is integrated, 'available' will be set to true
-        // and createCanvas/destroyCanvas will be implemented with real GL bindings.
-        context.evaluateScript("globalThis.__GLCanvas = { available: false };")
+        // Register __GLCanvas with native canvas bindings (NanoVG + GLES2 via ANGLE).
+        canvasBindings.register(to: context, engine: self)
 
     }
 
@@ -189,6 +190,12 @@ public class DMPEngine: NSObject {
                 }
             }
         }
+    }
+
+    /// Internal access for canvas subsystem (CanvasImageLoader needs to schedule
+    /// image uploads on the JS thread which owns the EGL context).
+    func performOnJSThreadInternal(_ closure: @escaping () -> Void) {
+        performOnJSThread(closure)
     }
 
     private func performOnJSThread(_ closure: @escaping () -> Void) {
@@ -246,6 +253,7 @@ public class DMPEngine: NSObject {
             let teardown = { [weak self] in
                 guard let self else { return }
                 self.timerManager.clearAllTimers()
+                self.canvasBindings.cleanup()
                 self.jsContext?.exception = nil
                 self.jsContext = nil
                 self.setThreadRunning(false)

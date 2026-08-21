@@ -139,7 +139,8 @@ class CanvasManager {
             }
 
             "imageSetSrc" -> {
-                // Phase 2 feature
+                // Handled by CanvasImageLoader for GL path (native canvas).
+                // For software canvas fallback, this remains a no-op.
             }
         }
     }

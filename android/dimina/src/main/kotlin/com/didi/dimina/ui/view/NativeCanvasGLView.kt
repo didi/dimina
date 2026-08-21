@@ -37,6 +37,10 @@ class NativeCanvasGLView @JvmOverloads constructor(
     var nodeId: String = ""
         private set
 
+    /** The instanceId of the QuickJSEngine this canvas belongs to */
+    var instanceId: Int = -1
+        private set
+
     /** Whether the surface is currently available */
     private var surfaceAvailable = false
 
@@ -49,11 +53,12 @@ class NativeCanvasGLView @JvmOverloads constructor(
      * Initialize the GL canvas for a given nodeId and dimensions.
      * Called from CanvasManager when the canvas view is registered.
      */
-    fun initCanvas(nodeId: String, width: Int, height: Int) {
+    fun initCanvas(nodeId: String, width: Int, height: Int, instanceId: Int = -1) {
         this.nodeId = nodeId
+        this.instanceId = instanceId
         if (nativeHandle == 0L) {
             nativeHandle = nativeCreateCanvas(width, height)
-            Log.d(TAG, "initCanvas: nodeId=$nodeId size=${width}x${height} handle=$nativeHandle")
+            Log.d(TAG, "initCanvas: nodeId=$nodeId size=${width}x${height} handle=$nativeHandle instanceId=$instanceId")
         }
 
         // If surface is already available, init it now
@@ -66,6 +71,16 @@ class NativeCanvasGLView @JvmOverloads constructor(
      * Get the native canvas handle for use with canvas_bindings.cpp.
      */
     fun getNativeHandle(): Long = nativeHandle
+
+    /**
+     * Upload decoded image pixels to the native canvas.
+     * Called from CanvasImageLoader after downloading and decoding an image.
+     */
+    fun uploadImage(imageId: String, rgba: ByteArray, width: Int, height: Int, callbackId: String) {
+        if (nativeHandle != 0L) {
+            nativeUploadImage(nodeId, imageId, rgba, width, height, callbackId)
+        }
+    }
 
     // ─── SurfaceTextureListener ─────────────────────────────────────
 
@@ -135,4 +150,8 @@ class NativeCanvasGLView @JvmOverloads constructor(
     private external fun nativeResize(handle: Long, width: Int, height: Int)
     private external fun nativeSwapBuffers(handle: Long)
     private external fun nativeBindCanvasToNode(nodeId: String, handle: Long)
+    private external fun nativeUploadImage(
+        nodeId: String, imageId: String, rgba: ByteArray,
+        width: Int, height: Int, callbackId: String
+    )
 }

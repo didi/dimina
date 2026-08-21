@@ -14,52 +14,14 @@
 #include "cutils.h"
 #include "libregexp.h"
 #include "libunicode.h"
-
-// Define log tag for Android logging
-#define LOG_TAG "QuickJSEngine(cpp)"
+#include "engine_common.h"
+#include "canvas_bindings.h"
 
 // Logging interval for the event loop (log progress every N iterations)
 static const int EVENT_LOOP_LOG_INTERVAL = 100;
 
 // Global JavaVM pointer for JNI calls from any thread
-static JavaVM* gJavaVM = nullptr;
-
-// ============================================================================
-// RAII Helper Classes
-// ============================================================================
-
-// RAII wrapper for JNI environment with automatic thread attach/detach
-class JNIEnvGuard {
-private:
-    JNIEnv* env;
-    bool needsDetach;
-    
-public:
-    JNIEnvGuard() : env(nullptr), needsDetach(false) {
-        if (!gJavaVM) return;
-        
-        jint result = gJavaVM->GetEnv((void**)&env, JNI_VERSION_1_6);
-        if (result == JNI_EDETACHED) {
-            if (gJavaVM->AttachCurrentThread(&env, nullptr) == JNI_OK) {
-                needsDetach = true;
-            }
-        }
-    }
-    
-    ~JNIEnvGuard() {
-        if (needsDetach && gJavaVM) {
-            gJavaVM->DetachCurrentThread();
-        }
-    }
-    
-    JNIEnv* get() const { return env; }
-    operator JNIEnv*() const { return env; }
-    bool isValid() const { return env != nullptr; }
-    
-    // 禁止拷贝
-    JNIEnvGuard(const JNIEnvGuard&) = delete;
-    JNIEnvGuard& operator=(const JNIEnvGuard&) = delete;
-};
+JavaVM* gJavaVM = nullptr;
 
 // RAII wrapper for JSValue with automatic memory management
 class JSValueGuard {
@@ -102,9 +64,6 @@ extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
     return JNI_VERSION_1_6;
 }
 
-// Forward declaration
-struct EngineInstance;
-
 // Timer data structure for libuv
 struct TimerData {
     JSContext* ctx;
@@ -117,28 +76,16 @@ struct TimerData {
     bool isCleared = false;
 };
 
-// Structure to hold instance-specific data
-struct EngineInstance {
-    JSRuntime* runtime = nullptr;
-    JSContext* ctx = nullptr;
-    jobject engineObj = nullptr;
-    uv_loop_t* loop = nullptr;
-    std::unordered_map<int, TimerData*> timerCallbacks;
-    std::unordered_map<int, uv_timer_t*> uvTimers;
-    std::atomic<int> nextTimerId{1};
-    std::atomic<bool> shouldStop{false};
-};
-
 // Map to store engine instances by ID
-static std::unordered_map<int, EngineInstance*> gEngineInstances;
-static std::mutex gEngineInstancesMutex;
+std::unordered_map<int, EngineInstance*> gEngineInstances;
+std::mutex gEngineInstancesMutex;
 
 // ============================================================================
 // Helper Functions
 // ============================================================================
 
 // Helper function to get an engine instance by ID
-static EngineInstance* getEngineInstance(int instanceId) {
+EngineInstance* getEngineInstance(int instanceId) {
     std::lock_guard<std::mutex> lock(gEngineInstancesMutex);
     auto it = gEngineInstances.find(instanceId);
     if (it != gEngineInstances.end()) {
@@ -148,7 +95,7 @@ static EngineInstance* getEngineInstance(int instanceId) {
 }
 
 // Helper function to find engine instance by context
-static EngineInstance* findInstanceByContext(JSContext* ctx) {
+EngineInstance* findInstanceByContext(JSContext* ctx) {
     std::lock_guard<std::mutex> lock(gEngineInstancesMutex);
     for (const auto& pair : gEngineInstances) {
         if (pair.second->ctx == ctx) {
@@ -159,11 +106,11 @@ static EngineInstance* findInstanceByContext(JSContext* ctx) {
 }
 
 // Helper function to perform JSON.stringify on a JSValue
-static JSValue jsonStringify(JSContext* ctx, JSValue value) {
+JSValue jsonStringify(JSContext* ctx, JSValue value) {
     JSValueGuard global(ctx, JS_GetGlobalObject(ctx));
     JSValueGuard jsonObj(ctx, JS_GetPropertyStr(ctx, global.get(), "JSON"));
     JSValueGuard stringifyFunc(ctx, JS_GetPropertyStr(ctx, jsonObj.get(), "stringify"));
-    
+
     JSValueConst args[1] = { value };
     return JS_Call(ctx, stringifyFunc.get(), global.get(), 1, args);
 }
@@ -1119,19 +1066,6 @@ static void register_timer_functions(JSContext *ctx) {
     JS_FreeValue(ctx, global);
 }
 
-// Register __GLCanvas global object (stub for NanoVG + GL canvas detection)
-// When the GL canvas backend is integrated, the 'available' flag will be set to true
-// and createCanvas/destroyCanvas will be implemented with real GL bindings.
-static void register_gl_canvas(JSContext *ctx) {
-    JSValue global = JS_GetGlobalObject(ctx);
-    JSValue glCanvasObj = JS_NewObject(ctx);
-
-    JS_SetPropertyStr(ctx, glCanvasObj, "available", JS_FALSE);
-
-    JS_SetPropertyStr(ctx, global, "__GLCanvas", glCanvasObj);
-    JS_FreeValue(ctx, global);
-}
-
 // Register DiminaServiceBridge global object and methods
 static void register_dimina_service_bridge(JSContext *ctx) {
     // Create the DiminaServiceBridge object
@@ -1215,8 +1149,8 @@ Java_com_didi_dimina_engine_qjs_QuickJSEngine_nativeInitialize(
     // Register timer functions
     register_timer_functions(instance->ctx);
 
-    // Register __GLCanvas stub (NanoVG + GL canvas detection)
-    register_gl_canvas(instance->ctx);
+    // Register __GLCanvas with NanoVG + GL canvas bindings
+    registerGLCanvas(instance->ctx, instanceId);
     
     // Store pointers in Java object
     jclass cls = env->GetObjectClass(thiz);
@@ -1450,6 +1384,9 @@ Java_com_didi_dimina_engine_qjs_QuickJSEngine_nativeDestroy(
     env->SetLongField(thiz, runtimeField, 0L);
     env->SetLongField(thiz, loopField, 0L);
     
+    // Clean up canvas bindings before timer cleanup
+    cleanupCanvasBindings(instanceId);
+
     // Clean up all active timers
     for (auto& pair : instance->uvTimers) {
         uv_timer_stop(pair.second);

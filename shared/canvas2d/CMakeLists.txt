@@ -79,8 +79,12 @@ elseif(OHOS)
     )
     target_compile_definitions(dimina_canvas2d PRIVATE DIMINA_PLATFORM_HARMONY=1)
 elseif(APPLE)
-    # iOS: ANGLE or MetalNanoVG — linked by the host project
+    # iOS: ANGLE provides EGL + GLES2 backed by Metal.
+    # The host Xcode project must link libEGL.xcframework and libGLESv2.xcframework.
     target_compile_definitions(dimina_canvas2d PRIVATE DIMINA_PLATFORM_IOS=1)
+    if(ANGLE_INCLUDE_DIR)
+        target_include_directories(dimina_canvas2d PRIVATE ${ANGLE_INCLUDE_DIR})
+    endif()
 endif()
 
 # NANOVG_GLES2_IMPLEMENTATION is #define'd directly in nanovg_impl.c

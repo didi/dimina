@@ -131,6 +131,9 @@ class QuickJSEngine {
                 return@Thread
             }
 
+            // Register canvas callback for native → Kotlin communication
+            nativeRegisterCanvasCallback(instanceId)
+
             isRunning = true
             Log.d(tag, "QuickJS engine with libuv initialized on dedicated thread (instance ID: $instanceId)")
 
@@ -331,6 +334,34 @@ class QuickJSEngine {
     }
 
     /**
+     * Callback for canvas messages from native code (e.g., imageSetSrc).
+     * Set by the hosting app/module to handle image downloads etc.
+     */
+    var canvasMessageCallback: ((instanceId: Int, type: Int, json: String) -> String)? = null
+
+    /**
+     * Called from native canvas_bindings when a canvas operation needs
+     * the Java side (e.g., imageSetSrc for image download+decode).
+     * @param type 5 = imageSetSrc, 6 = evaluate script on JS thread
+     * @param json JSON payload (or script for type=6)
+     */
+    @Suppress("unused")
+    fun onCanvasMessage(type: Int, json: String): String {
+        if (type == 6) {
+            // Evaluate script on JS thread (fire-and-forget)
+            evaluateAsync(json) { /* no-op callback */ }
+            return ""
+        }
+        val callback = canvasMessageCallback
+        if (callback != null) {
+            mainHandler.post {
+                callback(instanceId, type, json)
+            }
+        }
+        return ""
+    }
+
+    /**
      * Native method declarations
      */
     private external fun nativeInitialize(instanceId: Int): Boolean
@@ -339,6 +370,7 @@ class QuickJSEngine {
     private external fun nativeRunEventLoop(instanceId: Int = this.instanceId)
     private external fun nativeStopEventLoop(instanceId: Int = this.instanceId)
     private external fun nativeDestroy(instanceId: Int)
+    private external fun nativeRegisterCanvasCallback(instanceId: Int)
 
     /**
      * Callbacks for invoke and publish methods

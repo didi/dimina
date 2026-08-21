@@ -6,6 +6,7 @@ import com.didi.dimina.common.JavaScriptUtils
 import com.didi.dimina.common.LogUtils
 import com.didi.dimina.engine.qjs.JSValue
 import com.didi.dimina.engine.qjs.QuickJSEngine
+import com.didi.dimina.ui.view.CanvasImageLoader
 import org.json.JSONObject
 
 /**
@@ -34,6 +35,17 @@ class JsCore {
         jsEngine = QuickJSEngine()
         val initialized = jsEngine.initialize()
         LogUtils.d(tag, "QuickJS engine initialized: $initialized")
+
+        if (initialized) {
+            // Wire canvas message callback for image loading
+            jsEngine.canvasMessageCallback = { instanceId, type, json ->
+                if (type == 5) {
+                    CanvasImageLoader.handleImageSetSrc(instanceId, json)
+                }
+                ""
+            }
+        }
+
         // Notify callback if provided
         callback?.invoke(initialized)
 

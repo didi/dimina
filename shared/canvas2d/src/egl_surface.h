@@ -1,9 +1,13 @@
 #ifndef DIMINA_EGL_SURFACE_H
 #define DIMINA_EGL_SURFACE_H
 
-#if defined(DIMINA_PLATFORM_ANDROID) || defined(DIMINA_PLATFORM_HARMONY)
+#if defined(DIMINA_PLATFORM_ANDROID) || defined(DIMINA_PLATFORM_HARMONY) || defined(DIMINA_PLATFORM_IOS)
 
 #include <EGL/egl.h>
+
+#if defined(DIMINA_PLATFORM_IOS)
+#include <EGL/eglext.h>
+#endif
 
 struct EGLState {
     EGLDisplay display  = EGL_NO_DISPLAY;
@@ -21,7 +25,7 @@ int egl_init(EGLState *state);
 
 /**
  * Create an on-screen EGL surface from a native window handle
- * (ANativeWindow on Android, OHNativeWindow on Harmony).
+ * (ANativeWindow on Android, OHNativeWindow on Harmony, CALayer on iOS via ANGLE).
  * Returns 0 on success.
  */
 int egl_create_surface(EGLState *state, void *native_window);
@@ -44,22 +48,6 @@ void egl_swap_buffers(EGLState *state);
 /**
  * Tear down everything (context + display).
  */
-void egl_cleanup(EGLState *state);
-
-#elif defined(DIMINA_PLATFORM_IOS)
-
-/* iOS uses ANGLE or Metal — EGL state is managed by platform-specific code */
-struct EGLState {
-    void *angleDisplay  = nullptr;
-    void *angleContext  = nullptr;
-    void *angleSurface  = nullptr;
-};
-
-int  egl_init(EGLState *state);
-int  egl_create_surface(EGLState *state, void *native_window);
-void egl_destroy_surface(EGLState *state);
-int  egl_make_current(EGLState *state);
-void egl_swap_buffers(EGLState *state);
 void egl_cleanup(EGLState *state);
 
 #endif

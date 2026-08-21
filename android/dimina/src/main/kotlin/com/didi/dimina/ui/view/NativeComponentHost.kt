@@ -500,20 +500,28 @@ class NativeComponentHost(
 
     private inner class NativeCanvasComponent(id: String) :
         BaseNativeComponent(id, CANVAS_TYPE) {
-        private val canvasView = NativeCanvasView(activity)
-        override val view: View = canvasView
+        private val glCanvasView = NativeCanvasGLView(activity)
+        override val view: View = glCanvasView
 
         init {
-            CanvasManager.instance.register(id, canvasView)
+            // Register with CanvasImageLoader for image download → upload flow
+            CanvasImageLoader.registerView(id, glCanvasView)
         }
 
         override fun update(params: JSONObject) {
             super.update(params)
+            // Initialize the GL canvas when layout dimensions become available
+            val rect = params.optJSONObject("rect")
+            if (rect != null && glCanvasView.getNativeHandle() == 0L) {
+                val w = rect.optInt("width", 300)
+                val h = rect.optInt("height", 150)
+                glCanvasView.initCanvas(id, w, h)
+            }
         }
 
         override fun release() {
-            CanvasManager.instance.unregister(id)
-            canvasView.clearAll()
+            CanvasImageLoader.unregisterView(id)
+            glCanvasView.destroy()
         }
     }
 

@@ -1169,6 +1169,67 @@ int dm_canvas_init_surface(DMCanvasRef canvas, void *native_window) {
         if (cjkId < 0) cjkId = nvgCreateFont(canvas->vg, "cjk", "/system/fonts/DroidSansFallback.ttf");
         if (cjkId >= 0 && sansId >= 0) nvgAddFallbackFontId(canvas->vg, sansId, cjkId);
         if (cjkId >= 0 && boldId >= 0) nvgAddFallbackFontId(canvas->vg, boldId, cjkId);
+#elif defined(DIMINA_PLATFORM_IOS)
+        /* iOS system fonts — located in the CoreServices framework bundle.
+           Try SF Pro (iOS 9+), then Helvetica as fallback. */
+        static const char *latinPaths[] = {
+            "/System/Library/Fonts/SFNS.ttf",
+            "/System/Library/Fonts/SFNSText.ttf",
+            "/System/Library/Fonts/HelveticaNeue.ttc",
+            "/System/Library/Fonts/Helvetica.ttc",
+            "/System/Library/Fonts/Core/Helvetica.ttc",
+            nullptr
+        };
+        int sansId = -1;
+        for (int i = 0; latinPaths[i]; i++) {
+            sansId = nvgCreateFont(canvas->vg, "sans", latinPaths[i]);
+            if (sansId >= 0) {
+                LOGD("dm_canvas_init_surface: loaded Latin font '%s' as 'sans' (id=%d)", latinPaths[i], sansId);
+                nvgCreateFont(canvas->vg, "sans-serif", latinPaths[i]);
+                nvgCreateFont(canvas->vg, "default", latinPaths[i]);
+                break;
+            }
+        }
+        /* CJK fallback for iOS */
+        static const char *cjkPaths[] = {
+            "/System/Library/Fonts/PingFang.ttc",
+            "/System/Library/Fonts/Core/PingFang.ttc",
+            "/System/Library/Fonts/STHeiti Light.ttc",
+            nullptr
+        };
+        int sansSerifId = -1, defaultId = -1;
+        if (sansId >= 0) {
+            sansSerifId = nvgFindFont(canvas->vg, "sans-serif");
+            defaultId = nvgFindFont(canvas->vg, "default");
+        }
+        for (int i = 0; cjkPaths[i]; i++) {
+            int cjkId = nvgCreateFont(canvas->vg, "cjk", cjkPaths[i]);
+            if (cjkId >= 0) {
+                LOGD("dm_canvas_init_surface: loaded CJK font '%s' (id=%d)", cjkPaths[i], cjkId);
+                if (sansId >= 0) nvgAddFallbackFontId(canvas->vg, sansId, cjkId);
+                if (sansSerifId >= 0) nvgAddFallbackFontId(canvas->vg, sansSerifId, cjkId);
+                if (defaultId >= 0) nvgAddFallbackFontId(canvas->vg, defaultId, cjkId);
+                break;
+            }
+        }
+        /* Bold variant */
+        static const char *boldPaths[] = {
+            "/System/Library/Fonts/SFNS-Bold.ttf",
+            "/System/Library/Fonts/SFNSText-Bold.ttf",
+            "/System/Library/Fonts/HelveticaNeue.ttc",
+            nullptr
+        };
+        int boldId = -1;
+        for (int i = 0; boldPaths[i]; i++) {
+            boldId = nvgCreateFont(canvas->vg, "sans-bold", boldPaths[i]);
+            if (boldId >= 0) {
+                LOGD("dm_canvas_init_surface: loaded bold font '%s' (id=%d)", boldPaths[i], boldId);
+                break;
+            }
+        }
+        if (sansId < 0) {
+            LOGE("dm_canvas_init_surface: WARNING — no system font found, text rendering will fail");
+        }
 #endif
     }
 
