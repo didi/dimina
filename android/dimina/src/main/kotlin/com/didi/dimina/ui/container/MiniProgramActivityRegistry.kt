@@ -30,6 +30,20 @@ internal class MiniProgramActivityRegistry<T> {
         activities.asReversed().forEach(close)
     }
 
+    /** Closes at most [delta] pages from the top while always keeping the root page. */
+    fun closeTopPages(appId: String, delta: Int, close: (T) -> Unit) {
+        val toClose = synchronized(this) {
+            val activities = activitiesByAppId[appId]?.toList().orEmpty()
+            val closeCount = delta.coerceAtLeast(1).coerceAtMost((activities.size - 1).coerceAtLeast(0))
+            val selected = activities.takeLast(closeCount).asReversed()
+            if (selected.isNotEmpty()) {
+                activitiesByAppId[appId] = LinkedHashSet(activities.dropLast(closeCount))
+            }
+            selected
+        }
+        toClose.forEach(close)
+    }
+
     /**
      * 关闭 [appId] 下除 [keep] 匹配到的那个之外的所有 Activity（多个匹配时取注册
      * 顺序里第一个）。保留的 Activity 继续留在账本里，其余按 [closeAll] 同样的

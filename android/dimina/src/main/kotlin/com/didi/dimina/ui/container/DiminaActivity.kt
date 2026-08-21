@@ -7,7 +7,9 @@ import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
 import android.content.res.Resources
+import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -98,6 +100,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.Lifecycle
 import com.didi.dimina.Dimina
 import com.didi.dimina.api.device.ScanCodeOptions
 import com.didi.dimina.bean.AppConfig
@@ -110,6 +113,7 @@ import com.didi.dimina.bean.TabBarItem
 import com.didi.dimina.common.BundledResourcePolicy
 import com.didi.dimina.common.LogUtils
 import com.didi.dimina.common.MenuButtonLayout
+import com.didi.dimina.common.PageOrientation
 import com.didi.dimina.common.PathUtils
 import com.didi.dimina.common.Utils
 import com.didi.dimina.common.VersionUtils
@@ -142,6 +146,11 @@ import kotlin.math.sin
  */
 class DiminaActivity : ComponentActivity() {
     private val tag = "DiminaActivity"
+    // Host-owned capability gate.
+    // The default false path retains the SDK's historical manifest portrait policy and does not register or invoke any of the new orientation machinery.
+    private val pageOrientationEnabled: Boolean by lazy {
+        Dimina.getInstance().isPageOrientationEnabled()
+    }
     private val isLoading = mutableStateOf(true)
 
     // UI state for navigation bar
@@ -158,6 +167,19 @@ class DiminaActivity : ComponentActivity() {
     private val currentPagePath = mutableStateOf("")
     private val homeButtonHiddenForPage = mutableStateOf(false)
     private val homeButtonForcedByConfig = mutableStateOf(false)
+    // pageShow 必须排在返回页面的新窗口尺寸写入 service 之后，但只有在容器能证明窗口接下来一定会转时才押后（判据见 defersPageShowFor）。
+    // 押后与放行的所有权在这里。
+    private val pageShowGate = PageShowGate<Bridge>()
+
+    /**
+     * 路由已经落地、几何却还没报出去的那一页。
+     * 窗口按新配置布局出来的时刻晚于 onResume，这时先记下，由下一次布局回调补发（见 [notifyPageShowAfterGeometrySettles]）。
+     */
+    private var pageAwaitingRouteGeometry: Bridge? = null
+    private val windowLayoutListener =
+        View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            reportWindowGeometryIfSettled()
+        }
     private val useTabBarContainer = mutableStateOf(false)
     private val loadedTabIndices = mutableStateOf<Set<Int>>(emptySet())
 
@@ -420,6 +442,23 @@ class DiminaActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
+        // decorView 的布局就是这个窗口"几何已经生效"的那一刻，页面尺寸变化以它为准。
+        // 能力关闭时不挂新监听，升级 SDK 的旧宿主继续保持原有资源账本。
+        if (pageOrientationEnabled) {
+            warnIfManifestCannotHandleRotation()
+            window.decorView.addOnLayoutChangeListener(windowLayoutListener)
+        }
+
+        // app.json 与页面配置要等资源解压、配置读取跑完才拿得到（异步链，末尾是 setInitialStyle）。
+        // 在那之前这个 Activity 没有提出任何方向请求，系统按传感器决定，于是启动画面会先落在一个方向、配置到位后再猛地转过去。
+        // 站内跳转（navigateTo/reLaunch）的发起方手里已经有 appConfig，会把解算好的方向随 intent 带过来，这里直接用；宿主首次拉起小程序时没人知道配置，退回微信的默认值
+        if (pageOrientationEnabled) {
+            val launchOrientation = intent.getStringExtra(LAUNCH_PAGE_ORIENTATION_KEY)
+            applyPageOrientation(
+                if (PageOrientation.isValid(launchOrientation)) launchOrientation!! else PageOrientation.DEFAULT,
+            )
+        }
+
         // 获取屏幕高度
         screenHeight = resources.displayMetrics.heightPixels
 
@@ -509,10 +548,11 @@ class DiminaActivity : ComponentActivity() {
         }
 
         // 若这个 Activity 实例被复用（intent 落到已存在的顶层实例）：全部页面实例作废，
-        // 页面级 hideHomeButton 标记随之重置（TabPageState 会被 switchTab/updatePath 复用，
-        // 不重置会把旧页面实例的隐藏标记带进新页面）
+        // 页面级 hideHomeButton/pageOrientation 覆盖随之重置（TabPageState 会被 switchTab/updatePath 复用，不重置会把旧页面实例的标记带进新页面）
         homeButtonHiddenForPage.value = false
-        tabPageStates.values.forEach { it.homeButtonHidden.value = false }
+        tabPageStates.values.forEach {
+            it.homeButtonHidden.value = false
+        }
 
         if (isTabBarPageUrl(url)) {
             switchTab(url)
@@ -669,6 +709,8 @@ class DiminaActivity : ComponentActivity() {
     private fun createBridge(options: BridgeOptions, setAsActive: Boolean = true): Bridge {
         val bridge = Bridge(options = options, parent = this)
         bridge.init()
+        // 路由落地那次几何上报跟着「pageShow 确实送到 service」这个事实走，不跟着容器调没调 pageShow 走：新建页的 pageShow 是 Bridge 自己在资源装好时发的。
+        bridge.onPageShownToService = { shown -> runOnUiThread { reportRouteGeometry(shown) } }
         if (setAsActive) {
             this.bridge = bridge
         }
@@ -677,6 +719,7 @@ class DiminaActivity : ComponentActivity() {
     }
 
 
+    /** 换页时重设页面样式，页面栈每次转移都从这里应用配置方向。 */
     private fun setInitialStyle(config: MergedPageConfig) {
         // Set navigation bar visibility based on navigationStyle
         showNavigationBar.value = config.navigationStyle != "custom"
@@ -685,6 +728,8 @@ class DiminaActivity : ComponentActivity() {
         // 的页面身份一变就会重置
         homeButtonHiddenForPage.value = false
         homeButtonForcedByConfig.value = config.homeButton
+
+        applyPageOrientation(config.pageOrientation)
 
         // Set navigation bar title
         navigationBarTitle.value = config.navigationBarTitleText
@@ -700,6 +745,245 @@ class DiminaActivity : ComponentActivity() {
 
         // Update status bar style based on text style
         this.updateActionColorStyle(config.navigationBarTextStyle)
+    }
+
+    /**
+     * 全仓唯一调用 [setRequestedOrientation] 的地方。
+     * `auto` 直接映射到 USER 交给系统处理，不在这里折算设备当前朝向。
+     */
+    private fun applyPageOrientation(configured: String) {
+        if (!pageOrientationEnabled) {
+            return
+        }
+        requestedOrientation = PageOrientation.toRequestedOrientation(configured)
+    }
+
+    /**
+     * 配置变化（configChanges 声明的类目触发，Activity 不重建）只是重新判定的触发点之一，不直接上报：Configuration 与窗口布局不是同一时刻的事实，见 [reportWindowGeometryIfSettled]
+     */
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        if (pageOrientationEnabled) {
+            reportWindowGeometryIfSettled()
+        }
+    }
+
+    /** 窗口此刻的几何：既有 decorView 布局出来的像素尺寸，也有页面用的安全区尺寸。 */
+    private data class WindowGeometry(
+        val laidOutWidth: Int,
+        val laidOutHeight: Int,
+        val screenWidth: Int,
+        val screenHeight: Int,
+        val windowWidth: Int,
+        val windowHeight: Int,
+        val deviceOrientation: String,
+    )
+
+    /**
+     * 读当前窗口几何。
+     * 尺寸由 Utils.getMiniProgramSystemInfo 计算，与 getSystemInfo 同一套算法，避免两处分叉（windowHeight 是扣掉状态栏/导航栏后的安全区高度，本就不等于 WebView 的像素尺寸，所以判据校验的是方向而不是逐像素比对）。
+     */
+    private fun currentWindowGeometry(): WindowGeometry? {
+        val decorView = window?.decorView ?: return null
+        val laidOutWidth = decorView.width
+        val laidOutHeight = decorView.height
+        if (laidOutWidth <= 0 || laidOutHeight <= 0) {
+            return null
+        }
+
+        val systemInfo = Utils.getMiniProgramSystemInfo(this)
+        val screenWidth = systemInfo.getInt("screenWidth")
+        val screenHeight = systemInfo.getInt("screenHeight")
+        val windowWidth = systemInfo.getInt("windowWidth")
+        val windowHeight = systemInfo.getInt("windowHeight")
+        // getMiniProgramSystemInfo 在 Configuration.ORIENTATION_UNDEFINED 时报告 "undefined"；pageResize 的 deviceOrientation 只接受 portrait/landscape，与 runtime.js 里"缺失时按宽高比兜底"的规则保持一致
+        val deviceOrientation = when (val raw = systemInfo.getString("deviceOrientation")) {
+            "portrait", "landscape" -> raw
+            else -> if (windowWidth > windowHeight) "landscape" else "portrait"
+        }
+        return WindowGeometry(
+            laidOutWidth,
+            laidOutHeight,
+            screenWidth,
+            screenHeight,
+            windowWidth,
+            windowHeight,
+            deviceOrientation,
+        )
+    }
+
+    /**
+     * 把一份几何送给指定页面，并按送达与否记账。
+     *
+     * 账本记的是「service 已经知道的几何」。
+     * service 资源还没起来时这条上报无处可去，记了就会让下一次同尺寸的布局被判成「没变过」而永久丢失，所以只有真送出去才记。
+     */
+    private fun sendGeometry(target: Bridge, geometry: WindowGeometry) {
+        val sent = target.pageResize(
+            geometry.screenWidth,
+            geometry.screenHeight,
+            geometry.windowWidth,
+            geometry.windowHeight,
+            geometry.deviceOrientation,
+            target.options.configInfo.pageOrientation,
+        )
+        if (!sent) {
+            return
+        }
+        windowGeometryLedger.record(miniProgram.appId, geometry.laidOutWidth, geometry.laidOutHeight)
+        if (pageAwaitingRouteGeometry === target) {
+            pageAwaitingRouteGeometry = null
+        }
+    }
+
+    /**
+     * 把当前窗口几何上报给可见页的 service 线程，前提是这份几何确实已经布局出来。
+     * 触发点取 decorView 的实际布局（[windowLayoutListener]）与配置变化两者，该不该上报由 [WindowGeometryGate] 判定。
+     *
+     * 后台 Activity 也会收到配置变化带来的布局回调，此时上报会把这一页的几何冒充成当前页的，所以先要求自己确实在前台。
+     */
+    private fun reportWindowGeometryIfSettled() {
+        if (!lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+            return
+        }
+        // 没有可送达的页面时这次几何谁也到不了 service，也没有押着的 pageShow 可以放行。
+        val activeBridge = getActiveBridge() ?: return
+        val geometry = currentWindowGeometry() ?: return
+
+        val decision = windowGeometryLedger.decide(
+            appId = miniProgram.appId,
+            laidOutWidth = geometry.laidOutWidth,
+            laidOutHeight = geometry.laidOutHeight,
+            deviceOrientation = { geometry.deviceOrientation },
+        )
+
+        when (decision) {
+            WindowGeometryGate.Decision.NotSettled -> return
+
+            is WindowGeometryGate.Decision.Report -> {
+                // 页面要先 show 才会被 service 登记成 Page.onResize 的收件人，所以先放行押着的 pageShow，再把新几何送出去——顺序是路由先落地、随后才报几何。
+                // 放行真的送出 pageShow 时，Bridge 的回调已经把这同一份几何当作路由落地报过并记进了账本，所以下面再判一次账本，只补那条还没送出去的窗口变化。
+                pageShowGate.release(activeBridge)?.pageShow()
+                if (
+                    windowGeometryLedger.decide(
+                        appId = miniProgram.appId,
+                        laidOutWidth = geometry.laidOutWidth,
+                        laidOutHeight = geometry.laidOutHeight,
+                        deviceOrientation = { geometry.deviceOrientation },
+                    ) is WindowGeometryGate.Decision.Report
+                ) {
+                    sendGeometry(activeBridge, geometry)
+                }
+            }
+
+            WindowGeometryGate.Decision.Ignore,
+            is WindowGeometryGate.Decision.Baseline -> {
+                // 窗口的第一份几何不是一次变化，不上报，但 service 从一开始就知道它——路由落地那条上报送的就是这一份。
+                // 直接认下，后面同尺寸的布局才判得出「没变过」。
+                if (decision is WindowGeometryGate.Decision.Baseline) {
+                    windowGeometryLedger.record(
+                        miniProgram.appId,
+                        geometry.laidOutWidth,
+                        geometry.laidOutHeight,
+                    )
+                }
+                // 几何没动，窗口通道没事可做。
+                // 放行出去的 pageShow 由 Bridge 的回调带上这份几何，这里只补一次曾经报不出去（service 资源还没起来、或窗口还没按新配置布局好）的路由上报。
+                // 押着的 pageShow 要重新判一次它在等什么：窗口还没转到这一页的轴就继续等那次转屏（否则 onShow 读到的正是押后要避开的旧几何）；已经在这个轴上就没什么可等了——请求被系统忽略、或这一页本来就与当前方向一致——必须放行，不然没有任何回调会再来放它。
+                val shown = if (defersPageShowFor(activeBridge)) {
+                    null
+                } else {
+                    pageShowGate.release(activeBridge)
+                }
+                shown?.pageShow()
+                if (pageAwaitingRouteGeometry === activeBridge) {
+                    sendGeometry(activeBridge, geometry)
+                }
+            }
+        }
+    }
+
+    /**
+     * 能力打开却没在宿主 manifest 里覆盖 library 的声明时把话说明白。
+     *
+     * library 的 `DiminaActivity` 声明是 `screenOrientation="portrait"` 且不带 `configChanges`——能力关闭时窗口永远不转，这两条都不起作用。
+     * 一旦打开，缺 `configChanges` 会让每次旋转直接重建 Activity：WebView 连同页面栈被销毁重来，表现是「转屏后小程序重新加载」，而不是任何一处代码报错。
+     * 宿主要加的声明写在 docs/page-orientation.md 与 android/README.md。
+     */
+    private fun warnIfManifestCannotHandleRotation() {
+        val required = ActivityInfo.CONFIG_ORIENTATION or ActivityInfo.CONFIG_SCREEN_SIZE
+        val declared = runCatching {
+            packageManager.getActivityInfo(componentName, 0).configChanges
+        }.getOrNull() ?: return
+
+        if (declared and required != required) {
+            LogUtils.e(
+                tag,
+                "pageOrientation is enabled but ${componentName.className} does not declare " +
+                    "android:configChanges=\"orientation|screenSize|...\"; every rotation will " +
+                    "recreate the Activity and reload the mini program. See android/README.md.",
+            )
+        }
+    }
+
+    /**
+     * 这一页上屏时窗口会不会转。
+     * 能力关闭时容器从不请求方向，窗口不可能因为换页而动，判据恒为假——押后就没有放行者。
+     */
+    private fun defersPageShowFor(target: Bridge): Boolean {
+        if (!pageOrientationEnabled) {
+            return false
+        }
+        // 分屏/自由窗口/画中画里系统直接忽略 setRequestedOrientation，窗口不会因为这次请求转向；押后就没有任何回调会来放行，这一页的 onShow 永远不会触发。
+        // 押后的前提是能证明窗口会转，多窗口下证明不了，所以就地放行——代价只是 onShow 读到的还是当前几何，而这本来就是多窗口下会一直保持的几何。
+        if (isInMultiWindowMode) {
+            return false
+        }
+        val windowIsLandscape =
+            resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        return PageOrientation.defersPageShow(
+            target.options.configInfo.pageOrientation,
+            windowIsLandscape,
+        )
+    }
+
+    // 这里不报几何：路由落地那一条由 Bridge.onPageShownToService 在 pageShow 真的送到 service 的那一刻报（见 createBridge）。
+    // 新建页的 pageShow 根本不经过这道门—— 资源装好时 Bridge 自己就发了，几何上报必须跟着那个事实走。
+    private fun notifyPageShowAfterGeometrySettles(target: Bridge) {
+        val showNow = pageShowGate.arm(target, defer = defersPageShowFor(target))
+        if (showNow != null) {
+            showNow.pageShow()
+            return
+        }
+        reportWindowGeometryIfSettled()
+    }
+
+    /**
+     * 路由落地后把当前页所在窗口的几何报一次，不比对几何：`Page.onResize` 的收件人由宿主指名，每次路由（含 appLaunch）都报落点页。
+     * 缓存页回到一个「它自己没变、窗口也没再动」的几何时，只有这一条能让它收到。
+     */
+    private fun reportRouteGeometry(showNow: Bridge) {
+        if (!pageOrientationEnabled) {
+            return
+        }
+        // 只报当前页。
+        // 后台 Activity 里的 bridge 也会在自己资源装好时发出 pageShow，拿它的几何上报就是把另一个窗口的尺寸冒充成当前页的——`Page.onResize` 的收件人由宿主指名，指错了就再也纠正不回来。
+        if (getActiveBridge() !== showNow) {
+            return
+        }
+        pageAwaitingRouteGeometry = showNow
+        // 转屏落在 onResume 之后，这一刻窗口可能还没按新配置布局出来；报不出去就留着，由下一次布局回调补发。
+        // 这里不能走 reportWindowGeometryIfSettled：onResume 期间生命周期还没进 RESUMED（ON_RESUME 在 Activity.onResume 返回后才派发）。
+        val geometry = currentWindowGeometry() ?: return
+        if (!WindowGeometryGate.isSettled(
+                geometry.laidOutWidth,
+                geometry.laidOutHeight,
+                geometry.deviceOrientation,
+            )
+        ) {
+            return
+        }
+        sendGeometry(showNow, geometry)
     }
 
     private fun parseCssColor(value: String, fallback: Color = Color.White): Color {
@@ -868,7 +1152,7 @@ class DiminaActivity : ComponentActivity() {
         activateTabState(targetIndex)
 
         if (!wasUsingTabBarContainer || previousIndex != targetIndex) {
-            targetState.bridge?.pageShow()
+            targetState.bridge?.let(::notifyPageShowAfterGeometrySettles)
         }
     }
 
@@ -1347,7 +1631,9 @@ class DiminaActivity : ComponentActivity() {
                 if (!state.bridgeStarted) {
                     LogUtils.d(tag, "Tab page loaded, starting bridge: index=$index")
                     state.bridgeStarted = true
-                    tabBridge.start()
+                    // webview 就绪是异步的，这一刻选中的可能已经不是这个 tab 了。
+                    // 不交代可见性的话 start() 会默认按可见启动，给一个屏幕上看不见的 tab 发出 pageShow；更要命的是 Bridge 只在可见性**跃迁**时通知 service，被这样提前置真之后，用户真正切到这个 tab 时那次 pageShow 成了无操作，挂在它上面的路由几何上报一次都不会发（见 onPageShownToService）。
+                    tabBridge.start(visible = index == selectedTabIndex.intValue)
                 }
             }
         }
@@ -1520,11 +1806,14 @@ class DiminaActivity : ComponentActivity() {
         super.onResume()
         getActiveBridge()?.let {
             it.appShow(miniApp.consumePendingAppShowOptions(miniProgram.appId))
-            it.pageShow()
+            notifyPageShowAfterGeometrySettles(it)
         }
     }
 
     override fun onPause() {
+        pageShowGate.cancel()
+        // 这一页已经不在前台，补发那条路由上报只会把它的几何冒充成当前页的。
+        pageAwaitingRouteGeometry = null
         getActiveBridge()?.let {
             it.appHide()
             it.pageHide()
@@ -1533,6 +1822,8 @@ class DiminaActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        window.decorView.removeOnLayoutChangeListener(windowLayoutListener)
+
         if (isMiniProgramInitialized) {
             activityRegistry.unregister(miniProgram.appId, this)
         }
@@ -1541,8 +1832,9 @@ class DiminaActivity : ComponentActivity() {
 
         if (!preserveMiniAppOnDestroy && miniApp.isBridgeListEmpty(miniProgram.appId)) {
             // Clear resources for this specific MiniProgram
-            miniApp.clear(miniProgram.appId)
+            clearMiniAppRuntime(miniProgram.appId)
         } else if (!preserveMiniAppOnDestroy && miniApp.isBridgeListEmpty()) {
+            windowGeometryLedger.releaseAll()
             miniApp.clearAll()
         }
         super.onDestroy()
@@ -1884,8 +2176,17 @@ class DiminaActivity : ComponentActivity() {
             activity.prepareForColdRestart()
             activity.finish()
         }
-        miniApp.clear(miniProgram.appId)
+        clearMiniAppRuntime(miniProgram.appId)
         DiminaActivity.launch(this, program)
+    }
+
+    /**
+     * 销毁一个小程序的 JS 运行时。
+     * 窗口几何账本记的是「service 已经知道的几何」，所以它的寿命必须跟着 service 走：service 被重建后旧基线就是假的，留着会让新会话的第一帧被当成一次尺寸变化，业务代码在启动瞬间收到一次凭空的 resize。
+     */
+    private fun clearMiniAppRuntime(appId: String) {
+        windowGeometryLedger.release(appId)
+        miniApp.clear(appId)
     }
 
     private fun getDefaultEntryPagePath(): String? {
@@ -1906,6 +2207,13 @@ class DiminaActivity : ComponentActivity() {
         }
     }
 
+    /** 关闭指定层数的入栈页面 Activity，根 Activity 始终保留。 */
+    fun navigateBack(delta: Int) {
+        activityRegistry.closeTopPages(miniProgram.appId, delta) { activity ->
+            activity.finish()
+        }
+    }
+
     /**
      * 清空页面栈并重新打开到 [url]，与 wx.reLaunch 行为一致
      */
@@ -1920,11 +2228,30 @@ class DiminaActivity : ComponentActivity() {
      * 共享同一 DiminaActivity 类的下层实例，所以改用 activityRegistry 精确关栈
      */
     private fun relaunchStack(url: String) {
+        val targetOrientation = resolveLaunchPageOrientation(url)
         activityRegistry.closeAll(miniProgram.appId) { activity ->
             activity.preserveMiniAppOnDestroy = true
             activity.finish()
         }
-        DiminaActivity.launch(this, miniProgram.copy(root = true, path = url))
+        DiminaActivity.launch(
+            this,
+            miniProgram.copy(root = true, path = url),
+            flag = null,
+            pageOrientation = targetOrientation,
+        )
+    }
+
+    /**
+     * 站内跳转的发起方用：按目标页解算出它的 pageOrientation，随 intent 交给新 Activity，让新 Activity 在自己读出配置之前就用对方向，而不是先按默认值转一次再转回来。
+     * appConfig 还没就绪时返回 null，由新 Activity 退回默认值
+     */
+    fun resolveLaunchPageOrientation(url: String): String? {
+        if (!::appConfig.isInitialized) {
+            return null
+        }
+        val pathInfo = Utils.queryPath(url)
+        val pageConfig = appConfig.modules[pathInfo.pagePath]
+        return Utils.mergePageConfig(appConfig.app, pageConfig).pageOrientation
     }
 
     /**
@@ -2273,7 +2600,7 @@ class DiminaActivity : ComponentActivity() {
                     state.root = pageConfig?.root ?: "main"
                     state.configInfo = mergedPageConfig
                     state.bridgeStarted = false
-                    // 页面身份被替换，清掉上一任页面的隐藏标记，否则会跨 redirectTo 泄漏到新页面
+                    // 页面身份被替换，清掉上一任页面的隐藏标记与方向覆盖，否则会跨 redirectTo 泄漏到新页面
                     state.homeButtonHidden.value = false
                 }
 
@@ -2309,7 +2636,13 @@ class DiminaActivity : ComponentActivity() {
 
     companion object {
         const val MINI_PROGRAM_KEY = "mini_program"
+
+        /**
+         * 目标页解算出的 pageOrientation，由已经持有 appConfig 的发起方随 intent 带过来，让新 Activity 在自己读出配置之前就用正确的方向（见 [onCreate]）
+         */
+        const val LAUNCH_PAGE_ORIENTATION_KEY = "launch_page_orientation"
         private val activityRegistry = MiniProgramActivityRegistry<DiminaActivity>()
+        private val windowGeometryLedger = WindowGeometryLedger()
 
         /** 小程序前后台判据的唯一真相源，见 [DiminaActivity.onStart]/[DiminaActivity.onStop]。 */
         private val visibilityTracker = MiniProgramVisibilityTracker<DiminaActivity>()
@@ -2319,8 +2652,18 @@ class DiminaActivity : ComponentActivity() {
             miniProgram: MiniProgram,
             flag: Int? = null,
         ) {
+            launch(context, miniProgram, flag, null)
+        }
+
+        fun launch(
+            context: Context,
+            miniProgram: MiniProgram,
+            flag: Int?,
+            pageOrientation: String?,
+        ) {
             val intent = Intent(context, DiminaActivity::class.java).apply {
                 putExtra(MINI_PROGRAM_KEY, miniProgram)
+                pageOrientation?.let { putExtra(LAUNCH_PAGE_ORIENTATION_KEY, it) }
                 flag?.let {
                     addFlags(flag)
                 }

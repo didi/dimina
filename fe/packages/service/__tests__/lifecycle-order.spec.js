@@ -380,13 +380,17 @@ describe('Skyline/exparser lifecycle ordering', () => {
 	it('dispatches page lifetimes in component-tree DFS order and detaches in post-order', () => {
 		const calls = []
 		const bridgeId = 'bridge-tree-order'
+		let pageResizeRes
 		const page = {
 			__id__: 'page',
 			__type__: PageModule.type,
 			initd: true,
 			pageShow: () => calls.push('page:show'),
 			pageHide: () => calls.push('page:hide'),
-			pageResize: () => calls.push('page:resize'),
+			pageResize: (res) => {
+				calls.push('page:resize')
+				pageResizeRes = res
+			},
 			pageUnload: () => calls.push('page:unload'),
 		}
 		const component = (id, parentId) => ({
@@ -411,18 +415,26 @@ describe('Skyline/exparser lifecycle ordering', () => {
 		runtime.instances[bridgeId] = { page, a, b, 'a-child': aChild }
 
 		runtime.pageShow({ bridgeId })
+		// pageResize 只属于当前显示周期；在 hide 前结算，同时守护可见页面的 DFS 调用顺序。
+		vi.useFakeTimers()
+		runtime.pageResize({ bridgeId, size: { windowWidth: 320, windowHeight: 640 } })
+		vi.advanceTimersByTime(16)
+		vi.useRealTimers()
 		runtime.pageHide({ bridgeId })
-		runtime.pageResize({ bridgeId, size: { width: 320 } })
 		runtime.componentRouteDone({ bridgeId })
 		runtime.pageUnload({ bridgeId })
 
 		expect(calls).toEqual([
 			'a:show', 'a-child:show', 'b:show', 'page:show',
-			'a:hide', 'a-child:hide', 'b:hide', 'page:hide',
 			'a:resize', 'a-child:resize', 'b:resize', 'page:resize',
+			'a:hide', 'a-child:hide', 'b:hide', 'page:hide',
 			'a:routeDone', 'a-child:routeDone', 'b:routeDone',
 			'a-child:detached', 'a:detached', 'b:detached', 'page:unload',
 		])
+
+		// windowWidth 320 <= windowHeight 640 时，缺失的 deviceOrientation 兜底为 portrait。
+		expect(pageResizeRes.size.windowWidth).toBe(320)
+		expect(pageResizeRes.deviceOrientation).toBe('portrait')
 	})
 
 	it('isolates lifecycle exceptions, reports error lifetimes and continues attachment', () => {

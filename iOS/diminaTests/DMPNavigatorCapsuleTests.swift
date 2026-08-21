@@ -22,6 +22,306 @@ final class DMPNavigatorCapsuleTests: XCTestCase {
         XCTAssertFalse(capsules(in: navigationController.view)[0].isHidden)
     }
 
+    func testOldSetupOverloadKeepsPageOrientationDisabled() {
+        let plainNavigator = DMPNavigator()
+        let kitNavigator = DMPNavigator()
+
+        plainNavigator.setup(navigationController: UINavigationController())
+        kitNavigator.setup(navigationController: DMPNavigationController())
+
+        XCTAssertEqual(plainNavigator.pageOrientationSupport, .disabled)
+        XCTAssertEqual(kitNavigator.pageOrientationSupport, .disabled)
+    }
+
+    func testOptInRejectsPlainNavigationController() {
+        let navigator = DMPNavigator()
+
+        navigator.setup(
+            navigationController: UINavigationController(),
+            pageOrientationEnabled: true
+        )
+
+        XCTAssertEqual(navigator.pageOrientationSupport, .unsupportedNavigationController)
+    }
+
+    func testOptInSupportsKitNavigationController() {
+        let navigator = DMPNavigator()
+
+        navigator.setup(
+            navigationController: DMPNavigationController(),
+            pageOrientationEnabled: true
+        )
+
+        XCTAssertEqual(navigator.pageOrientationSupport, .supported)
+    }
+
+    func testOptInAcceptsAHostNavigationControllerThatDeclaresTheForwardingContract() {
+        let navigator = DMPNavigator()
+
+        navigator.setup(
+            navigationController: HostForwardingNavigationController(),
+            pageOrientationEnabled: true
+        )
+
+        XCTAssertEqual(navigator.pageOrientationSupport, .supported)
+    }
+
+    func testPageOrientationResolutionFallsThroughInvalidValues() {
+        XCTAssertEqual(
+            DMPPageOrientation.resolve(pageValue: "invalid", appValue: "landscape"),
+            .landscape
+        )
+        XCTAssertEqual(
+            DMPPageOrientation.resolve(pageValue: nil, appValue: nil),
+            .portrait
+        )
+    }
+
+    func testPageOrientationOwnsUIKitMaskMapping() {
+        XCTAssertEqual(DMPPageOrientation.portrait.interfaceOrientations, .portrait)
+        XCTAssertEqual(DMPPageOrientation.auto.interfaceOrientations, .allButUpsideDown)
+        XCTAssertEqual(DMPPageOrientation.landscape.interfaceOrientations, .landscape)
+    }
+
+    func testCurrentVisiblePageShowIsReleasedWhenOrientationRequestFails() {
+        XCTAssertTrue(
+            DMPPageController.shouldReleasePageShowAfterOrientationFailure(
+                isDisplayed: true,
+                pendingGeneration: 7,
+                currentGeneration: 7
+            )
+        )
+        XCTAssertFalse(
+            DMPPageController.shouldReleasePageShowAfterOrientationFailure(
+                isDisplayed: true,
+                pendingGeneration: 6,
+                currentGeneration: 7
+            )
+        )
+        XCTAssertFalse(
+            DMPPageController.shouldReleasePageShowAfterOrientationFailure(
+                isDisplayed: false,
+                pendingGeneration: 7,
+                currentGeneration: 7
+            )
+        )
+    }
+
+    /// 一页被压住期间窗口转过去、回来时窗口不再动一次：`viewWillTransition` 不触发，tab 切换连 `viewDidAppear` 都不走。
+    /// 路由落地这条上报是它唯一的来源。
+    func testARouteLandingOnASettledWindowIsReported() {
+        XCTAssertTrue(
+            DMPPageController.shouldReportRouteGeometry(
+                isDisplayed: true,
+                expected: .allButUpsideDown,
+                currentSize: CGSize(width: 852, height: 393)
+            )
+        )
+    }
+
+    /// 几何没变也要报：`Page.onResize` 的收件人由宿主指名，宿主每次路由都报落点页，不看几何是否和上一次相同。
+    func testARouteLandingOnAnUnchangedGeometryIsStillReported() {
+        let portrait = CGSize(width: 393, height: 852)
+        XCTAssertTrue(
+            DMPPageController.shouldReportRouteGeometry(
+                isDisplayed: true,
+                expected: .portrait,
+                currentSize: portrait
+            )
+        )
+    }
+
+    /// 窗口还没转到这一页要求的方向：这份几何这一页从没展示过，报了就是给业务代码一份中途尺寸，随之而来的 `viewWillTransition` 会带着目标尺寸补上。
+    func testARouteLandingBeforeTheWindowRotatedIsNotReported() {
+        XCTAssertFalse(
+            DMPPageController.shouldReportRouteGeometry(
+                isDisplayed: true,
+                expected: .landscape,
+                currentSize: CGSize(width: 393, height: 852)
+            )
+        )
+    }
+
+    /// 不在屏幕上的页面报出去的几何不代表它自己展示时的尺寸。
+    func testAnOffscreenPageIsNotReported() {
+        XCTAssertFalse(
+            DMPPageController.shouldReportRouteGeometry(
+                isDisplayed: false,
+                expected: .allButUpsideDown,
+                currentSize: CGSize(width: 393, height: 852)
+            )
+        )
+        XCTAssertFalse(
+            DMPPageController.shouldReportRouteGeometry(
+                isDisplayed: true,
+                expected: .allButUpsideDown,
+                currentSize: nil
+            )
+        )
+    }
+
+    /// iOS 16 之前没有能把窗口转到设备当前不在的方向的接口，`attemptRotationToDeviceOrientation()` 只按设备物理姿态重新评估，也没有成功/失败回调。
+    /// 容器证明不了窗口会转，押后 pageShow 就没有放行者——这一页会永远收不到 onShow，service 侧还会一直把它当作隐藏的。
+    func testPageShowRunsImmediatelyWhereTheWindowCannotBeRotated() {
+        XCTAssertTrue(
+            DMPPageController.shouldRunPageShowImmediately(
+                isDisplayed: true,
+                expected: .landscape,
+                currentSize: CGSize(width: 393, height: 852),
+                canRequestGeometry: false
+            )
+        )
+        // 连窗口都还没有的时候同样不能押后：那条路径上也没有任何几何回调会来。
+        XCTAssertTrue(
+            DMPPageController.shouldRunPageShowImmediately(
+                isDisplayed: false,
+                expected: .landscape,
+                currentSize: nil,
+                canRequestGeometry: false
+            )
+        )
+    }
+
+    func testPageShowGeometryGateWaitsForTheRequestedTargetDirection() {
+        XCTAssertFalse(
+            DMPPageController.shouldRunPageShowImmediately(
+                isDisplayed: true,
+                expected: .landscape,
+                currentSize: CGSize(width: 393, height: 852),
+                canRequestGeometry: true
+            )
+        )
+        XCTAssertFalse(
+            DMPPageController.shouldRunPageShowImmediately(
+                isDisplayed: false,
+                expected: .portrait,
+                currentSize: CGSize(width: 393, height: 852),
+                canRequestGeometry: true
+            )
+        )
+        XCTAssertFalse(
+            DMPPageController.isTargetGeometrySettled(
+                expected: .portrait,
+                targetSize: CGSize(width: 852, height: 393)
+            )
+        )
+        XCTAssertTrue(
+            DMPPageController.isTargetGeometrySettled(
+                expected: .portrait,
+                targetSize: CGSize(width: 393, height: 852)
+            )
+        )
+        XCTAssertTrue(
+            DMPPageController.isTargetGeometrySettled(
+                expected: .landscape,
+                targetSize: CGSize(width: 852, height: 393)
+            )
+        )
+    }
+
+    /// 转场落地前这一页不认领方向，交出去的 mask 只框住窗口当前朝向（等于「别转」）：push 动画进行中跟着新栈顶转窗口，UIKit 会有相当概率把这次 push 判成被打断，刚压进去的页当场被摘出栈、WebView 未加载就回收（真机对照 42/108，关闭能力 0/20）。
+    func testAPageThatHasNotLandedYetHoldsTheCurrentWindowOrientation() {
+        XCTAssertEqual(
+            DMPPageController.orientationsHoldingCurrentWindow(current: .landscapeLeft),
+            .landscapeLeft
+        )
+        XCTAssertEqual(
+            DMPPageController.orientationsHoldingCurrentWindow(current: .portrait),
+            .portrait
+        )
+        // 视图还没进窗口就问不到朝向，这时没有「当前」可框，交回 UIKit 默认。
+        XCTAssertNil(DMPPageController.orientationsHoldingCurrentWindow(current: nil))
+        XCTAssertNil(DMPPageController.orientationsHoldingCurrentWindow(current: .unknown))
+    }
+
+    /// 转场在飞时任何一页都不认领方向，哪怕它早就落过地：pop 回到的那一页 `hasLandedOnScreen` 是 true，只看落地拦不住它在 pop 动画里把窗口转回去。
+    /// 真机抓到的后果是 UIKit 把这次 pop 判成被打断，已经发过 `pageUnload`、JS 侧已经销毁的那一页回到栈顶，还锁着自己的横屏，用户卡在横屏出不去（真机 54 次里 14 次）。
+    func testNoPageClaimsItsOrientationWhileANavigationTransitionIsInFlight() {
+        XCTAssertTrue(
+            DMPPageController.shouldClaimOrientation(
+                hasLanded: true, isOnScreen: true, isTransitioning: false)
+        )
+        XCTAssertFalse(
+            DMPPageController.shouldClaimOrientation(
+                hasLanded: true, isOnScreen: true, isTransitioning: true)
+        )
+        XCTAssertFalse(
+            DMPPageController.shouldClaimOrientation(
+                hasLanded: false, isOnScreen: true, isTransitioning: false)
+        )
+        XCTAssertFalse(
+            DMPPageController.shouldClaimOrientation(
+                hasLanded: false, isOnScreen: true, isTransitioning: true)
+        )
+    }
+
+    /// 视图还没挂进窗口就不是屏幕上那一页，哪怕落地标记还留着真——pop 刚发起时目的页正是这个状态。
+    /// 真机 50 个试次里，那种查询 51 次全部 `noWindow=true`，而 1396 次正当的认领全部 `noWindow=false`：这一项独立于落地标记挡住同一个错误，落地标记被误删也还在。
+    func testAPageWhoseViewIsNotInTheWindowDoesNotClaimItsOrientation() {
+        XCTAssertFalse(
+            DMPPageController.shouldClaimOrientation(
+                hasLanded: true, isOnScreen: false, isTransitioning: false)
+        )
+        XCTAssertFalse(
+            DMPPageController.shouldClaimOrientation(
+                hasLanded: true, isOnScreen: false, isTransitioning: true)
+        )
+        XCTAssertFalse(
+            DMPPageController.shouldClaimOrientation(
+                hasLanded: false, isOnScreen: false, isTransitioning: false)
+        )
+    }
+
+    /// 旋转和导航转场撞在一起时 UIKit 会把插值中的中间尺寸交给 `viewWillTransition` （真机抓到 -66×1311）。
+    /// 负宽会让 JS 的 rpx 基准变成负数，非有限数过 JSON 通道直接崩，而按宽高比判方向还会把它判成竖屏——不是窗口事实就一律不进判据、不上报。
+    func testAnImpossibleTransitionSizeIsNotAWindowFact() {
+        XCTAssertTrue(DMPPageController.isReportableWindowSize(CGSize(width: 393, height: 852)))
+        XCTAssertFalse(DMPPageController.isReportableWindowSize(CGSize(width: -66, height: 1311)))
+        XCTAssertFalse(DMPPageController.isReportableWindowSize(CGSize(width: 393, height: 0)))
+        XCTAssertFalse(DMPPageController.isReportableWindowSize(CGSize(width: CGFloat.nan, height: 852)))
+        XCTAssertFalse(DMPPageController.isReportableWindowSize(CGSize(width: 393, height: CGFloat.infinity)))
+    }
+
+    /// push 转场进行中不得再自己发几何请求：`setNeedsUpdateOfSupportedInterfaceOrientations()` 已经让 UIKit 按新栈顶重查方向，竞争的 `requestGeometryUpdate` 会让 UIKit 有几率把这次 push 判成被打断，刚压进去的页直接被摘出栈、WebView 未加载就回收（真机 3/47）。
+    /// 落地前提交必被系统拒绝（那时交出去的 mask 还是「维持当前朝向」），而一次拒绝会让押着的 pageShow 就地放行并照旋转前的几何补报——固定方向页没有 onResize 纠正它。
+    func testAGeometryRequestIsSubmittedOnlyAfterLandingAndOutsideATransition() {
+        XCTAssertTrue(
+            DMPPageController.shouldSubmitGeometryRequest(isTransitioning: false, hasLanded: true)
+        )
+        XCTAssertFalse(
+            DMPPageController.shouldSubmitGeometryRequest(isTransitioning: true, hasLanded: true)
+        )
+        XCTAssertFalse(
+            DMPPageController.shouldSubmitGeometryRequest(isTransitioning: false, hasLanded: false)
+        )
+        XCTAssertFalse(
+            DMPPageController.shouldSubmitGeometryRequest(isTransitioning: true, hasLanded: false)
+        )
+    }
+
+    /// 被转场闸门作废的那次方向请求要在转场结束后补提交，否则从内页 switchTab 到一个还没加载过的固定方向 tab 时，它的 appearance 早在请求之前就结清了，押着的 pageShow 再没有放行者。
+    /// 还没落地时不补提交：那时交出去的 mask 还是「维持窗口当前朝向」。
+    func testAVoidedGeometryRequestIsResubmittedOnlyAfterThePageHasLanded() {
+        XCTAssertTrue(
+            DMPPageController.shouldResubmitGeometryAfterTransition(hasLanded: true, isDisplayed: true)
+        )
+        XCTAssertFalse(
+            DMPPageController.shouldResubmitGeometryAfterTransition(hasLanded: false, isDisplayed: true)
+        )
+        XCTAssertFalse(
+            DMPPageController.shouldResubmitGeometryAfterTransition(hasLanded: true, isDisplayed: false)
+        )
+    }
+
+    func testKitNavigationControllerForwardsOrientationQueriesToItsTopController() {
+        let page = OrientationFixtureViewController()
+        let navigationController = DMPNavigationController(rootViewController: page)
+
+        XCTAssertEqual(navigationController.supportedInterfaceOrientations, .landscape)
+        XCTAssertFalse(navigationController.shouldAutorotate)
+        XCTAssertEqual(navigationController.preferredInterfaceOrientationForPresentation, .landscapeRight)
+    }
+
     func testRepeatedSetupReplacesRatherThanDuplicatesCapsule() {
         let navigationController = UINavigationController()
         navigationController.loadViewIfNeeded()
@@ -47,7 +347,8 @@ final class DMPNavigatorCapsuleTests: XCTestCase {
         let navigator = DMPNavigator()
         navigator.setup(
             navigationController: navigationController,
-            preserving: [host, openerRoot, openerDetail]
+            preserving: [host, openerRoot, openerDetail],
+            pageOrientationEnabled: false
         )
 
         let closed = expectation(description: "target closes")
@@ -95,7 +396,8 @@ final class DMPNavigatorCapsuleTests: XCTestCase {
         let targetNavigator = DMPNavigator()
         targetNavigator.setup(
             navigationController: navigationController,
-            preserving: [openerTab]
+            preserving: [openerTab],
+            pageOrientationEnabled: false
         )
 
         XCTAssertNil(targetNavigator.currentTabBarContainer())
@@ -263,7 +565,8 @@ final class DMPNavigatorCapsuleTests: XCTestCase {
         let targetNavigator = DMPNavigator()
         targetNavigator.setup(
             navigationController: navigationController,
-            preserving: [host, openerPage]
+            preserving: [host, openerPage],
+            pageOrientationEnabled: false
         )
         XCTAssertFalse(opener.getNavigator()?.isActiveNavigationOwner() ?? true)
         XCTAssertTrue(targetNavigator.isActiveNavigationOwner())
@@ -773,5 +1076,23 @@ final class DMPNavigatorCapsuleTests: XCTestCase {
     private func capsules(in view: UIView) -> [UIView] {
         let current = view.accessibilityIdentifier == "dimina.navigation.capsule" ? [view] : []
         return current + view.subviews.flatMap(capsules(in:))
+    }
+}
+
+private final class HostForwardingNavigationController: UINavigationController,
+    DMPPageOrientationForwarding
+{}
+
+private final class OrientationFixtureViewController: UIViewController {
+    override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
+        .landscape
+    }
+
+    override var shouldAutorotate: Bool {
+        false
+    }
+
+    override var preferredInterfaceOrientationForPresentation: UIInterfaceOrientation {
+        .landscapeRight
     }
 }

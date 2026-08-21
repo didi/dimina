@@ -54,7 +54,7 @@ export class DMPContainerBridgesModuleSystem extends DMPContainerBridgesModule {
         bluetoothEnabled: state === 0,
         locationEnabled: true,
         wifiEnabled: true,
-        deviceOrientation: 'portrait'
+        deviceOrientation: DMPDeviceUtil.getSafeAreaAndDisplayWHSync().getString('deviceOrientation') ?? 'portrait'
       })
 
     } catch (err) {

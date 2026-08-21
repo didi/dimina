@@ -127,6 +127,9 @@ struct Index {
       })
       .backgroundColor(PAGE_BACKGROUND_COLOR)
     }
+    // 小程序目标页始终独占共享窗口。
+    // Auto 会在横屏宽度下切成 Split，把宿主首页作为左侧导航栏重新显示出来。
+    .mode(NavigationMode.Stack)
     .hideBackButton(true)
     .hideToolBar(true)
     .hideTitleBar(true)

@@ -51,6 +51,25 @@ public class DMPPageController: UIViewController {
     private var isWebViewDestroyed = false
     private var hasStartedLoading = false
     private var hasShownLaunchLoading = false
+    private var isGeneratingDeviceOrientationNotifications = false
+    /// 这一页此刻是不是那个已经落定在屏幕上的页。
+    /// `viewDidAppear` 置起、`viewDidDisappear` 清掉：只有它为真时这一页才认领方向（见 `supportedInterfaceOrientations`）。
+    /// 不能只置不清——被压在下面的页再次露面走的是 pop，pop 动画里它还没落定，一个不清的旧标记会让它在动画中间就把窗口转回去，UIKit 因此把这次 pop 判成被打断。
+    private var hasLandedOnScreen = false
+    /// 这一页最后一次真正显示时窗口所处的界面方向，`auto` 页重新露面时用它兜底决定转回哪去（见 `autoOrientationTarget`）
+    private var lastDisplayedInterfaceOrientation: UIInterfaceOrientation?
+    private var deviceOrientationObserver: NSObjectProtocol?
+    private var pageShowGeneration = 0
+    private var pendingPageShow: (
+        generation: Int,
+        expected: UIInterfaceOrientationMask,
+        action: @MainActor () async -> Void
+    )?
+    private var geometryRequestGeneration = 0
+    private var activeGeometryRequest: (
+        generation: Int,
+        expected: UIInterfaceOrientationMask
+    )?
 
     /// Initialization method
     /// - Parameters:
@@ -160,6 +179,19 @@ public class DMPPageController: UIViewController {
     // View did appear
     public override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        if navigator?.pageOrientationSupport == .supported {
+            hasLandedOnScreen = true
+            // `UIDevice.current.orientation` 只有在开启方向通知时才有真值，否则恒为 `.unknown`。
+            // 能力关闭时整段不执行，旧宿主不会新增传感器或通知监听。
+            beginGeneratingDeviceOrientationNotificationsIfNeeded()
+            // 第一次露面时把当时的界面方向记下来当作「设备朝哪」的初值；之后再露面（从上层页面返回）不能在这里覆盖，那时窗口很可能还停在上层页面强制的方向上。
+            if lastDisplayedInterfaceOrientation == nil {
+                rememberDisplayedOrientationIfNeeded()
+            }
+            startObservingDeviceOrientation()
+            settlePendingPageShowOnAppear()
+            resyncOrientationOnAppear()
+        }
         startLoadingIfNeeded()
     }
 
@@ -931,6 +963,546 @@ public class DMPPageController: UIViewController {
         setupNavigationBar()
     }
 
+    // MARK: - Page orientation
+
+    /// Resolved page/app configuration.
+    private var computedPageOrientation: DMPPageOrientation {
+        let pageRecord = navigator?.pageRecord(webViewId: webview.getWebViewId())
+        let navStyle = pageRecord?.navStyle
+            ?? app?.getBundleAppConfig()?.getPageConfig(pagePath: pagePath)
+        return DMPPageOrientation.parse(navStyle?["pageOrientation"])
+            ?? DMPPageOrientation.defaultValue
+    }
+
+    private var configuredInterfaceOrientations: UIInterfaceOrientationMask {
+        computedPageOrientation.interfaceOrientations
+    }
+
+    /// 这一页最终要认领的方向。
+    /// A broad auto mask still accepts the orientation forced by the page being replaced, so UIKit has no reason to restore the auto page's target.
+    /// Auto therefore publishes one resolved target while the page is visible and recomputes it when device orientation changes.
+    /// Device posture is not rotation-lock aware because iOS does not expose the lock state.
+    var claimedInterfaceOrientations: UIInterfaceOrientationMask {
+        let configured = configuredInterfaceOrientations
+        guard computedPageOrientation == .auto,
+              let target = autoOrientationTarget,
+              configured.contains(target) else {
+            return configured
+        }
+        return target
+    }
+
+    /// 转场没结束前不认领方向，交给 UIKit 保持窗口当前朝向；转场结束（`viewDidAppear`）之后才把这一页的 mask 交出去，由 `resyncOrientationOnAppear` 触发那一次旋转。
+    ///
+    /// 这不是保守起见：转场动画进行中窗口跟着新栈顶转，UIKit 有相当概率把这次转场判成被打断。
+    /// push 方向上的后果是刚压进去的页当场被摘出栈（`viewDidDisappear` 带 `isMovingFromParent` → 销毁 WebView），用户看到空白再弹回上一页；真机对照实测（同一台机器交替分块、两臂只差这一段）：落地后才认领 0/76，落地前就认领 14/67。
+    ///
+    /// pop 方向上的后果是被弹掉的页回到栈里：它的 `pageUnload` 已经送出去、JS 侧的页面已经销毁，回来的是一个还锁着自己方向的空壳，用户卡在横屏出不去（真机 14/54）。
+    ///
+    /// 三个判据各自回答一个问题：
+    /// - `hasLandedOnScreen`：我是不是此刻已经落定在屏幕上的那一页。它在 `viewDidDisappear`
+    /// 清掉，所以被压在下面、正被 pop 回来的页答的是否。
+    /// tab 容器切换子页不走 appearance 回调（只切 `isHidden`），被切走的子页因此保持真——它的 mask 只经容器转给当前子页，隐藏子页根本不参与判定。
+    /// - `viewIfLoaded?.window != nil`：我的视图此刻真的在窗口里吗。pop 刚发起时目的页的视图
+    /// 还没挂进窗口，真机 50 个试次里 51 次那种查询**全部**是 `noWindow=true`，而 1396 次正当的认领**全部**是 `noWindow=false`——这一项独立于上一项挡住同一个错误。
+    /// - `isNavigationTransitionInFlight`：这次转场是不是还在飞，兜住 appearance 没有走完整
+    ///   一轮的情形（例如非全屏 present 盖上来再 dismiss，下面那页从没 disappear 过）。
+    public override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
+        guard navigator?.pageOrientationSupport == .supported else {
+            return super.supportedInterfaceOrientations
+        }
+        if Self.shouldClaimOrientation(
+            hasLanded: hasLandedOnScreen,
+            isOnScreen: viewIfLoaded?.window != nil,
+            isTransitioning: isNavigationTransitionInFlight
+        ) {
+            return claimedInterfaceOrientations
+        }
+        return Self.orientationsHoldingCurrentWindow(
+            current: currentWindowInterfaceOrientation
+        ) ?? super.supportedInterfaceOrientations
+    }
+
+    /// 什么时候可以把这一页自己的 mask 交给 UIKit：三个条件都成立。
+    static func shouldClaimOrientation(hasLanded: Bool, isOnScreen: Bool, isTransitioning: Bool) -> Bool {
+        hasLanded && isOnScreen && !isTransitioning
+    }
+
+    /// 这一页所在窗口此刻的界面方向。
+    /// 转场刚开始时这一页的 view 还没挂进窗口（`view.window == nil`），退到它所在导航控制器的窗口才问得到；问不到就会退化成 UIKit 默认的任意方向，「维持当前朝向」等于没维持。
+    private var currentWindowInterfaceOrientation: UIInterfaceOrientation? {
+        let window = viewIfLoaded?.window ?? navigationController?.view.window
+        return window?.windowScene?.interfaceOrientation
+    }
+
+    /// 还没落地时交出去的 mask：只框住窗口此刻的朝向，等于「别转」。
+    /// 读不到朝向（视图还没进窗口）时返回 nil，由调用方退回 UIKit 默认。
+    static func orientationsHoldingCurrentWindow(
+        current: UIInterfaceOrientation?
+    ) -> UIInterfaceOrientationMask? {
+        guard let current else { return nil }
+        return mask(for: current)
+    }
+
+    /// Whether this controller is the one actually on screen right now — either directly on top of the navigation stack, or the selected tab inside `DMPTabBarContainerController` when that container is on top.
+    private var isCurrentlyDisplayed: Bool {
+        guard let top = navigator?.navigationController?.topViewController else {
+            return false
+        }
+        if top === self {
+            return true
+        }
+        return (top as? DMPTabBarContainerController)?.currentPageController === self
+    }
+
+    /// Forces the system to re-query `supportedInterfaceOrientations` for this page.
+    func applyOrientationIfNeeded() {
+        // 普通 UINavigationController 不把页面 mask 转给窗口，能力不可用时保持 no-op。
+        guard navigator?.pageOrientationSupport == .supported else { return }
+
+        let expected = claimedInterfaceOrientations
+        if Self.isTargetGeometrySettled(
+            expected: expected,
+            targetSize: view.window?.bounds.size ?? .zero
+        ) {
+            geometryRequestGeneration += 1
+            activeGeometryRequest = nil
+            refreshSupportedInterfaceOrientations()
+            return
+        }
+        submitGeometryUpdate(expected: expected)
+    }
+
+    private func refreshSupportedInterfaceOrientations() {
+        if #available(iOS 16.0, *) {
+            setNeedsUpdateOfSupportedInterfaceOrientations()
+        } else {
+            UIViewController.attemptRotationToDeviceOrientation()
+        }
+    }
+
+    @discardableResult
+    private func submitGeometryUpdate(expected: UIInterfaceOrientationMask) -> Int {
+        if let active = activeGeometryRequest, active.expected == expected {
+            return active.generation
+        }
+
+        geometryRequestGeneration += 1
+        let generation = geometryRequestGeneration
+        activeGeometryRequest = (generation, expected)
+
+        if #available(iOS 16.0, *) {
+            setNeedsUpdateOfSupportedInterfaceOrientations()
+            guard Self.shouldSubmitGeometryRequest(
+                isTransitioning: isNavigationTransitionInFlight,
+                hasLanded: hasLandedOnScreen
+            ) else {
+                // 作废这次请求，让 viewDidAppear 上的 settlePendingPageShowOnAppear / resyncOrientationOnAppear 重新提交（相同 expected 会被去重，不清掉就再也提交不出去）；转场那一路另外挂一次转场完成回调兜底。
+                activeGeometryRequest = nil
+                resubmitGeometryUpdateWhenTransitionEnds()
+                return generation
+            }
+            guard let windowScene = view.window?.windowScene else {
+                // 视图还没进窗口——push 的同步阶段正是这样，UIKit 要到转场开始才把它挂上去。
+                // 这不是平台拒绝，只是此刻问不到 scene，所以**不能**放行押着的 pageShow：放行等于从没押过，onShow 会读到上一页的方向。
+                // 作废这次请求，让 viewDidAppear 上的 settlePendingPageShowOnAppear 能重新提交（submitGeometryUpdate 对相同 expected 会去重，不清掉就再也提交不出去）。
+                activeGeometryRequest = nil
+                return generation
+            }
+            windowScene.requestGeometryUpdate(
+                .iOS(interfaceOrientations: expected)
+            ) { [weak self] error in
+                DispatchQueue.main.async {
+                    self?.handleGeometryUpdateFailure(generation: generation, error: error)
+                }
+            }
+        } else {
+            UIViewController.attemptRotationToDeviceOrientation()
+        }
+        return generation
+    }
+
+    /// 转场结束后补提交一次刚被作废的方向请求。
+    ///
+    /// 常规 push 由 `viewDidAppear` 承担这次补提交，但页面的 appearance 有可能在请求发出
+    /// **之前**就已经结清：从内页 `switchTab` 到一个还没加载过的 tab 时，容器先 pop（转场
+    /// 开始），新 tab 的 view 才被挂进已经在窗口里的容器，它的 `viewDidAppear` 因此可能早于 `notifyPageShow` 登记 pendingPageShow。
+    /// 那种情况下不会再有第二次 `viewDidAppear`，押着的 pageShow 没有别的放行者——固定方向页连设备旋转重试都没有（只有 auto 页有）。
+    ///
+    /// 只在页面已经落地且正在显示时才补提交：还没落地时 `supportedInterfaceOrientations` 交出去的仍是「维持窗口当前朝向」，此刻提交问不出这一页要的方向，交给 `viewDidAppear`。
+    private func resubmitGeometryUpdateWhenTransitionEnds() {
+        guard let coordinator = transitionCoordinator ?? navigationController?.transitionCoordinator else {
+            return
+        }
+        _ = coordinator.animate(alongsideTransition: nil) { [weak self] _ in
+            guard let self,
+                  Self.shouldResubmitGeometryAfterTransition(
+                      hasLanded: self.hasLandedOnScreen,
+                      isDisplayed: self.isCurrentlyDisplayed
+                  )
+            else { return }
+            self.applyOrientationIfNeeded()
+        }
+    }
+
+    static func shouldResubmitGeometryAfterTransition(hasLanded: Bool, isDisplayed: Bool) -> Bool {
+        hasLanded && isDisplayed
+    }
+
+    /// 这一页所在的导航栈是不是正在做 push/pop 转场。
+    /// 转场期间栈顶已经换成了新页，`topViewController` 因此已经是它，但动画还没结束。
+    private var isNavigationTransitionInFlight: Bool {
+        transitionCoordinator != nil || navigationController?.transitionCoordinator != nil
+    }
+
+    /// 什么时候可以真的向系统提交方向请求。两个条件各自独立：
+    ///
+    /// - 转场期间不发。push/pop 本身就是 UIKit 重新评估方向的时机，紧邻的
+    /// `setNeedsUpdateOfSupportedInterfaceOrientations()` 已经让它按新栈顶重查一次并把旋转并进同一段动画；此时再发一条竞争的 `requestGeometryUpdate`，UIKit 有几率把正在进行的 push 判成被打断，把刚压进去的页从栈里摘掉——那一页的 `viewDidDisappear` 带着 `isMovingFromParent` 走销毁，WebView 还没开始加载就被回收，用户看到空白页。
+    /// - 页面落地前不发。落地前 `supportedInterfaceOrientations` 交出去的还是「维持窗口当前
+    /// 朝向」，此刻提交一个与之矛盾的方向**一定**会被系统拒绝，而拒绝会被 `handleGeometryUpdateFailure` 当成「平台不肯转」：押着的 pageShow 被就地放行，并照旋转前的几何补报一次。
+    /// 固定方向页两条 resize 通道都被抑制，那份错几何再没有纠正机会——真机实测过 tab 切到固定横屏 tab 时 `onShow` 读到 393×759 并写进页面 data。
+    ///
+    /// 两种情形都不改变能力语义：请求只是推迟到 `viewDidAppear`（或转场完成回调）重新提交。
+    static func shouldSubmitGeometryRequest(isTransitioning: Bool, hasLanded: Bool) -> Bool {
+        !isTransitioning && hasLanded
+    }
+
+    private func handleGeometryUpdateFailure(generation: Int, error: Error) {
+        guard let failedRequest = activeGeometryRequest,
+              failedRequest.generation == generation
+        else { return }
+        activeGeometryRequest = nil
+
+        // A rejected platform request produces no transition callback. pageShow must therefore continue with the geometry that actually remains on screen instead of waiting forever.
+        releasePendingPageShowAfterOrientationFailure()
+    }
+
+    private func releasePendingPageShowAfterOrientationFailure() {
+        guard let pending = pendingPageShow,
+              Self.shouldReleasePageShowAfterOrientationFailure(
+                  isDisplayed: isCurrentlyDisplayed,
+                  pendingGeneration: pending.generation,
+                  currentGeneration: pageShowGeneration
+              )
+        else { return }
+        pendingPageShow = nil
+        Task { @MainActor in
+            await pending.action()
+            // 请求已经结案、窗口不会再因为它转了：此刻读到的就是这一页会一直保持的几何。
+            // 不能走 reportRouteGeometry——它要求窗口已经转到这一页要求的方向，而这里正是转不过去的那条路。
+            // Android 的 Ignore 分支与 Harmony 的 releasePageShowWithoutNewGeometry 在同一情形下也是照当前几何报一次。
+            await self.reportCurrentRouteGeometry()
+        }
+    }
+
+    /// 方向请求结案后照**当前**几何报一次路由落地。
+    /// 放行在前、上报在后：service 只把已经 show 的页登记成 `Page.onResize` 的收件人。
+    private func reportCurrentRouteGeometry() async {
+        guard isCurrentlyDisplayed, let size = view.window?.bounds.size else { return }
+        await notifyPageResize(targetSize: size, callSite: "reportCurrentRouteGeometry")
+    }
+
+    static func shouldReleasePageShowAfterOrientationFailure(
+        isDisplayed: Bool,
+        pendingGeneration: Int?,
+        currentGeneration: Int
+    ) -> Bool {
+        isDisplayed && pendingGeneration == currentGeneration
+    }
+
+    /// Resolves auto from device posture, then falls back to this page's last displayed interface orientation when posture is unavailable.
+    /// With neither fact, UIKit keeps the broad auto mask.
+    private var autoOrientationTarget: UIInterfaceOrientationMask? {
+        // UIDevice 描述的是设备顶部朝哪，与界面方向左右相反
+        switch UIDevice.current.orientation {
+        case .portrait:
+            return .portrait
+        case .landscapeLeft:
+            return .landscapeRight
+        case .landscapeRight:
+            return .landscapeLeft
+        default:
+            break
+        }
+        guard let remembered = lastDisplayedInterfaceOrientation else {
+            return nil
+        }
+        return Self.mask(for: remembered)
+    }
+
+    private static func mask(for orientation: UIInterfaceOrientation) -> UIInterfaceOrientationMask? {
+        switch orientation {
+        case .portrait:
+            return .portrait
+        case .portraitUpsideDown:
+            return .portraitUpsideDown
+        case .landscapeLeft:
+            return .landscapeLeft
+        case .landscapeRight:
+            return .landscapeRight
+        default:
+            return nil
+        }
+    }
+
+    /// 只在这一页确实是当前显示页时记账：`viewWillTransition` 会被容器链转发给栈里所有页面（含被压在下面的），不加这道判据的话，上层固定横屏页把窗口转过去时会把「横屏」写进下面那个 auto 页的记忆里，返回时就再也转不回来了
+    private func rememberDisplayedOrientationIfNeeded() {
+        guard isCurrentlyDisplayed,
+              let orientation = view.window?.windowScene?.interfaceOrientation,
+              orientation != .unknown else {
+            return
+        }
+        lastDisplayedInterfaceOrientation = orientation
+    }
+
+    /// 页面真正露面之后（push 落地、从上层页面 pop 回到这一页）重新把方向推给窗口。
+    /// 只靠 UIKit 在换页时自己的重查不够：mask 从 `.landscape` 放宽回 `.allButUpsideDown` 时，当前的横屏仍落在新 mask 里，UIKit 就不会主动转回来 ——竖屏设备上从锁死横屏的页面返回 auto 页会一直停在横屏，直到下一次真实的设备旋转；而且窗口几何没变，`viewWillTransition` 不触发，这一页连 `Page.onResize` 都收不到，JS 侧读到的仍是加载时那份竖屏几何。
+    /// 放在 `viewDidAppear` 而不是 `viewWillAppear`：交互式返回手势可能中途取消，那时这一页并没有真的接管屏幕，不该由它决定窗口方向。
+    private func resyncOrientationOnAppear() {
+        guard isCurrentlyDisplayed else { return }
+        applyOrientationIfNeeded()
+    }
+
+    /// 只在这一页显示期间盯着设备姿态：`auto` 的目标方向由传感器决定，姿态一变就要重新解算 mask，否则上面那张窄 mask 会把用户的真实旋转挡住。
+    /// 非显示页不订阅 —— 它的 mask 根本不参与判定，改了也没人问。
+    private func startObservingDeviceOrientation() {
+        guard deviceOrientationObserver == nil else { return }
+        deviceOrientationObserver = NotificationCenter.default.addObserver(
+            forName: UIDevice.orientationDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self, self.isCurrentlyDisplayed, self.computedPageOrientation == .auto else {
+                return
+            }
+            self.applyOrientationIfNeeded()
+        }
+    }
+
+    private func stopObservingDeviceOrientation() {
+        guard let observer = deviceOrientationObserver else { return }
+        deviceOrientationObserver = nil
+        NotificationCenter.default.removeObserver(observer)
+    }
+
+    /// 路由落地后把当前页所在窗口的几何报一次，不比对几何：`Page.onResize` 的收件人由宿主指名，每次路由（含 appLaunch）都报落点页。
+    ///
+    /// `viewWillTransition` 只在窗口真的转动时触发，所以「被压住期间窗口转过去、回来时窗口不再动一次」这一类只有这条能覆盖；tab 切换更是连 `viewDidAppear` 都不走（容器只切 `isHidden`），同样只剩这条。
+    private func reportRouteGeometry() async {
+        let size = view.window?.bounds.size
+        guard Self.shouldReportRouteGeometry(
+            isDisplayed: isCurrentlyDisplayed,
+            expected: claimedInterfaceOrientations,
+            currentSize: size
+        ), let size else { return }
+        await notifyPageResize(targetSize: size, callSite: "reportRouteGeometry")
+    }
+
+    /// 路由落地时该不该把几何报出去。
+    /// 只看「这一页真的在屏幕上」和「窗口已经转到它要求的方向」；几何变没变不在判据里——页面通道由宿主指名，不按几何去重。
+    ///
+    /// 窗口还没转到位时不报：随之而来的 `viewWillTransition` 会带着目标尺寸报，这里先报一次就等于多给业务代码一份中途尺寸。
+    static func shouldReportRouteGeometry(
+        isDisplayed: Bool,
+        expected: UIInterfaceOrientationMask,
+        currentSize: CGSize?
+    ) -> Bool {
+        guard isDisplayed, let currentSize else { return false }
+        return isTargetGeometrySettled(expected: expected, targetSize: currentSize)
+    }
+
+    private func settleGeometryRequest(targetSize: CGSize) {
+        if let active = activeGeometryRequest,
+           Self.isTargetGeometrySettled(expected: active.expected, targetSize: targetSize)
+        {
+            activeGeometryRequest = nil
+        }
+    }
+
+    /// pageShow must observe the geometry of the page becoming visible, not the page it replaces.
+    /// When direction changes, the transition's target size is the first authoritative new geometry; queue pageShow behind that snapshot.
+    /// A monotonic generation and visibility check make late transition callbacks unable to revive a page that has already been superseded.
+    func notifyPageShowAfterOrientationSettles(
+        _ action: @escaping @MainActor () async -> Void
+    ) {
+        pageShowGeneration += 1
+        let generation = pageShowGeneration
+        pendingPageShow = nil
+
+        guard navigator?.pageOrientationSupport == .supported else {
+            Task { @MainActor in await action() }
+            return
+        }
+
+        let expected = claimedInterfaceOrientations
+        let currentSize = view.window?.bounds.size
+        guard !Self.shouldRunPageShowImmediately(
+            isDisplayed: isCurrentlyDisplayed,
+            expected: expected,
+            currentSize: currentSize,
+            canRequestGeometry: Self.canRequestWindowGeometry
+        ) else {
+            // 路由落地 = pageShow 之后紧跟一条几何上报，见 `reportRouteGeometry`。
+            Task { @MainActor in
+                await action()
+                await self.reportRouteGeometry()
+            }
+            return
+        }
+
+        pendingPageShow = (generation, expected, action)
+        if isCurrentlyDisplayed {
+            applyOrientationIfNeeded()
+        }
+    }
+
+    private func settlePendingPageShowOnAppear() {
+        guard let pending = pendingPageShow,
+              pending.generation == pageShowGeneration
+        else { return }
+
+        if Self.shouldRunPageShowImmediately(
+            isDisplayed: true,
+            expected: pending.expected,
+            currentSize: view.window?.bounds.size,
+            canRequestGeometry: Self.canRequestWindowGeometry
+        ) {
+            pendingPageShow = nil
+            Task { @MainActor in
+                await pending.action()
+                await self.reportRouteGeometry()
+            }
+            return
+        }
+        applyOrientationIfNeeded()
+    }
+
+    /// 押着的 pageShow 在窗口转到位时放行。
+    /// 这里**不**自己补几何上报：唯一的调用点 `viewWillTransition` 紧接着就用转场的目标尺寸报一次，而此刻 `view.window.bounds` 可能还停在转场前的尺寸——自己报就等于先给业务代码一份旧几何。
+    private func flushPendingPageShow(targetSize: CGSize) async {
+        guard isCurrentlyDisplayed,
+              let pending = pendingPageShow,
+              pending.generation == pageShowGeneration,
+              Self.isTargetGeometrySettled(expected: pending.expected, targetSize: targetSize)
+        else {
+            return
+        }
+        pendingPageShow = nil
+        await pending.action()
+    }
+
+    /// 平台上有没有能真正把窗口转过去的接口。
+    /// iOS 16 之前只有 `attemptRotationToDeviceOrientation()`，它按设备**物理姿态**重新评估支持的方向，转不到设备当前不在的方向，也没有成功/失败回调。
+    static var canRequestWindowGeometry: Bool {
+        if #available(iOS 16.0, *) { return true }
+        return false
+    }
+
+    /// 押后 pageShow 的前提是容器能证明窗口接下来一定会转；证明不了就必须立刻放行，否则没有任何回调会来放行它，这一页永远收不到 onShow。
+    ///
+    /// - Parameter canRequestGeometry: 见 ``canRequestWindowGeometry``。为 false 时容器
+    /// 根本没有手段让窗口转过去，判据恒为「立刻放行」——与 HarmonyOS 的 auto 页、Android 的能力关闭路径是同一条语义。
+    static func shouldRunPageShowImmediately(
+        isDisplayed: Bool,
+        expected: UIInterfaceOrientationMask,
+        currentSize: CGSize?,
+        canRequestGeometry: Bool
+    ) -> Bool {
+        guard canRequestGeometry else { return true }
+        guard isDisplayed, let currentSize else { return false }
+        return isTargetGeometrySettled(expected: expected, targetSize: currentSize)
+    }
+
+    /// 能不能当成窗口事实上报：宽高都是正的有限数。
+    static func isReportableWindowSize(_ size: CGSize) -> Bool {
+        size.width.isFinite && size.height.isFinite && size.width > 0 && size.height > 0
+    }
+
+    static func isTargetGeometrySettled(
+        expected: UIInterfaceOrientationMask,
+        targetSize: CGSize
+    ) -> Bool {
+        let target: UIInterfaceOrientationMask = targetSize.width > targetSize.height
+            ? .landscape
+            : .portrait
+        return !expected.intersection(target).isEmpty
+    }
+
+    public override func viewWillTransition(
+        to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator
+    ) {
+        super.viewWillTransition(to: size, with: coordinator)
+        guard navigator?.pageOrientationSupport == .supported else { return }
+
+        coordinator.animate(alongsideTransition: { [weak self] _ in
+            guard let self else { return }
+            // UIKit 在旋转和导航转场撞在一起时会把旋转差量叠加两次的尺寸交出来：真机抓到的 -66×1311 正好是 (2W−H, 2H−W)，W=393、H=852。
+            // 宽或高不是正有限数就不是任何窗口的事实：拿它判方向会判反（-66<1311 会判成竖屏），送进 JS 会让 rpx 基准变成负数，非有限数过 JSON 通道更是直接崩。
+            guard Self.isReportableWindowSize(size) else {
+                DMPLogger.debug(
+                    "viewWillTransition got an impossible size \(size) for \(self.pagePath), ignored"
+                )
+                // 这一段同时跳过了 settleGeometryRequest，在飞的那次请求就没有结算者了。
+                // 作废它，让后面实读窗口的那条路（`viewDidAppear` 的 resyncOrientationOnAppear）能重新提交——不清掉的话相同 expected 会被去重吞掉。
+                //
+                // 已知丢失面：转场在飞时，落点页的 `viewDidAppear` 会补上这次几何；但「已在屏、无 pendingPageShow 的页碰上这种尺寸」没有补报者，那一次旋转的 `Page.onResize` / `wx.onWindowResize` 对 JS 丢失，要等下一次真实旋转才纠正。
+                // `wx.getWindowInfo` 是活读，不受影响。
+                // 送毒数据比丢一次更糟。
+                self.activeGeometryRequest = nil
+                return
+            }
+            Task { @MainActor in
+                self.settleGeometryRequest(targetSize: size)
+                // 押着的 pageShow 先放行：service 只把已经 show 的页面登记成 `Page.onResize` 的收件人，反过来这条几何就送不到它手上。
+                await self.flushPendingPageShow(targetSize: size)
+                await self.notifyPageResize(targetSize: size, callSite: "viewWillTransition")
+            }
+        }, completion: { [weak self] _ in
+            self?.rememberDisplayedOrientationIfNeeded()
+        })
+    }
+
+    /// Pushes the post-rotation window size to JS mid-animation (inside `alongsideTransition`), not from `completion`: UIKit's own rotation animation runs roughly 0.3s, and a page that derives its own layout from `windowWidth`/`windowHeight` (rpx, canvas backdrops, custom nav bars, scroll-view heights) would otherwise render at the old size for the whole animation and only snap to the new layout once it ends.
+    ///
+    /// 这里只上报原始事实加上判据需要的 `pageOrientation`：`wx.onWindowResize` 要不要响、固定方向页要不要保持沉默都由 service 的 `resolveResizeDispatch` 判定，哪一页收到 `Page.onResize` 则由这次上报的接收方决定。
+    /// 容器只在「窗口真的转了」（`viewWillTransition`）和「路由刚落地」（`reportRouteGeometry`）两个时机调用它。
+    private func notifyPageResize(targetSize: CGSize, callSite: String) async {
+        // 容器只在自己是当前可见页时才是权威：viewWillTransition 由包含链统一转发给栈里所有页面（含被压在下面、被切走的 tab），非可见页收到的 targetSize 并不代表它自己真实展示时的尺寸
+        guard let app, isCurrentlyDisplayed else { return }
+
+        let pageRecord = navigator?.pageRecord(webViewId: webview.getWebViewId())
+        let navStyle = pageRecord?.navStyle ?? app.getBundleAppConfig()?.getPageConfig(pagePath: pagePath)
+        let originalPageOrientation = navStyle?["pageOrientation"] as? String ?? "portrait"
+
+        // 与 DMPUIManager.getDeviceDisplayInfo() 同一套公式（宽度取整窗宽，高度扣顶部+底部安全区），但基于 viewWillTransition 传入的目标尺寸而非当时可能仍处于过渡中的 window.bounds
+        let safeAreaInsets = DMPUIManager.shared.getSafeAreaInsets()
+        let windowWidth = targetSize.width
+        let windowHeight = max(targetSize.height - safeAreaInsets.top - safeAreaInsets.bottom, 0)
+        let deviceOrientation = targetSize.width > targetSize.height ? "landscape" : "portrait"
+
+        // 屏幕尺寸取 targetSize 本身，不读 `UIScreen.bounds`：容器窗口在本 SDK 里始终铺满屏幕，而 `UIScreen.bounds` 和 `window.bounds` 一样可能还停在转场前的方向，用它会在动画期间报出竖屏的屏幕配横屏的窗口。
+        // 与窗口尺寸的差就是上下安全区，两组随旋转一起换宽高。
+
+        let message = DMPMap([
+            "type": "pageResize",
+            "body": [
+                "bridgeId": webview.getWebViewId(),
+                "size": [
+                    "screenWidth": targetSize.width,
+                    "screenHeight": targetSize.height,
+                    "windowWidth": windowWidth,
+                    "windowHeight": windowHeight,
+                ],
+                "deviceOrientation": deviceOrientation,
+                "pageOrientation": [
+                    "originalPageOrientation": originalPageOrientation,
+                ],
+            ],
+        ])
+        await app.service?.postMessage(data: message)
+    }
+
     // Back button tap event
     @objc private func backButtonTapped() {
         if let navigator = navigator {
@@ -954,13 +1526,36 @@ public class DMPPageController: UIViewController {
     
     public override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
+        pageShowGeneration += 1
+        pendingPageShow = nil
+        geometryRequestGeneration += 1
+        activeGeometryRequest = nil
+        // 离开屏幕就不再是方向的主人：下次露面要重新落定才认领。
+        hasLandedOnScreen = false
+        // 隐藏页的 mask 不参与窗口决策，不继续消费物理姿态；重新露面时会按当时的传感器或该页最后显示方向重新解算并提交。
+        stopObservingDeviceOrientation()
+        endGeneratingDeviceOrientationNotificationsIfNeeded()
         hidePageLoading()
-        
+
         // Notify lifecycle management when page completely disappears
         if isMovingFromParent {
             // Page is removed from navigation stack
             destroyWebView()
         }
+    }
+
+    private func beginGeneratingDeviceOrientationNotificationsIfNeeded() {
+        guard !isGeneratingDeviceOrientationNotifications else { return }
+        isGeneratingDeviceOrientationNotifications = true
+        UIDevice.current.beginGeneratingDeviceOrientationNotifications()
+    }
+
+    /// 与 begin 严格一进一出：`UIDevice` 的方向通知是全进程引用计数，多退一次会把宿主 app 自己开的那份扣穿。
+    /// 页面销毁时若还没配对上，`deinit` 里补一次
+    private func endGeneratingDeviceOrientationNotificationsIfNeeded() {
+        guard isGeneratingDeviceOrientationNotifications else { return }
+        isGeneratingDeviceOrientationNotifications = false
+        UIDevice.current.endGeneratingDeviceOrientationNotifications()
     }
     
     // Destroy WebView
@@ -997,6 +1592,8 @@ public class DMPPageController: UIViewController {
     
     deinit {
         DMPLogger.debug("🗑️ DMPPageController: deinit (WebView ID: \(webview.getWebViewId()))")
+        stopObservingDeviceOrientation()
+        endGeneratingDeviceOrientationNotificationsIfNeeded()
         webview.clearLoadingStateObserver(ownerToken: loadingStateObserverToken)
         // Ensure WebView is correctly released
         destroyWebView()

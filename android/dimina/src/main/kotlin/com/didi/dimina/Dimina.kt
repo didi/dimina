@@ -45,10 +45,12 @@ class Dimina private constructor(context: Context) {
     class DiminaConfig private constructor(builder: Builder) {
         val debugMode: Boolean = builder.debugMode
         val apiNamespaces: List<String> = builder.apiNamespaces
+        val pageOrientationEnabled: Boolean = builder.pageOrientationEnabled
 
         class Builder {
             var debugMode: Boolean = false
             internal var apiNamespaces: MutableList<String> = mutableListOf()
+            internal var pageOrientationEnabled: Boolean = false
 
             fun setDebugMode(debugMode: Boolean): Builder {
                 this.debugMode = debugMode
@@ -57,6 +59,15 @@ class Dimina private constructor(context: Context) {
 
             fun addApiNamespace(name: String): Builder {
                 apiNamespaces.add(name)
+                return this
+            }
+
+            /**
+             * Enables pageOrientation configuration.
+             * Disabled by default so upgrading the SDK does not change an existing host's Activity orientation or resize lifecycle.
+             */
+            fun setPageOrientationEnabled(enabled: Boolean): Builder {
+                pageOrientationEnabled = enabled
                 return this
             }
 
@@ -75,6 +86,8 @@ class Dimina private constructor(context: Context) {
     }
 
     fun getApiNamespaces(): List<String> = config.apiNamespaces
+
+    fun isPageOrientationEnabled(): Boolean = config.pageOrientationEnabled
 
     private val appContext: Context = context
     private lateinit var config: DiminaConfig

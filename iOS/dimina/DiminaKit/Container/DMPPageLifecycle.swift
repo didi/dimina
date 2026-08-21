@@ -13,13 +13,21 @@ public class DMPPageLifecycle {
     }
         
     public func onShow(webviewId: Int) {
-        let msg = DMPMap([
+        DMPChannelProxy.containerToService(msg: pageShowMessage(webviewId: webviewId), app: app)
+    }
+
+    /// Used when pageShow must be ordered after an orientation geometry snapshot in the same task.
+    public func onShowAsync(webviewId: Int) async {
+        await app.service?.postMessage(data: pageShowMessage(webviewId: webviewId))
+    }
+
+    private func pageShowMessage(webviewId: Int) -> DMPMap {
+        DMPMap([
             "type": "pageShow",
             "body": [
                 "bridgeId": webviewId
             ]
         ])
-        DMPChannelProxy.containerToService(msg: msg, app: app)
     }
     
     public func onHide(webviewId: Int) {

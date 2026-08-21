@@ -14,6 +14,15 @@ import { DRouter } from './DRouter';
 import { DMPPage } from '../DPages/DMPPage';
 
 
+export function hasTabBarContext(pagePaths: string[], tabBarPagePaths: Set<string>): boolean {
+  for (let pagePath of pagePaths) {
+    if (tabBarPagePaths.has(pagePath)) {
+      return true
+    }
+  }
+  return false
+}
+
 export class DMPNavigator {
   private _stacks: DMPStack<DMPPageRecord> = new DMPStack();
 
@@ -22,7 +31,7 @@ export class DMPNavigator {
   }
 
   private app: DMPApp
-  private pageLifecycle: DMPPageLifecycle
+  readonly pageLifecycle: DMPPageLifecycle
 
   constructor(app: DMPApp) {
     this.app = app;
@@ -327,6 +336,13 @@ export class DMPNavigator {
     if (!tabBarPagePaths.has(pagePath)) {
       DMPLogger.e(Tags.TABBAR, `Target path is not a tabBar page: ${pagePath}`)
       throw new Error(`switchTab:fail can not find target page "${pagePath}"`)
+    }
+
+    // A cold launch can start on a non-tab page, so no TabBar container exists to receive the switch event.
+    // Relaunching directly to the requested tab creates that context and has the same final stack as switchTab.
+    if (!hasTabBarContext(this._stacks.data.map((record: DMPPageRecord) => record.pagePath), tabBarPagePaths)) {
+      await this.relaunchTo(params)
+      return
     }
 
     // 判断之前可见的页面是不是 tab：

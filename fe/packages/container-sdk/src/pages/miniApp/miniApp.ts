@@ -242,7 +242,8 @@ export class MiniApp {
 	webSocketManager: WebSocketManager
 	/** 维护第三方扩展的持续订阅，key: `${module}_${event}`，value: unsubscribe 函数 */
 	_extSubscriptions: Map<string, (() => void) | null>
-	_windowResizeHandlers: Set<() => void>
+	/** Browser resize handlers keyed by the service listener callback ID. */
+	_windowResizeHandlers: Map<CallbackId, () => void>
 	/** app.tabBar 配置 */
 	tabBarConfig: TabBarConfig | null
 	/** 与 list 等长，pagePath 数组（已规范化、无前导 /） */
@@ -300,7 +301,7 @@ export class MiniApp {
 			getAppConnectTimeout: () => this.appConfig?.app.networkTimeout?.connectSocket,
 		})
 		this._extSubscriptions = new Map()
-		this._windowResizeHandlers = new Set()
+		this._windowResizeHandlers = new Map()
 		this.tabBarConfig = null
 		this.tabBarPaths = []
 		this.tabBarEl = null
@@ -2227,10 +2228,7 @@ export class MiniApp {
 			}
 		}
 		this._extSubscriptions.clear()
-		for (const handler of this._windowResizeHandlers) {
-			globalThis.removeEventListener?.('resize', handler)
-		}
-		this._windowResizeHandlers.clear()
+		this.removeWindowResizeHandlers()
 		if (this._themeMediaQuery?.removeEventListener) {
 			this._themeMediaQuery.removeEventListener('change', this._themeChangeHandler!)
 		}
@@ -2331,33 +2329,14 @@ export class MiniApp {
 	}
 
 	getSystemInfoAsync(opts: ApiCallbackOptions): void {
-		const bar = this._getStatusBarRect()
-		const wb = this.parent!.el.querySelector<HTMLElement>('.dimina-native-webview__root')!.getBoundingClientRect()
-
 		const { success, complete } = opts
-
 		const onSuccess = this.createCallbackFunction(success)
 		const onComplete = this.createCallbackFunction(complete)
 
 		onSuccess?.({
-			statusBarHeight: bar.height,
-			brand: 'devtools',
+			...this.getSystemInfoSync(),
 			mode: 'default',
-			model: 'web',
-			platform: 'devtools',
-			system: 'web',
-			deviceOrientation: 'portrait',
-			SDKVersion: '3.0.0',
-			language: 'zh_CN',
 			wifiEnabled: true,
-			safeArea: {
-				width: wb.width,
-				height: wb.height,
-				top: wb.top,
-				bottom: wb.bottom,
-				left: wb.left,
-				right: wb.right,
-			},
 		})
 		onComplete?.()
 	}
@@ -2372,8 +2351,9 @@ export class MiniApp {
 	}
 
 	onWindowResize(opts: { success?: CallbackId } = {}): void {
-		const onResize = this.createCallbackFunction(opts.success)
-		if (!onResize || !globalThis.addEventListener) {
+		const evtId = opts.success
+		const onResize = this.createCallbackFunction(evtId)
+		if (!evtId || !onResize || !globalThis.addEventListener || this._windowResizeHandlers.has(evtId)) {
 			return
 		}
 
@@ -2384,9 +2364,27 @@ export class MiniApp {
 				deviceOrientation,
 			})
 		}
-		this._windowResizeHandlers ??= new Set()
-		this._windowResizeHandlers.add(handler)
+		this._windowResizeHandlers.set(evtId, handler)
 		globalThis.addEventListener('resize', handler)
+	}
+
+	offWindowResize(opts: { success?: CallbackId } = {}): void {
+		this.removeWindowResizeHandlers(opts.success)
+	}
+
+	private removeWindowResizeHandlers(evtId?: CallbackId): void {
+		if (evtId) {
+			const handler = this._windowResizeHandlers.get(evtId)
+			if (!handler) return
+			globalThis.removeEventListener?.('resize', handler)
+			this._windowResizeHandlers.delete(evtId)
+			return
+		}
+
+		for (const handler of this._windowResizeHandlers.values()) {
+			globalThis.removeEventListener?.('resize', handler)
+		}
+		this._windowResizeHandlers.clear()
 	}
 
 	getMenuButtonBoundingClientRect() {
@@ -2484,7 +2482,7 @@ export class MiniApp {
 			theme: globalThis.matchMedia?.('(prefers-color-scheme: dark)')?.matches ? 'dark' : 'light',
 			fontSizeScaleFactor: 1,
 			fontSizeSetting: 16,
-			deviceOrientation: 'portrait' as const,
+			deviceOrientation: width > height ? 'landscape' as const : 'portrait' as const,
 		}
 	}
 
