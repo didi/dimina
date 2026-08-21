@@ -9,7 +9,7 @@ import {
 	createContext,
 	createOffscreenCanvas,
 } from '../src/api/core/ui/canvas/index.js'
-import { resetMiniGameCanvas } from '../src/api/core/ui/canvas/canvas-node.js'
+import { resetMiniGameCanvas } from '../src/api/core/ui/canvas/native-node.js'
 import { createImage } from '../src/api/core/media/image/index.js'
 import hostEnv from '../src/core/host-env.js'
 
@@ -78,7 +78,7 @@ describe('canvas api', () => {
 		const flushMessage = globalThis.DiminaServiceBridge.publish.mock.calls
 			.map(([, message]) => message)
 			.find(message => message.body.name === 'canvasNodeFlush')
-		expect(flushMessage.body.params.operations.map(operation => operation.op)).toEqual(['createImage'])
+		expect(flushMessage.body.params.operations.map(operation => operation.op)).toEqual(['setCanvasProperty', 'setCanvasProperty', 'createImage'])
 	})
 
 	it('should record drawing actions', () => {
@@ -180,12 +180,14 @@ describe('canvas api', () => {
 		expect(createMessage.body.params.width).toBe(320)
 		expect(flushMessage.body.name).toBe('canvasNodeFlush')
 		expect(flushMessage.body.params.operations.map(item => item.op)).toEqual([
+			'setCanvasProperty',
+			'setCanvasProperty',
 			'getContext',
 			'contextCall',
 			'contextCall',
 			'contextCall',
 		])
-		expect(flushMessage.body.params.operations[1].method).toBe('createShader')
+		expect(flushMessage.body.params.operations[3].method).toBe('createShader')
 	})
 
 	it('should follow canvas context identity and capability semantics', async () => {

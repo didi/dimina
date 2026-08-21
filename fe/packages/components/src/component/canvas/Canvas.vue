@@ -150,6 +150,33 @@ onMounted(() => {
 			resizeObserver = new ResizeObserver(scheduleSyncRect)
 			resizeObserver.observe(rootRef.value)
 		}
+
+		// Register global handler for native canvas touch event forwarding (HarmonyOS)
+		if (isHarmonyOS && typeof window.__diminaDispatchNativeTouch === 'undefined') {
+			window.__diminaDispatchNativeTouch = function (data) {
+				const el = document.getElementById(data.id)
+				if (!el) return
+				const rect = el.getBoundingClientRect()
+				const makeTouch = (t) => new Touch({
+					identifier: t.id,
+					target: el,
+					clientX: rect.left + t.x,
+					clientY: rect.top + t.y,
+					pageX: rect.left + t.x + window.scrollX,
+					pageY: rect.top + t.y + window.scrollY,
+				})
+				const touches = data.touches.map(makeTouch)
+				const changed = data.changed.map(makeTouch)
+				const event = new TouchEvent(data.type, {
+					bubbles: true,
+					cancelable: true,
+					touches: touches,
+					changedTouches: changed,
+					targetTouches: touches,
+				})
+				el.dispatchEvent(event)
+			}
+		}
 	})
 })
 
@@ -194,6 +221,7 @@ onBeforeUnmount(() => {
 		v-bind="$attrs"
 		class="dd-canvas"
 		:type="nativeType"
+		@touchmove="preventScroll"
 	/>
 	<!-- Web fallback canvas -->
 	<div v-else ref="rootRef" v-bind="$attrs" class="dd-canvas" :style="isError ? { display: 'none' } : undefined" @touchmove="preventScroll">

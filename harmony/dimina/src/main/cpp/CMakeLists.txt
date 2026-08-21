@@ -114,7 +114,8 @@ target_link_libraries(dimina PUBLIC brotlidec brotlicommon)
 if(CANVAS2D_AVAILABLE)
     target_include_directories(dimina PRIVATE ${CANVAS2D_DIR}/include)
     target_link_libraries(dimina PUBLIC dimina_canvas2d)
-    target_link_libraries(dimina PUBLIC EGL GLESv3)
+    target_link_libraries(dimina PUBLIC EGL GLESv3 native_window)
+    target_compile_definitions(dimina PRIVATE CANVAS2D_AVAILABLE)
 endif()
 
 # Additional target properties for Release mode

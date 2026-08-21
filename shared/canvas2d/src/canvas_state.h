@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <cstring>
+#include <cmath>
 
 /**
  * Canvas 2D state that NanoVG doesn't track (or tracks differently).
@@ -38,12 +40,65 @@ struct CanvasDrawState {
     float shadowBlur     = 0.0f;
     std::string shadowColor = "rgba(0,0,0,0)";
 
+    /* Line style (tracked here because nvgBeginFrame resets NanoVG state) */
+    float lineWidth  = 1.0f;
+    int   lineCap    = NVG_BUTT;    // NVG_BUTT, NVG_ROUND, NVG_SQUARE
+    int   lineJoin   = NVG_MITER;   // NVG_MITER, NVG_ROUND, NVG_BEVEL
+    float miterLimit = 10.0f;
+
     /* Line dash */
     std::vector<float> lineDash;
     float lineDashOffset = 0.0f;
 
     /* Image smoothing */
     bool imageSmoothingEnabled = true;
+
+    /* Transform matrix (affine 3x2, same layout as NanoVG: a,b,c,d,e,f)
+       Identity = {1,0,0,1,0,0} */
+    float xform[6] = {1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f};
+
+    /* ── Helpers to update the tracked transform ────────────────── */
+
+    void xformReset() {
+        xform[0]=1; xform[1]=0; xform[2]=0; xform[3]=1; xform[4]=0; xform[5]=0;
+    }
+
+    /* Premultiply: self = mat * self  (same semantics as NanoVG) */
+    void xformPremultiply(const float *s) {
+        float t[6];
+        std::memcpy(t, xform, sizeof(t));
+        xform[0] = s[0]*t[0] + s[1]*t[2];
+        xform[1] = s[0]*t[1] + s[1]*t[3];
+        xform[2] = s[2]*t[0] + s[3]*t[2];
+        xform[3] = s[2]*t[1] + s[3]*t[3];
+        xform[4] = s[4]*t[0] + s[5]*t[2] + t[4];
+        xform[5] = s[4]*t[1] + s[5]*t[3] + t[5];
+    }
+
+    void xformTranslate(float tx, float ty) {
+        float s[6] = {1,0,0,1,tx,ty};
+        xformPremultiply(s);
+    }
+
+    void xformScale(float sx, float sy) {
+        float s[6] = {sx,0,0,sy,0,0};
+        xformPremultiply(s);
+    }
+
+    void xformRotate(float angle) {
+        float cs = cosf(angle), sn = sinf(angle);
+        float s[6] = {cs, sn, -sn, cs, 0, 0};
+        xformPremultiply(s);
+    }
+
+    void xformSet(float a,float b,float c,float d,float e,float f) {
+        xform[0]=a; xform[1]=b; xform[2]=c; xform[3]=d; xform[4]=e; xform[5]=f;
+    }
+
+    void xformConcat(float a,float b,float c,float d,float e,float f) {
+        float s[6] = {a,b,c,d,e,f};
+        xformPremultiply(s);
+    }
 };
 
 /**
@@ -59,6 +114,15 @@ public:
 
     CanvasDrawState &current();
     const CanvasDrawState &current() const;
+
+    /* Number of save() calls on the stack (0 = base state, no saves) */
+    int saveDepth() const { return static_cast<int>(stack_.size()) - 1; }
+
+    /* Access the state at a specific stack level (0 = base) */
+    const CanvasDrawState &at(int level) const { return stack_[level]; }
+
+    /* Total number of entries in the stack (base + saves) */
+    int stackSize() const { return static_cast<int>(stack_.size()); }
 
     void reset();
 

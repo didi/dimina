@@ -96,12 +96,11 @@ void pixelops_put_image_data(NVGcontext * /*vg*/, int fbo,
 
     glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)fbo);
 
-    /* Create a temporary texture and upload the pixel data */
-    GLuint tex = 0;
-    glGenTextures(1, &tex);
-    glBindTexture(GL_TEXTURE_2D, tex);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    /* Get the texture attached to this FBO's COLOR_ATTACHMENT0 */
+    GLint fboTex = 0;
+    glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                                          GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME, &fboTex);
+    if (fboTex <= 0) return;
 
     /* Flip data vertically for GL coordinate system */
     std::vector<unsigned char> flipped(w * h * 4);
@@ -111,30 +110,12 @@ void pixelops_put_image_data(NVGcontext * /*vg*/, int fbo,
                w * 4);
     }
 
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA,
-                 GL_UNSIGNED_BYTE, flipped.data());
-
-    /* Use glCopyTexSubImage2D approach: render texture to FBO at (x,y) */
-    /* For simplicity, use rasterPos emulation via viewport/scissor */
-    GLint prevViewport[4];
-    glGetIntegerv(GL_VIEWPORT, prevViewport);
-
-    glViewport(0, 0, canvasWidth, canvasHeight);
-    glEnable(GL_SCISSOR_TEST);
-    glScissor(x, canvasHeight - y - h, w, h);
-
-    /* Blit using a fullscreen quad would require a shader. For GLES2,
-       the simplest approach is to use glTexSubImage2D to write directly
-       to the FBO's attached texture. This requires knowing the FBO's
-       color attachment texture, which is managed by NanoVG internally.
-
-       For now, we use the direct pixel write approach via the FBO. */
-
-    glDisable(GL_SCISSOR_TEST);
-    glViewport(prevViewport[0], prevViewport[1],
-               prevViewport[2], prevViewport[3]);
-
-    glDeleteTextures(1, &tex);
+    /* Write directly to the FBO's color attachment texture */
+    glBindTexture(GL_TEXTURE_2D, (GLuint)fboTex);
+    int glY = canvasHeight - y - h;
+    glTexSubImage2D(GL_TEXTURE_2D, 0, x, glY, w, h,
+                    GL_RGBA, GL_UNSIGNED_BYTE, flipped.data());
+    glBindTexture(GL_TEXTURE_2D, 0);
 }
 
 char *pixelops_to_data_url(int fbo, int canvasWidth, int canvasHeight,

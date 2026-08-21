@@ -1,8 +1,8 @@
 import { DMPLogger } from '../../EventTrack/DMPLogger'
 import { Tags } from '../../EventTrack/Tags'
 import { DMPMap } from '../../Utils/DMPMap'
-import { DMPCanvasManager } from './DMPCanvasManager'
 import { CanvasParams } from './DMPComponetParams'
+import diminaNative from 'libdimina.so'
 
 @Builder
 export function CanvasBuilder(params: DMPMap) {
@@ -12,35 +12,55 @@ export function CanvasBuilder(params: DMPMap) {
 @Component
 struct DMPCanvasComponent {
   @Prop params: CanvasParams
-  private settings: RenderingContextSettings = new RenderingContextSettings(true)
-  private context: CanvasRenderingContext2D = new CanvasRenderingContext2D(this.settings)
+  private controller: XComponentController = new XComponentController()
+  private bindGeneration: number = 0
 
   aboutToDisappear(): void {
     const id = this.params.id ?? ''
-    DMPLogger.i(Tags.WEB_COMPONENT, `DMPCanvasComponent aboutToDisappear id=${id}`)
-    if (id) {
-      DMPCanvasManager.sharedInstance().unregister(id)
+    DMPLogger.i(Tags.WEB_COMPONENT, `DMPCanvasComponent aboutToDisappear id=${id} gen=${this.bindGeneration}`)
+    if (id && this.bindGeneration > 0) {
+      diminaNative.canvasUnbindSurface(this.params.appIndex ?? -1, id, this.bindGeneration)
+      this.bindGeneration = 0
     }
   }
 
   build() {
-    Canvas(this.context)
+    XComponent({
+      id: `canvas-xc-${this.params.id ?? ''}`,
+      type: XComponentType.TEXTURE,
+      controller: this.controller,
+    })
       .width(this.params.width ?? 300)
       .height(this.params.height ?? 150)
       .backgroundColor('#00000000')
-      .onReady(() => {
+      .onLoad(() => {
         const id = this.params.id ?? ''
         const appIndex = this.params.appIndex ?? -1
-        const webViewId = this.params.parentWebViewId ?? 0
+        const surfaceId = this.controller.getXComponentSurfaceId()
         const w = this.params.width ?? 300
         const h = this.params.height ?? 150
-        DMPLogger.i(Tags.WEB_COMPONENT, `DMPCanvasComponent onReady id=${id} appIndex=${appIndex} webViewId=${webViewId} width=${w} height=${h} contextWidth=${this.context.width} contextHeight=${this.context.height}`)
+        const dpr = vp2px(1)
+        const pxW = Math.round(w * dpr)
+        const pxH = Math.round(h * dpr)
+        DMPLogger.i(Tags.WEB_COMPONENT,
+          `DMPCanvasComponent onLoad id=${id} appIndex=${appIndex} surfaceId=${surfaceId} size=${w}x${h} px=${pxW}x${pxH} dpr=${dpr}`)
 
         if (id) {
-          DMPCanvasManager.sharedInstance().register(appIndex, webViewId, id, this.context,
-            w, h)
+          // canvasBindSurface handles dedup internally (skips if same surfaceId
+          // is already bound with a live GL canvas).  Safe to call on every onLoad.
+          this.bindGeneration = diminaNative.canvasBindSurface(appIndex, id, surfaceId, pxW, pxH, dpr)
+          DMPLogger.i(Tags.WEB_COMPONENT,
+            `DMPCanvasComponent bound id=${id} surfaceId=${surfaceId} gen=${this.bindGeneration}`)
         } else {
-          DMPLogger.e(Tags.WEB_COMPONENT, `DMPCanvasComponent onReady: id is EMPTY, cannot register. params=${JSON.stringify(this.params)}`)
+          DMPLogger.e(Tags.WEB_COMPONENT,
+            `DMPCanvasComponent onLoad: id is EMPTY, cannot bind. params=${JSON.stringify(this.params)}`)
+        }
+      })
+      .onDestroy(() => {
+        const id = this.params.id ?? ''
+        if (id && this.bindGeneration > 0) {
+          diminaNative.canvasUnbindSurface(this.params.appIndex ?? -1, id, this.bindGeneration)
+          this.bindGeneration = 0
         }
       })
   }

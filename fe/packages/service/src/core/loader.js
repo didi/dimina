@@ -1,5 +1,5 @@
 import { hasModule, isWebWorker, modRequire } from '@dimina/common'
-import { installMiniGameGlobals } from '../api/core/ui/canvas/canvas-node'
+import { installMiniGameGlobals } from '../api/core/ui/canvas/native-node'
 import { AppModule } from '../instance/app/app-module'
 import { ComponentModule } from '../instance/component/component-module'
 import { PageModule } from '../instance/page/page-module'

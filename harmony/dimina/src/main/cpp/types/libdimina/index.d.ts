@@ -13,6 +13,14 @@ export const destroyJsEngine: (appIndex: number) => number;
 
 export const brotliDecompress: (data: ArrayBuffer) => ArrayBuffer;
 
+// Canvas threadsafe function for QuickJS → main-thread communication
+export const registerCanvasTsfn: (appIndex: number, callback: (type: number, data: string) => string) => void;
+
 // Canvas 2D GL surface binding
-export const canvasBindSurface: (appIndex: number, nodeId: string, surfaceId: string, width: number, height: number) => number;
-export const canvasUnbindSurface: (appIndex: number, nodeId: string) => number;
+// canvasBindSurface returns a bind generation number; pass it to canvasUnbindSurface for ownership check
+export const canvasBindSurface: (appIndex: number, nodeId: string, surfaceId: string, width: number, height: number, dpr?: number) => number;
+export const canvasUnbindSurface: (appIndex: number, nodeId: string, bindGeneration?: number) => number;
+export const canvasResizeSurface: (appIndex: number, nodeId: string, width: number, height: number) => number;
+
+// Upload decoded image pixels to GL canvas (called after network image download)
+export const canvasUploadImage: (appIndex: number, nodeId: string, imageId: string, pixelBuffer: ArrayBuffer, width: number, height: number, onloadCallbackId: string) => number;

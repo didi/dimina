@@ -23,8 +23,16 @@
  * (state, gradients, images).
  */
 struct DMCanvas {
+    /* Drawing buffer size (set by mini-app via canvas.width/height).
+       This is the FBO resolution — may differ from the display surface. */
     int width  = 0;
     int height = 0;
+
+    /* Display surface size (EGL surface / XComponent physical pixels).
+       Used by swap_buffers to scale the FBO to the on-screen area,
+       analogous to CSS width/height vs canvas.width/height in HTML. */
+    int surfaceWidth  = 0;
+    int surfaceHeight = 0;
 
     /* NanoVG */
     NVGcontext *vg = nullptr;
@@ -43,6 +51,9 @@ struct DMCanvas {
 
     /* Device pixel ratio (for HiDPI; defaults to 1.0) */
     float devicePixelRatio = 1.0f;
+
+    /* Frame state — tracks whether nvgBeginFrame is active */
+    bool frameActive = false;
 };
 
 /**

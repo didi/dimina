@@ -1,6 +1,11 @@
 import { invokeAPI } from '@/api/common'
 import router from '@/core/router'
-export { createCanvas, createOffscreenCanvas } from './canvas-node'
+export {
+	CanvasNode, createOffscreenCanvas,
+	hydrateCanvasNode, hydrateSelectorQueryResult,
+	createCanvas,
+} from './native-node'
+import { isGLAvailable, getNativeCanvasNode } from './native-node'
 
 /**
  * 创建绘图上下文
@@ -34,6 +39,29 @@ export function drawCanvas(opts = {}) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/canvas/wx.canvasToTempFilePath.html
  */
 export function canvasToTempFilePath(opts = {}, component) {
+	const { canvas, canvasId, fileType = 'png', quality = 1 } = opts
+
+	// Native canvas path: get dataURL directly from GL canvas
+	const nativeNode = canvas || (canvasId && isGLAvailable ? getNativeCanvasNode(canvasId) : null)
+	if (nativeNode && typeof nativeNode.toDataURL === 'function') {
+		const mimeType = (fileType === 'jpg' || fileType === 'jpeg') ? 'image/jpeg' : 'image/png'
+		const dataURL = nativeNode.toDataURL(mimeType, quality)
+		if (!dataURL) {
+			const err = { errMsg: 'canvasToTempFilePath:fail toDataURL returned empty' }
+			if (typeof opts.fail === 'function') opts.fail(err)
+			if (typeof opts.complete === 'function') opts.complete(err)
+			return
+		}
+		return invokeAPI('saveCanvasTempFile', {
+			dataURL,
+			fileType,
+			success: opts.success,
+			fail: opts.fail,
+			complete: opts.complete,
+		}, 'container')
+	}
+
+	// Fallback: render-side path (WebView canvas)
 	const params = {
 		...opts,
 		moduleId: opts.moduleId || resolveModuleId(component || opts.component),

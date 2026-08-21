@@ -37,8 +37,8 @@
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, "dimina_canvas2d", __VA_ARGS__)
 #elif defined(DIMINA_PLATFORM_HARMONY)
 #include <hilog/log.h>
-#define LOGE(...) OH_LOG_ERROR(LOG_APP, __VA_ARGS__)
-#define LOGD(...) OH_LOG_DEBUG(LOG_APP, __VA_ARGS__)
+#define LOGE(...) OH_LOG_Print(LOG_APP, LOG_ERROR, 0x8989, "dimina/canvas2d", __VA_ARGS__)
+#define LOGD(...) OH_LOG_Print(LOG_APP, LOG_INFO,  0x8989, "dimina/canvas2d", __VA_ARGS__)
 #else
 #include <cstdio>
 #define LOGE(...) fprintf(stderr, __VA_ARGS__)
@@ -402,41 +402,26 @@ static void processContextCall(DMCanvas *canvas, const std::string &method,
 
     /* ── Fill / Stroke ────────────────────────────────────────────── */
     } else if (method == "fill") {
-        if (shouldDrawShadow(st)) {
-            /* Shadow pass: draw at offset with shadow color */
-            nvgSave(vg);
-            nvgTranslate(vg, st.shadowOffsetX, st.shadowOffsetY);
-            NVGcolor sc = parseCanvasColor(st.shadowColor);
-            sc.a *= st.globalAlpha;
-            nvgFillColor(vg, sc);
-            nvgFill(vg);
-            nvgRestore(vg);
-        }
+        drawWithShadow(vg, st,
+            [](NVGcontext *v, void *) { nvgFill(v); }, nullptr);
         applyFillStyle(canvas);
         nvgFill(vg);
     } else if (method == "stroke") {
-        if (shouldDrawShadow(st)) {
-            nvgSave(vg);
-            nvgTranslate(vg, st.shadowOffsetX, st.shadowOffsetY);
-            NVGcolor sc = parseCanvasColor(st.shadowColor);
-            sc.a *= st.globalAlpha;
-            nvgStrokeColor(vg, sc);
-            nvgStroke(vg);
-            nvgRestore(vg);
-        }
+        drawWithShadow(vg, st,
+            [](NVGcontext *v, void *) { nvgStroke(v); }, nullptr);
         applyStrokeStyle(canvas);
         nvgStroke(vg);
     } else if (method == "fillRect") {
         float x = argF(args, 0), y = argF(args, 1);
         float w = argF(args, 2), h = argF(args, 3);
-        if (shouldDrawShadow(st)) {
-            nvgBeginPath(vg);
-            nvgRect(vg, x + st.shadowOffsetX, y + st.shadowOffsetY, w, h);
-            NVGcolor sc = parseCanvasColor(st.shadowColor);
-            sc.a *= st.globalAlpha;
-            nvgFillColor(vg, sc);
-            nvgFill(vg);
-        }
+        struct RectData { float x, y, w, h; };
+        RectData rd = { x, y, w, h };
+        drawWithShadow(vg, st, [](NVGcontext *v, void *ud) {
+            auto *r = (RectData *)ud;
+            nvgBeginPath(v);
+            nvgRect(v, r->x, r->y, r->w, r->h);
+            nvgFill(v);
+        }, &rd);
         nvgBeginPath(vg);
         nvgRect(vg, x, y, w, h);
         applyFillStyle(canvas);
@@ -444,14 +429,14 @@ static void processContextCall(DMCanvas *canvas, const std::string &method,
     } else if (method == "strokeRect") {
         float x = argF(args, 0), y = argF(args, 1);
         float w = argF(args, 2), h = argF(args, 3);
-        if (shouldDrawShadow(st)) {
-            nvgBeginPath(vg);
-            nvgRect(vg, x + st.shadowOffsetX, y + st.shadowOffsetY, w, h);
-            NVGcolor sc = parseCanvasColor(st.shadowColor);
-            sc.a *= st.globalAlpha;
-            nvgStrokeColor(vg, sc);
-            nvgStroke(vg);
-        }
+        struct RectData { float x, y, w, h; };
+        RectData rd = { x, y, w, h };
+        drawWithShadow(vg, st, [](NVGcontext *v, void *ud) {
+            auto *r = (RectData *)ud;
+            nvgBeginPath(v);
+            nvgRect(v, r->x, r->y, r->w, r->h);
+            nvgStroke(v);
+        }, &rd);
         nvgBeginPath(vg);
         nvgRect(vg, x, y, w, h);
         applyStrokeStyle(canvas);
@@ -459,15 +444,16 @@ static void processContextCall(DMCanvas *canvas, const std::string &method,
     } else if (method == "clearRect") {
         float x = argF(args, 0), y = argF(args, 1);
         float w = argF(args, 2), h = argF(args, 3);
-#if defined(DIMINA_PLATFORM_ANDROID) || defined(DIMINA_PLATFORM_HARMONY) || defined(DIMINA_PLATFORM_IOS)
-        /* Use scissor + clear to erase the rect */
-        glEnable(GL_SCISSOR_TEST);
-        glScissor((GLint)x, (GLint)(canvas->height - y - h),
-                  (GLsizei)w, (GLsizei)h);
-        glClearColor(0, 0, 0, 0);
-        glClear(GL_COLOR_BUFFER_BIT);
-        glDisable(GL_SCISSOR_TEST);
-#endif
+        /* Use NanoVG NVG_COPY composite to clear the rect to transparent.
+           Direct glClear would execute before NanoVG renders pending commands,
+           causing clearRect to be invisible when ops are batched in one frame. */
+        nvgSave(vg);
+        nvgGlobalCompositeOperation(vg, NVG_COPY);
+        nvgBeginPath(vg);
+        nvgRect(vg, x, y, w, h);
+        nvgFillColor(vg, nvgRGBA(0, 0, 0, 0));
+        nvgFill(vg);
+        nvgRestore(vg);
 
     /* ── Transform ────────────────────────────────────────────────── */
     } else if (method == "save") {
@@ -477,22 +463,31 @@ static void processContextCall(DMCanvas *canvas, const std::string &method,
         nvgRestore(vg);
         canvas->stateManager.restore();
     } else if (method == "translate") {
-        nvgTranslate(vg, argF(args, 0), argF(args, 1));
+        float tx = argF(args, 0), ty = argF(args, 1);
+        nvgTranslate(vg, tx, ty);
+        canvas->stateManager.current().xformTranslate(tx, ty);
     } else if (method == "rotate") {
-        nvgRotate(vg, argF(args, 0));
+        float a = argF(args, 0);
+        nvgRotate(vg, a);
+        canvas->stateManager.current().xformRotate(a);
     } else if (method == "scale") {
-        nvgScale(vg, argF(args, 0), argF(args, 1));
+        float sx = argF(args, 0), sy = argF(args, 1);
+        nvgScale(vg, sx, sy);
+        canvas->stateManager.current().xformScale(sx, sy);
     } else if (method == "transform") {
-        nvgTransform(vg, argF(args, 0), argF(args, 1),
-                         argF(args, 2), argF(args, 3),
-                         argF(args, 4), argF(args, 5));
+        float a=argF(args,0), b=argF(args,1), c=argF(args,2),
+              d=argF(args,3), e=argF(args,4), f=argF(args,5);
+        nvgTransform(vg, a, b, c, d, e, f);
+        canvas->stateManager.current().xformConcat(a, b, c, d, e, f);
     } else if (method == "setTransform") {
+        float a=argF(args,0), b=argF(args,1), c=argF(args,2),
+              d=argF(args,3), e=argF(args,4), f=argF(args,5);
         nvgResetTransform(vg);
-        nvgTransform(vg, argF(args, 0), argF(args, 1),
-                         argF(args, 2), argF(args, 3),
-                         argF(args, 4), argF(args, 5));
+        nvgTransform(vg, a, b, c, d, e, f);
+        canvas->stateManager.current().xformSet(a, b, c, d, e, f);
     } else if (method == "resetTransform") {
         nvgResetTransform(vg);
+        canvas->stateManager.current().xformReset();
 
     /* ── Text ─────────────────────────────────────────────────────── */
     } else if (method == "fillText") {
@@ -561,7 +556,19 @@ static void processContextCall(DMCanvas *canvas, const std::string &method,
             nvgTextAlign(vg, st.textAlign);
         }
 
-        applyStrokeStyle(canvas);
+        /* NanoVG only supports filled text — nvgText uses fill color.
+           For strokeText, set fill color to the stroke color so text
+           appears with the stroke style. */
+        if (st.strokeIsGradient && canvas->gradientManager.has(st.strokeGradientId)) {
+            NVGpaint paint = canvas->gradientManager.buildPaint(canvas->vg, st.strokeGradientId);
+            paint.innerColor.a *= st.globalAlpha;
+            paint.outerColor.a *= st.globalAlpha;
+            nvgFillPaint(vg, paint);
+        } else {
+            NVGcolor c = parseCanvasColor(st.strokeStyleStr);
+            c.a *= st.globalAlpha;
+            nvgFillColor(vg, c);
+        }
 
         if (maxWidth > 0) {
             float bounds[4];
@@ -649,6 +656,7 @@ static void processContextCall(DMCanvas *canvas, const std::string &method,
         }
 
         int imgHandle = canvas->imageManager.getImage(imageId);
+        LOGD("drawImage: imageId=%{public}s handle=%{public}d", imageId.c_str(), imgHandle);
         if (imgHandle < 0) return;
 
         int imgW = 0, imgH = 0;
@@ -658,13 +666,13 @@ static void processContextCall(DMCanvas *canvas, const std::string &method,
         float dx, dy, dw, dh;
 
         size_t argc = args.size();
-        if (argc >= 10) {
+        if (argc >= 9) {
             /* 9-arg form: (image, sx, sy, sw, sh, dx, dy, dw, dh) */
             sx = argF(args, 1); sy = argF(args, 2);
             sw = argF(args, 3); sh = argF(args, 4);
             dx = argF(args, 5); dy = argF(args, 6);
             dw = argF(args, 7); dh = argF(args, 8);
-        } else if (argc >= 6) {
+        } else if (argc >= 5) {
             /* 5-arg form: (image, dx, dy, dw, dh) */
             dx = argF(args, 1); dy = argF(args, 2);
             dw = argF(args, 3); dh = argF(args, 4);
@@ -677,6 +685,19 @@ static void processContextCall(DMCanvas *canvas, const std::string &method,
         /* Create image pattern paint */
         float scaleX = dw / sw;
         float scaleY = dh / sh;
+
+        /* Shadow pass for drawImage */
+        if (shouldDrawShadow(st)) {
+            struct ImgShadowData { float dx, dy, dw, dh; };
+            ImgShadowData isd = { dx, dy, dw, dh };
+            drawWithShadow(vg, st, [](NVGcontext *v, void *ud) {
+                auto *d = (ImgShadowData *)ud;
+                nvgBeginPath(v);
+                nvgRect(v, d->dx, d->dy, d->dw, d->dh);
+                nvgFill(v);
+            }, &isd);
+        }
+
         NVGpaint imgPaint = nvgImagePattern(vg,
             dx - sx * scaleX, dy - sy * scaleY,
             (float)imgW * scaleX, (float)imgH * scaleY,
@@ -716,49 +737,56 @@ static void processContextSetProperty(DMCanvas *canvas, const std::string &prop,
     auto &st = canvas->stateManager.current();
 
     if (prop == "fillStyle") {
+        /* Check gradient/pattern object first — getString() returns empty for objects */
+        if (value.isObject()) {
+            std::string resId = value["__canvasResourceId"].getString();
+            if (!resId.empty() && canvas->gradientManager.has(resId)) {
+                st.fillIsGradient = true;
+                st.fillGradientId = resId;
+                return;
+            }
+        }
         std::string v = value.getString();
         if (!v.empty()) {
-            /* Check if it's a gradient resource reference */
-            if (value.isObject()) {
-                std::string resId = value["__canvasResourceId"].getString();
-                if (!resId.empty() && canvas->gradientManager.has(resId)) {
-                    st.fillIsGradient = true;
-                    st.fillGradientId = resId;
-                    return;
-                }
-            }
             st.fillIsGradient = false;
             st.fillStyleStr = v;
         }
     } else if (prop == "strokeStyle") {
+        if (value.isObject()) {
+            std::string resId = value["__canvasResourceId"].getString();
+            if (!resId.empty() && canvas->gradientManager.has(resId)) {
+                st.strokeIsGradient = true;
+                st.strokeGradientId = resId;
+                return;
+            }
+        }
         std::string v = value.getString();
         if (!v.empty()) {
-            if (value.isObject()) {
-                std::string resId = value["__canvasResourceId"].getString();
-                if (!resId.empty() && canvas->gradientManager.has(resId)) {
-                    st.strokeIsGradient = true;
-                    st.strokeGradientId = resId;
-                    return;
-                }
-            }
             st.strokeIsGradient = false;
             st.strokeStyleStr = v;
         }
     } else if (prop == "lineWidth") {
         float w = value.getFloat(1.0f);
+        st.lineWidth = w;
         nvgStrokeWidth(vg, w);
     } else if (prop == "lineCap") {
         std::string cap = value.getString("butt");
-        if (cap == "round")      nvgLineCap(vg, NVG_ROUND);
-        else if (cap == "square") nvgLineCap(vg, NVG_SQUARE);
-        else                      nvgLineCap(vg, NVG_BUTT);
+        int nvgCap = NVG_BUTT;
+        if (cap == "round")      nvgCap = NVG_ROUND;
+        else if (cap == "square") nvgCap = NVG_SQUARE;
+        st.lineCap = nvgCap;
+        nvgLineCap(vg, nvgCap);
     } else if (prop == "lineJoin") {
         std::string join = value.getString("miter");
-        if (join == "round")     nvgLineJoin(vg, NVG_ROUND);
-        else if (join == "bevel") nvgLineJoin(vg, NVG_BEVEL);
-        else                      nvgLineJoin(vg, NVG_MITER);
+        int nvgJoin = NVG_MITER;
+        if (join == "round")     nvgJoin = NVG_ROUND;
+        else if (join == "bevel") nvgJoin = NVG_BEVEL;
+        st.lineJoin = nvgJoin;
+        nvgLineJoin(vg, nvgJoin);
     } else if (prop == "miterLimit") {
-        nvgMiterLimit(vg, value.getFloat(10.0f));
+        float ml = value.getFloat(10.0f);
+        st.miterLimit = ml;
+        nvgMiterLimit(vg, ml);
     } else if (prop == "globalAlpha") {
         st.globalAlpha = value.getFloat(1.0f);
         nvgGlobalAlpha(vg, st.globalAlpha);
@@ -818,6 +846,7 @@ static void executeOpsFromJson(DMCanvas *canvas, const JsonValue &root) {
     const JsonValue &operations = root["operations"];
     if (!operations.isArray()) return;
 
+    LOGD("executeOpsFromJson: %{public}zu operations", operations.size());
     for (size_t i = 0; i < operations.size(); i++) {
         const JsonValue &op = operations[i];
         std::string opType = op["op"].getString();
@@ -826,27 +855,73 @@ static void executeOpsFromJson(DMCanvas *canvas, const JsonValue &root) {
             std::string method = op["method"].getString();
             const JsonValue &args = op["args"];
             std::string resultId = op["resultId"].getString();
+            LOGD("  op[%{public}zu] contextCall: %{public}s args=%{public}zu", i, method.c_str(), args.size());
             processContextCall(canvas, method, args, resultId);
         } else if (opType == "contextSetProperty") {
             std::string prop = op["prop"].getString();
             const JsonValue &value = op["value"];
+            std::string valStr = value.isString() ? value.strVal :
+                                 value.isNumber() ? std::to_string(value.numVal) : "(other)";
+            LOGD("  op[%{public}zu] setProperty: %{public}s = %{public}s", i, prop.c_str(), valStr.c_str());
             processContextSetProperty(canvas, prop, value);
         } else if (opType == "resourceCall") {
             std::string resourceId = op["resourceId"].getString();
             std::string method = op["method"].getString();
             const JsonValue &args = op["args"];
+            LOGD("  op[%{public}zu] resourceCall: %{public}s.%{public}s", i, resourceId.c_str(), method.c_str());
             processResourceCall(canvas, resourceId, method, args);
         } else if (opType == "getContext") {
-            /* No-op at renderer level */
+            LOGD("  op[%{public}zu] getContext (no-op)", i);
         } else if (opType == "setCanvasProperty") {
             std::string prop = op["prop"].getString();
-            if (prop == "width") {
-                int w = (int)op["value"].getNumber(canvas->width);
-                dm_canvas_resize(canvas, w, canvas->height);
-            } else if (prop == "height") {
-                int h = (int)op["value"].getNumber(canvas->height);
-                dm_canvas_resize(canvas, canvas->width, h);
+            double val = op["value"].getNumber(0);
+            LOGD("  op[%{public}zu] setCanvasProperty: %{public}s = %{public}.0f", i, prop.c_str(), val);
+            // JS mini-app sets canvas.width/height to physical pixels (logicalWidth * dpr),
+            // following the standard WeChat retina pattern. Accept as-is, no DPR multiplication.
+            if (prop == "width" || prop == "height") {
+                int newW = canvas->width, newH = canvas->height;
+                if (prop == "width") {
+                    newW = (int)op["value"].getNumber(canvas->width);
+                } else {
+                    newH = (int)op["value"].getNumber(canvas->height);
+                }
+                if (newW != canvas->width || newH != canvas->height) {
+                    /* Resizing mid-frame: dm_canvas_resize recreates the FBO,
+                       which unbinds the old FBO.  We must end the NanoVG frame
+                       first, then resize, then restart the frame so subsequent
+                       ops draw to the new FBO. */
+                    if (canvas->frameActive) {
+                        nvgEndFrame(canvas->vg);
+                        canvas->frameActive = false;
+                    }
+                    dm_canvas_resize(canvas, newW, newH);
+                    /* Per HTML Canvas spec: setting canvas.width or height
+                       resets the context state to defaults. */
+                    canvas->stateManager.reset();
+                    /* Re-enter frame with new dimensions */
+                    float dpr = canvas->devicePixelRatio;
+                    float lw = (float)canvas->width / dpr;
+                    float lh = (float)canvas->height / dpr;
+#if defined(DIMINA_PLATFORM_ANDROID) || defined(DIMINA_PLATFORM_HARMONY) || defined(DIMINA_PLATFORM_IOS)
+                    if (canvas->nvgFbo) {
+                        nvgluBindFramebuffer(canvas->nvgFbo);
+                    }
+                    glViewport(0, 0, canvas->width, canvas->height);
+                    glClear(GL_STENCIL_BUFFER_BIT);
+#endif
+                    nvgBeginFrame(canvas->vg, lw, lh, dpr);
+                    canvas->frameActive = true;
+                }
             }
+        } else if (opType == "imageSetSrc") {
+            /* imageSetSrc is handled by canvas_bindings.cpp before reaching here.
+               If it arrives here, it's a no-op (image loading is async). */
+            LOGD("  op[%{public}zu] imageSetSrc: imageId=%{public}s (handled by bindings layer)",
+                 i, op["imageId"].getString().c_str());
+        } else if (opType == "createImage") {
+            LOGD("  op[%{public}zu] createImage (no-op, handled by bindings layer)", i);
+        } else {
+            LOGD("  op[%{public}zu] unknown opType: %{public}s", i, opType.c_str());
         }
     }
 }
@@ -859,13 +934,31 @@ DMCanvasRef dm_canvas_create(int width, int height) {
     auto *canvas = new DMCanvas();
     canvas->width  = width;
     canvas->height = height;
+    /* Surface dimensions default to drawing buffer size;
+       overwritten by dm_canvas_init_surface when EGL surface is created. */
+    canvas->surfaceWidth  = width;
+    canvas->surfaceHeight = height;
     return canvas;
+}
+
+int dm_canvas_is_ready(DMCanvasRef canvas) {
+    return canvas && canvas->vg && canvas->surfaceReady ? 1 : 0;
 }
 
 void dm_canvas_destroy(DMCanvasRef canvas) {
     if (!canvas) return;
 
     if (canvas->vg) {
+#if defined(DIMINA_PLATFORM_ANDROID) || defined(DIMINA_PLATFORM_HARMONY) || defined(DIMINA_PLATFORM_IOS)
+        /* Make THIS canvas's EGL context current before deleting GL objects.
+           nvgDeleteGLES2 calls glDeleteTextures/glDeleteProgram etc. — these
+           must run on the context that owns them, not whatever context happens
+           to be current (which may belong to a different canvas). */
+        if (canvas->eglState.context != EGL_NO_CONTEXT &&
+            canvas->eglState.surface != EGL_NO_SURFACE) {
+            egl_make_current(&canvas->eglState);
+        }
+#endif
         canvas->imageManager.clear(canvas->vg);
         canvas->gradientManager.clearTextures(canvas->vg);
         canvas->gradientManager.clear();
@@ -878,6 +971,65 @@ void dm_canvas_destroy(DMCanvasRef canvas) {
 
     egl_cleanup(&canvas->eglState);
     delete canvas;
+}
+
+void dm_canvas_reset_for_replay(DMCanvasRef canvas) {
+    if (!canvas || !canvas->vg) return;
+
+#if defined(DIMINA_PLATFORM_ANDROID) || defined(DIMINA_PLATFORM_HARMONY) || defined(DIMINA_PLATFORM_IOS)
+    egl_make_current(&canvas->eglState);
+    if (canvas->nvgFbo) {
+        nvgluBindFramebuffer(canvas->nvgFbo);
+    }
+    glViewport(0, 0, canvas->width, canvas->height);
+    glClearColor(0, 0, 0, 0);
+    glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+#endif
+
+    /* Reset canvas state to defaults */
+    canvas->stateManager.reset();
+
+    /* Clear gradient textures and gradient state — ops will recreate them */
+    canvas->gradientManager.clearTextures(canvas->vg);
+    canvas->gradientManager.clear();
+
+    /* NOTE: imageManager is NOT cleared — uploaded images persist across replays
+       (image upload is done outside the ops queue via canvasUploadImage). */
+}
+
+void dm_canvas_set_pixel_ratio(DMCanvasRef canvas, float ratio) {
+    if (!canvas || ratio <= 0) return;
+    canvas->devicePixelRatio = ratio;
+}
+
+void dm_canvas_set_surface_size(DMCanvasRef canvas, int sw, int sh) {
+    if (!canvas) return;
+    canvas->surfaceWidth  = sw;
+    canvas->surfaceHeight = sh;
+    LOGD("dm_canvas_set_surface_size: %{public}dx%{public}d", sw, sh);
+}
+
+int dm_canvas_rebind_surface(DMCanvasRef canvas, void *native_window) {
+    if (!canvas || !canvas->vg) return -1;
+
+    LOGD("dm_canvas_rebind_surface: canvas=%{public}p nw=%{public}p fbo=%{public}dx%{public}d surface=%{public}dx%{public}d",
+         (void*)canvas, native_window, canvas->width, canvas->height,
+         canvas->surfaceWidth, canvas->surfaceHeight);
+
+    /* Destroy old EGL surface and create a new one from the new native window.
+       egl_create_surface internally calls egl_destroy_surface first, then
+       creates a fresh EGL surface and makes it current.
+       The NanoVG context and FBO are preserved — they live in the EGL context,
+       not the EGL surface.  Only the display surface changes. */
+    if (egl_create_surface(&canvas->eglState, native_window) != 0) {
+        LOGE("dm_canvas_rebind_surface: egl_create_surface failed");
+        canvas->surfaceReady = false;
+        return -1;
+    }
+
+    canvas->surfaceReady = true;
+    LOGD("dm_canvas_rebind_surface: OK — EGL surface rebound, NanoVG+FBO preserved");
+    return 0;
 }
 
 void dm_canvas_resize(DMCanvasRef canvas, int width, int height) {
@@ -895,24 +1047,129 @@ void dm_canvas_resize(DMCanvasRef canvas, int width, int height) {
 int dm_canvas_init_surface(DMCanvasRef canvas, void *native_window) {
     if (!canvas) return -1;
 
+    LOGD("dm_canvas_init_surface: START canvas=%{public}p nw=%{public}p size=%{public}dx%{public}d dpr=%{public}.2f",
+         (void*)canvas, native_window, canvas->width, canvas->height, canvas->devicePixelRatio);
+
     /* Initialize EGL if not done yet */
     if (egl_init(&canvas->eglState) != 0) {
         LOGE("dm_canvas_init_surface: EGL init failed");
         return -1;
     }
+    LOGD("dm_canvas_init_surface: EGL init OK");
 
     if (egl_create_surface(&canvas->eglState, native_window) != 0) {
         LOGE("dm_canvas_init_surface: surface creation failed");
         return -1;
     }
+    LOGD("dm_canvas_init_surface: EGL surface OK");
 
     /* Create NanoVG context */
     if (!canvas->vg) {
+        /* Verify GL context is actually current before NanoVG init */
+        const char *glVendor = (const char *)glGetString(GL_VENDOR);
+        const char *glRenderer = (const char *)glGetString(GL_RENDERER);
+        const char *glVersion = (const char *)glGetString(GL_VERSION);
+        GLenum glErr = glGetError();
+        LOGD("dm_canvas_init_surface: GL check — vendor=%{public}s renderer=%{public}s version=%{public}s glError=0x%{public}x",
+             glVendor ? glVendor : "(null)",
+             glRenderer ? glRenderer : "(null)",
+             glVersion ? glVersion : "(null)",
+             glErr);
+
         canvas->vg = nvgCreateGLES2(NVG_ANTIALIAS | NVG_STENCIL_STROKES);
         if (!canvas->vg) {
-            LOGE("dm_canvas_init_surface: nvgCreateGLES2 failed");
+            GLenum err = glGetError();
+            LOGE("dm_canvas_init_surface: nvgCreateGLES2 failed glError=0x%{public}x", err);
             return -1;
         }
+        LOGD("dm_canvas_init_surface: NanoVG context OK");
+
+        /* Load system fonts for text rendering.
+           NanoVG requires at least one font loaded before nvgText can draw.
+           Strategy: load a base Latin font, then add CJK font as fallback
+           so both Latin and Chinese/Japanese/Korean text render correctly. */
+#if defined(DIMINA_PLATFORM_HARMONY)
+        /* Base Latin font */
+        static const char *latinPaths[] = {
+            "/system/fonts/HarmonyOS_Sans_Regular.ttf",
+            "/system/fonts/HarmonyOS_Sans.ttf",
+            "/system/fonts/DroidSans.ttf",
+            nullptr
+        };
+        int sansId = -1;
+        for (int i = 0; latinPaths[i]; i++) {
+            sansId = nvgCreateFont(canvas->vg, "sans", latinPaths[i]);
+            if (sansId >= 0) {
+                LOGD("dm_canvas_init_surface: loaded Latin font '%{public}s' as 'sans' (id=%{public}d)", latinPaths[i], sansId);
+                nvgCreateFont(canvas->vg, "sans-serif", latinPaths[i]);
+                nvgCreateFont(canvas->vg, "default", latinPaths[i]);
+                break;
+            }
+        }
+        /* CJK (Chinese/Japanese/Korean) fallback font */
+        static const char *cjkPaths[] = {
+            "/system/fonts/HarmonyOS_Sans_SC_Regular.ttf",
+            "/system/fonts/HarmonyOS_Sans_SC.ttf",
+            "/system/fonts/NotoSansCJK-Regular.ttc",
+            "/system/fonts/NotoSansSC-Regular.otf",
+            "/system/fonts/DroidSansFallback.ttf",
+            nullptr
+        };
+        int sansSerifId = -1, defaultId = -1;
+        if (sansId >= 0) {
+            sansSerifId = nvgFindFont(canvas->vg, "sans-serif");
+            defaultId = nvgFindFont(canvas->vg, "default");
+        }
+        for (int i = 0; cjkPaths[i]; i++) {
+            int cjkId = nvgCreateFont(canvas->vg, "cjk", cjkPaths[i]);
+            if (cjkId >= 0) {
+                LOGD("dm_canvas_init_surface: loaded CJK font '%{public}s' (id=%{public}d)", cjkPaths[i], cjkId);
+                /* Add CJK as fallback for all base font variants */
+                if (sansId >= 0) nvgAddFallbackFontId(canvas->vg, sansId, cjkId);
+                if (sansSerifId >= 0) nvgAddFallbackFontId(canvas->vg, sansSerifId, cjkId);
+                if (defaultId >= 0) nvgAddFallbackFontId(canvas->vg, defaultId, cjkId);
+                break;
+            }
+        }
+        /* Bold variants */
+        static const char *boldPaths[] = {
+            "/system/fonts/HarmonyOS_Sans_Bold.ttf",
+            nullptr
+        };
+        int boldId = -1;
+        for (int i = 0; boldPaths[i]; i++) {
+            boldId = nvgCreateFont(canvas->vg, "sans-bold", boldPaths[i]);
+            if (boldId >= 0) {
+                LOGD("dm_canvas_init_surface: loaded bold font '%{public}s' (id=%{public}d)", boldPaths[i], boldId);
+                break;
+            }
+        }
+        static const char *boldCjkPaths[] = {
+            "/system/fonts/HarmonyOS_Sans_SC_Bold.ttf",
+            "/system/fonts/NotoSansCJK-Bold.ttc",
+            nullptr
+        };
+        for (int i = 0; boldCjkPaths[i]; i++) {
+            int bcjkId = nvgCreateFont(canvas->vg, "cjk-bold", boldCjkPaths[i]);
+            if (bcjkId >= 0) {
+                LOGD("dm_canvas_init_surface: loaded bold CJK font '%{public}s' (id=%{public}d)", boldCjkPaths[i], bcjkId);
+                if (boldId >= 0) nvgAddFallbackFontId(canvas->vg, boldId, bcjkId);
+                break;
+            }
+        }
+        if (sansId < 0) {
+            LOGE("dm_canvas_init_surface: WARNING — no system font found, text rendering will fail");
+        }
+#elif defined(DIMINA_PLATFORM_ANDROID)
+        int sansId = nvgCreateFont(canvas->vg, "sans", "/system/fonts/Roboto-Regular.ttf");
+        nvgCreateFont(canvas->vg, "sans-serif", "/system/fonts/Roboto-Regular.ttf");
+        int boldId = nvgCreateFont(canvas->vg, "sans-bold", "/system/fonts/Roboto-Bold.ttf");
+        /* CJK fallback for Android */
+        int cjkId = nvgCreateFont(canvas->vg, "cjk", "/system/fonts/NotoSansCJK-Regular.ttc");
+        if (cjkId < 0) cjkId = nvgCreateFont(canvas->vg, "cjk", "/system/fonts/DroidSansFallback.ttf");
+        if (cjkId >= 0 && sansId >= 0) nvgAddFallbackFontId(canvas->vg, sansId, cjkId);
+        if (cjkId >= 0 && boldId >= 0) nvgAddFallbackFontId(canvas->vg, boldId, cjkId);
+#endif
     }
 
     /* Set up FBO */
@@ -920,9 +1177,16 @@ int dm_canvas_init_surface(DMCanvasRef canvas, void *native_window) {
         LOGE("dm_canvas_init_surface: FBO setup failed");
         return -1;
     }
+    LOGD("dm_canvas_init_surface: FBO OK");
 
     canvas->surfaceReady = true;
-    LOGD("dm_canvas_init_surface: ready %dx%d", canvas->width, canvas->height);
+    /* Record the display surface size — this is the EGL surface / XComponent
+       size in physical pixels.  swap_buffers uses this to scale the FBO
+       (which may be larger or smaller) to the on-screen area. */
+    canvas->surfaceWidth  = canvas->width;
+    canvas->surfaceHeight = canvas->height;
+    LOGD("dm_canvas_init_surface: DONE ready %{public}dx%{public}d surface=%{public}dx%{public}d dpr=%{public}.2f",
+         canvas->width, canvas->height, canvas->surfaceWidth, canvas->surfaceHeight, canvas->devicePixelRatio);
     return 0;
 }
 
@@ -934,73 +1198,220 @@ void dm_canvas_destroy_surface(DMCanvasRef canvas) {
 }
 
 void dm_canvas_swap_buffers(DMCanvasRef canvas) {
-    if (!canvas || !canvas->surfaceReady || !canvas->vg || !canvas->nvgFbo)
+    if (!canvas || !canvas->surfaceReady || !canvas->vg || !canvas->nvgFbo) {
+        LOGD("dm_canvas_swap_buffers: SKIP canvas=%{public}p ready=%{public}d vg=%{public}p fbo=%{public}p",
+             (void*)canvas, canvas ? canvas->surfaceReady : 0,
+             canvas ? (void*)canvas->vg : nullptr,
+             canvas ? (void*)canvas->nvgFbo : nullptr);
         return;
+    }
+    /* Surface = EGL display area (XComponent physical pixels).
+       FBO = drawing buffer (canvas.width/height, may be larger for HD export). */
+    int sw = canvas->surfaceWidth  > 0 ? canvas->surfaceWidth  : canvas->width;
+    int sh = canvas->surfaceHeight > 0 ? canvas->surfaceHeight : canvas->height;
+    LOGD("dm_canvas_swap_buffers: canvas=%{public}p fbo=%{public}dx%{public}d surface=%{public}dx%{public}d",
+         (void*)canvas, canvas->width, canvas->height, sw, sh);
 
 #if defined(DIMINA_PLATFORM_ANDROID) || defined(DIMINA_PLATFORM_HARMONY) || defined(DIMINA_PLATFORM_IOS)
-    /* Blit FBO to screen framebuffer using NanoVG image pattern */
+    /* Ensure this canvas's EGL context is current before blitting */
+    egl_make_current(&canvas->eglState);
+    /* Blit FBO to screen framebuffer — scale drawing buffer to display surface,
+       just like a browser scales canvas drawing buffer to CSS display size. */
     nvgluBindFramebuffer(nullptr); /* bind default (screen) framebuffer */
-    glViewport(0, 0, canvas->width, canvas->height);
+    glViewport(0, 0, sw, sh);
     glClearColor(0, 0, 0, 0);
     glClear(GL_COLOR_BUFFER_BIT);
 
     NVGcontext *vg = canvas->vg;
-    nvgBeginFrame(vg, (float)canvas->width, (float)canvas->height,
-                  canvas->devicePixelRatio);
+    float dispW = (float)sw;
+    float dispH = (float)sh;
+    nvgBeginFrame(vg, dispW, dispH, 1.0f);
 
-    /* The nvgFbo->image is a valid NanoVG image handle for the FBO texture */
+    /* Stretch the FBO texture to fill the entire display surface */
     NVGpaint imgPaint = nvgImagePattern(vg, 0, 0,
-        (float)canvas->width, (float)canvas->height,
+        dispW, dispH,
         0, canvas->nvgFbo->image, 1.0f);
     nvgBeginPath(vg);
-    nvgRect(vg, 0, 0, (float)canvas->width, (float)canvas->height);
+    nvgRect(vg, 0, 0, dispW, dispH);
     nvgFillPaint(vg, imgPaint);
     nvgFill(vg);
 
     nvgEndFrame(vg);
+    glFinish();  /* ensure GPU completes before presenting */
 #endif
 
     egl_swap_buffers(&canvas->eglState);
 }
 
+void dm_canvas_begin_frame(DMCanvasRef canvas) {
+    if (!canvas || !canvas->vg) return;
+    if (canvas->frameActive) return;  /* already in a frame */
+
+    float dpr = canvas->devicePixelRatio;
+    float logicalW = (float)canvas->width / dpr;
+    float logicalH = (float)canvas->height / dpr;
+
+#if defined(DIMINA_PLATFORM_ANDROID) || defined(DIMINA_PLATFORM_HARMONY) || defined(DIMINA_PLATFORM_IOS)
+    egl_make_current(&canvas->eglState);
+    if (canvas->nvgFbo) {
+        nvgluBindFramebuffer(canvas->nvgFbo);
+    }
+    glViewport(0, 0, canvas->width, canvas->height);
+    glClear(GL_STENCIL_BUFFER_BIT);
+#endif
+
+    nvgBeginFrame(canvas->vg, logicalW, logicalH, dpr);
+    canvas->frameActive = true;
+
+    /* Restore canvas state that nvgBeginFrame resets.
+       nvgBeginFrame wipes NanoVG's internal state (transform, font, composite,
+       stroke/fill, save stack, etc.) back to defaults.  We re-apply our
+       tracked CanvasStateManager so that drawing across frame boundaries
+       appears continuous.
+
+       Key insight: NanoVG save/restore is a memcpy-based stack.  We must
+       rebuild each level with the correct state so that nvgRestore pops
+       to the right content — not to the beginFrame-reset defaults. */
+    {
+        NVGcontext *vg = canvas->vg;
+        int totalLevels = canvas->stateManager.stackSize(); // base(1) + saves
+
+        /* Walk the stack bottom-up: apply level 0 (base) to NanoVG current
+           state, then nvgSave + apply level 1, nvgSave + apply level 2, …
+           After the loop, NanoVG's stack[0] = base, stack[1] = save-1, etc.
+           and the current (top) state matches stateManager.current(). */
+        for (int i = 0; i < totalLevels; ++i) {
+            const auto &st = canvas->stateManager.at(i);
+
+            /* Apply this level's full state to NanoVG's current slot */
+            nvgResetTransform(vg);
+            nvgTransform(vg, st.xform[0], st.xform[1],
+                              st.xform[2], st.xform[3],
+                              st.xform[4], st.xform[5]);
+            nvgStrokeWidth(vg, st.lineWidth);
+            nvgLineCap(vg, st.lineCap);
+            nvgLineJoin(vg, st.lineJoin);
+            nvgMiterLimit(vg, st.miterLimit);
+            nvgGlobalAlpha(vg, st.globalAlpha);
+            {
+                ParsedFont pf = parseCSSFont(st.fontStr);
+                applyFontToNVG(vg, pf);
+            }
+            nvgTextAlign(vg, st.textAlign);
+            applyCompositeOperation(st.globalCompositeOperation);
+
+            /* Fill / stroke paint — apply at every level so nvgRestore
+               pops to the correct paint, not the beginFrame default. */
+            if (st.fillIsGradient && canvas->gradientManager.has(st.fillGradientId)) {
+                NVGpaint paint = canvas->gradientManager.buildPaint(vg, st.fillGradientId);
+                paint.innerColor.a *= st.globalAlpha;
+                paint.outerColor.a *= st.globalAlpha;
+                nvgFillPaint(vg, paint);
+            } else {
+                NVGcolor fc = parseCanvasColor(st.fillStyleStr);
+                fc.a *= st.globalAlpha;
+                nvgFillColor(vg, fc);
+            }
+            if (st.strokeIsGradient && canvas->gradientManager.has(st.strokeGradientId)) {
+                NVGpaint paint = canvas->gradientManager.buildPaint(vg, st.strokeGradientId);
+                paint.innerColor.a *= st.globalAlpha;
+                paint.outerColor.a *= st.globalAlpha;
+                nvgStrokePaint(vg, paint);
+            } else {
+                NVGcolor sc = parseCanvasColor(st.strokeStyleStr);
+                sc.a *= st.globalAlpha;
+                nvgStrokeColor(vg, sc);
+            }
+
+            /* Push this level into NanoVG's stack (except for the last
+               level — that stays as the active/current state). */
+            if (i < totalLevels - 1) {
+                nvgSave(vg);
+            }
+        }
+    }
+}
+
+void dm_canvas_end_frame(DMCanvasRef canvas) {
+    if (!canvas || !canvas->vg || !canvas->frameActive) return;
+    nvgEndFrame(canvas->vg);
+    canvas->frameActive = false;
+}
+
 void dm_canvas_execute_ops(DMCanvasRef canvas, const char *json, int json_len) {
-    if (!canvas || !canvas->vg || !json || json_len <= 0) return;
+    if (!canvas || !canvas->vg || !json || json_len <= 0) {
+        LOGD("dm_canvas_execute_ops: SKIP canvas=%{public}p vg=%{public}p json=%{public}p len=%{public}d",
+             (void*)canvas, canvas ? (void*)canvas->vg : nullptr, (void*)json, json_len);
+        return;
+    }
+    LOGD("dm_canvas_execute_ops: canvas=%{public}p jsonLen=%{public}d surfaceReady=%{public}d fbo=%{public}p frameActive=%{public}d",
+         (void*)canvas, json_len, canvas->surfaceReady, (void*)canvas->nvgFbo, canvas->frameActive);
 
     /* Parse the JSON */
     JsonParser parser(json, json_len);
     JsonValue root = parser.parse();
 
-    /* Bind FBO and start NanoVG frame */
-#if defined(DIMINA_PLATFORM_ANDROID) || defined(DIMINA_PLATFORM_HARMONY) || defined(DIMINA_PLATFORM_IOS)
-    if (canvas->nvgFbo) {
-        nvgluBindFramebuffer(canvas->nvgFbo);
+    /* If no frame is active, manage it automatically (backward compat) */
+    bool ownFrame = !canvas->frameActive;
+    if (ownFrame) {
+        dm_canvas_begin_frame(canvas);
     }
-    glViewport(0, 0, canvas->width, canvas->height);
-#endif
-
-    nvgBeginFrame(canvas->vg, (float)canvas->width, (float)canvas->height,
-                  canvas->devicePixelRatio);
 
     /* Execute operations */
     executeOpsFromJson(canvas, root);
 
-    /* End NanoVG frame */
-    nvgEndFrame(canvas->vg);
+    if (ownFrame) {
+        dm_canvas_end_frame(canvas);
+    }
 }
 
 char *dm_canvas_get_image_data(DMCanvasRef canvas, int x, int y, int w, int h) {
     if (!canvas || !canvas->vg || !canvas->nvgFbo) {
         return strdup("{\"data\":[],\"width\":0,\"height\":0}");
     }
+    egl_make_current(&canvas->eglState);
     return pixelops_get_image_data(canvas->nvgFbo->fbo,
                                    canvas->width, canvas->height,
                                    x, y, w, h);
+}
+
+void dm_canvas_put_image_data(DMCanvasRef canvas,
+                              const unsigned char *data,
+                              int dataW, int dataH,
+                              int dx, int dy,
+                              int dirtyX, int dirtyY,
+                              int dirtyW, int dirtyH) {
+    if (!canvas || !canvas->vg || !canvas->nvgFbo || !data) return;
+    if (dataW <= 0 || dataH <= 0) return;
+
+    // Apply dirty rect clipping
+    if (dirtyX < 0) { dirtyW += dirtyX; dirtyX = 0; }
+    if (dirtyY < 0) { dirtyH += dirtyY; dirtyY = 0; }
+    if (dirtyX + dirtyW > dataW) dirtyW = dataW - dirtyX;
+    if (dirtyY + dirtyH > dataH) dirtyH = dataH - dirtyY;
+    if (dirtyW <= 0 || dirtyH <= 0) return;
+
+    // Extract the dirty sub-rectangle from the full imageData
+    std::vector<unsigned char> subData(dirtyW * dirtyH * 4);
+    for (int row = 0; row < dirtyH; row++) {
+        memcpy(&subData[row * dirtyW * 4],
+               &data[((dirtyY + row) * dataW + dirtyX) * 4],
+               dirtyW * 4);
+    }
+
+    egl_make_current(&canvas->eglState);
+    pixelops_put_image_data(canvas->vg, canvas->nvgFbo->fbo,
+                            canvas->width, canvas->height,
+                            subData.data(),
+                            dx + dirtyX, dy + dirtyY,
+                            dirtyW, dirtyH);
 }
 
 char *dm_canvas_to_data_url(DMCanvasRef canvas, const char *mime, double quality) {
     if (!canvas || !canvas->vg || !canvas->nvgFbo) {
         return strdup("data:,");
     }
+    egl_make_current(&canvas->eglState);
     return pixelops_to_data_url(canvas->nvgFbo->fbo,
                                 canvas->width, canvas->height,
                                 mime, quality);
@@ -1034,6 +1445,44 @@ char *dm_canvas_measure_text(DMCanvasRef canvas, const char *text, const char *f
 
 void dm_canvas_free_string(char *str) {
     free(str);
+}
+
+int dm_canvas_load_image_data(DMCanvasRef canvas, const char *imageId,
+                              const unsigned char *fileData, int dataLen,
+                              int *out_w, int *out_h) {
+    if (!canvas || !canvas->vg || !imageId || !fileData || dataLen <= 0) return -1;
+
+    egl_make_current(&canvas->eglState);
+
+    int handle = canvas->imageManager.createImageFromData(canvas->vg, imageId, fileData, dataLen);
+    if (handle < 0) {
+        LOGE("dm_canvas_load_image_data: decode failed for imageId=%{public}s", imageId);
+        return -1;
+    }
+
+    int w = 0, h = 0;
+    nvgImageSize(canvas->vg, handle, &w, &h);
+    if (out_w) *out_w = w;
+    if (out_h) *out_h = h;
+    LOGD("dm_canvas_load_image_data: loaded imageId=%{public}s %{public}dx%{public}d handle=%{public}d",
+         imageId, w, h, handle);
+    return 0;
+}
+
+int dm_canvas_load_image_rgba(DMCanvasRef canvas, const char *imageId,
+                              int w, int h, const unsigned char *rgbaData) {
+    if (!canvas || !canvas->vg || !imageId || !rgbaData || w <= 0 || h <= 0) return -1;
+
+    egl_make_current(&canvas->eglState);
+
+    int handle = canvas->imageManager.createImageFromRGBA(canvas->vg, imageId, w, h, rgbaData);
+    if (handle < 0) {
+        LOGE("dm_canvas_load_image_rgba: upload failed for imageId=%{public}s", imageId);
+        return -1;
+    }
+    LOGD("dm_canvas_load_image_rgba: loaded imageId=%{public}s %{public}dx%{public}d handle=%{public}d",
+         imageId, w, h, handle);
+    return 0;
 }
 
 int dm_canvas_register_font(const char *name, const unsigned char *data, int len) {

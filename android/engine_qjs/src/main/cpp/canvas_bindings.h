@@ -4,9 +4,9 @@
 #include "quickjs.h"
 #include "dimina_canvas2d.h"
 
-// Register __SkiaCanvas global object with C bindings on the given JSContext.
+// Register __GLCanvas global object with C bindings on the given JSContext.
 // Must be called on the JS thread after context creation.
-void registerSkiaCanvas(JSContext *ctx, int instanceId);
+void registerGLCanvas(JSContext *ctx, int instanceId);
 
 // Cleanup all canvas state for a given instance (call before engine destruction).
 void cleanupCanvasBindings(int instanceId);

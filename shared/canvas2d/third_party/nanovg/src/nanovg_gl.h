@@ -18,6 +18,10 @@
 #ifndef NANOVG_GL_H
 #define NANOVG_GL_H
 
+#if defined(DIMINA_PLATFORM_HARMONY)
+#include <hilog/log.h>
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -404,7 +408,11 @@ static void glnvg__dumpShaderError(GLuint shader, const char* name, const char* 
 	glGetShaderInfoLog(shader, 512, &len, str);
 	if (len > 512) len = 512;
 	str[len] = '\0';
+#if defined(DIMINA_PLATFORM_HARMONY)
+	OH_LOG_ERROR(LOG_APP, "NanoVG Shader %{public}s/%{public}s error: %{public}s", name, type, str);
+#else
 	printf("Shader %s/%s error:\n%s\n", name, type, str);
+#endif
 }
 
 static void glnvg__dumpProgramError(GLuint prog, const char* name)
@@ -414,7 +422,11 @@ static void glnvg__dumpProgramError(GLuint prog, const char* name)
 	glGetProgramInfoLog(prog, 512, &len, str);
 	if (len > 512) len = 512;
 	str[len] = '\0';
+#if defined(DIMINA_PLATFORM_HARMONY)
+	OH_LOG_ERROR(LOG_APP, "NanoVG Program %{public}s error: %{public}s", name, str);
+#else
 	printf("Program %s error:\n%s\n", name, str);
+#endif
 }
 
 static void glnvg__checkError(GLNVGcontext* gl, const char* str)
@@ -423,7 +435,11 @@ static void glnvg__checkError(GLNVGcontext* gl, const char* str)
 	if ((gl->flags & NVG_DEBUG) == 0) return;
 	err = glGetError();
 	if (err != GL_NO_ERROR) {
+#if defined(DIMINA_PLATFORM_HARMONY)
+		OH_LOG_ERROR(LOG_APP, "NanoVG Error %{public}08x after %{public}s", err, str);
+#else
 		printf("Error %08x after %s\n", err, str);
+#endif
 		return;
 	}
 }

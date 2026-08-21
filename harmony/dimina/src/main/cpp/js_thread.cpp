@@ -60,16 +60,6 @@ void initBridges(JSContext *ctx);
 void registerInvoke(JSContext *ctx);
 void registerPublish(JSContext *ctx);
 
-struct OnMessageData {
-    napi_async_work asyncWork = nullptr;
-    napi_ref callbackRef = nullptr;
-    int type = 1; // 1 = invoke, 2 = publish , 3 = 日志打印
-    int webViewId = 0;
-    int appIndex = 0; // 添加 appIndex 字段
-    std::promise<JSValue> promise;
-    std::string str;
-};
-
 // 定义一个回调函数 onMessageCb，参数包括环境env，回调函数js_cb，上下文context，数据data
 static void onMessageCb(napi_env env, napi_value js_cb, void *context, void *data) {
     //    OHLog("onMessageCb begin isMainThread: %{public}d", isMainThread());
@@ -569,7 +559,7 @@ void registerFunc(JSContext *ctx) {
     initBridges(ctx);
     registerInvoke(ctx);
     registerPublish(ctx);
-    registerSkiaCanvas(ctx);
+    registerGLCanvas(ctx);
 }
 
 // StartJsEngine 对应JS代码中的接口实现

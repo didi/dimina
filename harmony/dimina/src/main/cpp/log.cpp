@@ -10,8 +10,6 @@ const char *js_engine_tag = "dimina/QuickJS";
 const int js_engine_domain = 0x8989;
 
 namespace {
-// OwnedCStr 在 js_thread.h 里，两个文件共用。
-
 // 自己造出来的 JSValue，离开作用域就还回去。
 struct OwnedJSValue {
     JSContext *ctx;

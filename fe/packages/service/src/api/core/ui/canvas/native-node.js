@@ -1,18 +1,37 @@
 import { callback, uuid } from '@dimina/common'
 import router from '@/core/router'
+import hostEnv from '@/core/host-env'
 import {
 	CanvasNode as CanvasNodeFallback,
 	CANVAS_NODE_TYPE,
 	hydrateCanvasNode as hydrateCanvasNodeFallback,
 	hydrateSelectorQueryResult as hydrateSelectorQueryResultFallback,
 	createOffscreenCanvas as createOffscreenCanvasFallback,
+	createCanvas as createCanvasFallback,
+	installMiniGameGlobals as installMiniGameGlobalsFallback,
+	createMiniGameImage as createMiniGameImageFallback,
+	resetMiniGameCanvas as resetMiniGameCanvasFallback,
 } from './canvas-node'
 
-const skia = globalThis.__SkiaCanvas
-const isSkiaAvailable = !!(skia && skia.available)
-console.log('[native-node] init: __SkiaCanvas=' + (skia ? JSON.stringify({ available: skia.available }) : 'undefined') + ' isSkiaAvailable=' + isSkiaAvailable)
+const nativeGL = globalThis.__GLCanvas
+const isGLAvailable = !!(nativeGL && nativeGL.available)
+console.log('[native-node] init: __GLCanvas=' + (nativeGL ? JSON.stringify({ available: nativeGL.available }) : 'undefined') + ' isGLAvailable=' + isGLAvailable)
+
+// Expose callback registry so C++ imageSetSrc handler can invoke onload/onerror
+if (typeof globalThis.__dimina_callback_registry === 'undefined') {
+	globalThis.__dimina_callback_registry = callback
+}
 
 export { CANVAS_NODE_TYPE }
+
+// Registry of native canvas nodes by nodeId for canvasToTempFilePath etc.
+const nativeCanvasNodes = new Map()
+
+export function getNativeCanvasNode(nodeId) {
+	return nativeCanvasNodes.get(nodeId) || null
+}
+
+export { isGLAvailable }
 
 function getCurrentBridgeId() {
 	const pageInfo = router.getPageInfo()
@@ -22,40 +41,14 @@ function getCurrentBridgeId() {
 // ─── Context ID counter ───
 let ctxIdCounter = 0
 
-// ─── Flush scheduling via Promise microtask ───
-const pendingFlushNodes = new Set()
-let flushScheduled = false
+// ─── GLContext2D: 2D drawing context backed by C bindings ───
 
-function scheduleFlush(nodeId) {
-	pendingFlushNodes.add(nodeId)
-	if (!flushScheduled) {
-		flushScheduled = true
-		Promise.resolve().then(flushAll)
-	}
-}
-
-function flushAll() {
-	flushScheduled = false
-	const nodes = Array.from(pendingFlushNodes)
-	pendingFlushNodes.clear()
-	for (let i = 0; i < nodes.length; i++) {
-		try {
-			skia._flush(nodes[i])
-		} catch (e) {
-			console.error('[native-node] _flush error for nodeId=' + nodes[i] + ': ' + e)
-		}
-	}
-}
-
-// ─── SkiaContext2D: 2D drawing context backed by C bindings ───
-
-class SkiaContext2D {
+class GLContext2D {
 	constructor(nodeId) {
 		this._nodeId = nodeId
 		this._ctxId = 'ctx_' + (++ctxIdCounter)
-		console.log('[SkiaContext2D] constructor: nodeId=' + nodeId + ' _bufferOp=' + typeof skia._bufferOp + ' _flush=' + typeof skia._flush + ' available=' + skia.available)
-		skia._bufferOp(nodeId, { op: 'getContext', contextId: this._ctxId, contextType: '2d' })
-		scheduleFlush(nodeId)
+		console.log('[GLContext2D] constructor: nodeId=' + nodeId + ' _bufferOp=' + typeof nativeGL._bufferOp + ' _flush=' + typeof nativeGL._flush + ' available=' + nativeGL.available)
+		nativeGL._bufferOp(nodeId, { op: 'getContext', contextId: this._ctxId, contextType: '2d' })
 	}
 
 	// ─── Drawing methods ───
@@ -96,18 +89,18 @@ class SkiaContext2D {
 
 	createPattern(image, repetition) {
 		const resultId = 'res_' + (++ctxIdCounter)
-		skia._bufferOp(this._nodeId, {
+		nativeGL._bufferOp(this._nodeId, {
 			op: 'contextCall', contextId: this._ctxId, method: 'createPattern',
 			args: [this._resolveImage(image), repetition || 'repeat'], resultId,
 		})
-		scheduleFlush(this._nodeId)
+
 		return new NativePattern(resultId)
 	}
 
 	// ─── Synchronous methods ───
 
 	getImageData(sx, sy, sw, sh) {
-		const result = skia._syncOp(this._nodeId, {
+		const result = nativeGL._syncOp(this._nodeId, {
 			name: 'canvasGetImageData', x: sx, y: sy, width: sw, height: sh,
 		})
 		return { data: new Uint8ClampedArray(result.data), width: sw, height: sh }
@@ -115,7 +108,7 @@ class SkiaContext2D {
 
 	measureText(text) {
 		const str = String(text ?? '')
-		const result = skia._syncOp(this._nodeId, {
+		const result = nativeGL._syncOp(this._nodeId, {
 			name: 'canvasMeasureText', text: str, font: this._font || '10px sans-serif',
 		})
 		if (result && typeof result.width === 'number') {
@@ -125,15 +118,34 @@ class SkiaContext2D {
 		return { width: str.length * 10 }
 	}
 
+	createImageData(sw, sh) {
+		if (sw && typeof sw === 'object' && sw.data) {
+			// createImageData(imageData) — clone dimensions
+			return { data: new Uint8ClampedArray(sw.width * sw.height * 4), width: sw.width, height: sw.height }
+		}
+		return { data: new Uint8ClampedArray(sw * sh * 4), width: sw, height: sh }
+	}
+
+	putImageData(imageData, dx, dy, dirtyX, dirtyY, dirtyW, dirtyH) {
+		if (!imageData || !imageData.data) return
+		const w = imageData.width
+		const h = imageData.height
+		if (dirtyX !== undefined) {
+			nativeGL._putImageData(this._nodeId, imageData.data, w, h, dx, dy, dirtyX, dirtyY, dirtyW, dirtyH)
+		} else {
+			nativeGL._putImageData(this._nodeId, imageData.data, w, h, dx, dy)
+		}
+	}
+
 	isPointInPath(x, y) {
-		const result = skia._syncOp(this._nodeId, {
+		const result = nativeGL._syncOp(this._nodeId, {
 			name: 'canvasIsPointInPath', contextId: this._ctxId, x, y,
 		})
 		return !!(result && result.value === true)
 	}
 
 	isPointInStroke(x, y) {
-		const result = skia._syncOp(this._nodeId, {
+		const result = nativeGL._syncOp(this._nodeId, {
 			name: 'canvasIsPointInStroke', contextId: this._ctxId, x, y,
 		})
 		return !!(result && result.value === true)
@@ -142,18 +154,18 @@ class SkiaContext2D {
 	// ─── Internal ───
 
 	_call(method, args) {
-		skia._bufferOp(this._nodeId, {
+		nativeGL._bufferOp(this._nodeId, {
 			op: 'contextCall', contextId: this._ctxId, method, args,
 		})
-		scheduleFlush(this._nodeId)
+
 	}
 
 	_callResult(method, args) {
 		const resultId = 'res_' + (++ctxIdCounter)
-		skia._bufferOp(this._nodeId, {
+		nativeGL._bufferOp(this._nodeId, {
 			op: 'contextCall', contextId: this._ctxId, method, args, resultId,
 		})
-		scheduleFlush(this._nodeId)
+
 		return new NativeGradient(this._nodeId, resultId)
 	}
 
@@ -163,7 +175,7 @@ class SkiaContext2D {
 	}
 }
 
-// ─── Property getter/setter for SkiaContext2D ───
+// ─── Property getter/setter for GLContext2D ───
 
 const PROPS = [
 	'fillStyle', 'strokeStyle', 'lineWidth', 'lineCap', 'lineJoin', 'miterLimit',
@@ -173,13 +185,13 @@ const PROPS = [
 ]
 
 for (const prop of PROPS) {
-	Object.defineProperty(SkiaContext2D.prototype, prop, {
+	Object.defineProperty(GLContext2D.prototype, prop, {
 		set(value) {
 			this['_' + prop] = value
-			skia._bufferOp(this._nodeId, {
+			nativeGL._bufferOp(this._nodeId, {
 				op: 'contextSetProperty', contextId: this._ctxId, prop, value,
 			})
-			scheduleFlush(this._nodeId)
+	
 		},
 		get() { return this['_' + prop] },
 		configurable: true,
@@ -195,11 +207,11 @@ class NativeGradient {
 	}
 
 	addColorStop(offset, color) {
-		skia._bufferOp(this._nodeId, {
+		nativeGL._bufferOp(this._nodeId, {
 			op: 'resourceCall', resourceId: this.__canvasResourceId,
 			method: 'addColorStop', args: [offset, color],
 		})
-		scheduleFlush(this._nodeId)
+
 	}
 }
 
@@ -238,19 +250,19 @@ class NativeImage {
 				this.onerror(event)
 			}
 		})
-		skia._bufferOp(this._nodeId, {
+		nativeGL._bufferOp(this._nodeId, {
 			op: 'imageSetSrc', imageId: this.__canvasImageId,
 			src: value, onload: onloadId, onerror: onerrorId,
 		})
-		scheduleFlush(this._nodeId)
+
 	}
 
 	get src() { return this._src }
 }
 
-// ─── SkiaCanvasNode: canvas node backed by C bindings ───
+// ─── GLCanvasNode: canvas node backed by C bindings ───
 
-class SkiaCanvasNode {
+class GLCanvasNode {
 	constructor({ nodeId, bridgeId, width = 300, height = 150, type = '2d' }) {
 		this.__diminaCanvasNode = true
 		this.nodeId = nodeId
@@ -259,28 +271,27 @@ class SkiaCanvasNode {
 		this._width = width
 		this._height = height
 		this._ctx = null
-		console.log('[SkiaCanvasNode] constructor: nodeId=' + nodeId + ' _createCanvas=' + typeof skia._createCanvas)
-		skia._createCanvas(nodeId, width, height)
+		console.log('[GLCanvasNode] constructor: nodeId=' + nodeId + ' _createCanvas=' + typeof nativeGL._createCanvas)
+		nativeGL._createCanvas(nodeId, width, height)
+		nativeCanvasNodes.set(nodeId, this)
 	}
 
 	get width() { return this._width }
 
 	set width(v) {
 		this._width = v
-		skia._bufferOp(this.nodeId, { op: 'setCanvasProperty', prop: 'width', value: v })
-		scheduleFlush(this.nodeId)
+		nativeGL._bufferOp(this.nodeId, { op: 'setCanvasProperty', prop: 'width', value: v })
 	}
 
 	get height() { return this._height }
 
 	set height(v) {
 		this._height = v
-		skia._bufferOp(this.nodeId, { op: 'setCanvasProperty', prop: 'height', value: v })
-		scheduleFlush(this.nodeId)
+		nativeGL._bufferOp(this.nodeId, { op: 'setCanvasProperty', prop: 'height', value: v })
 	}
 
 	getContext(type) {
-		if (!this._ctx) this._ctx = new SkiaContext2D(this.nodeId)
+		if (!this._ctx) this._ctx = new GLContext2D(this.nodeId)
 		return this._ctx
 	}
 
@@ -291,14 +302,15 @@ class SkiaCanvasNode {
 	cancelAnimationFrame(id) { clearTimeout(id) }
 
 	toDataURL(type, quality) {
-		const result = skia._syncOp(this.nodeId, {
+		const result = nativeGL._syncOp(this.nodeId, {
 			name: 'canvasToDataURLSync', type: type || 'image/png', quality,
 		})
 		return (result && result.dataUrl) || ''
 	}
 
 	destroy() {
-		skia._destroyCanvas(this.nodeId)
+		nativeCanvasNodes.delete(this.nodeId)
+		nativeGL._destroyCanvas(this.nodeId)
 		this._ctx = null
 	}
 }
@@ -307,8 +319,8 @@ class SkiaCanvasNode {
 
 export class CanvasNode {
 	constructor(options) {
-		if (isSkiaAvailable) {
-			return new SkiaCanvasNode(options)
+		if (isGLAvailable) {
+			return new GLCanvasNode(options)
 		}
 		return new CanvasNodeFallback(options)
 	}
@@ -330,8 +342,8 @@ export function hydrateCanvasNode(node, bridgeId = getCurrentBridgeId()) {
 }
 
 export function hydrateSelectorQueryResult(value, bridgeId = getCurrentBridgeId()) {
-	console.log('[native-node] hydrateSelectorQueryResult: isSkiaAvailable=' + isSkiaAvailable + ' value=', value ? (Array.isArray(value) ? 'Array(' + value.length + ')' : typeof value) : 'null')
-	if (!isSkiaAvailable) {
+	console.log('[native-node] hydrateSelectorQueryResult: isGLAvailable=' + isGLAvailable + ' value=', value ? (Array.isArray(value) ? 'Array(' + value.length + ')' : typeof value) : 'null')
+	if (!isGLAvailable) {
 		return hydrateSelectorQueryResultFallback(value, bridgeId)
 	}
 
@@ -355,7 +367,7 @@ export function hydrateSelectorQueryResult(value, bridgeId = getCurrentBridgeId(
 }
 
 export function createOffscreenCanvas(options = {}) {
-	if (!isSkiaAvailable) {
+	if (!isGLAvailable) {
 		return createOffscreenCanvasFallback(options)
 	}
 
@@ -365,11 +377,71 @@ export function createOffscreenCanvas(options = {}) {
 	const nodeId = `offscreen_canvas_${uuid()}`
 	const bridgeId = getCurrentBridgeId()
 
-	return new SkiaCanvasNode({
+	return new GLCanvasNode({
 		nodeId,
 		bridgeId,
 		width,
 		height,
 		type,
 	})
+}
+
+// ─── Mini-game canvas wrappers ───
+// When __GLCanvas is available, mini-game canvas uses native-node (GLCanvasNode).
+// Otherwise falls back to canvas-node (WebView render-side <canvas>).
+
+let nativeScreenCanvas = null
+let nativeImageCanvas = null
+
+export function createCanvas(options = {}) {
+	if (!isGLAvailable) {
+		return createCanvasFallback(options)
+	}
+
+	if (nativeScreenCanvas) {
+		return createOffscreenCanvas(options)
+	}
+
+	const systemInfo = hostEnv.getSystemInfo() || {}
+	const width = Number(options.width) || systemInfo.windowWidth || 300
+	const height = Number(options.height) || systemInfo.windowHeight || 150
+	const type = options.type || '2d'
+	const nodeId = `game_canvas_${uuid()}`
+	const bridgeId = getCurrentBridgeId()
+
+	nativeScreenCanvas = new GLCanvasNode({
+		nodeId, bridgeId, width, height, type,
+	})
+	return nativeScreenCanvas
+}
+
+export function createMiniGameImage() {
+	if (!isGLAvailable) {
+		return createMiniGameImageFallback()
+	}
+	nativeImageCanvas ||= createOffscreenCanvas({ width: 1, height: 1, type: '2d' })
+	return nativeImageCanvas.createImage()
+}
+
+export function installMiniGameGlobals() {
+	if (!isGLAvailable) {
+		return installMiniGameGlobalsFallback()
+	}
+	globalThis.GameGlobal = globalThis
+	globalThis.global = globalThis
+	globalThis.requestAnimationFrame = (cb) => {
+		if (!nativeScreenCanvas) {
+			throw new Error('requestAnimationFrame requires wx.createCanvas() first')
+		}
+		return nativeScreenCanvas.requestAnimationFrame(cb)
+	}
+	globalThis.cancelAnimationFrame = (id) => {
+		nativeScreenCanvas?.cancelAnimationFrame(id)
+	}
+}
+
+export function resetMiniGameCanvas() {
+	resetMiniGameCanvasFallback()
+	nativeScreenCanvas = null
+	nativeImageCanvas = null
 }

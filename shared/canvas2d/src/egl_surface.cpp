@@ -19,6 +19,12 @@
 #if defined(DIMINA_PLATFORM_ANDROID) || defined(DIMINA_PLATFORM_HARMONY)
 
 int egl_init(EGLState *state) {
+    /* Skip if already initialized — prevents leaking EGL contexts on retry */
+    if (state->context != EGL_NO_CONTEXT) {
+        LOGD("egl_init: already initialized, skipping");
+        return 0;
+    }
+
     state->display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
     if (state->display == EGL_NO_DISPLAY) {
         LOGE("egl_init: eglGetDisplay failed");
@@ -96,6 +102,12 @@ void egl_destroy_surface(EGLState *state) {
 }
 
 int egl_make_current(EGLState *state) {
+    /* Skip if this context is already current — avoids driver side-effects
+       (some HarmonyOS drivers reset FBO binding on redundant eglMakeCurrent). */
+    if (eglGetCurrentContext() == state->context &&
+        eglGetCurrentSurface(EGL_DRAW) == state->surface) {
+        return 0;
+    }
     if (!eglMakeCurrent(state->display, state->surface, state->surface,
                          state->context)) {
         LOGE("egl_make_current: failed (0x%x)", eglGetError());
@@ -116,11 +128,12 @@ void egl_cleanup(EGLState *state) {
         eglDestroyContext(state->display, state->context);
         state->context = EGL_NO_CONTEXT;
     }
-    if (state->ownsDisplay && state->display != EGL_NO_DISPLAY) {
-        eglTerminate(state->display);
-        state->display = EGL_NO_DISPLAY;
-        state->ownsDisplay = false;
-    }
+    /* Do NOT call eglTerminate here.  eglGetDisplay(EGL_DEFAULT_DISPLAY)
+       returns a process-global display that is shared by ALL canvases.
+       Terminating it would invalidate every EGL context/surface on the
+       display, destroying NanoVG state for canvases that are still alive. */
+    state->display = EGL_NO_DISPLAY;
+    state->ownsDisplay = false;
 }
 
 #elif defined(DIMINA_PLATFORM_IOS)

@@ -147,12 +147,24 @@ int parseTextBaseline(const std::string &baseline) {
 void applyFontToNVG(NVGcontext *vg, const ParsedFont &font) {
     nvgFontSize(vg, font.size);
 
-    /* Try to find the font face; fall back to "sans" */
-    int faceId = nvgFindFont(vg, font.family.c_str());
+    int faceId = -1;
+
+    /* For bold weight, try bold variant first */
+    if (font.weight >= 700) {
+        std::string boldName = font.family + "-bold";
+        faceId = nvgFindFont(vg, boldName.c_str());
+        if (faceId < 0) faceId = nvgFindFont(vg, "sans-bold");
+    }
+
+    /* Try the requested family */
     if (faceId < 0) {
-        /* Try common fallback names */
+        faceId = nvgFindFont(vg, font.family.c_str());
+    }
+    /* Fall back to "sans" */
+    if (faceId < 0) {
         faceId = nvgFindFont(vg, "sans");
     }
+
     if (faceId >= 0) {
         nvgFontFaceId(vg, faceId);
     }

@@ -74,6 +74,7 @@ export class DMPNodeController extends NodeController {
     this.params?.set('height', this._height_)
     this.params?.set('appIndex', this.appIndex)
     this.params?.set('parentWebViewId', this.parentWebViewId)
+    this.params?.set('surfaceId', this.surfaceId_)
   }
 
   private shouldRebuildForParams(nextParams: DMPMap): boolean {
@@ -156,6 +157,10 @@ export class DMPNodeController extends NodeController {
 
   getEmbedId(): string {
     return this.embedId_;
+  }
+
+  getType(): string {
+    return this.type;
   }
 
   postEvent(event: TouchEvent | undefined): boolean {

@@ -68,6 +68,7 @@ export class CanvasParams {
   canvasId?: string
   disableScroll?: boolean
   hidden?: boolean
+  surfaceId?: string
 }
 
 export class Attributes {

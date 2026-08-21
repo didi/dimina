@@ -131,10 +131,10 @@ public class DMPEngine: NSObject {
         DMPEngineInvoke.registerInvoke(to: context, appResolver: resolver)
         DMPEnginePublish.registerPublish(to: context, appResolver: resolver)
 
-        // Register __SkiaCanvas stub for Skia Canvas detection.
-        // When Skia SDK is integrated, 'available' will be set to true
-        // and createCanvas/destroyCanvas will be implemented with real Skia bindings.
-        context.evaluateScript("globalThis.__SkiaCanvas = { available: false };")
+        // Register __GLCanvas stub for NanoVG + GL canvas detection.
+        // When the GL canvas backend is integrated, 'available' will be set to true
+        // and createCanvas/destroyCanvas will be implemented with real GL bindings.
+        context.evaluateScript("globalThis.__GLCanvas = { available: false };")
 
     }
 

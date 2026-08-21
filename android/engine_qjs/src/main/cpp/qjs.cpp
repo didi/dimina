@@ -1119,16 +1119,16 @@ static void register_timer_functions(JSContext *ctx) {
     JS_FreeValue(ctx, global);
 }
 
-// Register __SkiaCanvas global object (stub for Skia Canvas detection)
-// When Skia SDK is integrated, the 'available' flag will be set to true
-// and createCanvas/destroyCanvas will be implemented with real Skia bindings.
-static void register_skia_canvas(JSContext *ctx) {
+// Register __GLCanvas global object (stub for NanoVG + GL canvas detection)
+// When the GL canvas backend is integrated, the 'available' flag will be set to true
+// and createCanvas/destroyCanvas will be implemented with real GL bindings.
+static void register_gl_canvas(JSContext *ctx) {
     JSValue global = JS_GetGlobalObject(ctx);
-    JSValue skiaCanvas = JS_NewObject(ctx);
+    JSValue glCanvasObj = JS_NewObject(ctx);
 
-    JS_SetPropertyStr(ctx, skiaCanvas, "available", JS_FALSE);
+    JS_SetPropertyStr(ctx, glCanvasObj, "available", JS_FALSE);
 
-    JS_SetPropertyStr(ctx, global, "__SkiaCanvas", skiaCanvas);
+    JS_SetPropertyStr(ctx, global, "__GLCanvas", glCanvasObj);
     JS_FreeValue(ctx, global);
 }
 
@@ -1215,8 +1215,8 @@ Java_com_didi_dimina_engine_qjs_QuickJSEngine_nativeInitialize(
     // Register timer functions
     register_timer_functions(instance->ctx);
 
-    // Register __SkiaCanvas stub (Skia Canvas detection)
-    register_skia_canvas(instance->ctx);
+    // Register __GLCanvas stub (NanoVG + GL canvas detection)
+    register_gl_canvas(instance->ctx);
     
     // Store pointers in Java object
     jclass cls = env->GetObjectClass(thiz);

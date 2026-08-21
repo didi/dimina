@@ -54,7 +54,11 @@ export class DMPWebViewController extends web_webview.WebviewController {
 
   //公共配置
   initConfig() {
-    const ua = `${this.getUserAgent()} dimina miniProgram ${this.app.appConfig?.userAgent ?? ''}`;
+    const appUa = this.app.appConfig?.userAgent ?? '';
+    // HarmonyOS always supports native embed (same-layer rendering), so
+    // inject the embed-enable flag unless the host explicitly opts out.
+    const embedFlag = /embed-enable/i.test(appUa) ? '' : ' embed-enable';
+    const ua = `${this.getUserAgent()} dimina miniProgram${embedFlag} ${appUa}`;
     this.setCustomUserAgent(ua);
     // Detect embed-enable flag in UA and configure canvas manager accordingly
     const embedEnabled = /embed-enable/i.test(ua);

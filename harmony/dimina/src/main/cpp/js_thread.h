@@ -12,9 +12,27 @@
 #include <map>
 #include <future>
 #include <string>
+#include <cstdlib>
 using namespace std;
 
 class JSEngine;
+
+// RAII wrapper for C strings returned by JSValueToString (strdup'd, must be free'd).
+struct OwnedCStr {
+    char *ptr;
+    explicit OwnedCStr(char *p) : ptr(p) {}
+    ~OwnedCStr() { free(ptr); }
+    OwnedCStr(const OwnedCStr &) = delete;
+    OwnedCStr &operator=(const OwnedCStr &) = delete;
+    const char *get() const { return ptr; }
+    explicit operator bool() const { return ptr != nullptr; }
+};
+
+// Throw a JS InternalError (or keep an existing pending exception) and return JS_EXCEPTION.
+JSValue throwNativeError(JSContext *ctx, const char *what);
+
+// Silently discard a pending JS exception so it doesn't leak into unrelated calls.
+void discardPendingException(JSContext *ctx);
 
 // Multi-instance engine storage
 extern std::map<int, JSEngine *> engineMap;
@@ -44,6 +62,8 @@ extern napi_value destroyJsEngine(napi_env env, napi_callback_info info);
 // Canvas NAPI functions
 extern napi_value canvasBindSurface(napi_env env, napi_callback_info info);
 extern napi_value canvasUnbindSurface(napi_env env, napi_callback_info info);
+extern napi_value canvasResizeSurface(napi_env env, napi_callback_info info);
+extern napi_value canvasUploadImage(napi_env env, napi_callback_info info);
 
 extern JSValue sendLogToContainer(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv);
 extern bool isDebugMode;

@@ -6,6 +6,7 @@ import { DMPAppManager } from '../../DApp/DMPAppManager'
 import { DMPApp } from '../../DApp/DMPApp'
 import { image } from '@kit.ImageKit'
 import { http } from '@kit.NetworkKit'
+import diminaNative from 'libdimina.so'
 
 // Typed interfaces for canvas message structures (replaces raw object bracket access)
 
@@ -353,11 +354,33 @@ export class DMPCanvasManager {
    * Called from DMPWorkerWrapper via the canvas TSFN callback on the main thread.
    */
   handleNativeFlush(params: CanvasFlushParams, appIndex: number): void {
-    const registeredKeys: string[] = []
-    this.contexts.forEach((_v: CanvasRenderingContext2D, k: string) => {
-      registeredKeys.push(k)
-    })
-    DMPLogger.i(Tags.WEB_COMPONENT, `DMPCanvasManager handleNativeFlush: nodeId=${params.nodeId} ops=${params.operations?.length} appIndex=${appIndex} registeredContexts=[${registeredKeys.join(', ')}]`)
+    const nodeId = params.nodeId
+    DMPLogger.d(Tags.WEB_COMPONENT, `DMPCanvasManager handleNativeFlush: nodeId=${nodeId} ops=${params.operations?.length} appIndex=${appIndex}`)
+
+    // Auto-register an OffscreenCanvas for game canvas nodes that have no
+    // native Canvas component (mini-game createCanvas path).
+    if (!this.contexts.has(nodeId)) {
+      // Determine dimensions from setCanvasProperty operations if present
+      let canvasW = 300
+      let canvasH = 150
+      const ops = params.operations || []
+      for (const op of ops) {
+        if (op.op === 'setCanvasProperty') {
+          if (op.prop === 'width') {
+            canvasW = op.value as number
+          } else if (op.prop === 'height') {
+            canvasH = op.value as number
+          }
+        }
+      }
+      const offCanvas = new OffscreenCanvas(canvasW, canvasH)
+      const offCtx = offCanvas.getContext('2d') as OffscreenCanvasRenderingContext2D
+      this.contexts.set(nodeId, offCtx as Object as CanvasRenderingContext2D)
+      this.nativeCanvasSizes.set(nodeId, [canvasW, canvasH])
+      DMPLogger.i(Tags.WEB_COMPONENT,
+        `DMPCanvasManager handleNativeFlush: auto-registered OffscreenCanvas ${canvasW}x${canvasH} for ${nodeId}`)
+    }
+
     this.handleFlush(params, 0, appIndex, 0)
   }
 
@@ -1115,7 +1138,7 @@ export class DMPCanvasManager {
         const src = operation.src
         const onload = operation.onload
         const onerror = operation.onerror
-        this.handleImageSetSrc(imageId, src, onload, onerror, bridgeId, appIndex)
+        this.handleImageSetSrc(imageId, src, onload, onerror, bridgeId, appIndex, nodeId)
         break
       }
 
@@ -1522,20 +1545,25 @@ export class DMPCanvasManager {
   }
 
   private handleImageSetSrc(imageId: string, src: string, onload: string, onerror: string,
-    bridgeId: number, appIndex: number): void {
-    DMPLogger.i(Tags.WEB_COMPONENT, `DMPCanvasManager handleImageSetSrc: imageId=${imageId} src=${src}`)
+    bridgeId: number, appIndex: number, nodeId?: string): void {
+    DMPLogger.i(Tags.WEB_COMPONENT, `DMPCanvasManager handleImageSetSrc: imageId=${imageId} src=${src} nodeId=${nodeId}`)
     if (src.startsWith('http://') || src.startsWith('https://')) {
-      this.loadNetworkImage(imageId, src, onload, onerror, bridgeId, appIndex)
+      this.loadNetworkImage(imageId, src, onload, onerror, bridgeId, appIndex, nodeId)
     } else {
-      this.loadLocalImage(imageId, src, onload, onerror, bridgeId, appIndex)
+      this.loadLocalImage(imageId, src, onload, onerror, bridgeId, appIndex, nodeId)
     }
   }
 
   private loadLocalImage(imageId: string, src: string, onload: string, onerror: string,
-    bridgeId: number, appIndex: number): void {
+    bridgeId: number, appIndex: number, nodeId?: string): void {
     try {
       const imageSource = image.createImageSource(src)
-      this.createImageBitmapFromSource(imageSource, imageId, src, onload, onerror, bridgeId, appIndex)
+      if (nodeId) {
+        // GL path: decode to RGBA pixels and upload via canvasUploadImage
+        this.uploadImageToGL(imageSource, imageId, nodeId, appIndex, onload, onerror, bridgeId)
+      } else {
+        this.createImageBitmapFromSource(imageSource, imageId, src, onload, onerror, bridgeId, appIndex)
+      }
     } catch (e) {
       DMPLogger.e(Tags.WEB_COMPONENT, `DMPCanvasManager: local image createSource failed: ${e}`)
       if (onerror) {
@@ -1546,17 +1574,30 @@ export class DMPCanvasManager {
   }
 
   private loadNetworkImage(imageId: string, src: string, onload: string, onerror: string,
-    bridgeId: number, appIndex: number): void {
+    bridgeId: number, appIndex: number, nodeId?: string): void {
+    this.loadNetworkImageWithRetry(imageId, src, onload, onerror, bridgeId, appIndex, nodeId, 0)
+  }
+
+  private loadNetworkImageWithRetry(imageId: string, src: string, onload: string, onerror: string,
+    bridgeId: number, appIndex: number, nodeId: string | undefined, attempt: number): void {
+    const maxRetries = 2
     const httpRequest = http.createHttp()
     httpRequest.request(src, {
       method: http.RequestMethod.GET,
       expectDataType: http.HttpDataType.ARRAY_BUFFER,
+      connectTimeout: 15000,
+      readTimeout: 30000,
     }).then((response: http.HttpResponse) => {
       if (response.responseCode === 200 && response.result) {
         try {
           const buffer = response.result as ArrayBuffer
           const imageSource = image.createImageSource(buffer)
-          this.createImageBitmapFromSource(imageSource, imageId, src, onload, onerror, bridgeId, appIndex)
+          // For GL path: decode to RGBA pixels and upload via canvasUploadImage
+          if (nodeId) {
+            this.uploadImageToGL(imageSource, imageId, nodeId, appIndex, onload, onerror, bridgeId)
+          } else {
+            this.createImageBitmapFromSource(imageSource, imageId, src, onload, onerror, bridgeId, appIndex)
+          }
         } catch (e) {
           DMPLogger.e(Tags.WEB_COMPONENT, `DMPCanvasManager: network image createSource failed: ${e}`)
           if (onerror) {
@@ -1573,12 +1614,44 @@ export class DMPCanvasManager {
       }
       httpRequest.destroy()
     }).catch((err: Error) => {
-      DMPLogger.e(Tags.WEB_COMPONENT, `DMPCanvasManager: network image request failed: ${err.message}`)
+      httpRequest.destroy()
+      if (attempt < maxRetries) {
+        const delay = (attempt + 1) * 500
+        DMPLogger.i(Tags.WEB_COMPONENT, `DMPCanvasManager: network image retry ${attempt + 1}/${maxRetries} after ${delay}ms: ${err.message}`)
+        setTimeout(() => {
+          this.loadNetworkImageWithRetry(imageId, src, onload, onerror, bridgeId, appIndex, nodeId, attempt + 1)
+        }, delay)
+      } else {
+        DMPLogger.e(Tags.WEB_COMPONENT, `DMPCanvasManager: network image request failed after ${maxRetries} retries: ${err.message}`)
+        if (onerror) {
+          const args: CallbackArgs = { errMsg: `createImage:fail ${src}` }
+          this.triggerCallback(bridgeId, appIndex, onerror, args)
+        }
+      }
+    })
+  }
+
+  private uploadImageToGL(imageSource: image.ImageSource, imageId: string, nodeId: string,
+    appIndex: number, onload: string, onerror: string, bridgeId: number): void {
+    imageSource.createPixelMap({
+      desiredPixelFormat: 3, // RGBA_8888
+    }).then((pixelMap: image.PixelMap) => {
+      const info = pixelMap.getImageInfoSync()
+      const w = info.size.width
+      const h = info.size.height
+      // Read RGBA pixel data
+      const bufferSize = w * h * 4
+      const pixelBuffer = new ArrayBuffer(bufferSize)
+      pixelMap.readPixelsToBufferSync(pixelBuffer)
+      DMPLogger.i(Tags.WEB_COMPONENT, `DMPCanvasManager: uploadImageToGL imageId=${imageId} ${w}x${h} bufferSize=${bufferSize}`)
+      diminaNative.canvasUploadImage(appIndex, nodeId, imageId, pixelBuffer, w, h, onload)
+      pixelMap.release()
+    }).catch((err: Error) => {
+      DMPLogger.e(Tags.WEB_COMPONENT, `DMPCanvasManager: uploadImageToGL createPixelMap failed: ${err.message}`)
       if (onerror) {
-        const args: CallbackArgs = { errMsg: `createImage:fail ${src}` }
+        const args: CallbackArgs = { errMsg: `createImage:fail decode` }
         this.triggerCallback(bridgeId, appIndex, onerror, args)
       }
-      httpRequest.destroy()
     })
   }
 

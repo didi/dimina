@@ -28,13 +28,13 @@
         "name": "default",
         "type": "HarmonyOS",
         "material": {
-          "certpath": "/Users/hierifer/.ohos/config/default_harmony_IJHoYWcdtqapWKVRlrpX8I67utSK4-z9d_SutEj2PMA=.cer",
+          "certpath": "/Users/hierifer/.ohos/config/default_harmony_t_mnsGYmXODLSCex8TEcSkzRO7zj61hpa1NxAPwABAE=.cer",
           "keyAlias": "debugKey",
-          "keyPassword": "0000001B18A60F9E3CCC402B72D6761017837EFDA9DD7B2840A67E4A55F074E64A6A4B2FE85E2551034B1F",
-          "profile": "/Users/hierifer/.ohos/config/default_harmony_IJHoYWcdtqapWKVRlrpX8I67utSK4-z9d_SutEj2PMA=.p7b",
+          "keyPassword": "0000001B2ACD6D26C28AF66F9F46690EFFCB77A23FD5A488DD6A565A4B20CC0D023AFA25A6A19212EF2B10",
+          "profile": "/Users/hierifer/.ohos/config/default_harmony_t_mnsGYmXODLSCex8TEcSkzRO7zj61hpa1NxAPwABAE=.p7b",
           "signAlg": "SHA256withECDSA",
-          "storeFile": "/Users/hierifer/.ohos/config/default_harmony_IJHoYWcdtqapWKVRlrpX8I67utSK4-z9d_SutEj2PMA=.p12",
-          "storePassword": "0000001B7760050626D201C50B5D49ECCA116FD7A443A530473808DC4C35028F23E3FD6F7DB23CA9B51D5A"
+          "storeFile": "/Users/hierifer/.ohos/config/default_harmony_t_mnsGYmXODLSCex8TEcSkzRO7zj61hpa1NxAPwABAE=.p12",
+          "storePassword": "0000001BAC7D35DBCC191DCCFCF1F37437DF7CFF7C7EBED946C05668FB5F5B17F3C54741B63C8BBC5E4B7F"
         }
       }
     ]

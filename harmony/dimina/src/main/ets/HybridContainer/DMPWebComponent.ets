@@ -15,6 +15,20 @@ import { DMPMap } from '../Utils/DMPMap'
 import { systemDateTime } from '@kit.BasicServicesKit'
 import { DMPContextUtils } from '../Utils/DMPContextUtils'
 
+class SerializedTouch {
+  id: number = 0
+  x: number = 0
+  y: number = 0
+}
+
+class CanvasTouchData {
+  type: string = ''
+  id: string = ''
+  ts: number = 0
+  touches: SerializedTouch[] = []
+  changed: SerializedTouch[] = []
+}
+
 
 @Component
 export struct DMPWebComponent {
@@ -146,6 +160,15 @@ export struct DMPWebComponent {
           this.componentIdArr.forEach((componentId: string) => {
             let nodeController = this.sameLayerNodeControllerMap.get(componentId)
             if (nodeController?.getEmbedId() === touch.embedId) {
+              if (nodeController?.getType() === 'native/canvas') {
+                // Forward touch to WebView as synthetic event on <embed> element
+                // (for bindtouchstart/bindtouchmove/bindtouchend handlers).
+                this.forwardCanvasTouchEvent(componentId, touch.touchEvent)
+                // Do NOT postEvent — and explicitly mark the gesture as NOT consumed
+                // so the WebView can handle page scrolling through the canvas area.
+                touch.result?.setGestureEventResult(false)
+                return
+              }
               let ret = nodeController?.postEvent(touch.touchEvent)
               if (ret) {
                 DMPLogger.d("onNativeEmbedGestureEvent success " + componentId)
@@ -163,6 +186,19 @@ export struct DMPWebComponent {
 
   private createSameLayerNode(embed: NativeEmbedDataInfo, componentId: string) {
     DMPLogger.d(Tags.WEB_COMPONENT, 'NativeEmbed create %{public}s', JSON.stringify(embed.info))
+
+    // If this componentId already exists, destroy the old node first to avoid duplicates
+    const existingController = this.sameLayerNodeControllerMap.get(componentId)
+    if (existingController) {
+      DMPLogger.w(Tags.WEB_COMPONENT, `NativeEmbed create: duplicate componentId=${componentId}, destroying old node`)
+      existingController.dispose()
+      this.sameLayerNodeControllerMap.delete(componentId)
+      const idx = this.componentIdArr.indexOf(componentId)
+      if (idx !== -1) {
+        this.componentIdArr.splice(idx, 1)
+      }
+    }
+
     // 创建节点控制器，设置参数并rebuild。
     let nodeController = new DMPNodeController(this.appIndex)
     const stack =
@@ -288,6 +324,55 @@ export struct DMPWebComponent {
           break
       }
     }
+  }
+
+  private forwardCanvasTouchEvent(componentId: string, event: TouchEvent | undefined): void {
+    if (!event) {
+      return
+    }
+
+    // Map HarmonyOS TouchType enum to DOM event type string
+    let eventType: string
+    switch (event.type) {
+      case TouchType.Down:
+        eventType = 'touchstart'
+        break
+      case TouchType.Up:
+        eventType = 'touchend'
+        break
+      case TouchType.Move:
+        eventType = 'touchmove'
+        break
+      case TouchType.Cancel:
+        eventType = 'touchcancel'
+        break
+      default:
+        return
+    }
+
+    // Serialize touches — coordinates from onNativeEmbedGestureEvent are in px,
+    // convert to vp for CSS coordinate space
+    const serializeTouch = (t: TouchObject): SerializedTouch => {
+      const st = new SerializedTouch()
+      st.id = t.id
+      st.x = px2vp(t.x)
+      st.y = px2vp(t.y)
+      return st
+    }
+
+    const touches: SerializedTouch[] = event.touches.map(serializeTouch)
+    const changed: SerializedTouch[] = event.changedTouches.map(serializeTouch)
+
+    const payload = new CanvasTouchData()
+    payload.type = eventType
+    payload.id = componentId
+    payload.ts = event.timestamp
+    payload.touches = touches
+    payload.changed = changed
+    const data = JSON.stringify(payload)
+
+    const script = `if(window.__diminaDispatchNativeTouch)window.__diminaDispatchNativeTouch(${data})`
+    this.controller.runJavaScript(script)
   }
 
   private isTrustedMainFrameUrl(requestUrl: string): boolean {

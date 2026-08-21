@@ -172,7 +172,7 @@ static void canvas_flush_state(CanvasState *state) {
         state->nodeId.c_str(), jsonCopy.size());
 }
 
-// ─── C functions registered on __SkiaCanvas ───
+// ─── C functions registered on __GLCanvas ───
 
 // _flush(nodeId)
 static JSValue canvas_flush(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
@@ -415,38 +415,38 @@ void setCanvasGLHandle(const char *nodeId, DMCanvasRef glCanvas) {
     }
 }
 
-// ─── Register __SkiaCanvas on JSContext ───
+// ─── Register __GLCanvas on JSContext ───
 
-void registerSkiaCanvas(JSContext *ctx, int instanceId) {
+void registerGLCanvas(JSContext *ctx, int instanceId) {
     // Cache ctx → instanceId mapping
     ctxInstanceIdMap[ctx] = instanceId;
 
     JSValue global = JS_GetGlobalObject(ctx);
-    JSValue skiaCanvas = JS_NewObject(ctx);
+    JSValue glCanvasObj = JS_NewObject(ctx);
 
     // Mark as available
-    JS_SetPropertyStr(ctx, skiaCanvas, "available", JS_TRUE);
+    JS_SetPropertyStr(ctx, glCanvasObj, "available", JS_TRUE);
 
     // Store instanceId for reference
-    JS_SetPropertyStr(ctx, skiaCanvas, "_instanceId", JS_NewInt32(ctx, instanceId));
+    JS_SetPropertyStr(ctx, glCanvasObj, "_instanceId", JS_NewInt32(ctx, instanceId));
 
     // Register C functions
-    JS_SetPropertyStr(ctx, skiaCanvas, "_createCanvas",
+    JS_SetPropertyStr(ctx, glCanvasObj, "_createCanvas",
         JS_NewCFunction(ctx, canvas_create, "_createCanvas", 3));
-    JS_SetPropertyStr(ctx, skiaCanvas, "_destroyCanvas",
+    JS_SetPropertyStr(ctx, glCanvasObj, "_destroyCanvas",
         JS_NewCFunction(ctx, canvas_destroy, "_destroyCanvas", 1));
-    JS_SetPropertyStr(ctx, skiaCanvas, "_bufferOp",
+    JS_SetPropertyStr(ctx, glCanvasObj, "_bufferOp",
         JS_NewCFunction(ctx, canvas_buffer_op, "_bufferOp", 2));
-    JS_SetPropertyStr(ctx, skiaCanvas, "_flush",
+    JS_SetPropertyStr(ctx, glCanvasObj, "_flush",
         JS_NewCFunction(ctx, canvas_flush, "_flush", 1));
-    JS_SetPropertyStr(ctx, skiaCanvas, "_syncOp",
+    JS_SetPropertyStr(ctx, glCanvasObj, "_syncOp",
         JS_NewCFunction(ctx, canvas_sync_op, "_syncOp", 2));
 
-    JS_SetPropertyStr(ctx, global, "__SkiaCanvas", skiaCanvas);
+    JS_SetPropertyStr(ctx, global, "__GLCanvas", glCanvasObj);
     JS_FreeValue(ctx, global);
 
     __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG,
-        "registerSkiaCanvas: done instanceId=%d available=true", instanceId);
+        "registerGLCanvas: done instanceId=%d available=true", instanceId);
 }
 
 // ─── JNI: register canvas callback object ───
