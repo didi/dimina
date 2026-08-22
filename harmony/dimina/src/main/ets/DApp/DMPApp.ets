@@ -394,10 +394,7 @@ export class DMPApp {
   public notifyMiniProgramHide() {
     const bridgeId = this.currentWebViewId
     if (bridgeId > 0) {
-      DMPChannelProxyNext.ContainerToService(new DMPMap({
-        type: 'pageHide',
-        body: { bridgeId }
-      }), this.appIndex)
+      this.navigatorManager.dispatchPageHide(bridgeId)
     }
     DMPChannelProxyNext.ContainerToService(new DMPMap({
       type: 'appHide',
@@ -424,10 +421,7 @@ export class DMPApp {
       body
     }), this.appIndex)
     if (bridgeId > 0) {
-      DMPChannelProxyNext.ContainerToService(new DMPMap({
-        type: 'pageShow',
-        body: { bridgeId }
-      }), this.appIndex)
+      this.navigatorManager.dispatchPageShow(bridgeId)
     }
   }
 

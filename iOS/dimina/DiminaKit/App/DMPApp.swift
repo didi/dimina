@@ -414,6 +414,39 @@ public class DMPApp {
         )
     }
 
+    @MainActor
+    func notifyMiniProgramHide() {
+        notifyMiniProgramHide(webViewId: getCurrentWebViewId())
+    }
+
+    @MainActor
+    func notifyMiniProgramHide(webViewId: Int) {
+        if webViewId > 0 {
+            navigator?.dispatchPageHide(webViewId: webViewId)
+        }
+        notifyAppHide()
+    }
+
+    @MainActor
+    func notifyMiniProgramShow(scene: Int? = nil, referrerInfo: [String: Any]? = nil) {
+        notifyMiniProgramShow(
+            webViewId: getCurrentWebViewId(),
+            scene: scene,
+            referrerInfo: referrerInfo
+        )
+    }
+
+    @MainActor
+    func notifyMiniProgramShow(
+        webViewId: Int,
+        scene: Int? = nil,
+        referrerInfo: [String: Any]? = nil
+    ) {
+        notifyAppShow(scene: scene, referrerInfo: referrerInfo)
+        guard webViewId > 0 else { return }
+        navigator?.dispatchPageShow(webViewId: webViewId)
+    }
+
     /// 注册第三方扩展 bridge 模块。
     ///
     /// 小程序通过 `wx.extBridge` / `wx.extOnBridge` / `wx.extOffBridge` 与 native 模块通信，

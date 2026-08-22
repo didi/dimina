@@ -375,6 +375,10 @@ export class Bridge {
 		) {
 			return
 		}
+		if (!this.desiredPageVisible && this.sentPageVisible === null) {
+			this.sentPageVisible = false
+			return
+		}
 
 		this.jscore.postMessage({
 			type: this.desiredPageVisible ? 'pageShow' : 'pageHide',

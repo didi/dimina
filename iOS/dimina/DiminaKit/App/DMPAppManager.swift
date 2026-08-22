@@ -265,7 +265,6 @@ public class DMPAppManager {
             )
             guard launched else {
                 target.destroy()
-                opener.notifyAppShow()
                 openerNavigator.reactivate()
                 openerNavigator.resumeAfterMiniProgramNavigation()
                 throw DMPMiniProgramNavigationError.targetLaunchFailed(appId)
@@ -407,28 +406,17 @@ public class DMPAppManager {
         _ context: MiniProgramOpenerContext,
         extraData: [String: Any]?
     ) {
-        guard let opener = notifyOpenerReturn(context, extraData: extraData),
+        guard let opener = getApp(appIndex: context.openerAppIndex),
               let openerNavigator = opener.getNavigator() else { return }
-        openerNavigator.reactivate()
-        openerNavigator.resumeAfterMiniProgramNavigation()
-    }
-
-    @MainActor
-    @discardableResult
-    private func notifyOpenerReturn(
-        _ context: MiniProgramOpenerContext,
-        extraData: [String: Any]?
-    ) -> DMPApp? {
-        guard let opener = getApp(appIndex: context.openerAppIndex) else { return nil }
         var referrerInfo: [String: Any] = ["appId": context.targetAppId]
         if let extraData {
             referrerInfo["extraData"] = extraData
         }
-        opener.notifyAppShow(
+        openerNavigator.reactivate()
+        openerNavigator.resumeAfterMiniProgramNavigation(
             scene: DMPScene.fromMiniProgramBack.rawValue,
             referrerInfo: referrerInfo
         )
-        return opener
     }
 
     // MARK: - Ext Module Registration

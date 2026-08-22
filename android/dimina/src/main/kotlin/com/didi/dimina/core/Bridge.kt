@@ -43,8 +43,6 @@ class Bridge(
     private var desiredPageVisible: Boolean? = null
     @Volatile
     private var sentPageVisible: Boolean? = null
-    @Volatile
-    private var pendingAppShowOptions: JSONObject? = null
 
     /**
      * Bridge 初始化逻辑
@@ -187,7 +185,9 @@ class Bridge(
             "service" -> {
                 when (type) {
                     "serviceResourceLoaded" -> {
-                        if (markResourceLoaded(service = true)) {
+                        val resourceLoaded = markResourceLoaded(service = true)
+                        options.jscore.notifyServiceReady()
+                        if (resourceLoaded) {
                             transMsg.put("type", "resourceLoaded")
                         } else {
                             return null
@@ -294,33 +294,8 @@ class Bridge(
         }
         options.jscore.postMessage(msg.toString())
         if (msg.optString("type") == "resourceLoaded") {
-            flushPendingAppShow()
             flushPageVisibility()
         }
-    }
-
-    fun appShow(enterOptions: JSONObject? = null) {
-        val pending = synchronized(this) {
-            if (enterOptions != null) {
-                pendingAppShowOptions = JSONObject(enterOptions.toString())
-            }
-            if (!isResourceLoaded()) {
-                return
-            }
-            pendingAppShowOptions.also { pendingAppShowOptions = null }
-        }
-        if (pending == null) {
-            options.jscore.postMessage(type = "appShow")
-        } else {
-            postAppShow(pending)
-        }
-    }
-
-    fun appHide() {
-        if (!isResourceLoaded()) {
-            return
-        }
-        options.jscore.postMessage(type="appHide")
     }
 
     fun pageShow() {
@@ -340,31 +315,16 @@ class Bridge(
             return
         }
 
+        if (!visible && sentPageVisible == null) {
+            sentPageVisible = false
+            return
+        }
+
         options.jscore.postMessage(
             if (visible) "pageShow" else "pageHide",
             mapOf("bridgeId" to id)
         )
         sentPageVisible = visible
-    }
-
-    private fun flushPendingAppShow() {
-        val pending = synchronized(this) {
-            if (!isResourceLoaded()) return
-            pendingAppShowOptions.also { pendingAppShowOptions = null }
-        } ?: return
-        postAppShow(pending)
-    }
-
-    private fun postAppShow(enterOptions: JSONObject) {
-        val body = JSONObject(enterOptions.toString()).apply {
-            if (!has("pagePath")) {
-                put("pagePath", options.pathInfo.pagePath)
-            }
-            if (!has("query")) {
-                put("query", options.pathInfo.query ?: JSONObject())
-            }
-        }
-        options.jscore.postMessage("appShow", body)
     }
 
     fun destroy(keepHandler: Boolean = false) {
@@ -378,7 +338,6 @@ class Bridge(
             resourceLoadId = null
             desiredPageVisible = null
             sentPageVisible = null
-            pendingAppShowOptions = null
         }
 
         // 发送页面卸载消息

@@ -34,6 +34,19 @@ async function markTopBridgeReady(app: MiniApp): Promise<void> {
 	})
 }
 
+async function markTopBridgeServiceReady(app: MiniApp): Promise<void> {
+	await vi.waitFor(() => expect(app.navigator.top?.resourceLoadId).toEqual(expect.any(String)), { timeout: 8000 })
+	const bridge = app.navigator.top!
+	bridge.messageInvoke('service', {
+		type: 'serviceResourceLoaded',
+		target: 'service',
+		body: {
+			bridgeId: bridge.id,
+			resourceLoadId: bridge.resourceLoadId!,
+		},
+	})
+}
+
 describe('mini program container navigation APIs', () => {
 	let mount: HTMLElement
 
@@ -48,6 +61,7 @@ describe('mini program container navigation APIs', () => {
 		const container = createContainer({ mount })
 		const source = await container.openApp({ appId: 'source-app', path: ENTRY_PAGE_PATH })
 		await waitForReady(source)
+		await markTopBridgeReady(source)
 		source.jscore.notifyServiceReady()
 		const sourceWorker = source.jscore.worker as unknown as FakeWorker
 
@@ -69,6 +83,10 @@ describe('mini program container navigation APIs', () => {
 		expect(source.jscore.worker).toBe(sourceWorker)
 		expect(sourceWorker.terminate).not.toHaveBeenCalled()
 		expect(messagesOfType(sourceWorker, 'appHide')).toHaveLength(1)
+		const sourceHideTypes = sourceWorker.postMessage.mock.calls
+			.map(([message]) => message.type)
+			.filter(type => type === 'pageHide' || type === 'appHide')
+		expect(sourceHideTypes).toEqual(['pageHide', 'appHide'])
 		expect(target.opener).toBe(source)
 		expect(loadResource.body).toMatchObject({
 			pagePath: ENTRY_PAGE_PATH,
@@ -82,6 +100,31 @@ describe('mini program container navigation APIs', () => {
 			{ id: 'open-success', args: { errMsg: 'navigateToMiniProgram:ok' } },
 			{ id: 'open-complete', args: { errMsg: 'navigateToMiniProgram:ok' } },
 		])
+	}, 15000)
+
+	it('does not emit a late pageHide after appHide when the source render is still loading', async () => {
+		const container = createContainer({ mount })
+		const source = await container.openApp({ appId: 'pending-source', path: ENTRY_PAGE_PATH })
+		await waitForReady(source)
+		await markTopBridgeServiceReady(source)
+		const sourceBridge = source.navigator.top!
+		const sourceWorker = source.jscore.worker as unknown as FakeWorker
+
+		await source.navigateToMiniProgram({ appId: 'pending-target' })
+		sourceBridge.messageInvoke('render', {
+			type: 'renderResourceLoaded',
+			target: 'service',
+			body: {
+				bridgeId: sourceBridge.id,
+				resourceLoadId: sourceBridge.resourceLoadId!,
+			},
+		})
+
+		const visibilityTypes = sourceWorker.postMessage.mock.calls
+			.map(([message]) => message.type)
+			.filter(type => type === 'pageShow' || type === 'pageHide' || type === 'appHide')
+		expect(visibilityTypes).toEqual(['appHide'])
+		expect(sourceBridge.sentPageVisible).toBe(false)
 	}, 15000)
 
 	it('navigateBackMiniProgram destroys the target and resumes its opener with scene 1038 return data', async () => {

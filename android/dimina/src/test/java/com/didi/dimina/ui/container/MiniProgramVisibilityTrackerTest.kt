@@ -106,4 +106,17 @@ class MiniProgramVisibilityTrackerTest {
         assertFalse(tracker.onActivityHidden("never-opened", "page"))
         assertFalse("querying an unknown appId must not register it", tracker.isForeground("never-opened"))
     }
+
+    @Test
+    fun `an explicit cross mini program transition hides the whole source app exactly once`() {
+        val tracker = MiniProgramVisibilityTracker<String>()
+        tracker.onActivityVisible("source", "page-1")
+        tracker.onActivityVisible("source", "page-2")
+
+        assertTrue(tracker.onMiniProgramHidden("source"))
+        assertFalse(tracker.isForeground("source"))
+        assertFalse(tracker.onActivityHidden("source", "page-1"))
+        assertFalse(tracker.onActivityHidden("source", "page-2"))
+        assertFalse(tracker.onMiniProgramHidden("source"))
+    }
 }

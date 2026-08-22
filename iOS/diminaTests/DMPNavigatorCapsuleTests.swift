@@ -480,6 +480,99 @@ final class DMPNavigatorCapsuleTests: XCTestCase {
         )
     }
 
+    func testNavigateBackMiniProgramLifecycleRunsOnceInOrder() async {
+        let events = await captureMiniProgramLifecycle(rounds: [(
+            DMPScene.fromMiniProgramBack.rawValue,
+            ["appId": "target", "extraData": ["source": "navigateBackMiniProgram"]]
+        )])
+
+        XCTAssertEqual(events, ["pageHide", "appHide", "appShow", "pageShow"])
+    }
+
+    func testExitMiniProgramLifecycleRunsOnceInOrder() async {
+        let events = await captureMiniProgramLifecycle(rounds: [(
+            DMPScene.fromMiniProgramBack.rawValue,
+            ["appId": "target"]
+        )])
+
+        XCTAssertEqual(events, ["pageHide", "appHide", "appShow", "pageShow"])
+    }
+
+    func testFailedTargetLaunchRollsLifecycleBackOnceInOrder() async {
+        let events = await captureMiniProgramLifecycle(rounds: [(nil, nil)])
+
+        XCTAssertEqual(events, ["pageHide", "appHide", "appShow", "pageShow"])
+    }
+
+    func testCrossMiniProgramLifecycleRemainsBalancedAcrossTwoRounds() async {
+        let events = await captureMiniProgramLifecycle(rounds: [
+            (DMPScene.fromMiniProgramBack.rawValue, ["appId": "target"]),
+            (DMPScene.fromMiniProgramBack.rawValue, ["appId": "target"]),
+        ])
+
+        XCTAssertEqual(events, [
+            "pageHide", "appHide", "appShow", "pageShow",
+            "pageHide", "appHide", "appShow", "pageShow",
+        ])
+    }
+
+    func testNativeCrossMiniProgramEntriesUseTheRoutePageDispatcher() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let iosNavigator = try String(
+            contentsOf: repositoryRoot.appendingPathComponent(
+                "iOS/dimina/DiminaKit/Navigator/DMPNavigator.swift"
+            ),
+            encoding: .utf8
+        )
+        let iosApp = try String(
+            contentsOf: repositoryRoot.appendingPathComponent(
+                "iOS/dimina/DiminaKit/App/DMPApp.swift"
+            ),
+            encoding: .utf8
+        )
+        let harmonyApp = try String(
+            contentsOf: repositoryRoot.appendingPathComponent(
+                "harmony/dimina/src/main/ets/DApp/DMPApp.ets"
+            ),
+            encoding: .utf8
+        )
+        let harmonyNavigator = try String(
+            contentsOf: repositoryRoot.appendingPathComponent(
+                "harmony/dimina/src/main/ets/Navigator/DMPNavigator.ets"
+            ),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(iosNavigator.contains("dispatchPageHide(webViewId:"))
+        XCTAssertTrue(iosNavigator.contains("dispatchPageShow(webViewId:"))
+        XCTAssertTrue(iosNavigator.contains("app?.notifyMiniProgramHide()"))
+        XCTAssertTrue(iosNavigator.contains("app?.notifyMiniProgramShow(scene:"))
+        XCTAssertTrue(iosApp.contains("notifyMiniProgramHide(webViewId: getCurrentWebViewId())"))
+        XCTAssertTrue(iosApp.contains("webViewId: getCurrentWebViewId(),"))
+        XCTAssertTrue(harmonyApp.contains("navigatorManager.dispatchPageHide(bridgeId)"))
+        XCTAssertTrue(harmonyApp.contains("navigatorManager.dispatchPageShow(bridgeId)"))
+        XCTAssertTrue(harmonyNavigator.contains("dispatchPageHide(webViewId: number)"))
+        XCTAssertTrue(harmonyNavigator.contains("dispatchPageShow(webViewId: number)"))
+        XCTAssertEqual(iosNavigator.components(separatedBy: "pageLifecycle?.onHide").count - 1, 1)
+        XCTAssertEqual(iosNavigator.components(separatedBy: "pageLifecycle?.onShow").count - 1, 1)
+        XCTAssertEqual(harmonyNavigator.components(separatedBy: "this.pageLifecycle.onHide").count - 1, 1)
+        XCTAssertEqual(harmonyNavigator.components(separatedBy: "this.pageLifecycle.onShow").count - 1, 1)
+
+        let appHide = try XCTUnwrap(harmonyApp.range(of: "type: 'appHide'"))
+        let pageHide = try XCTUnwrap(
+            harmonyApp.range(of: "navigatorManager.dispatchPageHide(bridgeId)")
+        )
+        let appShow = try XCTUnwrap(harmonyApp.range(of: "type: 'appShow'"))
+        let pageShow = try XCTUnwrap(
+            harmonyApp.range(of: "navigatorManager.dispatchPageShow(bridgeId)")
+        )
+        XCTAssertLessThan(pageHide.lowerBound, appHide.lowerBound)
+        XCTAssertLessThan(appShow.lowerBound, pageShow.lowerBound)
+    }
+
     func testServiceEngineResolversStayIsolatedAfterTargetDestroy() {
         var opener: DMPApp? = DMPApp(
             appConfig: DMPAppConfig(appName: "opener", appId: "opener-\(UUID().uuidString)"),
@@ -768,6 +861,46 @@ final class DMPNavigatorCapsuleTests: XCTestCase {
         webview.poolState = .loading
 
         XCTAssertEqual(loadingStates, [true, false])
+    }
+
+    private func captureMiniProgramLifecycle(
+        rounds: [(scene: Int?, referrerInfo: [String: Any]?)]
+    ) async -> [String] {
+        let app = DMPApp(
+            appConfig: DMPAppConfig(appName: "lifecycle", appId: "lifecycle-\(UUID().uuidString)"),
+            appIndex: -1
+        )
+        let service = DMPService(app: app)
+        app.service = service
+        defer {
+            app.service = nil
+            service.destroy()
+        }
+
+        var events: [String] = []
+        service.getEngine().registerMethod(name: "captureMiniProgramLifecycle") { value in
+            let message = value.toDictionary() as? [String: Any]
+            if let type = message?["type"] as? String,
+               ["appHide", "pageHide", "appShow", "pageShow"].contains(type)
+            {
+                events.append(type)
+            }
+            return nil
+        }
+        _ = await service.evaluateScript(
+            "DiminaServiceBridge.onMessage = function(message) { captureMiniProgramLifecycle(message); };"
+        )
+
+        for round in rounds {
+            app.notifyMiniProgramHide(webViewId: 7)
+            app.notifyMiniProgramShow(
+                webViewId: 7,
+                scene: round.scene,
+                referrerInfo: round.referrerInfo
+            )
+        }
+        await service.drainPendingContainerMessages()
+        return events
     }
 
     private func capsules(in view: UIView) -> [UIView] {

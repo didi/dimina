@@ -297,25 +297,29 @@ public class DMPNavigator: NSObject {
         notifyPresentOut()
     }
 
-    /// Deliver the app/page presentation-out lifecycle while the old service
-    /// is still alive. Callers decide the API callback commit point, then this
-    /// method keeps App.onHide ahead of the current Page.onHide like the shared
-    /// runtime's MiniApp.onPresentOut().
     @MainActor
-    private func notifyPresentOut() {
-        guard isActiveNavigationOwner() else { return }
-        app?.notifyAppHide()
-        if let record = pageRecords.last {
-            pageLifecycle?.onHide(webviewId: record.webViewId)
-        }
+    func dispatchPageShow(webViewId: Int) {
+        pageLifecycle?.onShow(webviewId: webViewId)
     }
 
     @MainActor
-    func resumeAfterMiniProgramNavigation() {
+    func dispatchPageHide(webViewId: Int) {
+        pageLifecycle?.onHide(webviewId: webViewId)
+    }
+
+    @MainActor
+    private func notifyPresentOut() {
         guard isActiveNavigationOwner() else { return }
-        if let record = pageRecords.last {
-            pageLifecycle?.onShow(webviewId: record.webViewId)
-        }
+        app?.notifyMiniProgramHide()
+    }
+
+    @MainActor
+    func resumeAfterMiniProgramNavigation(
+        scene: Int? = nil,
+        referrerInfo: [String: Any]? = nil
+    ) {
+        guard isActiveNavigationOwner() else { return }
+        app?.notifyMiniProgramShow(scene: scene, referrerInfo: referrerInfo)
         setCapsuleVisible(true)
         bringCapsuleToFront()
     }
@@ -384,7 +388,7 @@ public class DMPNavigator: NSObject {
         defer { pageRouteOperationDepth -= 1 }
 
         navigationController.view.endEditing(true)
-        pageLifecycle?.onHide(webviewId: app!.getCurrentWebViewId())
+        dispatchPageHide(webViewId: app!.getCurrentWebViewId())
 
         if let tabBarConfig = app?.getBundleAppConfig()?.tabBar,
            isTabBarPage(path)
@@ -412,7 +416,7 @@ public class DMPNavigator: NSObject {
             }
             navigationController.pushViewController(tabBarController, animated: animated)
 
-            pageLifecycle?.onShow(webviewId: pageRecord.webViewId)
+            dispatchPageShow(webViewId: pageRecord.webViewId)
             return
         }
 
@@ -442,7 +446,7 @@ public class DMPNavigator: NSObject {
         }
         navigationController.pushViewController(pageController, animated: animated)
 
-        pageLifecycle?.onShow(webviewId: pageController.getWebView().getWebViewId())
+        dispatchPageShow(webViewId: pageController.getWebView().getWebViewId())
     }
 
     /// 导航到指定页面
@@ -467,7 +471,7 @@ public class DMPNavigator: NSObject {
             return
         }
 
-        pageLifecycle?.onHide(webviewId: app!.getCurrentWebViewId())
+        dispatchPageHide(webViewId: app!.getCurrentWebViewId())
 
         // 使用DMPPageController创建页面
         let pageController = DMPPageController(
@@ -498,7 +502,7 @@ public class DMPNavigator: NSObject {
 
         navigationController.pushViewController(pageController, animated: animated)
 
-        pageLifecycle?.onShow(webviewId: pageController.getWebView().getWebViewId())
+        dispatchPageShow(webViewId: pageController.getWebView().getWebViewId())
     }
 
     /// 返回上一页或多页
@@ -560,7 +564,7 @@ public class DMPNavigator: NSObject {
 
         // 显示前一个页面
         if let previousPageRecord = pageRecords.last {
-            pageLifecycle?.onShow(webviewId: previousPageRecord.webViewId)
+            dispatchPageShow(webViewId: previousPageRecord.webViewId)
         }
     }
 
@@ -646,7 +650,7 @@ public class DMPNavigator: NSObject {
             let viewControllers = [pageController]
             navigationController.setViewControllers(viewControllers, animated: false)
 
-            pageLifecycle?.onShow(webviewId: pageController.getWebView().getWebViewId())
+            dispatchPageShow(webViewId: pageController.getWebView().getWebViewId())
 
             return
         }
@@ -678,7 +682,7 @@ public class DMPNavigator: NSObject {
         viewControllers.removeLast()
         viewControllers.append(pageController)
         navigationController.setViewControllers(viewControllers, animated: false)
-        pageLifecycle?.onShow(webviewId: pageController.getWebView().getWebViewId())
+        dispatchPageShow(webViewId: pageController.getWebView().getWebViewId())
     }
 
     @MainActor
@@ -838,7 +842,7 @@ public class DMPNavigator: NSObject {
                let previousRecord,
                previousRecord.webViewId != tabBarController.pageRecord(at: targetIndex)?.webViewId
             {
-                pageLifecycle?.onHide(webviewId: previousRecord.webViewId)
+                dispatchPageHide(webViewId: previousRecord.webViewId)
             }
 
             guard let currentRecord = await tabBarController.selectTab(index: targetIndex, query: query) else {
@@ -849,7 +853,7 @@ public class DMPNavigator: NSObject {
             updateRootTabRecord(currentRecord)
 
             if !wasPreviousTabVisible || previousRecord?.webViewId != currentRecord.webViewId {
-                pageLifecycle?.onShow(webviewId: currentRecord.webViewId)
+                dispatchPageShow(webViewId: currentRecord.webViewId)
             }
 
             tabBarContainerController = tabBarController
@@ -884,7 +888,7 @@ public class DMPNavigator: NSObject {
         nextViewControllers.append(tabBarController)
         navigationController.setViewControllers(nextViewControllers, animated: animated)
 
-        pageLifecycle?.onShow(webviewId: pageRecord.webViewId)
+        dispatchPageShow(webViewId: pageRecord.webViewId)
         return true
     }
 

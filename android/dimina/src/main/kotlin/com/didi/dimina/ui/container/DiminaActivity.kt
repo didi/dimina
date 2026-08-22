@@ -143,6 +143,7 @@ import kotlin.math.sin
 class DiminaActivity : ComponentActivity() {
     private val tag = "DiminaActivity"
     private val isLoading = mutableStateOf(true)
+    private var suspendedForMiniProgramNavigation = false
 
     // UI state for navigation bar
     private val showNavigationBar = mutableStateOf(true)
@@ -1497,36 +1498,39 @@ class DiminaActivity : ComponentActivity() {
     }
 
     /**
-     * WebSocket 的后台判据挂在 onStart/onStop 而不是 onResume/onPause 上：权限弹窗、系统
-     * 分享面板和对话框式的系统选择器只会让这个 Activity onPause，它仍然可见，小程序也并没有
-     * 进入后台；按 onPause 判定会在用户停留超过后台宽限期时误杀掉全部连接。真正的迁移由
-     * [visibilityTracker] 按 appId 判定，多页面小程序在自己的页面之间跳转不构成前后台变化。
+     * 系统前后台变化由 onStart/onStop 驱动；跨小程序 API 则在 owner 交接时显式更新同一份
+     * [visibilityTracker]。onPause 不作为 App 后台判据，避免权限弹窗或系统面板误杀连接。
      */
     override fun onStart() {
         super.onStart()
         if (isMiniProgramInitialized && visibilityTracker.onActivityVisible(miniProgram.appId, this)) {
-            com.didi.dimina.api.network.WebSocketManager.shared.setBackgrounded(miniProgram.appId, false)
+            dispatchMiniProgramShow()
         }
+        suspendedForMiniProgramNavigation = false
     }
 
     override fun onStop() {
         if (isMiniProgramInitialized && visibilityTracker.onActivityHidden(miniProgram.appId, this)) {
-            com.didi.dimina.api.network.WebSocketManager.shared.setBackgrounded(miniProgram.appId, true)
+            dispatchMiniProgramHide()
         }
         super.onStop()
     }
 
     override fun onResume() {
         super.onResume()
+        if (suspendedForMiniProgramNavigation) {
+            if (visibilityTracker.onActivityVisible(miniProgram.appId, this)) {
+                dispatchMiniProgramShow()
+            }
+            suspendedForMiniProgramNavigation = false
+        }
         getActiveBridge()?.let {
-            it.appShow(miniApp.consumePendingAppShowOptions(miniProgram.appId))
             it.pageShow()
         }
     }
 
     override fun onPause() {
         getActiveBridge()?.let {
-            it.appHide()
             it.pageHide()
         }
         super.onPause()
@@ -1803,7 +1807,13 @@ class DiminaActivity : ComponentActivity() {
 
     /** Opens a resolved bundled mini program as a new root above this one. */
     fun navigateToMiniProgram(target: MiniProgram) {
-        miniApp.openApp(this, target)
+        suspendForMiniProgramNavigation()
+        try {
+            miniApp.openApp(this, target)
+        } catch (error: Exception) {
+            resumeAfterMiniProgramNavigationFailure()
+            throw error
+        }
     }
 
     /**
@@ -1812,6 +1822,7 @@ class DiminaActivity : ComponentActivity() {
      */
     fun navigateBackMiniProgram(extraData: JSONObject): Boolean {
         if (!queueOpenerReturn(extraData)) return false
+        suspendForMiniProgramNavigation()
         closeMiniProgram()
         return true
     }
@@ -1820,8 +1831,44 @@ class DiminaActivity : ComponentActivity() {
         // exit has no return extraData, but revealing a live opener is still scene 1038
         // ("returned from another mini program"). Queue it before closing this Activity;
         // MiniApp consumes the payload exactly once when the opener resumes.
-        queueOpenerReturn(extraData = null)
+        if (queueOpenerReturn(extraData = null)) {
+            suspendForMiniProgramNavigation()
+        }
         closeMiniProgram()
+    }
+
+    private fun suspendForMiniProgramNavigation() {
+        if (suspendedForMiniProgramNavigation) return
+        getActiveBridge()?.pageHide()
+        if (visibilityTracker.onMiniProgramHidden(miniProgram.appId)) {
+            dispatchMiniProgramHide()
+        }
+        suspendedForMiniProgramNavigation = true
+    }
+
+    private fun resumeAfterMiniProgramNavigationFailure() {
+        if (!suspendedForMiniProgramNavigation) return
+        if (visibilityTracker.onActivityVisible(miniProgram.appId, this)) {
+            dispatchMiniProgramShow()
+        }
+        getActiveBridge()?.pageShow()
+        suspendedForMiniProgramNavigation = false
+    }
+
+    private fun dispatchMiniProgramShow() {
+        val showOptions = miniApp.consumePendingAppShowOptions(miniProgram.appId)?.apply {
+            getActiveBridge()?.options?.pathInfo?.let { pathInfo ->
+                if (!has("pagePath")) put("pagePath", pathInfo.pagePath)
+                if (!has("query")) put("query", pathInfo.query ?: JSONObject())
+            }
+        }
+        miniApp.getJsCore(miniProgram.appId).appShow(showOptions)
+        com.didi.dimina.api.network.WebSocketManager.shared.setBackgrounded(miniProgram.appId, false)
+    }
+
+    private fun dispatchMiniProgramHide() {
+        miniApp.getJsCore(miniProgram.appId).appHide()
+        com.didi.dimina.api.network.WebSocketManager.shared.setBackgrounded(miniProgram.appId, true)
     }
 
     private fun queueOpenerReturn(extraData: JSONObject?): Boolean {
