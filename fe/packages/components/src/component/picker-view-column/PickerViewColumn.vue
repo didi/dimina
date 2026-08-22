@@ -39,6 +39,9 @@ let pendingEndEvent
 setPickerValue?.(itemIndex, currentIndex.value)
 
 function startDrag(event) {
+	// 上一次拖动的结算还挂在滚动动画上时又按了下去：这里把 duration 归零会取消那次
+	// transition，它的 transitionend 永不到来。先结算，否则那次拖动的 change 会丢。
+	finishScroll()
 	pickerEvent?.('pickstart', event)
 	isDragging = true
 	duration.value = '0s'
@@ -97,13 +100,18 @@ function endDrag(event) {
 	}
 }
 
-function finishScroll(event = pendingEndEvent) {
-	if (!pendingEndEvent && !event) return
+// change / pickend 属于用户那次滚动选择。滚动结束的信号可能是 transitionend，
+// 而页面改 value、样式变化都会带来 transitionend，所以以「有没有待结算的那次拖动」
+// 为准，结算完立即清掉，避免同一次拖动结算两遍或凭空补一条 change。
+function finishScroll() {
+	if (!pendingEndEvent) return
+	const event = pendingEndEvent
+	pendingEndEvent = undefined
 	if (!pickerImmediateChange.value && valueChanged) {
 		pickerEvent?.('change', event)
 	}
+	valueChanged = false
 	pickerEvent?.('pickend', event)
-	pendingEndEvent = undefined
 }
 
 watch(() => itemValue.value[itemIndex], (value) => {

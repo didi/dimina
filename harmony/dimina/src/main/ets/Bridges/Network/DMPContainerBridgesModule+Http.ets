@@ -6,7 +6,6 @@ import { BusinessError, request } from '@kit.BasicServicesKit';
 import { http } from '@kit.NetworkKit';
 import { DMPMap } from '@didi-dimina/dimina/ets/Utils/DMPMap';
 import { DMPContextUtils } from '../../Utils/DMPContextUtils';
-import { DMPFileUrlConvertor } from '../../Bundle/Util/DMPFileUrlConvertor';
 export class DMPContainerBridgesModuleHttp extends DMPContainerBridgesModule {
   private uploadTasks: Map<string, http.HttpRequest> = new Map();
   private uploadCallbacks: Map<string, DMPBridgeCallback> = new Map();
@@ -71,7 +70,7 @@ export class DMPContainerBridgesModuleHttp extends DMPContainerBridgesModule {
         filePath: localPath
       }).then((downloadTask) => {
         downloadTask.on('complete', () => {
-          const tempFilePath =  DMPFileUrlConvertor.localPathFromVPath(localPath)
+          const tempFilePath = this.localPathFromVPath(localPath)
           const params = new DMPMap()
           params.set('tempFilePath', tempFilePath)
           params.set('statusCode', 200)
@@ -103,7 +102,7 @@ export class DMPContainerBridgesModuleHttp extends DMPContainerBridgesModule {
     }
 
     try {
-      const filePath = DMPFileUrlConvertor.localPathFromVPath(virtualFilePath);
+      const filePath = this.localPathFromVPath(virtualFilePath);
       const fileName = this.getNameFromFile(filePath);
       const multiFormDataList: Array<http.MultiFormData> = [];
       const rawFormData: object | undefined = param.getObject('formData');

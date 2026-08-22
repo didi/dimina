@@ -30,10 +30,12 @@ class Callback {
 		}
 		const obj = this.callbacks[evtId]
 		if (obj && isFunction(obj.callback)) {
-			obj.callback(args)
+			// 一次性回调先从账本删除再执行。用户回调抛异常时，已经发生的终结事实不能被撤销，
+			// 也不能让同一个 callback id 在后续错误消息里复活。
 			if (!obj.keep) {
 				delete this.callbacks[evtId]
 			}
+			obj.callback(args)
 		}
 	}
 

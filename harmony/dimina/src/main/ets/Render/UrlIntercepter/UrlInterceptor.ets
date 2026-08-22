@@ -56,7 +56,8 @@ export class RequestCallback {
   }
 
   private static handleDIFileRequest(url: string, app: DMPApp): WebResourceResponse | null {
-    const filePath = DMPFileUrlConvertor.localPathFromVPath(url);
+    const canvasTempRoot = DMPFileUrlConvertor.canvasTempRoot(app.appConfig.appId);
+    const filePath = DMPFileUrlConvertor.localPathFromVPath(url, canvasTempRoot);
     if (filePath == null || !RequestCallback.hasFile(filePath)) {
       return null;
     }

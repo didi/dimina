@@ -5,6 +5,23 @@ export { hasModule, modDefine, modRequire } from './core/amd'
 export { default as callback } from './core/callback'
 
 export {
+	CANVAS_ACTIVE_PROP,
+	CANVAS_CONTRACT_CHANGE_EVENT,
+	CANVAS_NODE_PROP,
+	CANVAS_OWNER_PROP,
+} from './core/dom-contract'
+
+export {
+	CANVAS_RGBA_BYTES_PER_PIXEL,
+	canvasPixelBudgetError,
+	MAX_CANVAS_BITMAP_PIXELS,
+	MAX_CANVAS_DIMENSION,
+	MAX_CANVAS_IMAGE_BYTES,
+	MAX_CANVAS_TRANSFER_PIXELS,
+	normalizeCanvasBitmapDimension,
+} from './core/canvas-limits'
+
+export {
 	createDataFunctionReference,
 	getDataFunctionReferenceId,
 	isDataFunctionReference,

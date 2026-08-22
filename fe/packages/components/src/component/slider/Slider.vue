@@ -1,5 +1,6 @@
 <script setup>
 import { triggerEvent, useInfo } from '@/common/events'
+import { useTouchEvents } from '@/common/useTouchEvents'
 
 // 滑动选择器
 // https://developers.weixin.qq.com/miniprogram/dev/component/slider.html
@@ -340,12 +341,7 @@ function endDrag(event) {
 	})
 }
 
-function handleClick(event) {
-	if (isDragging) {
-		isDragging = false
-		return
-	}
-
+function applyTapValue(event) {
 	if (props.disabled) {
 		return
 	}
@@ -363,6 +359,32 @@ function handleClick(event) {
 		},
 	})
 }
+
+// 手势装在根元素上，取值区只有 dd-slider-tap-area：show-value 的数值文本和根元素的
+// 内边距都在它之外，点在那里只发 tap，不该把值 clamp 到端点。
+function isInsideTapArea(event) {
+	const touch = event.touches?.[0] ?? event.changedTouches?.[0]
+	const clientX = touch?.clientX ?? event.clientX
+	const rect = sliderHandle.value?.getBoundingClientRect()
+	if (!rect?.width || clientX === undefined) {
+		return false
+	}
+	// 取值区横跨整行，数值文本在它右侧，所以按水平方向判断即可
+	return clientX >= rect.left && clientX <= rect.left + rect.width
+}
+
+function handleTap({ event }) {
+	if (props.disabled) return
+	// 这一次 tap 是拖动的收尾时值已由 endDrag 结算过，落点区判断也不再适用
+	const afterDrag = isDragging
+	isDragging = false
+	if (!afterDrag && isInsideTapArea(event)) {
+		applyTapValue(event)
+	}
+	triggerEvent('tap', { event, info })
+}
+
+useTouchEvents(info, sliderRoot, { tapHandler: handleTap })
 
 onMounted(() => {
 	window.addEventListener('mousemove', drag)
@@ -387,7 +409,7 @@ onBeforeUnmount(() => {
 		:aria-valuenow="disValue" :aria-disabled="disabled" :class="{ 'dd-slider-disabled': disabled }"
 	>
 		<div class="dd-slider-wrapper">
-			<div ref="sliderHandle" class="dd-slider-tap-area" @click="handleClick">
+			<div ref="sliderHandle" class="dd-slider-tap-area">
 				<div class="dd-slider-handle-wrapper" :style="backColor">
 					<div
 						class="dd-slider-handle" :style="{ ...blockStyle, left: `${percent}%`, backgroundColor: 'transparent' }" @touchstart="startDrag"

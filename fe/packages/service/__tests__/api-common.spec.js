@@ -101,6 +101,42 @@ describe('invokeAPI promise-like behavior', () => {
 		expect(params).toBeUndefined()
 	})
 
+	it('cleans the fail callback when a callback-style API succeeds', async () => {
+		const { bridge, callback, invokeAPI } = await loadCommonApi()
+		const success = vi.fn()
+		const fail = vi.fn()
+
+		invokeAPI('showModal', { title: 'Confirm', success, fail })
+		const params = bridge.invoke.mock.calls[0][0].body.params
+		callback.invoke(params.success, { errMsg: 'showModal:ok' })
+
+		expect(success).toHaveBeenCalledTimes(1)
+		expect(callback.callbacks[params.success]).toBeUndefined()
+		expect(callback.callbacks[params.fail]).toBeUndefined()
+	})
+
+	it('cleans both terminal callbacks from complete when the host only reports complete', async () => {
+		const { bridge, callback, invokeAPI } = await loadCommonApi()
+
+		invokeAPI('showModal', { success: vi.fn(), fail: vi.fn(), complete: vi.fn() })
+		const params = bridge.invoke.mock.calls[0][0].body.params
+		callback.invoke(params.complete, { errMsg: 'showModal:fail interrupted' })
+
+		expect(callback.callbacks[params.success]).toBeUndefined()
+		expect(callback.callbacks[params.fail]).toBeUndefined()
+		expect(callback.callbacks[params.complete]).toBeUndefined()
+	})
+
+	it('removes a one-shot callback before invoking user code that throws', async () => {
+		const { bridge, callback, invokeAPI } = await loadCommonApi()
+
+		invokeAPI('showModal', { success: () => { throw new Error('user callback failed') } })
+		const params = bridge.invoke.mock.calls[0][0].body.params
+
+		expect(() => callback.invoke(params.success, {})).toThrow('user callback failed')
+		expect(callback.callbacks[params.success]).toBeUndefined()
+	})
+
 	it('preserves the event id that identifies extension subscriptions', async () => {
 		const { bridge, invokeAPI } = await loadCommonApi()
 

@@ -3,6 +3,8 @@
 // https://developers.weixin.qq.com/miniprogram/dev/component/switch.html
 
 import { triggerEvent, useInfo } from '@/common/events'
+import { useLabelActivation } from '@/common/labelActivation'
+import { useTouchEvents } from '@/common/useTouchEvents'
 
 const props = defineProps({
 	/**
@@ -86,37 +88,53 @@ const computedStyle = computed(() => {
 })
 
 const info = useInfo()
-function handleClicked(event) {
+const rootRef = ref(null)
+// 被 label 激活时只切换并派发 change，不补发控件自己的 tap
+function activate(event) {
+	if (props.disabled) {
+		return
+	}
+	isOn.value = !isOn.value
+	collectFormValue?.(props.name, isOn.value)
+	triggerEvent('change', {
+		event,
+		info,
+		detail: {
+			value: isOn.value,
+		},
+	})
+}
+
+function handleTap({ event }) {
 	if (!props.disabled) {
-		isOn.value = !isOn.value
-		collectFormValue?.(props.name, isOn.value)
-		triggerEvent('change', {
-			event,
-			info,
-			detail: {
-				value: isOn.value,
-			},
-		})
+		activate(event)
+		triggerEvent('tap', { event, info })
 	}
 }
+
+function handleKeyboard() {
+	rootRef.value?.click()
+}
+
+useTouchEvents(info, rootRef, { tapHandler: handleTap })
+useLabelActivation(rootRef, activate)
 </script>
 
 <template>
 	<div
-		v-if="type === 'checkbox'" :id="id" v-bind="$attrs" class="dd-checkbox-input" data-dd-label-target
+		v-if="type === 'checkbox'" :id="id" ref="rootRef" v-bind="$attrs" class="dd-checkbox-input" data-dd-label-target
 		role="checkbox" :tabindex="disabled ? -1 : 0" :aria-checked="isOn" :aria-disabled="disabled"
-		:class="{ 'dd-checkbox-input-checked': isOn, 'dd-checkbox-input-disabled': disabled }" @click="handleClicked"
-		@keydown.enter.prevent="handleClicked" @keydown.space.prevent="handleClicked"
+		:class="{ 'dd-checkbox-input-checked': isOn, 'dd-checkbox-input-disabled': disabled }"
+		@keydown.enter.prevent="handleKeyboard" @keydown.space.prevent="handleKeyboard"
 	>
 		<i
 			class="dd-checkbox-input-inner" :style="computedStyle"
 		/>
 	</div>
 	<div
-		v-else :id="id" v-bind="$attrs" class="dd-switch-input" data-dd-label-target role="switch"
+		v-else :id="id" ref="rootRef" v-bind="$attrs" class="dd-switch-input" data-dd-label-target role="switch"
 		:tabindex="disabled ? -1 : 0" :aria-checked="isOn" :aria-disabled="disabled" :class="{ 'dd-switch-input-checked': isOn, 'dd-switch-input-disabled': disabled }"
-		@click="handleClicked"
-		@keydown.enter.prevent="handleClicked" @keydown.space.prevent="handleClicked"
+		@keydown.enter.prevent="handleKeyboard" @keydown.space.prevent="handleKeyboard"
 	>
 		<i class="dd-switch-input-inner" :style="computedStyle" />
 	</div>

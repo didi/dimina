@@ -120,8 +120,8 @@ class DMPChannelProxy {
         app?.render?.fromService(msg: msg, webViewId: webViewId)
     }
 
-    static func renderToService(msg: String, app: DMPApp?) async {
+    static func renderToService(msg: String, app: DMPApp?) {
         DMPLogger.debug("🔴 DMPChannelProxy.renderToService: \(msg) \(app)")
-        await app?.service?.fromRender(data: msg)
+        app?.service?.fromRender(data: msg)
     }
 }

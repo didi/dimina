@@ -1,7 +1,6 @@
 <script setup>
 // https://developers.weixin.qq.com/miniprogram/dev/component/image.html
-import { hasEvent, triggerEvent, useInfo } from '@/common/events'
-import { useTapEvents } from '@/common/useTapEvents'
+import { triggerEvent, useInfo } from '@/common/events'
 import { useTouchEvents } from '@/common/useTouchEvents'
 
 const props = defineProps({
@@ -235,23 +234,8 @@ function handleContextMenu(event) {
 	if (!props.showMenuByLongpress) event.preventDefault()
 }
 
-// 判断是否有tap事件属性
-const hasTapEvent = hasEvent(info, 'tap')
-if (hasTapEvent) {
-	useTapEvents(conRef, (event) => {
-		triggerEvent('tap', { event, info })
-	})
-}
-
-// 判断是否有触摸相关事件属性
-const hasTouchEvents = hasEvent(info, 'touchstart') || hasEvent(info, 'touchmove')
-	|| hasEvent(info, 'touchend') || hasEvent(info, 'touchcancel')
-	|| hasEvent(info, 'longpress') || hasEvent(info, 'longtap')
-
-// 只有当存在触摸相关事件属性时，才使用触摸事件处理逻辑
-if (hasTouchEvents) {
-	useTouchEvents(info, conRef)
-}
+// owner 常驻，运行期新增或切换 bind/catch 时无需等待组件重建。
+useTouchEvents(info, conRef)
 </script>
 
 <template>

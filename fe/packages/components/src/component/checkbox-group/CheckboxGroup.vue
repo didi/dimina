@@ -45,6 +45,7 @@ function registerCheckbox(item) {
 }
 
 const info = useInfo()
+const rootRef = ref(null)
 function toggleCheckbox(item, event) {
 	item.setChecked(!item.isChecked())
 	const value = getValue()
@@ -52,6 +53,9 @@ function toggleCheckbox(item, event) {
 	triggerEvent('change', {
 		event,
 		info,
+		// change 绑在 checkbox-group 上，事件的 id / dataset 要取自 group 自己；
+		// 转发过来的这个事件的 currentTarget 还停在被勾选的那个 checkbox 上。
+		currentTarget: rootRef.value,
 		detail: {
 			value,
 		},
@@ -76,7 +80,7 @@ provide('checkboxGroup', { registerCheckbox, toggleCheckbox })
 </script>
 
 <template>
-	<div :id="id" v-bind="$attrs" class="dd-checkbox-group" role="group">
+	<div :id="id" ref="rootRef" v-bind="$attrs" class="dd-checkbox-group" role="group">
 		<slot />
 	</div>
 </template>

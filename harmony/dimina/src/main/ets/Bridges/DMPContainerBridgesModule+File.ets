@@ -624,10 +624,6 @@ export class DMPContainerBridgesModuleFile extends DMPContainerBridgesModule {
     return path;
   }
 
-  private currentAppId(): string {
-    return this.appData.appId || this.app?.appConfig?.appId || 'default';
-  }
-
   private tempRoot(): string {
     const context = DMPContextUtils.getUIAbilityContext();
     this.ensureDirectory(context.cacheDir);
@@ -653,6 +649,8 @@ export class DMPContainerBridgesModuleFile extends DMPContainerBridgesModule {
     }
     const userRoot = this.userRoot();
     const tempRoot = this.tempRoot();
+    const context = DMPContextUtils.getUIAbilityContext();
+    const canvasTempRoot = DMPFileUrlConvertor.canvasTempRoot(this.currentAppId());
     let path = rawPath;
     if (rawPath.startsWith(VIRTUAL_PREFIX)) {
       const relative = rawPath.replace(VIRTUAL_PREFIX, '').replace(/^\/+/, '');
@@ -661,10 +659,10 @@ export class DMPContainerBridgesModuleFile extends DMPContainerBridgesModule {
       } else if (relative === TEMP_PREFIX || relative.startsWith(`${TEMP_PREFIX}/`)) {
         path = `${tempRoot}/${relative.replace(TEMP_PREFIX, '').replace(/^\/+/, '')}`;
       } else {
-        path = DMPFileUrlConvertor.localPathFromVPath(rawPath);
+        path = this.localPathFromVPath(rawPath);
       }
     }
-    if (!path.startsWith(userRoot) && !path.startsWith(tempRoot)) {
+    if (!DMPFileUrlConvertor.isUnderAnyRoot(path, [userRoot, tempRoot, canvasTempRoot])) {
       throw new Error(`permission denied, open ${rawPath}`);
     }
     return path;

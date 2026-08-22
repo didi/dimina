@@ -116,6 +116,27 @@ describe('slider wechat alignment', () => {
 		expect(event.event.detail.value).toBe(0)
 	})
 
+	it('does not seek when the tap lands on the value text beside the track', async () => {
+		// 手势装在根元素上，数值文本也在根元素里；按落点算值会把落点 clamp 到端点，
+		// 表现为点一下数字滑块就跳满格。
+		const { host } = mountComponent(Slider, {
+			bindchange: 'changeHandler',
+			showValue: true,
+			min: 0,
+			max: 100,
+			value: 30,
+		})
+		mockTrackGeometry(host, { left: 0, width: 100 })
+		await nextTick()
+
+		host.querySelector('.dd-slider-value').dispatchEvent(
+			new MouseEvent('click', { bubbles: true, clientX: 150 })
+		)
+		await nextTick()
+
+		expect(sentEvents()).toHaveLength(0)
+	})
+
 	it('clamps blockSize into the wechat range of 12 - 28', async () => {
 		const { host } = mountComponent(Slider, {
 			blockSize: 40,
