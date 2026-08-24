@@ -1,167 +1,80 @@
-import { hasCatchEvent, triggerEvent } from './events'
+import { attachTouchEvents } from './touchGestures'
 
 /**
- * 处理组件的触摸相关事件
- * 封装了触摸事件的添加、移除和检测catch事件处理器的逻辑
+ * 组件版的手势安装：把 attachTouchEvents 绑到组件的挂载/卸载生命周期上。
+ *
+ * 手势语义本身全部在 touchGestures.js 里。已编译的旧包里 canvas 是原生元素，走 c-event-node
+ * 指令调用同一个 attachTouchEvents，两条路径不会各自实现一套。
+ *
  * @param {object} info 组件信息
  * @param {object} elementRef 元素引用
- * @param {number} longPressThreshold 长按触发阈值，单位毫秒
- * @param {number} moveThreshold 判定为移动的阈值，单位像素
+ * @param {object} [options] 行为选项
+ * @param {number} [options.longPressThreshold] 长按触发阈值，单位毫秒
+ * @param {number} [options.moveThreshold] 判定为移动的阈值，单位像素
+ * @param {object} [options.relativeTo] 元素引用；给定后每个触摸点额外带上相对该元素左上角的 x / y
  */
-export function useTouchEvents(info, elementRef, longPressThreshold = 350, moveThreshold = 10) {
-	// 长按相关状态
-	const longPressTimer = ref(null)
-	const touchStartPosition = ref({ x: 0, y: 0 })
-	const isTouchMoved = ref(false)
-	const canMoveStatus = ref('init')
+export function useTouchEvents(info, elementRef, options = {}) {
+	const { relativeTo = null, ...rest } = options
+	let detach = null
+	let catchSignature = ''
+	let installedElement = null
+	let pendingReinstall = false
 
+	const currentCatchSignature = () => ['touchstart', 'touchmove', 'touchend', 'touchcancel']
+		.map(type => Boolean(info.attrs?.[`catch${type}`] || info.attrs?.[`catch:${type}`]))
+		.join(':')
 
-	/**
-	 * 触摸开始事件处理
-	 * @param {Event} event 原始事件对象
-	 */
-	function onTouchStart(event) {
-		// currentTarget 在异步回调中可能为空，此处保存引用
-		const currentTarget = event.currentTarget
-		const touch = event.touches[0]
-		touchStartPosition.value = { x: touch.clientX, y: touch.clientY }
-		isTouchMoved.value = false
-		canMoveStatus.value = 'init'
-
-		// 清除可能存在的定时器
-		if (longPressTimer.value) {
-			clearTimeout(longPressTimer.value)
-		}
-
-		// 设置长按定时器
-		longPressTimer.value = setTimeout(() => {
-			// 如果触摸没有移动太多，则触发长按事件
-			if (!isTouchMoved.value) {
-				// longtap 是 longpress 的历史别名，exparser 会按实际绑定分发。
-				const preservedEvent = { ...event, currentTarget }
-				triggerEvent('longpress', { event: preservedEvent, info })
-				triggerEvent('longtap', { event: preservedEvent, info })
-			}
-			longPressTimer.value = null
-		}, longPressThreshold)
-
-		triggerEvent('touchstart', { event, info })
+	const install = () => {
+		if (!elementRef.value) return
+		detach = attachTouchEvents(info, elementRef.value, {
+			...rest,
+			// 组件的上下文与选项比指令兜底的更权威，可以从已装上的指令手里接管
+			takeOver: true,
+			getRelativeElement: relativeTo ? () => relativeTo.value : null,
+		})
+		catchSignature = currentCatchSignature()
+		installedElement = elementRef.value
+		pendingReinstall = false
 	}
 
-	/**
-	 * 触摸移动事件处理
-	 * @param {Event} event 原始事件对象
-	 */
-	function onTouchMove(event) {
-		const touch = event.touches[0]
-		const moveX = Math.abs(touch.clientX - touchStartPosition.value.x)
-		const moveY = Math.abs(touch.clientY - touchStartPosition.value.y)
+	onMounted(install)
 
-		// 如果移动距离超过阈值，则标记为已移动
-		if (moveX > moveThreshold || moveY > moveThreshold) {
-			isTouchMoved.value = true
+	// 控件的根元素可能换成另一个节点（如 switch 的 checkbox / switch 两种形态）。
+	// 手势装在旧节点上就等于控件失去全部交互，新节点上一个监听器都没有。
+	// 判据是「装在哪个节点上」而不是 ref 是否变动：重装会作废正在结算的触摸序列，
+	// 节点没换却重装一次，正好会吃掉这一次 tap。
+	watch(elementRef, () => {
+		if (!elementRef.value || elementRef.value === installedElement) return
+		// 旧节点已经不在树上，它那一次序列没有收口的意义，直接摘掉。
+		pendingReinstall = false
+		detach?.()
+		install()
+	}, { flush: 'post' })
 
-			// 如果移动了，取消长按定时器
-			if (longPressTimer.value) {
-				clearTimeout(longPressTimer.value)
-				longPressTimer.value = null
-			}
+	onUpdated(() => {
+		// passive 选项只能在注册监听器时决定，所以 bind/catch 变化必须重装监听器。但重装会清掉
+		// 活动序列、长按计时器和 tap 状态，正在进行的这次触摸就再也发不出 tap / longpress /
+		// canceltap，所以要等它自己以 touchend / touchcancel 收口之后再换 owner。
+		if (pendingReinstall || catchSignature === currentCatchSignature()) return
+		if (!detach) {
+			install()
+			return
 		}
-
-		// 针对 catchtouchmove 场景，防止滚动穿透
-		if (hasCatchEvent(info, 'touchmove')) {
-			if (canMoveStatus.value === 'off') {
-				// 阻止浏览器默认滚动行为
-				event.cancelable && event.preventDefault()
-				return
-			}
-
-			// 遍历事件传递路径元素，找到包含滚动条的元素
-			const path = event?.composedPath() || []
-
-			for (const element of path) {
-				const { scrollHeight, clientHeight, scrollTop } = element
-				if (scrollHeight > clientHeight) {
-					// 向下滑动，查看上方内容
-					if (touch.clientY - touchStartPosition.value.y > 0) {
-						// 到顶后，继续拖动就阻止浏览器默认的滚动事件
-						scrollTop === 0 && preventDefaultMove(event)
-					} else if (scrollHeight - clientHeight - scrollTop < 1) {
-						// 向上滑动，查看下方内容，到容器底部，阻止浏览器默认的滚动事件
-						// 因为scrollTop是一个非整数，而scrollHeight和clientHeight是四舍五入的，因此确定滚动区域是否滚动到底的唯一方法是查看滚动量是否足够接近某个阈值
-						preventDefaultMove(event)
-					} else {
-						canMoveStatus.value = 'on'
-					}
-					break;
-				}
-			}
-		}
-
-		triggerEvent('touchmove', { event, info })
-	}
-
-	/**
-	 * 禁止浏览器默认行为事件处理
-	 * @param {Event} event 原始事件对象
-	 */
-	function preventDefaultMove(event) {
-		event.cancelable && event.preventDefault()
-		canMoveStatus.value === 'init' && (canMoveStatus.value = 'off')
-	}
-
-	/**
-	 * 触摸结束事件处理
-	 * @param {Event} event 原始事件对象
-	 */
-	function onTouchEnd(event) {
-		// 清除长按定时器
-		if (longPressTimer.value) {
-			clearTimeout(longPressTimer.value)
-			longPressTimer.value = null
-		}
-
-		triggerEvent('touchend', { event, info })
-	}
-
-	/**
-	 * 触摸取消事件处理
-	 * @param {Event} event 原始事件对象
-	 */
-	function onTouchCancel(event) {
-		// 清除长按定时器
-		if (longPressTimer.value) {
-			clearTimeout(longPressTimer.value)
-			longPressTimer.value = null
-		}
-
-		triggerEvent('touchcancel', { event, info })
-	}
-
-	// 检查是否有catch事件处理器
-	// 支持写法：catchtouchstart、catch:touchstart
-	const hasCatchTouchStart = hasCatchEvent(info, 'touchstart')
-	const hasCatchTouchMove = hasCatchEvent(info, 'touchmove')
-	const hasCatchTouchEnd = hasCatchEvent(info, 'touchend')
-	const hasCatchTouchCancel = hasCatchEvent(info, 'touchcancel')
-
-	// 在组件挂载时添加事件监听器
-	onMounted(() => {
-		if (elementRef.value) {
-			elementRef.value.addEventListener('touchstart', onTouchStart, { passive: !hasCatchTouchStart })
-			elementRef.value.addEventListener('touchmove', onTouchMove, { passive: !hasCatchTouchMove })
-			elementRef.value.addEventListener('touchend', onTouchEnd, { passive: !hasCatchTouchEnd })
-			elementRef.value.addEventListener('touchcancel', onTouchCancel, { passive: !hasCatchTouchCancel })
-		}
+		pendingReinstall = true
+		detach({
+			preserveActive: true,
+			onDetached: () => {
+				if (!pendingReinstall) return
+				install()
+			},
+		})
 	})
 
-	// 在组件卸载时移除事件监听器
 	onUnmounted(() => {
-		if (elementRef.value) {
-			elementRef.value.removeEventListener('touchstart', onTouchStart, { passive: !hasCatchTouchStart })
-			elementRef.value.removeEventListener('touchmove', onTouchMove, { passive: !hasCatchTouchMove })
-			elementRef.value.removeEventListener('touchend', onTouchEnd, { passive: !hasCatchTouchEnd })
-			elementRef.value.removeEventListener('touchcancel', onTouchCancel, { passive: !hasCatchTouchCancel })
-		}
+		// 已开始的原生序列仍以真实 touchend/touchcancel 收口；卸载不能伪造终态，
+		// 但也不能再靠自己的计时器给已经卸载的节点合成长按。
+		pendingReinstall = false
+		detach?.({ preserveActive: true, nodeRemoved: true })
+		detach = null
 	})
 }

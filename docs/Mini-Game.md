@@ -38,6 +38,10 @@ Android、iOS 和 HarmonyOS 同样在解析 `app-config.json` 后读取 `app.run
 - 支持小游戏 `wx.onShow` / `offShow`、`wx.onHide` / `offHide`，并复用现有错误事件、系统信息、网络、存储等共享 `wx` API。
 - `GameGlobal` 与小游戏全局 `global` 在执行 `game.js` 前建立。
 
+同一个容器替换或重启小游戏 runtime 时，会在执行新的 `game.js` 前销毁旧 runtime 的 Canvas owner。旧上屏 canvas、事件监听、RAF、context、图片和 WebGL capability 都会释放；新 runtime 的第一次 `wx.createCanvas()` 再创建唯一的上屏 canvas。`resourceLoaded` 只更新当前 runtime 的能力信息，不会销毁刚由 `game.js` 创建的节点。页面卸载与显式退出走同一套 owner 清理，因此旧 runtime 的迟到 callback 或资源不能进入新 runtime。
+
+Canvas 节点、状态、位图限制和 native 导出生命周期见 [Canvas 运行架构](./canvas-architecture.md)。
+
 首版目标是运行以 Canvas 为主的小游戏入口，并非一次性覆盖微信小游戏的全部专属能力。开放数据域、游戏圈按钮、好友关系链、小游戏分包和独立 Worker 等专属接口目前未提供；业务应继续用 `wx.canIUse()` 做能力保护。
 
 ## 本地验证

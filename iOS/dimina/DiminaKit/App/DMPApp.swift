@@ -383,6 +383,9 @@ public class DMPApp {
             NetworkTypeAPI.clearApp(self.appId)
             ScreenAPI.clearApp(self.appId)
             FileAPI.clearOpenFiles(appId: self.appId)
+            // 正在后台写盘的 canvas 导出属于这一代 runtime；换代之后它的回调没有接收方，
+            // 已经发布的文件也不会有人来取。
+            ImageAPI.clearApp(self.appId)
             DMPWebSocketManager.shared.disposeOwner(appId: self.appId)
             let registeredExtModules = self.container?.extModules ?? [:]
             self.container?.resetForReload()
@@ -445,6 +448,7 @@ public class DMPApp {
         container?.registerExtModule(moduleName, handler: handler)
     }
 
+    @MainActor
     public func destroy() {
         guard !isDestroyed else {
             return
@@ -457,6 +461,7 @@ public class DMPApp {
         NetworkTypeAPI.clearApp(appId)
         ScreenAPI.clearApp(appId)
         FileAPI.clearOpenFiles(appId: appId)
+        ImageAPI.clearApp(appId)
 
         let serviceToDestroy = service
         let containerToDestroy = container

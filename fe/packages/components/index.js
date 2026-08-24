@@ -1,5 +1,6 @@
 import { animationToStyle, getDataAttributes, toCamelCase, transformRpx } from '@dimina/common'
-import { triggerEvent, useInfo } from '@/common/events'
+import { hasInteractionEvent, triggerEvent, useInfo } from '@/common/events'
+import { attachTouchEvents } from '@/common/touchGestures'
 import { deepToRaw, install, replaceExternalClassTokens } from '@/common/utils'
 import components from './src/index'
 
@@ -167,6 +168,108 @@ function removeEventBindingRecord(el, binding, vnode) {
 	}
 }
 
+// 已编译的旧包里 canvas 是原生元素、不经过组件层，手势只能按元素安装在这里。
+// 新产物把 canvas 编译成 dd-canvas，由组件自己安装，下面按 tagName 判断天然把它排除在外。
+// key 是 canvas 元素，value 是 { detach, info }，info 复用同一个对象引用，
+// 属性更新时改写它的 attrs 就能让已安装的手势跟上新的处理函数名。
+const canvasGestures = new WeakMap()
+
+/**
+ * 从元素 vnode 解析出派发事件所需的节点信息。
+ * 页面根组件与自定义组件都 provide 了 bridgeId / path / path->{id}，
+ * 指令读 provides 链的做法与 parseExternalClass 一致。
+ * @param {object} vnode 元素 vnode
+ * @returns {object|null} 含 attrs / bridgeId / moduleId 的节点信息，取不全时为 null
+ */
+function resolveNodeInfo(vnode) {
+	const provides = vnode.ctx?.provides
+	const path = provides?.path
+	const moduleId = path ? provides[path]?.id : undefined
+	if (provides?.bridgeId === undefined || moduleId === undefined) {
+		return null
+	}
+	return { attrs: vnode.props || {}, bridgeId: provides.bridgeId, moduleId }
+}
+
+function canvasDisableScroll(attrs = {}) {
+	const value = attrs['disable-scroll'] ?? attrs.disableScroll
+	return value !== undefined && value !== null && value !== false && value !== 'false'
+}
+
+function canvasGestureSignature(attrs = {}) {
+	return [
+		...['touchstart', 'touchmove', 'touchend', 'touchcancel']
+			.map(type => Boolean(attrs[`catch${type}`] || attrs[`catch:${type}`])),
+		canvasDisableScroll(attrs),
+	].join(':')
+}
+
+function mountCanvasGestures(el, vnode) {
+	if (el.tagName !== 'CANVAS' || el.__ddGestureDetach) {
+		return
+	}
+	const info = resolveNodeInfo(vnode)
+	if (!info || (!hasInteractionEvent(info) && !canvasDisableScroll(info.attrs))) {
+		return
+	}
+	const detach = attachTouchEvents(info, el, {
+		disableScroll: () => canvasDisableScroll(info.attrs),
+		getRelativeElement: () => el,
+	})
+	canvasGestures.set(el, { detach, info, gestureSignature: canvasGestureSignature(info.attrs), latestVNode: vnode })
+}
+
+// passive 选项只能在注册监听器时决定，所以 catch 绑定或 disable-scroll 变化必须重装监听器。但重装
+// 会清掉活动序列、长按计时器和 tap 状态，正在进行的这次触摸就再也发不出 tap / longpress /
+// canceltap，所以要等它自己以 touchend / touchcancel 收口之后再换 owner。
+// 期间到达的属性更新只更新 latestVNode，换 owner 时按最新的一份重新解析。
+function swapCanvasGestures(el, state) {
+	if (state.pendingSwap) return
+	state.pendingSwap = true
+	state.detach({
+		preserveActive: true,
+		onDetached: () => {
+			// 卸载或被组件接管时这条登记已经作废，不能拿它把手势再装回去。
+			if (canvasGestures.get(el) !== state) return
+			canvasGestures.delete(el)
+			mountCanvasGestures(el, state.latestVNode)
+		},
+	})
+}
+
+function updateCanvasGestures(el, vnode) {
+	const state = canvasGestures.get(el)
+	const attrs = vnode.props || {}
+	// 组件 owner 接管后，指令保存的 detach 已不再是当前 owner，不得反向抢回元素。
+	if (state && el.__ddGestureDetach !== state.detach) {
+		canvasGestures.delete(el)
+		return
+	}
+	if (!state) {
+		mountCanvasGestures(el, vnode)
+		return
+	}
+	state.latestVNode = vnode
+	// 交互事件全部撤掉时也走同一条路：mountCanvasGestures 对没有交互事件的 canvas 不装手势。
+	if (!hasInteractionEvent({ attrs }) && !canvasDisableScroll(attrs)) {
+		swapCanvasGestures(el, state)
+		return
+	}
+	if (state.gestureSignature !== canvasGestureSignature(attrs)) {
+		swapCanvasGestures(el, state)
+		return
+	}
+	state.info.attrs = attrs
+}
+
+function unmountCanvasGestures(el) {
+	const state = canvasGestures.get(el)
+	if (state) {
+		state.detach({ preserveActive: true, nodeRemoved: true })
+		canvasGestures.delete(el)
+	}
+}
+
 function Components(app) {
 	app.directive('c-style', {
 		mounted(el, binding) {
@@ -220,12 +323,15 @@ function Components(app) {
 	app.directive('c-event-node', {
 		mounted(el, binding, vnode) {
 			mountEventBindingRecord(el, binding, vnode)
+			mountCanvasGestures(el, vnode)
 		},
 		updated(el, binding, vnode) {
 			updateEventBindingRecord(el, binding, vnode)
+			updateCanvasGestures(el, vnode)
 		},
 		beforeUnmount(el, binding, vnode) {
 			removeEventBindingRecord(el, binding, vnode)
+			unmountCanvasGestures(el)
 		},
 	})
 

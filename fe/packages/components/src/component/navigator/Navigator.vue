@@ -4,6 +4,7 @@
 import { parsePath } from '@dimina/common'
 import { invokeAPIWithCallback, triggerEvent, useInfo } from '@/common/events'
 import { useHover } from '@/common/useHover'
+import { useTouchEvents } from '@/common/useTouchEvents'
 
 const props = defineProps({
 	/**
@@ -120,7 +121,7 @@ function invokeNavigationAPI(apiName, params, event) {
 	})
 }
 
-function clicked(event) {
+function navigate(event) {
 	const { openType, target, url, redirect } = props
 	if (url?.includes('javascript:')) {
 		return
@@ -175,12 +176,24 @@ function clicked(event) {
 			break
 	}
 }
+
+const rootRef = ref(null)
+function handleTap({ event }) {
+	triggerEvent('tap', { event, info })
+	navigate(event)
+}
+
+function handleKeyboard() {
+	rootRef.value?.click()
+}
+
+useTouchEvents(info, rootRef, { tapHandler: handleTap })
 </script>
 
 <template>
 	<span
-		v-bind="$attrs" class="dd-navigator" role="link" tabindex="0" :class="[isHover ? hoverClass : undefined]" @click="clicked"
-		@keydown.enter.prevent="clicked"
+		ref="rootRef" v-bind="$attrs" class="dd-navigator" role="link" tabindex="0" :class="[isHover ? hoverClass : undefined]"
+		@keydown.enter.prevent="handleKeyboard"
 		@touchstart="onHoverStart" @touchend="onHoverEnd" @touchcancel="onHoverCancel"
 		@mousedown="onHoverStart" @mouseup="onHoverEnd" @mouseleave="onHoverCancel"
 	>

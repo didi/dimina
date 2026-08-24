@@ -51,34 +51,11 @@ function useInfo() {
 }
 
 /**
- * 查找最近的可滚动容器元素
- */
-function isScrollable(element) {
-	const isElementScrollable = (el) => {
-		const style = window.getComputedStyle(el)
-		const overflowY = style.overflowY
-		const overflowX = style.overflowX
-		return ((overflowY === 'auto' || overflowY === 'scroll') && el.scrollHeight > el.clientHeight)
-			|| ((overflowX === 'auto' || overflowX === 'scroll') && el.scrollWidth > el.clientWidth)
-	}
-
-	let current = element
-	while (current && current !== document.body) {
-		if (isElementScrollable(current)) {
-			return true
-		}
-		current = current.parentElement
-	}
-
-	return false
-}
-
-/**
  * touchstart, touchmove, touchcancel, touchend, tap, longpress
  * @param {*} type
  * @param {*} any
  */
-function triggerEvent(type, { event, detail, info, success }) {
+function triggerEvent(type, { event, detail, info, success, currentTarget }) {
 	if (!info.attrs) {
 		return
 	}
@@ -89,22 +66,16 @@ function triggerEvent(type, { event, detail, info, success }) {
 
 	// 如果有catch处理器，阻止冒泡并只执行catch
 	if (catchHandler) {
-		// 阻止事件冒泡
-		if (event) {
-			event.stopPropagation()
-			if (type.startsWith('touch')) {
-				if (!isScrollable(event.target)) {
-					// 阻止默认滚动
-					event.preventDefault()
-				}
-			}
-		}
+		// catch 只管理小程序事件传播。原生滚动是否可继续由触摸状态机
+		// 在 catchtouchmove 上结合方向、边界和嵌套滚动容器统一裁决。
+		event?.stopPropagation()
 		sendTriggerEvent(catchHandler, {
 			type,
 			detail,
 			info,
 			success,
 			event,
+			currentTarget,
 		})
 		return
 	}
@@ -117,30 +88,58 @@ function triggerEvent(type, { event, detail, info, success }) {
 			info,
 			success,
 			event,
+			currentTarget,
 		})
 	}
+}
+
+/**
+ * 把一个触摸点整理成小程序侧的 Touch 对象。
+ * 带 x / y 的触摸点对应官方的 CanvasTouch 对象，x / y 是相对画布左上角的坐标。
+ * https://developers.weixin.qq.com/miniprogram/dev/framework/view/wxml/event.html
+ */
+function mapTouchPoint(touch) {
+	const point = {
+		clientX: touch.clientX,
+		clientY: touch.clientY,
+		force: touch.force,
+		identifier: touch.identifier,
+		pageX: touch.pageX,
+		pageY: touch.pageY,
+		screenX: touch.screenX,
+		screenY: touch.screenY,
+	}
+	if (touch.x !== undefined && touch.y !== undefined) {
+		point.x = touch.x
+		point.y = touch.y
+	}
+	return point
 }
 
 /**
  * https://developers.weixin.qq.com/miniprogram/dev/framework/view/wxml/event.html
  * @param {*} methodName
  * @param {*} param
+ * @param {Element} [param.currentTarget] 覆盖事件自带的 currentTarget，供容器组件转发子项事件时使用
  */
-function sendTriggerEvent(methodName, { type, detail = {}, info, success, event = {} }) {
+function sendTriggerEvent(methodName, { type, detail = {}, info, success, event = {}, currentTarget }) {
+	const { target, pageX, pageY, changedTouches = [], touches = [] } = event
 	const { bridgeId, moduleId } = info
-	const { currentTarget, target, pageX, pageY, changedTouches = [], touches = [] } = event
+	// 容器组件（radio-group、checkbox-group 等）用子项的那次事件派发自己的事件，
+	// 而 currentTarget 按定义是绑定处理器的那个元素，所以由容器显式给出自己的根元素。
+	const currentTargetElement = currentTarget ?? event.currentTarget
 
 	if (pageX !== undefined && pageY !== undefined) {
 		detail.x = pageX
 		detail.y = pageY
 	}
 
-	const currentTargetInfo = currentTarget
+	const currentTargetInfo = currentTargetElement
 		? {
-				id: currentTarget.id,
-				dataset: { ...currentTarget.dataset, ...currentTarget._ds },
-				offsetLeft: currentTarget.offsetLeft,
-				offsetTop: currentTarget.offsetTop,
+				id: currentTargetElement.id,
+				dataset: { ...currentTargetElement.dataset, ...currentTargetElement._ds },
+				offsetLeft: currentTargetElement.offsetLeft,
+				offsetTop: currentTargetElement.offsetTop,
 			}
 		: {}
 	const targetInfo = target
@@ -152,6 +151,15 @@ function sendTriggerEvent(methodName, { type, detail = {}, info, success, event 
 			}
 		: {}
 
+	const eventPayload = {
+		type, // 代表事件的类型
+		timeStamp: Date.now() - initTimeStamp, // 页面打开到触发事件所经过的毫秒数
+		detail, // 自定义事件所携带的数据
+		currentTarget: currentTargetInfo, // 当前处理事件的元素（即绑定事件监听器的元素）
+		target: targetInfo,	// 触发事件的元素
+		changedTouches: Array.from(changedTouches).map(mapTouchPoint),
+		touches: Array.from(touches).map(mapTouchPoint),
+	}
 	const successId = success && window.__callback.store(success)
 	window.__message.send({
 		type: 't',
@@ -161,33 +169,7 @@ function sendTriggerEvent(methodName, { type, detail = {}, info, success, event 
 			moduleId,
 			methodName,
 			success: successId,
-			event: {
-				type, // 代表事件的类型
-				timeStamp: Date.now() - initTimeStamp, // 页面打开到触发事件所经过的毫秒数
-				detail, // 自定义事件所携带的数据
-				currentTarget: currentTargetInfo, // 当前处理事件的元素（即绑定事件监听器的元素）
-				target: targetInfo,	// 触发事件的元素
-				changedTouches: Array.from(changedTouches).map(touch => ({
-					clientX: touch.clientX,
-					clientY: touch.clientY,
-					force: touch.force,
-					identifier: touch.identifier,
-					pageX: touch.pageX,
-					pageY: touch.pageY,
-					screenX: touch.screenX,
-					screenY: touch.screenY,
-				})),
-				touches: Array.from(touches).map(touch => ({
-					clientX: touch.clientX,
-					clientY: touch.clientY,
-					force: touch.force,
-					identifier: touch.identifier,
-					pageX: touch.pageX,
-					pageY: touch.pageY,
-					screenX: touch.screenX,
-					screenY: touch.screenY,
-				})),
-			},
+			event: eventPayload,
 		},
 	})
 }
@@ -268,4 +250,16 @@ function hasCatchEvent(info, eventType = 'tap') {
 	return !!(attrs[`catch${eventType}`] || attrs[`catch:${eventType}`])
 }
 
-export { hasCatchEvent, hasEvent, invokeAPI, invokeAPIWithCallback, offEvent, onEvent, triggerEvent, useInfo }
+// 全部由 useTouchEvents 统一派发的手势事件
+const INTERACTION_EVENTS = ['tap', 'longpress', 'longtap', 'canceltap', 'touchstart', 'touchmove', 'touchend', 'touchcancel']
+
+/**
+ * 组件是否绑定了任意手势事件，决定要不要安装 useTouchEvents
+ * @param {object} info 组件信息对象
+ * @returns {boolean} 是否绑定了任意手势事件
+ */
+function hasInteractionEvent(info) {
+	return INTERACTION_EVENTS.some(eventType => hasEvent(info, eventType))
+}
+
+export { hasCatchEvent, hasEvent, hasInteractionEvent, invokeAPI, invokeAPIWithCallback, offEvent, onEvent, triggerEvent, useInfo }

@@ -673,10 +673,6 @@ export class DMPContainerBridgesModuleFile extends DMPContainerBridgesModule {
     return DMPFilePathResolver.userRoot(this.currentAppId());
   }
 
-  private currentAppId(): string {
-    return this.appData.appId || this.app?.appConfig?.appId || 'default';
-  }
-
   private tempRoot(): string {
     return DMPFilePathResolver.tempRoot(this.currentAppId());
   }

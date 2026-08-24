@@ -1,7 +1,11 @@
+import { CANVAS_CONTRACT_CHANGE_EVENT, CANVAS_OWNER_PROP } from '@dimina/common'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { JSDOM } from 'jsdom'
 import { createApp, h, nextTick, provide, resolveComponent, resolveDirective, Suspense, withDirectives } from 'vue'
+import Canvas from '../../components/src/component/canvas/Canvas.vue'
 import { createMiniProgramSlots } from '../src/core/slots'
+
+const CANVAS_ACTIVE_PROP = '__ddCanvasActive'
 
 const groupA = [
 	{ id: 1, name: 'Alice', score: 90 },
@@ -971,6 +975,71 @@ describe('runtime template components', () => {
 		expect(canvas.height).toBe(600)
 	})
 
+	it('resolves a compiled canvas component host to its real canvas node', async () => {
+		window.__message = {
+			invoke: vi.fn(),
+			off: vi.fn(),
+			on: vi.fn(),
+			send: vi.fn(),
+		}
+		window.__callback = {
+			remove: vi.fn(),
+			store: vi.fn(() => 'callback-id'),
+		}
+		runtime.ensureElementReady = async element => element
+		runtime.canvasCapabilities = {}
+		runtime.canvasNodes.clear()
+
+		const host = document.createElement('div')
+		document.body.append(host)
+		const app = createApp({
+			setup() {
+				provide('bridgeId', 'bridge-1')
+				provide('path', 'page-path')
+				provide('page-path', { id: 'module-1' })
+				return () => h(Canvas, {
+					id: 'paint',
+					canvasId: 'paint',
+					renderHeight: 180,
+					renderWidth: 320,
+					type: 'webgl',
+				})
+			},
+		})
+
+		try {
+			app.mount(host)
+			await nextTick()
+			const componentRoot = host.querySelector('#paint')
+			const canvas = componentRoot.querySelector('canvas')
+			componentRoot._ds = { purpose: 'chart' }
+			Object.defineProperties(componentRoot, {
+				offsetHeight: { configurable: true, value: 180 },
+				offsetWidth: { configurable: true, value: 320 },
+			})
+			canvas.getBoundingClientRect = () => ({ height: 180, width: 320 })
+
+			const result = await runtime.parseElement(componentRoot, {
+				dataset: true,
+				id: true,
+				node: true,
+				size: true,
+			})
+
+			expect(result.id).toBe('paint')
+			expect(result.dataset).toEqual({ purpose: 'chart' })
+			expect(result.width).toBe(320)
+			expect(result.height).toBe(180)
+			expect(result.node.__diminaNodeType).toBe('dimina-canvas-node')
+			expect(result.node.type).toBe('webgl')
+			expect(runtime.canvasNodes.get(result.node.nodeId)?.canvas).toBe(canvas)
+		}
+		finally {
+			app.unmount()
+			host.remove()
+		}
+	})
+
 	it('replays canvas node webgl operations against the real context', () => {
 		runtime.canvasNodes.clear()
 		runtime.canvasResources.clear()
@@ -1020,6 +1089,436 @@ describe('runtime template components', () => {
 		expect(gl.viewport).toHaveBeenCalledWith(0, 0, 300, 150)
 		expect(gl.shaderSource).toHaveBeenCalledWith(shader, 'void main() {}')
 		expect(gl.compileShader).toHaveBeenCalledWith(shader)
+	})
+
+	it('returns the real 2d property readback after applying a proxied setter', () => {
+		runtime.canvasNodes.clear()
+		runtime.canvasResources.clear()
+		window.DiminaRenderBridge = { publish: vi.fn() }
+		let fillStyle = '#000000'
+		const context = {}
+		Object.defineProperty(context, 'fillStyle', {
+			get: () => fillStyle,
+			set: (value) => {
+				if (value !== 'var(--theme-color)') fillStyle = '#123456'
+			},
+		})
+		const canvas = document.createElement('canvas')
+		runtime.canvasNodes.set('canvas_state', { canvas, contexts: new Map([['ctx_state', context]]) })
+		runtime.canvasResources.set('ctx_state', context)
+
+		runtime.canvasNodeFlush({
+			bridgeId: 'bridge_state',
+			params: {
+				nodeId: 'canvas_state',
+				feedback: 'state_feedback',
+				operations: [{
+					op: 'contextSetProperty',
+					contextId: 'ctx_state',
+					prop: 'fillStyle',
+					value: 'red',
+					feedback: 'state',
+					sequence: 7,
+				}],
+			},
+		})
+
+		const message = JSON.parse(window.DiminaRenderBridge.publish.mock.calls[0][0])
+		expect(message.body.args.contexts.ctx_state.state).toEqual([
+			{ prop: 'fillStyle', sequence: 7, value: '#123456' },
+		])
+	})
+
+	it('does not turn an unsupported 2d property into a misleading expando', () => {
+		runtime.canvasNodes.clear()
+		runtime.canvasResources.clear()
+		window.DiminaRenderBridge = { publish: vi.fn() }
+		const context = {}
+		const canvas = document.createElement('canvas')
+		runtime.canvasNodes.set('canvas_unsupported_state', {
+			canvas,
+			contexts: new Map([['ctx_unsupported_state', context]]),
+			resourceIds: new Set(['ctx_unsupported_state']),
+		})
+		runtime.canvasResources.set('ctx_unsupported_state', context)
+
+		runtime.canvasNodeFlush({
+			bridgeId: 'bridge_unsupported_state',
+			params: {
+				nodeId: 'canvas_unsupported_state',
+				feedback: 'unsupported_state_feedback',
+				operations: [{
+					op: 'contextSetProperty',
+					contextId: 'ctx_unsupported_state',
+					prop: 'filter',
+					value: 'blur(2px)',
+					previousValue: 'none',
+					feedback: 'state',
+					sequence: 1,
+				}],
+			},
+		})
+
+		expect(context).not.toHaveProperty('filter')
+		const message = JSON.parse(window.DiminaRenderBridge.publish.mock.calls[0][0])
+		expect(message.body.args.contexts.ctx_unsupported_state.state).toEqual([
+			{ prop: 'filter', sequence: 1, value: 'none' },
+		])
+	})
+
+	it('falls back to backing-store reset when the host context has no reset method', () => {
+		runtime.canvasNodes.clear()
+		runtime.canvasResources.clear()
+		window.DiminaRenderBridge = { publish: vi.fn() }
+		const context = { fillStyle: 'red' }
+		let width = 300
+		const canvas = document.createElement('canvas')
+		Object.defineProperty(canvas, 'width', {
+			configurable: true,
+			get: () => width,
+			set: (value) => {
+				width = value
+				context.fillStyle = '#000000'
+			},
+		})
+		runtime.canvasNodes.set('canvas_reset_fallback', {
+			canvas,
+			contexts: new Map([['ctx_reset_fallback', context]]),
+			resourceIds: new Set(['ctx_reset_fallback']),
+		})
+		runtime.canvasResources.set('ctx_reset_fallback', context)
+
+		runtime.canvasNodeFlush({
+			bridgeId: 'bridge_reset_fallback',
+			params: {
+				nodeId: 'canvas_reset_fallback',
+				feedback: 'reset_fallback_feedback',
+				operations: [{
+					op: 'contextCall',
+					contextId: 'ctx_reset_fallback',
+					method: 'reset',
+					args: [],
+					feedback: 'stateSnapshot',
+					stateSequences: { fillStyle: 2 },
+				}],
+			},
+		})
+
+		expect(width).toBe(300)
+		expect(context.fillStyle).toBe('#000000')
+		const message = JSON.parse(window.DiminaRenderBridge.publish.mock.calls[0][0])
+		expect(message.body.args.contexts.ctx_reset_fallback.state).toEqual([
+			{ prop: 'fillStyle', sequence: 2, value: '#000000' },
+		])
+	})
+
+	it('returns a full primitive 2d state snapshot after a state transition', () => {
+		runtime.canvasNodes.clear()
+		runtime.canvasResources.clear()
+		window.DiminaRenderBridge = { publish: vi.fn() }
+		const context = { fillStyle: '#000000', globalAlpha: 1 }
+		const canvas = document.createElement('canvas')
+		runtime.canvasNodes.set('canvas_snapshot', {
+			canvas,
+			contexts: new Map([['ctx_snapshot', context]]),
+			resourceIds: new Set(['ctx_snapshot']),
+		})
+		runtime.canvasResources.set('ctx_snapshot', context)
+
+		runtime.canvasNodeFlush({
+			bridgeId: 'bridge_snapshot',
+			params: {
+				nodeId: 'canvas_snapshot',
+				feedback: 'snapshot_feedback',
+				operations: [{
+					op: 'contextStateSnapshot',
+					contextId: 'ctx_snapshot',
+					stateSequences: { fillStyle: 3, globalAlpha: 4 },
+					feedback: 'stateSnapshot',
+				}],
+			},
+		})
+
+		const message = JSON.parse(window.DiminaRenderBridge.publish.mock.calls[0][0])
+		expect(message.body.args.contexts.ctx_snapshot.state).toEqual([
+			{ prop: 'fillStyle', sequence: 3, value: '#000000' },
+			{ prop: 'globalAlpha', sequence: 4, value: 1 },
+		])
+	})
+
+	it('contains one failed canvas-node operation, reports it and continues the batch', () => {
+		runtime.canvasNodes.clear()
+		runtime.canvasResources.clear()
+		window.DiminaRenderBridge = { publish: vi.fn() }
+		const context = {
+			fillRect: vi.fn(),
+			getImageData: vi.fn(() => { throw new Error('tainted') }),
+		}
+		const canvas = document.createElement('canvas')
+		canvas.getContext = vi.fn(() => context)
+		runtime.canvasNodes.set('canvas_failure', { canvas, contexts: new Map([['ctx_failure', context]]) })
+		runtime.canvasResources.set('ctx_failure', context)
+
+		expect(() => runtime.canvasNodeFlush({
+			bridgeId: 'bridge_failure',
+			params: {
+				nodeId: 'canvas_failure',
+				feedback: 'flush_feedback',
+				operations: [
+					{
+						op: 'getImageData',
+						contextId: 'ctx_failure',
+						x: 0,
+						y: 0,
+						width: 1,
+						height: 1,
+						callback: 'pixel_callback',
+						resultEnvelope: true,
+					},
+					{ op: 'contextCall', contextId: 'ctx_failure', method: 'fillRect', args: [0, 0, 1, 1] },
+				],
+			},
+		})).not.toThrow()
+
+		expect(context.fillRect).toHaveBeenCalledWith(0, 0, 1, 1)
+		const messages = window.DiminaRenderBridge.publish.mock.calls.map(([payload]) => JSON.parse(payload))
+		expect(messages.find(message => message.body.id === 'pixel_callback').body.args)
+			.toEqual({ ok: false, error: 'tainted' })
+		expect(messages.some(message => message.body.id === 'flush_feedback')).toBe(true)
+	})
+
+	it('preserves canvas API order while an earlier request is still resolving its DOM node', async () => {
+		runtime.canvasScopeQueues.clear()
+		const canvas = document.createElement('canvas')
+		let resolveFirstLookup
+		const lookup = vi.spyOn(runtime, 'getCanvasElement')
+			.mockImplementationOnce(() => new Promise(resolve => { resolveFirstLookup = resolve }))
+			.mockResolvedValueOnce(canvas)
+		const order = []
+		const operation = vi.fn(async ({ params }) => { order.push(params.sequence) })
+
+		try {
+			const first = runtime.queueCanvasOperation({
+				bridgeId: 'bridge_order',
+				params: { canvasId: 'chart', moduleId: 'component_order', sequence: 'first' },
+			}, operation)
+			const second = runtime.queueCanvasOperation({
+				bridgeId: 'bridge_order',
+				params: { canvasId: 'chart', moduleId: 'component_order', sequence: 'second' },
+			}, operation)
+
+			await vi.waitFor(() => expect(lookup).toHaveBeenCalledTimes(1))
+			resolveFirstLookup(canvas)
+			await Promise.all([first, second])
+
+			expect(order).toEqual(['first', 'second'])
+			expect(lookup).toHaveBeenCalledTimes(2)
+		}
+		finally {
+			lookup.mockRestore()
+		}
+	})
+
+	it('releases the scope queue after lookup so different canvases can run independently', async () => {
+		runtime.canvasScopeQueues.clear()
+		runtime.canvasDrawQueues = new WeakMap()
+		const firstCanvas = document.createElement('canvas')
+		const secondCanvas = document.createElement('canvas')
+		const lookup = vi.spyOn(runtime, 'getCanvasElement')
+			.mockImplementation(canvasId => Promise.resolve(canvasId === 'first' ? firstCanvas : secondCanvas))
+		let releaseFirst
+		let markFirstStarted
+		const firstStarted = new Promise(resolve => { markFirstStarted = resolve })
+		const firstBlocked = new Promise(resolve => { releaseFirst = resolve })
+		const operation = vi.fn(async ({ params }) => {
+			if (params.canvasId !== 'first') return
+			markFirstStarted()
+			await firstBlocked
+		})
+
+		const first = runtime.queueCanvasOperation({
+			bridgeId: 'bridge_parallel',
+			params: { canvasId: 'first', moduleId: 'component_parallel' },
+		}, operation)
+		const second = runtime.queueCanvasOperation({
+			bridgeId: 'bridge_parallel',
+			params: { canvasId: 'second', moduleId: 'component_parallel' },
+		}, operation)
+
+		try {
+			await firstStarted
+			await vi.waitFor(() => expect(operation).toHaveBeenCalledTimes(2))
+		}
+		finally {
+			releaseFirst()
+			await Promise.all([first, second])
+			lookup.mockRestore()
+		}
+	})
+
+	it('reconstructs ImageData wire values with the target 2d context', () => {
+		runtime.canvasNodes.clear()
+		runtime.canvasResources.clear()
+		const nativeImageData = { width: 1, height: 1, data: new Uint8ClampedArray(4) }
+		const context = {
+			createImageData: vi.fn(() => nativeImageData),
+			putImageData: vi.fn(),
+		}
+		const canvas = document.createElement('canvas')
+		canvas.getContext = vi.fn(() => context)
+		runtime.canvasNodes.set('canvas_image_data', { canvas, contexts: new Map([['ctx_image_data', context]]) })
+		runtime.canvasResources.set('ctx_image_data', context)
+
+		runtime.canvasNodeFlush({
+			bridgeId: 'bridge_image_data',
+			params: {
+				nodeId: 'canvas_image_data',
+				operations: [{
+					op: 'contextCall',
+					contextId: 'ctx_image_data',
+					method: 'putImageData',
+					args: [{ __canvasImageData: true, width: 1, height: 1, data: [9, 8, 7, 6] }, 2, 3],
+				}],
+			},
+		})
+
+		expect(context.createImageData).toHaveBeenCalledWith(1, 1)
+		expect(Array.from(nativeImageData.data)).toEqual([9, 8, 7, 6])
+		expect(context.putImageData).toHaveBeenCalledWith(nativeImageData, 2, 3)
+	})
+
+	it('does not resize a registered canvas node from an oversized layout rect', () => {
+		runtime.canvasNodes.clear()
+		const canvas = document.createElement('canvas')
+		const setWidth = vi.fn()
+		const setHeight = vi.fn()
+		Object.defineProperties(canvas, {
+			width: { configurable: true, get: () => 300, set: setWidth },
+			height: { configurable: true, get: () => 150, set: setHeight },
+		})
+		canvas.getBoundingClientRect = vi.fn(() => ({ width: 100000, height: 100000 }))
+
+		const node = runtime.registerCanvasNode(canvas)
+
+		expect(setWidth).not.toHaveBeenCalled()
+		expect(setHeight).not.toHaveBeenCalled()
+		expect(node).toMatchObject({ width: 300, height: 150 })
+	})
+
+	it('preserves a zero backing size instead of substituting a rejected layout rect', () => {
+		runtime.canvasNodes.clear()
+		const canvas = document.createElement('canvas')
+		const setWidth = vi.fn()
+		const setHeight = vi.fn()
+		Object.defineProperties(canvas, {
+			width: { configurable: true, get: () => 0, set: setWidth },
+			height: { configurable: true, get: () => 0, set: setHeight },
+		})
+		canvas.getBoundingClientRect = vi.fn(() => ({ width: 100000, height: 100000 }))
+
+		const node = runtime.registerCanvasNode(canvas)
+
+		expect(setWidth).not.toHaveBeenCalled()
+		expect(setHeight).not.toHaveBeenCalled()
+		expect(node).toMatchObject({ width: 0, height: 0 })
+	})
+
+	it('fails an oversized legacy draw before resizing its backing store', async () => {
+		const canvas = document.createElement('canvas')
+		const setWidth = vi.fn()
+		const setHeight = vi.fn()
+		Object.defineProperties(canvas, {
+			width: { configurable: true, get: () => 300, set: setWidth },
+			height: { configurable: true, get: () => 150, set: setHeight },
+		})
+		canvas.getBoundingClientRect = vi.fn(() => ({ width: 100000, height: 100000 }))
+		canvas.getContext = vi.fn()
+		const lookup = vi.spyOn(runtime, 'getCanvasElement').mockResolvedValue(canvas)
+		const failure = vi.spyOn(runtime, 'triggerCanvasFailure')
+
+		try {
+			await runtime.drawCanvas({
+				bridgeId: 'bridge_oversized_layout',
+				params: { canvasId: 'oversized-layout', fail: 'draw-failed' },
+			})
+
+			expect(setWidth).not.toHaveBeenCalled()
+			expect(setHeight).not.toHaveBeenCalled()
+			expect(canvas.getContext).not.toHaveBeenCalled()
+			expect(failure).toHaveBeenCalledWith(
+				'bridge_oversized_layout',
+				expect.any(Object),
+				expect.stringContaining('maximum canvas bitmap'),
+			)
+		}
+		finally {
+			lookup.mockRestore()
+			failure.mockRestore()
+		}
+	})
+
+	it('reconstructs ImageData objects sent by a pre-tag canvas-node service', () => {
+		runtime.canvasNodes.clear()
+		runtime.canvasResources.clear()
+		const nativeImageData = { width: 1, height: 1, data: new Uint8ClampedArray(4) }
+		const context = {
+			createImageData: vi.fn(() => nativeImageData),
+			putImageData: vi.fn(),
+		}
+		const canvas = document.createElement('canvas')
+		runtime.canvasNodes.set('canvas_legacy_image_data', { canvas, contexts: new Map() })
+		runtime.canvasResources.set('ctx_legacy_image_data', context)
+
+		runtime.canvasNodeFlush({
+			bridgeId: 'bridge_legacy_image_data',
+			params: {
+				nodeId: 'canvas_legacy_image_data',
+				operations: [{
+					op: 'contextCall',
+					contextId: 'ctx_legacy_image_data',
+					method: 'putImageData',
+					args: [{
+						width: 1,
+						height: 1,
+						data: { __canvasTypedArray: 'Uint8ClampedArray', data: [1, 2, 3, 4] },
+					}, 5, 6],
+				}],
+			},
+		})
+
+		expect(Array.from(nativeImageData.data)).toEqual([1, 2, 3, 4])
+		expect(context.putImageData).toHaveBeenCalledWith(nativeImageData, 5, 6)
+	})
+
+	it('keeps the pre-envelope getImageData callback payload shape for old service bundles', () => {
+		runtime.canvasNodes.clear()
+		runtime.canvasResources.clear()
+		window.DiminaRenderBridge = { publish: vi.fn() }
+		const context = {
+			getImageData: vi.fn(() => ({ width: 1, height: 1, data: new Uint8ClampedArray([7, 8, 9, 10]) })),
+		}
+		const canvas = document.createElement('canvas')
+		runtime.canvasNodes.set('canvas_legacy_pixels', { canvas, contexts: new Map() })
+		runtime.canvasResources.set('ctx_legacy_pixels', context)
+
+		runtime.canvasNodeFlush({
+			bridgeId: 'bridge_legacy_pixels',
+			params: {
+				nodeId: 'canvas_legacy_pixels',
+				operations: [{
+					op: 'getImageData',
+					contextId: 'ctx_legacy_pixels',
+					x: 0,
+					y: 0,
+					width: 1,
+					height: 1,
+					callback: 'legacy_pixel_callback',
+				}],
+			},
+		})
+
+		const [payload] = window.DiminaRenderBridge.publish.mock.calls[0]
+		expect(JSON.parse(payload).body.args).toEqual({ data: [7, 8, 9, 10], width: 1, height: 1 })
 	})
 
 	it('returns real webgl creation, diagnostics, errors and typed-array feedback', () => {
@@ -1204,5 +1703,183 @@ describe('mini-program dynamic slots', () => {
 
 		expect(slots.info()).toEqual(['success', 'failure'])
 		expect(slots.footer()).toEqual(['footer'])
+	})
+})
+
+// canvas-id 的判重作用域是宿主组件实例，「页面一个、组件里一个」同名 canvas 合法共存。
+// 页面作用域的查询会一路扫进组件内部，所以解析必须先认归属，不能按文档序取第一个。
+describe('canvas element resolution', () => {
+	let dom
+	let runtime
+
+	beforeEach(async () => {
+		dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost/' })
+		globalThis.window = dom.window
+		globalThis.document = dom.window.document
+		globalThis.Node = dom.window.Node
+		globalThis.Element = dom.window.Element
+		globalThis.HTMLElement = dom.window.HTMLElement
+		globalThis.MutationObserver = dom.window.MutationObserver
+		globalThis.navigator = dom.window.navigator
+
+		const runtimeModule = await import('../src/core/runtime.js')
+		runtime = runtimeModule.default
+		runtime.pageId = 'page-1'
+	})
+
+	afterEach(() => {
+		vi.restoreAllMocks()
+		dom.window.close()
+	})
+
+	// 归属走 DOM property，名字与组件层写入时用的是同一个常量：分别写死字面量的话，
+	// 任何一侧改名都不会让对方变红。
+	function seedCanvases() {
+		// 组件的 canvas 排在文档序更前面，按 querySelector 取第一个就会命中它。
+		document.body.innerHTML = `
+			<div id="component">
+				<canvas class="in-component" canvas-id="chart"></canvas>
+			</div>
+			<canvas class="in-page" canvas-id="chart"></canvas>
+		`
+		document.querySelector('.in-component')[CANVAS_OWNER_PROP] = 'module-a_1'
+		document.querySelector('.in-page')[CANVAS_OWNER_PROP] = 'page-1'
+	}
+
+	it('页面作用域命中页面自己的 canvas，而不是组件内的同名 canvas', async () => {
+		seedCanvases()
+
+		const el = await runtime.getCanvasElement('chart', null, 'bridge-1')
+
+		expect(el?.[CANVAS_OWNER_PROP]).toBe('page-1')
+	})
+
+	it('传 bridgeId 当 moduleId 时同样按页面归属解析', async () => {
+		seedCanvases()
+
+		const el = await runtime.getCanvasElement('chart', 'bridge-1', 'bridge-1')
+
+		expect(el?.[CANVAS_OWNER_PROP]).toBe('page-1')
+	})
+
+	it('归属不明确时回退到作用域内的第一个同名 canvas', async () => {
+		document.body.innerHTML = '<canvas canvas-id="chart"></canvas>'
+
+		const el = await runtime.getCanvasElement('chart', null, 'bridge-1')
+
+		expect(el?.getAttribute('canvas-id')).toBe('chart')
+	})
+
+	it('页面没有自己的候选时不回退到显式属于组件的 canvas', async () => {
+		document.body.innerHTML = '<div data-dd-component-host><canvas canvas-id="chart"></canvas></div>'
+		const foreign = document.querySelector('canvas')
+		foreign[CANVAS_OWNER_PROP] = 'module-a'
+		foreign[CANVAS_ACTIVE_PROP] = true
+
+		const el = await runtime.getCanvasElement('chart', null, 'bridge-1')
+
+		expect(el).toBeNull()
+	})
+
+	it('legacy API 不会命中文档序更早的 typed canvas', async () => {
+		document.body.innerHTML = `
+			<canvas class="typed" type="2d" canvas-id="chart"></canvas>
+			<canvas class="legacy" canvas-id="chart"></canvas>
+		`
+		for (const canvas of document.querySelectorAll('canvas')) {
+			canvas[CANVAS_OWNER_PROP] = 'page-1'
+			canvas[CANVAS_ACTIVE_PROP] = true
+		}
+
+		const el = await runtime.getCanvasElement('chart', null, 'bridge-1')
+
+		expect(el?.className).toBe('legacy')
+	})
+
+	it('旧包页面查询排除组件私有子树中的 ownerless 同名 canvas', async () => {
+		document.body.innerHTML = `
+			<div data-dd-component-host><canvas class="old-component" canvas-id="chart"></canvas></div>
+			<canvas class="old-page" canvas-id="chart"></canvas>
+		`
+
+		const el = await runtime.getCanvasElement('chart', null, 'bridge-1')
+
+		expect(el?.className).toBe('old-page')
+	})
+
+	it('旧包组件根节点本身是 canvas 时仍在组件作用域内解析', async () => {
+		document.body.innerHTML = '<canvas data-dd-component-host canvas-id="chart"></canvas>'
+		const rootCanvas = document.querySelector('canvas')
+		runtime.instance.set('module-old-root-canvas', { $el: rootCanvas })
+
+		try {
+			const el = await runtime.getCanvasElement('chart', 'module-old-root-canvas', 'bridge-1')
+
+			expect(el).toBe(rootCanvas)
+		}
+		finally {
+			runtime.instance.delete('module-old-root-canvas')
+		}
+	})
+
+	it('只解析 active claim，不选择文档序更早的 rejected duplicate', async () => {
+		document.body.innerHTML = `
+			<canvas class="rejected" canvas-id="chart"></canvas>
+			<canvas class="winner" canvas-id="chart"></canvas>
+		`
+		const rejected = document.querySelector('.rejected')
+		const winner = document.querySelector('.winner')
+		rejected[CANVAS_OWNER_PROP] = 'page-1'
+		rejected[CANVAS_ACTIVE_PROP] = false
+		winner[CANVAS_OWNER_PROP] = 'page-1'
+		winner[CANVAS_ACTIVE_PROP] = true
+
+		const el = await runtime.getCanvasElement('chart', null, 'bridge-1')
+
+		expect(el?.className).toBe('winner')
+	})
+
+	it('把 canvas-id 当普通属性值比较，不能用联合 selector 改写查询', async () => {
+		document.body.innerHTML = '<canvas class="victim" canvas-id="victim"></canvas>'
+		const victim = document.querySelector('.victim')
+		victim[CANVAS_OWNER_PROP] = 'page-1'
+		victim[CANVAS_ACTIVE_PROP] = true
+
+		const el = await runtime.getCanvasElement('x"], canvas[canvas-id="victim', null, 'bridge-1')
+
+		expect(el).toBeNull()
+	})
+
+	it('等待中的 lookup 会响应既有 canvas 的 canvas-id 变化', async () => {
+		document.body.innerHTML = '<canvas canvas-id="old"></canvas>'
+		const canvas = document.querySelector('canvas')
+		const pending = runtime.getCanvasElement('new', null, 'bridge-1')
+
+		canvas.setAttribute('canvas-id', 'new')
+
+		await expect(pending).resolves.toBe(canvas)
+	})
+
+	it('等待中的 legacy lookup 会响应既有 typed canvas 移除 type', async () => {
+		document.body.innerHTML = '<canvas type="2d" canvas-id="chart"></canvas>'
+		const canvas = document.querySelector('canvas')
+		const pending = runtime.getCanvasElement('chart', null, 'bridge-1')
+
+		canvas.removeAttribute('type')
+
+		await expect(pending).resolves.toBe(canvas)
+	})
+
+	it('等待中的 lookup 会响应 inactive claim 在原节点上接手', async () => {
+		document.body.innerHTML = '<canvas canvas-id="chart"></canvas>'
+		const canvas = document.querySelector('canvas')
+		canvas[CANVAS_OWNER_PROP] = 'page-1'
+		canvas[CANVAS_ACTIVE_PROP] = false
+		const pending = runtime.getCanvasElement('chart', null, 'bridge-1')
+
+		canvas[CANVAS_ACTIVE_PROP] = true
+		canvas.dispatchEvent(new window.Event(CANVAS_CONTRACT_CHANGE_EVENT, { bubbles: true }))
+
+		await expect(pending).resolves.toBe(canvas)
 	})
 })

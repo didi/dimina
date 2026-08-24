@@ -1,5 +1,5 @@
 import { hasModule, isWebWorker, modRequire } from '@dimina/common'
-import { installMiniGameGlobals } from '../api/core/ui/canvas/canvas-node'
+import { disposeCanvasNodes, installMiniGameGlobals } from '../api/core/ui/canvas/canvas-node'
 import { AppModule } from '../instance/app/app-module'
 import { ComponentModule } from '../instance/component/component-module'
 import { PageModule } from '../instance/page/page-module'
@@ -29,6 +29,7 @@ class Loader {
 		// 防止 App 声明周期调用的 API 找不到对应的 Bridge
 		router.setInitId(bridgeId)
 		if (runtimeType === 'game') {
+			disposeCanvasNodes(bridgeId)
 			installMiniGameGlobals()
 			modRequire(pagePath)
 			message.invoke({

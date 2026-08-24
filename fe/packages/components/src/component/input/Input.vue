@@ -5,6 +5,7 @@
 
 import { isDesktop, transformRpx } from '@dimina/common'
 import { invokeAPI, triggerEvent, useInfo } from '@/common/events'
+import { useLabelActivation } from '@/common/labelActivation'
 import { useKeyboardHeight } from '@/common/useKeyboardHeight'
 import { getActualBottom } from '@/common/utils'
 
@@ -320,6 +321,16 @@ watch(
 )
 
 const wrapperRef = ref(null)
+// label 的激活入口登记在包裹层上：原生 <label> 的 click 转发已被 label 组件取消，
+// 聚焦真实输入框这件事改由这里显式完成
+useLabelActivation(wrapperRef, () => {
+	if (props.disabled) {
+		return
+	}
+	inputRef.value?.focus()
+	applySelection()
+})
+
 const info = useInfo()
 const keyboardAccessoryVisible = ref(false)
 provide('keyboardAccessoryVisible', keyboardAccessoryVisible)

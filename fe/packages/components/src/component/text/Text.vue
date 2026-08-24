@@ -1,6 +1,6 @@
 <script setup>
-import { hasEvent, triggerEvent, useInfo } from '@/common/events'
-import { useTapEvents } from '@/common/useTapEvents'
+import { useInfo } from '@/common/events'
+import { useTouchEvents } from '@/common/useTouchEvents'
 // 文本
 // https://developers.weixin.qq.com/miniprogram/dev/component/text.html
 
@@ -112,13 +112,8 @@ onUpdated(transformTextNodes)
 
 const info = useInfo()
 
-// 判断是否有tap事件属性
-const hasTapEvent = hasEvent(info, 'tap')
-if (hasTapEvent) {
-	useTapEvents(textRef, (event) => {
-		triggerEvent('tap', { event, info })
-	})
-}
+// owner 常驻，运行期新增或切换 bind/catch 时无需等待组件重建。
+useTouchEvents(info, textRef)
 
 const canSelect = computed(() => props.userSelect || props.selectable)
 </script>

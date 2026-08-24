@@ -1,5 +1,6 @@
 <script setup>
 import { useInfo } from '@/common/events'
+import { useTouchEvents } from '@/common/useTouchEvents'
 
 const props = defineProps({
 	name: {
@@ -7,7 +8,20 @@ const props = defineProps({
 	},
 })
 
-useInfo()
+const info = useInfo()
+const hostRef = ref(null)
+
+// 宿主节点承载的是父级模板里写的那个节点，它的 bind/catch 由声明这次使用的页面或自定义组件
+// 处理，不属于组件自身的模块，所以 moduleId 取注入的 pageId。
+const hostInfo = {
+	attrs: info.attrs,
+	bridgeId: info.bridgeId,
+	moduleId: inject(info.path)?.pageId ?? info.moduleId,
+}
+
+// 宿主节点必须和普通组件走同一条手势链路：tap 由触摸序列合成、catch 靠共享的停止标记生效。
+// 靠原生 click 派发会排在祖先合成 tap 之后，后代的 catchtap 再也拦不住祖先的 bindtap。
+useTouchEvents(hostInfo, hostRef)
 
 // 将 path 转换为有效的 HTML 标签名
 const componentName = computed(() => {
@@ -33,11 +47,10 @@ const componentName = computed(() => {
 	return name || 'component-host'
 })
 
-// 自定义组件需要该组件接收点击事件定义，相关事件将在 render 中处理
 </script>
 
 <template>
-	<component :is="componentName" v-bind="$attrs">
+	<component :is="componentName" ref="hostRef" v-bind="$attrs">
 		<slot />
 	</component>
 </template>

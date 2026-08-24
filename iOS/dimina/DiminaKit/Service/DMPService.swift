@@ -94,9 +94,11 @@ public class DMPService {
         await loadFile(path: subPackagePath)
     }
 
-    public func fromRender(data: String) async {
-        let script: String = "DiminaServiceBridge.onMessage(\(data))"
-        await self.evaluateScript(script)
+    /// 渲染层 -> service 的消息投递。和 `fromContainer` 一样必须严格按调用顺序送到 JS：
+    /// 一次触摸在渲染层里是同步派发的，路径上每个节点的 tap 紧挨着发出，顺序颠倒会让
+    /// 页面看到的事件次序和 DOM 派发次序对不上。
+    public func fromRender(data: String) {
+        engine.enqueueScript("DiminaServiceBridge.onMessage(\(data))")
     }
 
     @discardableResult

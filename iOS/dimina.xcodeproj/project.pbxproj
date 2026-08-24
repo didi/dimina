@@ -10,6 +10,7 @@
 		4F8C9A102F23000100000001 /* DMPWebResourceLoaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F8C9A102F23000100000002 /* DMPWebResourceLoaderTests.swift */; };
 		7B2760012F26000100000001 /* DMPRemoteUpdateManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B2760012F26000100000002 /* DMPRemoteUpdateManagerTests.swift */; };
 		14603AA5921BC560B952F3E9 /* DMPUtilPathTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61DD3E623362F9D7264941CD /* DMPUtilPathTests.swift */; };
+		7C4A5E132F23000100000001 /* CanvasTempFileValidationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C4A5E132F23000100000002 /* CanvasTempFileValidationTests.swift */; };
 		9A1D30A12F12000100000001 /* DMPNavigatorCapsuleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1D30A12F12000100000002 /* DMPNavigatorCapsuleTests.swift */; };
 		1A2B3C4D5E6F700000000001 /* Alamofire in Frameworks */ = {isa = PBXBuildFile; productRef = 1A2B3C4D5E6F700000000101 /* Alamofire */; };
 		1A2B3C4D5E6F700000000002 /* MMKV in Frameworks */ = {isa = PBXBuildFile; productRef = 1A2B3C4D5E6F700000000102 /* MMKV */; };
@@ -20,6 +21,7 @@
 		7500C22DE15B570EC7A4FD2B /* DMPWebSocketValidationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAB6B466B43575C7978B1BAD /* DMPWebSocketValidationTests.swift */; };
 		9E9F7EDCE127D18B2331A8DC /* DMPWebSocketManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23EDE52DA8E2C3DFF607829B /* DMPWebSocketManagerTests.swift */; };
 		E90FD67E791E4377923344EF /* DMPEngineTimerThreadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 898FFD601DB04AFEBBAAAE0A /* DMPEngineTimerThreadTests.swift */; };
+		B41C7E52A0D34F0891C6D311 /* DMPServiceRenderOrderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B41C7E52A0D34F0891C6D310 /* DMPServiceRenderOrderTests.swift */; };
 /* End PBXBuildFile section */
 /* Begin PBXContainerItemProxy section */
 		425BDC30CA314D645195B564 /* PBXContainerItemProxy */ = {
@@ -44,6 +46,7 @@
 		2EAA9C0614F7638987B22EAC /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
 		5D995E363EB06797E5E3DB0D /* diminaTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = diminaTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		61DD3E623362F9D7264941CD /* DMPUtilPathTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DMPUtilPathTests.swift; sourceTree = "<group>"; };
+		7C4A5E132F23000100000002 /* CanvasTempFileValidationTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CanvasTempFileValidationTests.swift; sourceTree = "<group>"; };
 		9A1D30A12F12000100000002 /* DMPNavigatorCapsuleTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DMPNavigatorCapsuleTests.swift; sourceTree = "<group>"; };
 		23EDE52DA8E2C3DFF607829B /* DMPWebSocketManagerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DMPWebSocketManagerTests.swift; sourceTree = "<group>"; };
 		3A624932ADE9898E587249FA /* DMPWebSocketTestDoubles.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DMPWebSocketTestDoubles.swift; sourceTree = "<group>"; };
@@ -51,6 +54,7 @@
 		AE429915A2BA3583BF99A758 /* DiminaKitTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DiminaKitTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		FAB6B466B43575C7978B1BAD /* DMPWebSocketValidationTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DMPWebSocketValidationTests.swift; sourceTree = "<group>"; };
 		898FFD601DB04AFEBBAAAE0A /* DMPEngineTimerThreadTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DMPEngineTimerThreadTests.swift; sourceTree = "<group>"; };
+		B41C7E52A0D34F0891C6D310 /* DMPServiceRenderOrderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DMPServiceRenderOrderTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		0A6F85DA2DAE3D7D0047A006 /* dimina */ = {
@@ -125,6 +129,7 @@
 			children = (
 				7B2760012F26000100000002 /* DMPRemoteUpdateManagerTests.swift */,
 				4F8C9A102F23000100000002 /* DMPWebResourceLoaderTests.swift */,
+				7C4A5E132F23000100000002 /* CanvasTempFileValidationTests.swift */,
 				9A1D30A12F12000100000002 /* DMPNavigatorCapsuleTests.swift */,
 				61DD3E623362F9D7264941CD /* DMPUtilPathTests.swift */,
 			);
@@ -163,6 +168,7 @@
 				3A624932ADE9898E587249FA /* DMPWebSocketTestDoubles.swift */,
 				23EDE52DA8E2C3DFF607829B /* DMPWebSocketManagerTests.swift */,
 				898FFD601DB04AFEBBAAAE0A /* DMPEngineTimerThreadTests.swift */,
+				B41C7E52A0D34F0891C6D310 /* DMPServiceRenderOrderTests.swift */,
 			);
 			name = DiminaKitTests;
 			path = DiminaKitTests;
@@ -330,6 +336,7 @@
 			files = (
 				7B2760012F26000100000001 /* DMPRemoteUpdateManagerTests.swift in Sources */,
 				4F8C9A102F23000100000001 /* DMPWebResourceLoaderTests.swift in Sources */,
+				7C4A5E132F23000100000001 /* CanvasTempFileValidationTests.swift in Sources */,
 				9A1D30A12F12000100000001 /* DMPNavigatorCapsuleTests.swift in Sources */,
 				14603AA5921BC560B952F3E9 /* DMPUtilPathTests.swift in Sources */,
 			);
@@ -343,6 +350,7 @@
 				1AE8A186852DBE677D065599 /* DMPWebSocketTestDoubles.swift in Sources */,
 				9E9F7EDCE127D18B2331A8DC /* DMPWebSocketManagerTests.swift in Sources */,
 				E90FD67E791E4377923344EF /* DMPEngineTimerThreadTests.swift in Sources */,
+				B41C7E52A0D34F0891C6D311 /* DMPServiceRenderOrderTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

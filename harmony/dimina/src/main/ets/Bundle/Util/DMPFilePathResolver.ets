@@ -46,7 +46,7 @@ export class DMPFilePathResolver {
       const relative = rawPath.substring(`${VIRTUAL_PREFIX}${TEMP_PREFIX}`.length).replace(/^\/+/, '');
       candidate = `${tempRoot}/${relative}`;
     } else if (rawPath.startsWith(VIRTUAL_PREFIX)) {
-      candidate = DMPFileUrlConvertor.localPathFromVPath(rawPath);
+      candidate = DMPFileUrlConvertor.localPathFromVPath(rawPath, DMPFilePathResolver.legacyTempRoot(appId));
     } else if (!rawPath.startsWith('/')) {
       if (!packageRoot) {
         throw new Error(`permission denied, open ${rawPath}`);
