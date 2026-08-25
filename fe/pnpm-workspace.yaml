@@ -1,5 +1,8 @@
 packages:
   - 'packages/*'
+trustPolicy: no-downgrade
+blockExoticSubdeps: true
+minimumReleaseAge: 10080
 allowBuilds:
   '@parcel/watcher': true
   core-js: true
