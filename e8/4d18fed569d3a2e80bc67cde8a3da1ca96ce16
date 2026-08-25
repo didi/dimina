@@ -1,0 +1,101 @@
+harmony/dimina/BuildProfile.ets
+  10c0a34f4e797369 17
+android/dimina/src/main/kotlin/com/didi/dimina/ui/container/DiminaActivity.kt
+  10c0a34f4e797369 16,259-281,329,337,414-446,454-455
+fe/packages/service/src/api/core/media/image/index.js
+  10c0a34f4e797369 26-40
+docs/API-Reference.md
+  10c0a34f4e797369 178,357-358,363-369,378-379,381,384,391-393
+android/dimina/src/main/kotlin/com/didi/dimina/api/device/ScreenApi.kt
+  10c0a34f4e797369 1-38
+fe/packages/container-sdk/src/pages/miniApp/miniApp.ts
+  10c0a34f4e797369 9,184-195,264-267,326-329,2260-2271,2364-2409,3020-3302
+harmony/dimina/src/main/ets/Bridges/Network/DMPContainerBridgesModule+Network.ets
+  10c0a34f4e797369 3,8-10,12,27-79
+harmony/dimina/src/main/ets/Bridges/PhotoView/DMPPhotoPreview.ets
+  10c0a34f4e797369 6-18,24,26-27,34-55,62-63,102-116
+harmony/dimina/src/main/ets/Bridges/DMPContainerBridgesModule+Image.ets
+  10c0a34f4e797369 23,28,31-53,55-57,360-446
+harmony/entry/src/main/module.json5
+  10c0a34f4e797369 133-151
+android/dimina/src/main/kotlin/com/didi/dimina/common/PathUtils.kt
+  10c0a34f4e797369 5,88-94
+fe/packages/service/src/api/core/device/network/index.js
+  10c0a34f4e797369 2-7,17-25
+android/dimina/src/main/kotlin/com/didi/dimina/core/MiniApp.kt
+  10c0a34f4e797369 22,26-27,63,246,249,255-256,455,480
+android/dimina/src/main/kotlin/com/didi/dimina/ui/container/MediaPreviewActivity.kt
+  10c0a34f4e797369 1-119
+iOS/Info.plist
+  10c0a34f4e797369 23-24,33-34,37-38
+iOS/dimina/DiminaKit/App/DMPApp.swift
+  10c0a34f4e797369 438
+android/dimina/src/main/kotlin/com/didi/dimina/api/device/NetworkApi.kt
+  10c0a34f4e797369 9,15,17,19,28-29,32-45,68-99,105-127,185
+android/gradle/libs.versions.toml
+  10c0a34f4e797369 23,52-54
+fe/packages/container-sdk/src/core/webFileSystem.ts
+  10c0a34f4e797369 124-137
+harmony/dimina/src/main/ets/Bridges/DMPAppModuleManager.ets
+  10c0a34f4e797369 55,94-95,127
+iOS/dimina/DiminaKit/Container/Api/Device/ScreenAPI.swift
+  10c0a34f4e797369 1-21
+android/dimina/src/main/kotlin/com/didi/dimina/api/openapi/SettingApi.kt
+  10c0a34f4e797369 1-106
+iOS/dimina/DiminaKit/Container/Api/DMPContainerApi.swift
+  10c0a34f4e797369 80-81,89
+android/dimina/src/main/AndroidManifest.xml
+  10c0a34f4e797369 20-21,39-40
+android/dimina/src/main/kotlin/com/didi/dimina/api/media/VideoApi.kt
+  10c0a34f4e797369 8,14,25,60,122-129,131,134,144-160
+android/dimina/src/main/kotlin/com/didi/dimina/common/MediaFileUtils.kt
+  10c0a34f4e797369 1-56
+fe/packages/service/src/api/core/device/screen/index.js
+  10c0a34f4e797369 2,36-39
+fe/packages/service/src/api/core/media/video/index.js
+  10c0a34f4e797369 23-37
+harmony/dimina/src/main/ets/Bridges/DMPContainerBridgesModule+OpenSetting.ets
+  10c0a34f4e797369 15,31-37,39-40,42,44-45,48,52,56,60,62-65,68,70-78,86-88,94-96,98,102
+fe/packages/service/__tests__/media-device-api.spec.js
+  10c0a34f4e797369 1-75
+iOS/dimina/DiminaKit/Container/Api/Media/MediaUtilityAPI.swift
+  10c0a34f4e797369 1-367
+android/dimina/src/main/kotlin/com/didi/dimina/api/media/VideoToolApi.kt
+  10c0a34f4e797369 1-223
+harmony/dimina/src/main/ets/Bridges/DMPContainerBridgesModule+Screen.ets
+  10c0a34f4e797369 10,26-42
+fe/packages/compiler/src/common/compatibility-reference.js
+  10c0a34f4e797369 211-212,217-223,232-233,235,238
+android/dimina/src/main/kotlin/com/didi/dimina/ui/view/MediaPicker.kt
+  10c0a34f4e797369 23,37,44-55,62,94-99
+android/dimina/src/main/kotlin/com/didi/dimina/api/media/ImageApi.kt
+  10c0a34f4e797369 17,20,41-42,46-47,91-121,206-272
+harmony/dimina/src/main/ets/Bridges/DMPContainerBridgesModule+Video.ets
+  10c0a34f4e797369 11-15,19,46,57,65-220
+iOS/dimina/DiminaKit/Container/Api/Device/NetworkTypeAPI.swift
+  10c0a34f4e797369 19-33,47-107,144-149
+android/dimina/build.gradle.kts
+  10c0a34f4e797369 75-77
+iOS/dimina/DiminaKit/Container/Api/OpenAPI/SettingAPI.swift
+  10c0a34f4e797369 1-198
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "e84d18fed569d3a2e80bc67cde8a3da1ca96ce16",
+  "prompts": {
+    "10c0a34f4e797369": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fc587-99e6-7380-a597-4301b7cc2ed1",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 2566,
+      "total_deletions": 139,
+      "accepted_lines": 2583,
+      "overriden_lines": 0
+    }
+  }
+}
