@@ -41,6 +41,7 @@ int dm_canvas_is_ready(DMCanvasRef canvas);
 /* EGL surface binding (platform passes native window handle) -------------- */
 
 int  dm_canvas_init_surface(DMCanvasRef canvas, void *native_window);
+int  dm_canvas_init_offscreen(DMCanvasRef canvas);
 void dm_canvas_destroy_surface(DMCanvasRef canvas);
 
 /** Rebind the EGL surface to a new native window without destroying the

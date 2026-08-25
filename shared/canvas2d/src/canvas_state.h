@@ -53,6 +53,18 @@ struct CanvasDrawState {
     /* Image smoothing */
     bool imageSmoothingEnabled = true;
 
+    /* Clip path tracking — records the last path for clip().
+       When clip() is called, if the path was a single rect, we use
+       nvgIntersectScissor for hardware clipping.  Otherwise we fall
+       back to bounding-box scissor (lossy). */
+    enum ClipPathType { CLIP_NONE, CLIP_RECT, CLIP_OTHER };
+    ClipPathType lastPathType = CLIP_NONE;
+    float lastPathRect[4] = {0,0,0,0};  /* x, y, w, h (valid when CLIP_RECT) */
+
+    /* Stencil-based clip active flag.
+       Set to true when clip() is called, cleared on restore(). */
+    bool clipActive = false;
+
     /* Transform matrix (affine 3x2, same layout as NanoVG: a,b,c,d,e,f)
        Identity = {1,0,0,1,0,0} */
     float xform[6] = {1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f};

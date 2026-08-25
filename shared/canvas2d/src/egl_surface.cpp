@@ -113,6 +113,23 @@ int egl_create_surface(EGLState *state, void *native_window) {
     return egl_make_current(state);
 }
 
+int egl_create_pbuffer_surface(EGLState *state, int width, int height) {
+    if (state->surface != EGL_NO_SURFACE) {
+        egl_destroy_surface(state);
+    }
+    const EGLint pbufferAttribs[] = {
+        EGL_WIDTH,  width,
+        EGL_HEIGHT, height,
+        EGL_NONE
+    };
+    state->surface = eglCreatePbufferSurface(state->display, state->config, pbufferAttribs);
+    if (state->surface == EGL_NO_SURFACE) {
+        LOGE("egl_create_pbuffer_surface: failed (0x%x)", eglGetError());
+        return -1;
+    }
+    return egl_make_current(state);
+}
+
 void egl_destroy_surface(EGLState *state) {
     if (state->surface != EGL_NO_SURFACE) {
         eglMakeCurrent(state->display, EGL_NO_SURFACE, EGL_NO_SURFACE,

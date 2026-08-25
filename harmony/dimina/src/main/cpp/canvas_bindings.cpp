@@ -50,6 +50,7 @@ struct CanvasState {
     uint32_t bindGeneration = 0;  // incremented on each canvasBindSurface call
     std::string lastSurfaceId;   // dedup: skip rebind if same surfaceId
     std::vector<std::string> pendingOpsJson;  // buffered ops before GL is ready
+    bool offscreen = false;      // true for createOffscreenCanvas canvases
     bool swapScheduled = false;  // deferred swap pending (setTimeout scheduled)
     std::atomic<bool> rebindPending{false};  // surface rebind needed (same surfaceId but underlying surface recreated)
     std::vector<PendingImageUpload> pendingImageUploads; // guarded by canvasStatesMutex
@@ -212,7 +213,7 @@ static JSValue canvas_flush(JSContext *ctx, JSValueConst this_val, int argc, JSV
 
 // ─── C functions registered on __GLCanvas ───
 
-// _createCanvas(nodeId, width, height)
+// _createCanvas(nodeId, width, height, isOffscreen)
 static JSValue canvas_create(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
     const char *nodeId = JS_ToCString(ctx, argv[0]);
     if (!nodeId) {
@@ -223,6 +224,15 @@ static JSValue canvas_create(JSContext *ctx, JSValueConst this_val, int argc, JS
     if (appIndex < 0) {
         JS_FreeCString(ctx, nodeId);
         return JS_ThrowInternalError(ctx, "_createCanvas: no engine for context");
+    }
+
+    int32_t width = 300, height = 150;
+    if (argc >= 2) JS_ToInt32(ctx, &width, argv[1]);
+    if (argc >= 3) JS_ToInt32(ctx, &height, argv[2]);
+
+    bool isOffscreen = false;
+    if (argc >= 4) {
+        isOffscreen = JS_ToBool(ctx, argv[3]);
     }
 
     // Check if a state already exists (from canvasBindSurface or a previous canvas_create)
@@ -253,9 +263,29 @@ static JSValue canvas_create(JSContext *ctx, JSValueConst this_val, int argc, JS
     }
 
 #ifdef CANVAS2D_AVAILABLE
-    OHLog("[canvas] canvas_create: nodeId=%{public}s appIndex=%{public}d glCanvas=%{public}p glInit=%{public}d nw=%{public}p pendingOps=%{public}zu",
+    if (isOffscreen && !state->glCanvas.load()) {
+        // Create offscreen GL canvas immediately — no canvasBindSurface needed
+        DMCanvasRef glCanvas = dm_canvas_create(width, height);
+        if (glCanvas) {
+            int rc = dm_canvas_init_offscreen(glCanvas);
+            if (rc == 0) {
+                state->glCanvas.store(glCanvas);
+                state->glInitialized.store(true);
+                state->surfaceWidth.store(width);
+                state->surfaceHeight.store(height);
+                state->offscreen = true;
+                OHLog("[canvas] canvas_create: offscreen GL canvas ready nodeId=%{public}s %{public}dx%{public}d",
+                      nodeId, width, height);
+            } else {
+                dm_canvas_destroy(glCanvas);
+                OHError("[canvas] canvas_create: offscreen GL init failed nodeId=%{public}s", nodeId);
+            }
+        }
+    }
+
+    OHLog("[canvas] canvas_create: nodeId=%{public}s appIndex=%{public}d glCanvas=%{public}p glInit=%{public}d nw=%{public}p pendingOps=%{public}zu offscreen=%{public}d",
           nodeId, appIndex, (void*)state->glCanvas.load(), state->glInitialized.load(),
-          (void*)state->nativeWindow.load(), state->pendingOpsJson.size());
+          (void*)state->nativeWindow.load(), state->pendingOpsJson.size(), isOffscreen);
 #else
     OHLog("[canvas] canvas_create: nodeId=%{public}s appIndex=%{public}d", nodeId, appIndex);
 #endif
@@ -978,8 +1008,10 @@ static JSValue canvas_render(JSContext *ctx, JSValueConst this_val, int argc, JS
             state->opQueue.clear();
             dm_canvas_end_frame(glCanvas);
 
-            // Compose & present
-            dm_canvas_swap_buffers(glCanvas);
+            // Compose & present (skip for offscreen — no display to present to)
+            if (!state->offscreen) {
+                dm_canvas_swap_buffers(glCanvas);
+            }
         }
     }
 #endif
@@ -1246,7 +1278,7 @@ void registerGLCanvas(JSContext *ctx) {
 
     // Register C functions
     JS_SetPropertyStr(ctx, glCanvasObj, "_createCanvas",
-        JS_NewCFunction(ctx, canvas_create, "_createCanvas", 3));
+        JS_NewCFunction(ctx, canvas_create, "_createCanvas", 4));
     JS_SetPropertyStr(ctx, glCanvasObj, "_destroyCanvas",
         JS_NewCFunction(ctx, canvas_destroy, "_destroyCanvas", 1));
     JS_SetPropertyStr(ctx, glCanvasObj, "_bufferOp",

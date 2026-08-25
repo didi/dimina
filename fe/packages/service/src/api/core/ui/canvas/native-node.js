@@ -263,7 +263,7 @@ class NativeImage {
 // ─── GLCanvasNode: canvas node backed by C bindings ───
 
 class GLCanvasNode {
-	constructor({ nodeId, bridgeId, width = 300, height = 150, type = '2d' }) {
+	constructor({ nodeId, bridgeId, width = 300, height = 150, type = '2d', offscreen = false }) {
 		this.__diminaCanvasNode = true
 		this.nodeId = nodeId
 		this.bridgeId = bridgeId
@@ -271,8 +271,9 @@ class GLCanvasNode {
 		this._width = width
 		this._height = height
 		this._ctx = null
-		console.log('[GLCanvasNode] constructor: nodeId=' + nodeId + ' _createCanvas=' + typeof nativeGL._createCanvas)
-		nativeGL._createCanvas(nodeId, width, height)
+		this._offscreen = offscreen
+		console.log('[GLCanvasNode] constructor: nodeId=' + nodeId + ' _createCanvas=' + typeof nativeGL._createCanvas + ' offscreen=' + offscreen)
+		nativeGL._createCanvas(nodeId, width, height, offscreen)
 		nativeCanvasNodes.set(nodeId, this)
 	}
 
@@ -383,6 +384,7 @@ export function createOffscreenCanvas(options = {}) {
 		width,
 		height,
 		type,
+		offscreen: true,
 	})
 }
 

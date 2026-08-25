@@ -54,6 +54,9 @@ struct DMCanvas {
 
     /* Frame state — tracks whether nvgBeginFrame is active */
     bool frameActive = false;
+
+    /* Offscreen canvas — uses PBuffer surface, no display presentation */
+    bool offscreen = false;
 };
 
 /**

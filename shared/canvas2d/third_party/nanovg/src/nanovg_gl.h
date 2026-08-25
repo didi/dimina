@@ -103,6 +103,10 @@ enum NVGimageFlagsGL {
 	NVG_IMAGE_NODELETE			= 1<<16,	// Do not delete GL texture handle.
 };
 
+// Stencil-based clip API
+void nvglSetNextFillAsClip(NVGcontext* ctx);
+void nvglClearClipStencil(NVGcontext* ctx);
+
 #ifdef __cplusplus
 }
 #endif
@@ -169,6 +173,7 @@ enum GLNVGcallType {
 	GLNVG_CONVEXFILL,
 	GLNVG_STROKE,
 	GLNVG_TRIANGLES,
+	GLNVG_CLIPFILL,
 };
 
 struct GLNVGcall {
@@ -274,6 +279,10 @@ struct GLNVGcontext {
 	#endif
 
 	int dummyTex;
+
+	// Stencil-based clip state
+	int clipStencilRef;  // 0 = no clip, 0x80 = clip active
+	int nextFillIsClip;  // flag: next renderFill becomes CLIPFILL
 };
 typedef struct GLNVGcontext GLNVGcontext;
 
@@ -1024,14 +1033,41 @@ static void glnvg__renderViewport(void* uptr, float width, float height, float d
 	gl->view[1] = height;
 }
 
+static void glnvg__clipFill(GLNVGcontext* gl, GLNVGcall* call)
+{
+	GLNVGpath* paths = &gl->paths[call->pathOffset];
+	int i, npaths = call->pathCount;
+
+	glEnable(GL_STENCIL_TEST);
+	glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+
+	// Use INVERT on bit 7 — toggles 0→0x80 inside path (even-odd rule)
+	glnvg__stencilMask(gl, 0x80);
+	glnvg__stencilFunc(gl, GL_ALWAYS, 0, 0xff);
+	glStencilOp(GL_KEEP, GL_KEEP, GL_INVERT);
+
+	glnvg__setUniforms(gl, call->uniformOffset, 0);
+	glDisable(GL_CULL_FACE);
+	for (i = 0; i < npaths; i++)
+		glDrawArrays(GL_TRIANGLE_FAN, paths[i].fillOffset, paths[i].fillCount);
+	glEnable(GL_CULL_FACE);
+
+	glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+	glDisable(GL_STENCIL_TEST);
+
+	gl->clipStencilRef = 0x80;
+}
+
 static void glnvg__fill(GLNVGcontext* gl, GLNVGcall* call)
 {
 	GLNVGpath* paths = &gl->paths[call->pathOffset];
 	int i, npaths = call->pathCount;
 
-	// Draw shapes
+	// Draw shapes — use bits 0-6 only (bit 7 reserved for clip mask)
+	int clipRef = gl->clipStencilRef;
+
 	glEnable(GL_STENCIL_TEST);
-	glnvg__stencilMask(gl, 0xff);
+	glnvg__stencilMask(gl, 0x7f);
 	glnvg__stencilFunc(gl, GL_ALWAYS, 0, 0xff);
 	glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
 
@@ -1053,17 +1089,35 @@ static void glnvg__fill(GLNVGcontext* gl, GLNVGcall* call)
 	glnvg__checkError(gl, "fill fill");
 
 	if (gl->flags & NVG_ANTIALIAS) {
-		glnvg__stencilFunc(gl, GL_EQUAL, 0x00, 0xff);
+		// Fringes: stencil == clipRef means inside clip AND winding bits are 0 (edge pixel)
+		glnvg__stencilFunc(gl, GL_EQUAL, clipRef, 0xff);
 		glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
 		// Draw fringes
 		for (i = 0; i < npaths; i++)
 			glDrawArrays(GL_TRIANGLE_STRIP, paths[i].strokeOffset, paths[i].strokeCount);
 	}
 
-	// Draw fill
-	glnvg__stencilFunc(gl, GL_NOTEQUAL, 0x0, 0xff);
-	glStencilOp(GL_ZERO, GL_ZERO, GL_ZERO);
-	glDrawArrays(GL_TRIANGLE_STRIP, call->triangleOffset, call->triangleCount);
+	// Draw fill and clear winding bits
+	if (clipRef) {
+		// With clip active: two passes
+		// Pass 1: draw fill where stencil > clipRef (inside clip AND inside shape)
+		glnvg__stencilFunc(gl, GL_GREATER, clipRef, 0xff);
+		glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
+		glnvg__stencilMask(gl, 0x00);
+		glDrawArrays(GL_TRIANGLE_STRIP, call->triangleOffset, call->triangleCount);
+		// Pass 2: clear winding bits (0-6) without drawing
+		glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+		glnvg__stencilMask(gl, 0x7f);
+		glnvg__stencilFunc(gl, GL_NOTEQUAL, 0x0, 0x7f);
+		glStencilOp(GL_ZERO, GL_ZERO, GL_ZERO);
+		glDrawArrays(GL_TRIANGLE_STRIP, call->triangleOffset, call->triangleCount);
+		glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+	} else {
+		// No clip: original single-pass behavior
+		glnvg__stencilFunc(gl, GL_NOTEQUAL, 0x0, 0xff);
+		glStencilOp(GL_ZERO, GL_ZERO, GL_ZERO);
+		glDrawArrays(GL_TRIANGLE_STRIP, call->triangleOffset, call->triangleCount);
+	}
 
 	glDisable(GL_STENCIL_TEST);
 }
@@ -1072,6 +1126,13 @@ static void glnvg__convexFill(GLNVGcontext* gl, GLNVGcall* call)
 {
 	GLNVGpath* paths = &gl->paths[call->pathOffset];
 	int i, npaths = call->pathCount;
+
+	if (gl->clipStencilRef) {
+		glEnable(GL_STENCIL_TEST);
+		glnvg__stencilFunc(gl, GL_EQUAL, gl->clipStencilRef, 0x80);
+		glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
+		glnvg__stencilMask(gl, 0x00);
+	}
 
 	glnvg__setUniforms(gl, call->uniformOffset, call->image);
 	glnvg__checkError(gl, "convex fill");
@@ -1083,20 +1144,25 @@ static void glnvg__convexFill(GLNVGcontext* gl, GLNVGcall* call)
 			glDrawArrays(GL_TRIANGLE_STRIP, paths[i].strokeOffset, paths[i].strokeCount);
 		}
 	}
+
+	if (gl->clipStencilRef) {
+		glDisable(GL_STENCIL_TEST);
+	}
 }
 
 static void glnvg__stroke(GLNVGcontext* gl, GLNVGcall* call)
 {
 	GLNVGpath* paths = &gl->paths[call->pathOffset];
 	int npaths = call->pathCount, i;
+	int clipRef = gl->clipStencilRef;
 
 	if (gl->flags & NVG_STENCIL_STROKES) {
 
 		glEnable(GL_STENCIL_TEST);
-		glnvg__stencilMask(gl, 0xff);
+		glnvg__stencilMask(gl, 0x7f);
 
 		// Fill the stroke base without overlap
-		glnvg__stencilFunc(gl, GL_EQUAL, 0x0, 0xff);
+		glnvg__stencilFunc(gl, GL_EQUAL, clipRef, 0xff);
 		glStencilOp(GL_KEEP, GL_KEEP, GL_INCR);
 		glnvg__setUniforms(gl, call->uniformOffset + gl->fragSize, call->image);
 		glnvg__checkError(gl, "stroke fill 0");
@@ -1105,15 +1171,16 @@ static void glnvg__stroke(GLNVGcontext* gl, GLNVGcall* call)
 
 		// Draw anti-aliased pixels.
 		glnvg__setUniforms(gl, call->uniformOffset, call->image);
-		glnvg__stencilFunc(gl, GL_EQUAL, 0x00, 0xff);
+		glnvg__stencilFunc(gl, GL_EQUAL, clipRef, 0xff);
 		glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
 		for (i = 0; i < npaths; i++)
 			glDrawArrays(GL_TRIANGLE_STRIP, paths[i].strokeOffset, paths[i].strokeCount);
 
-		// Clear stencil buffer.
+		// Clear stencil buffer (bits 0-6 only).
 		glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
 		glnvg__stencilFunc(gl, GL_ALWAYS, 0x0, 0xff);
 		glStencilOp(GL_ZERO, GL_ZERO, GL_ZERO);
+		glnvg__stencilMask(gl, 0x7f);
 		glnvg__checkError(gl, "stroke fill 1");
 		for (i = 0; i < npaths; i++)
 			glDrawArrays(GL_TRIANGLE_STRIP, paths[i].strokeOffset, paths[i].strokeCount);
@@ -1121,23 +1188,43 @@ static void glnvg__stroke(GLNVGcontext* gl, GLNVGcall* call)
 
 		glDisable(GL_STENCIL_TEST);
 
-//		glnvg__convertPaint(gl, nvg__fragUniformPtr(gl, call->uniformOffset + gl->fragSize), paint, scissor, strokeWidth, fringe, 1.0f - 0.5f/255.0f);
-
 	} else {
+		if (clipRef) {
+			glEnable(GL_STENCIL_TEST);
+			glnvg__stencilFunc(gl, GL_EQUAL, clipRef, 0x80);
+			glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
+			glnvg__stencilMask(gl, 0x00);
+		}
+
 		glnvg__setUniforms(gl, call->uniformOffset, call->image);
 		glnvg__checkError(gl, "stroke fill");
 		// Draw Strokes
 		for (i = 0; i < npaths; i++)
 			glDrawArrays(GL_TRIANGLE_STRIP, paths[i].strokeOffset, paths[i].strokeCount);
+
+		if (clipRef) {
+			glDisable(GL_STENCIL_TEST);
+		}
 	}
 }
 
 static void glnvg__triangles(GLNVGcontext* gl, GLNVGcall* call)
 {
+	if (gl->clipStencilRef) {
+		glEnable(GL_STENCIL_TEST);
+		glnvg__stencilFunc(gl, GL_EQUAL, gl->clipStencilRef, 0x80);
+		glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
+		glnvg__stencilMask(gl, 0x00);
+	}
+
 	glnvg__setUniforms(gl, call->uniformOffset, call->image);
 	glnvg__checkError(gl, "triangles fill");
 
 	glDrawArrays(GL_TRIANGLES, call->triangleOffset, call->triangleCount);
+
+	if (gl->clipStencilRef) {
+		glDisable(GL_STENCIL_TEST);
+	}
 }
 
 static void glnvg__renderCancel(void* uptr) {
@@ -1262,6 +1349,8 @@ static void glnvg__renderFlush(void* uptr)
 				glnvg__stroke(gl, call);
 			else if (call->type == GLNVG_TRIANGLES)
 				glnvg__triangles(gl, call);
+			else if (call->type == GLNVG_CLIPFILL)
+				glnvg__clipFill(gl, call);
 		}
 
 		glDisableVertexAttribArray(0);
@@ -1388,7 +1477,12 @@ static void glnvg__renderFill(void* uptr, NVGpaint* paint, NVGcompositeOperation
 	call->image = paint->image;
 	call->blendFunc = glnvg__blendCompositeOperation(compositeOperation);
 
-	if (npaths == 1 && paths[0].convex)
+	if (gl->nextFillIsClip) {
+		call->type = GLNVG_CLIPFILL;
+		gl->nextFillIsClip = 0;
+	}
+
+	if (npaths == 1 && paths[0].convex && call->type != GLNVG_CLIPFILL)
 	{
 		call->type = GLNVG_CONVEXFILL;
 		call->triangleCount = 0;	// Bounding box fill quad not needed for convex fill
@@ -1671,6 +1765,25 @@ GLuint nvglImageHandleGLES3(NVGcontext* ctx, int image)
 	GLNVGcontext* gl = (GLNVGcontext*)nvgInternalParams(ctx)->userPtr;
 	GLNVGtexture* tex = glnvg__findTexture(gl, image);
 	return tex->tex;
+}
+
+// Public API: stencil-based clip support
+void nvglSetNextFillAsClip(NVGcontext* ctx) {
+	GLNVGcontext* gl = (GLNVGcontext*)nvgInternalParams(ctx)->userPtr;
+	gl->nextFillIsClip = 1;
+}
+
+void nvglClearClipStencil(NVGcontext* ctx) {
+	GLNVGcontext* gl = (GLNVGcontext*)nvgInternalParams(ctx)->userPtr;
+	glStencilMask(0x80);
+	glClearStencil(0);
+	glClear(GL_STENCIL_BUFFER_BIT);
+	glStencilMask(0xff);
+	gl->clipStencilRef = 0;
+	// Reset cached stencilMask so NanoVG re-sets it on next use
+	#if NANOVG_GL_USE_STATE_FILTER
+	gl->stencilMask = 0xffffffff;
+	#endif
 }
 
 #endif /* NANOVG_GL_IMPLEMENTATION */

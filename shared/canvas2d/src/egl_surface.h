@@ -31,6 +31,13 @@ int egl_init(EGLState *state);
 int egl_create_surface(EGLState *state, void *native_window);
 
 /**
+ * Create an off-screen EGL PBuffer surface (no native window needed).
+ * Used for offscreen canvases that render to FBO only.
+ * Returns 0 on success.
+ */
+int egl_create_pbuffer_surface(EGLState *state, int width, int height);
+
+/**
  * Destroy the EGL surface (but keep context alive).
  */
 void egl_destroy_surface(EGLState *state);

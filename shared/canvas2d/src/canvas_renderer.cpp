@@ -351,31 +351,44 @@ static void processContextCall(DMCanvas *canvas, const std::string &method,
     /* ── Path methods ─────────────────────────────────────────────── */
     if (method == "beginPath") {
         nvgBeginPath(vg);
+        st.lastPathType = CanvasDrawState::CLIP_NONE;
     } else if (method == "closePath") {
         nvgClosePath(vg);
     } else if (method == "moveTo") {
         nvgMoveTo(vg, argF(args, 0), argF(args, 1));
+        st.lastPathType = CanvasDrawState::CLIP_OTHER;
     } else if (method == "lineTo") {
         nvgLineTo(vg, argF(args, 0), argF(args, 1));
+        st.lastPathType = CanvasDrawState::CLIP_OTHER;
     } else if (method == "bezierCurveTo") {
         nvgBezierTo(vg, argF(args, 0), argF(args, 1),
                         argF(args, 2), argF(args, 3),
                         argF(args, 4), argF(args, 5));
+        st.lastPathType = CanvasDrawState::CLIP_OTHER;
     } else if (method == "quadraticCurveTo") {
         nvgQuadTo(vg, argF(args, 0), argF(args, 1),
                       argF(args, 2), argF(args, 3));
+        st.lastPathType = CanvasDrawState::CLIP_OTHER;
     } else if (method == "arc") {
         float cx = argF(args, 0), cy = argF(args, 1), r = argF(args, 2);
         float sa = argF(args, 3), ea = argF(args, 4);
         bool ccw = args[5].getBool(false);
         int dir = ccw ? NVG_CCW : NVG_CW;
         nvgArc(vg, cx, cy, r, sa, ea, dir);
+        st.lastPathType = CanvasDrawState::CLIP_OTHER;
     } else if (method == "arcTo") {
         nvgArcTo(vg, argF(args, 0), argF(args, 1),
                      argF(args, 2), argF(args, 3), argF(args, 4));
+        st.lastPathType = CanvasDrawState::CLIP_OTHER;
     } else if (method == "rect") {
-        nvgRect(vg, argF(args, 0), argF(args, 1),
-                    argF(args, 2), argF(args, 3));
+        float rx = argF(args, 0), ry = argF(args, 1);
+        float rw = argF(args, 2), rh = argF(args, 3);
+        nvgRect(vg, rx, ry, rw, rh);
+        st.lastPathType = CanvasDrawState::CLIP_RECT;
+        st.lastPathRect[0] = rx;
+        st.lastPathRect[1] = ry;
+        st.lastPathRect[2] = rw;
+        st.lastPathRect[3] = rh;
     } else if (method == "ellipse") {
         /* Canvas ellipse(x, y, radiusX, radiusY, rotation, startAngle, endAngle, ccw) */
         float cx = argF(args, 0), cy = argF(args, 1);
@@ -399,6 +412,7 @@ static void processContextCall(DMCanvas *canvas, const std::string &method,
             nvgArc(vg, 0, 0, rx, sa, ea, ccw ? NVG_CCW : NVG_CW);
             nvgRestore(vg);
         }
+        st.lastPathType = CanvasDrawState::CLIP_OTHER;
 
     /* ── Fill / Stroke ────────────────────────────────────────────── */
     } else if (method == "fill") {
@@ -460,8 +474,68 @@ static void processContextCall(DMCanvas *canvas, const std::string &method,
         nvgSave(vg);
         canvas->stateManager.save();
     } else if (method == "restore") {
-        nvgRestore(vg);
+        bool wasClipActive = st.clipActive;
         canvas->stateManager.restore();
+        nvgRestore(vg);
+        {
+            auto &newSt = canvas->stateManager.current();
+            if (wasClipActive && !newSt.clipActive) {
+                /* End frame to flush draws done with clip */
+                nvgEndFrame(vg);
+                /* Clear stencil bit 7 (clip mask) */
+                nvglClearClipStencil(vg);
+                /* Restart frame */
+                float dpr = canvas->devicePixelRatio;
+                float lw = (float)canvas->width / dpr;
+                float lh = (float)canvas->height / dpr;
+                nvgBeginFrame(vg, lw, lh, dpr);
+                /* Re-apply NanoVG state for current stack level */
+                int totalLevels = canvas->stateManager.stackSize();
+                for (int i = 0; i < totalLevels; ++i) {
+                    const auto &rst = canvas->stateManager.at(i);
+                    nvgResetTransform(vg);
+                    nvgTransform(vg, rst.xform[0], rst.xform[1],
+                                      rst.xform[2], rst.xform[3],
+                                      rst.xform[4], rst.xform[5]);
+                    nvgStrokeWidth(vg, rst.lineWidth);
+                    nvgLineCap(vg, rst.lineCap);
+                    nvgLineJoin(vg, rst.lineJoin);
+                    nvgMiterLimit(vg, rst.miterLimit);
+                    nvgGlobalAlpha(vg, rst.globalAlpha);
+                    {
+                        ParsedFont pf = parseCSSFont(rst.fontStr);
+                        applyFontToNVG(vg, pf);
+                    }
+                    nvgTextAlign(vg, rst.textAlign);
+                    applyCompositeOperation(rst.globalCompositeOperation);
+
+                    if (rst.fillIsGradient && canvas->gradientManager.has(rst.fillGradientId)) {
+                        NVGpaint paint = canvas->gradientManager.buildPaint(vg, rst.fillGradientId);
+                        paint.innerColor.a *= rst.globalAlpha;
+                        paint.outerColor.a *= rst.globalAlpha;
+                        nvgFillPaint(vg, paint);
+                    } else {
+                        NVGcolor fc = parseCanvasColor(rst.fillStyleStr);
+                        fc.a *= rst.globalAlpha;
+                        nvgFillColor(vg, fc);
+                    }
+                    if (rst.strokeIsGradient && canvas->gradientManager.has(rst.strokeGradientId)) {
+                        NVGpaint paint = canvas->gradientManager.buildPaint(vg, rst.strokeGradientId);
+                        paint.innerColor.a *= rst.globalAlpha;
+                        paint.outerColor.a *= rst.globalAlpha;
+                        nvgStrokePaint(vg, paint);
+                    } else {
+                        NVGcolor sc = parseCanvasColor(rst.strokeStyleStr);
+                        sc.a *= rst.globalAlpha;
+                        nvgStrokeColor(vg, sc);
+                    }
+
+                    if (i < totalLevels - 1) {
+                        nvgSave(vg);
+                    }
+                }
+            }
+        }
     } else if (method == "translate") {
         float tx = argF(args, 0), ty = argF(args, 1);
         nvgTranslate(vg, tx, ty);
@@ -587,28 +661,20 @@ static void processContextCall(DMCanvas *canvas, const std::string &method,
 
     /* ── Clipping ─────────────────────────────────────────────────── */
     } else if (method == "clip") {
-        /*
-         * NanoVG doesn't support arbitrary path-based clipping.
-         *
-         * Strategy: If the most recent path was a rect (the common case),
-         * use nvgIntersectScissor with those coordinates.  For non-rect paths,
-         * we'd need a stencil-based clip which requires modifying NanoVG
-         * internals or a custom render pass.
-         *
-         * The JS layer typically calls rect() then clip() for scroll regions,
-         * so the scissor approach covers the majority of use cases.
-         *
-         * For the general case, we fill the path with the stencil buffer:
-         * render fill to stencil only, then enable stencil test for
-         * subsequent draws.  This is a compromise — NanoVG uses the stencil
-         * buffer internally for anti-aliased fill, so we cannot nest stencil
-         * operations without conflicts.  The scissor-based approach is the
-         * pragmatic choice.
-         */
-        /* The clip region is tracked by NanoVG's scissor state.
-           The caller should have called rect() or similar before clip().
-           We apply the scissor to the full canvas as the clip is intersected
-           by NanoVG with the existing scissor. */
+        /* Stencil-based clip: render the current path to stencil bit 7.
+           NanoVG's fill operations use bits 0-6, so the clip mask persists
+           across subsequent draw calls. */
+        if (st.lastPathType == CanvasDrawState::CLIP_RECT) {
+            /* Rect paths can still use the efficient scissor path */
+            nvgIntersectScissor(vg, st.lastPathRect[0], st.lastPathRect[1],
+                                    st.lastPathRect[2], st.lastPathRect[3]);
+        } else if (st.lastPathType != CanvasDrawState::CLIP_NONE) {
+            /* Arbitrary path clip: render to stencil bit 7 */
+            nvglSetNextFillAsClip(vg);
+            nvgFill(vg);
+        }
+        st.clipActive = true;
+        nvgBeginPath(vg);
 
     /* ── Gradient creation ────────────────────────────────────────── */
     } else if (method == "createLinearGradient") {
@@ -1044,6 +1110,148 @@ void dm_canvas_resize(DMCanvasRef canvas, int width, int height) {
     }
 }
 
+/* ─── Shared font loading helper ─────────────────────────────────────── */
+
+static void canvas_load_system_fonts(DMCanvas *canvas) {
+#if defined(DIMINA_PLATFORM_HARMONY)
+    /* Base Latin font */
+    static const char *latinPaths[] = {
+        "/system/fonts/HarmonyOS_Sans_Regular.ttf",
+        "/system/fonts/HarmonyOS_Sans.ttf",
+        "/system/fonts/DroidSans.ttf",
+        nullptr
+    };
+    int sansId = -1;
+    for (int i = 0; latinPaths[i]; i++) {
+        sansId = nvgCreateFont(canvas->vg, "sans", latinPaths[i]);
+        if (sansId >= 0) {
+            LOGD("canvas_load_system_fonts: loaded Latin font '%{public}s' as 'sans' (id=%{public}d)", latinPaths[i], sansId);
+            nvgCreateFont(canvas->vg, "sans-serif", latinPaths[i]);
+            nvgCreateFont(canvas->vg, "default", latinPaths[i]);
+            break;
+        }
+    }
+    /* CJK (Chinese/Japanese/Korean) fallback font */
+    static const char *cjkPaths[] = {
+        "/system/fonts/HarmonyOS_Sans_SC_Regular.ttf",
+        "/system/fonts/HarmonyOS_Sans_SC.ttf",
+        "/system/fonts/NotoSansCJK-Regular.ttc",
+        "/system/fonts/NotoSansSC-Regular.otf",
+        "/system/fonts/DroidSansFallback.ttf",
+        nullptr
+    };
+    int sansSerifId = -1, defaultId = -1;
+    if (sansId >= 0) {
+        sansSerifId = nvgFindFont(canvas->vg, "sans-serif");
+        defaultId = nvgFindFont(canvas->vg, "default");
+    }
+    for (int i = 0; cjkPaths[i]; i++) {
+        int cjkId = nvgCreateFont(canvas->vg, "cjk", cjkPaths[i]);
+        if (cjkId >= 0) {
+            LOGD("canvas_load_system_fonts: loaded CJK font '%{public}s' (id=%{public}d)", cjkPaths[i], cjkId);
+            if (sansId >= 0) nvgAddFallbackFontId(canvas->vg, sansId, cjkId);
+            if (sansSerifId >= 0) nvgAddFallbackFontId(canvas->vg, sansSerifId, cjkId);
+            if (defaultId >= 0) nvgAddFallbackFontId(canvas->vg, defaultId, cjkId);
+            break;
+        }
+    }
+    /* Bold variants */
+    static const char *boldPaths[] = {
+        "/system/fonts/HarmonyOS_Sans_Bold.ttf",
+        nullptr
+    };
+    int boldId = -1;
+    for (int i = 0; boldPaths[i]; i++) {
+        boldId = nvgCreateFont(canvas->vg, "sans-bold", boldPaths[i]);
+        if (boldId >= 0) {
+            LOGD("canvas_load_system_fonts: loaded bold font '%{public}s' (id=%{public}d)", boldPaths[i], boldId);
+            break;
+        }
+    }
+    static const char *boldCjkPaths[] = {
+        "/system/fonts/HarmonyOS_Sans_SC_Bold.ttf",
+        "/system/fonts/NotoSansCJK-Bold.ttc",
+        nullptr
+    };
+    for (int i = 0; boldCjkPaths[i]; i++) {
+        int bcjkId = nvgCreateFont(canvas->vg, "cjk-bold", boldCjkPaths[i]);
+        if (bcjkId >= 0) {
+            LOGD("canvas_load_system_fonts: loaded bold CJK font '%{public}s' (id=%{public}d)", boldCjkPaths[i], bcjkId);
+            if (boldId >= 0) nvgAddFallbackFontId(canvas->vg, boldId, bcjkId);
+            break;
+        }
+    }
+    if (sansId < 0) {
+        LOGE("canvas_load_system_fonts: WARNING — no system font found, text rendering will fail");
+    }
+#elif defined(DIMINA_PLATFORM_ANDROID)
+    int sansId = nvgCreateFont(canvas->vg, "sans", "/system/fonts/Roboto-Regular.ttf");
+    nvgCreateFont(canvas->vg, "sans-serif", "/system/fonts/Roboto-Regular.ttf");
+    int boldId = nvgCreateFont(canvas->vg, "sans-bold", "/system/fonts/Roboto-Bold.ttf");
+    int cjkId = nvgCreateFont(canvas->vg, "cjk", "/system/fonts/NotoSansCJK-Regular.ttc");
+    if (cjkId < 0) cjkId = nvgCreateFont(canvas->vg, "cjk", "/system/fonts/DroidSansFallback.ttf");
+    if (cjkId >= 0 && sansId >= 0) nvgAddFallbackFontId(canvas->vg, sansId, cjkId);
+    if (cjkId >= 0 && boldId >= 0) nvgAddFallbackFontId(canvas->vg, boldId, cjkId);
+#elif defined(DIMINA_PLATFORM_IOS)
+    static const char *latinPaths[] = {
+        "/System/Library/Fonts/SFNS.ttf",
+        "/System/Library/Fonts/SFNSText.ttf",
+        "/System/Library/Fonts/HelveticaNeue.ttc",
+        "/System/Library/Fonts/Helvetica.ttc",
+        "/System/Library/Fonts/Core/Helvetica.ttc",
+        nullptr
+    };
+    int sansId = -1;
+    for (int i = 0; latinPaths[i]; i++) {
+        sansId = nvgCreateFont(canvas->vg, "sans", latinPaths[i]);
+        if (sansId >= 0) {
+            LOGD("canvas_load_system_fonts: loaded Latin font '%s' as 'sans' (id=%d)", latinPaths[i], sansId);
+            nvgCreateFont(canvas->vg, "sans-serif", latinPaths[i]);
+            nvgCreateFont(canvas->vg, "default", latinPaths[i]);
+            break;
+        }
+    }
+    static const char *cjkPaths[] = {
+        "/System/Library/Fonts/PingFang.ttc",
+        "/System/Library/Fonts/Core/PingFang.ttc",
+        "/System/Library/Fonts/STHeiti Light.ttc",
+        nullptr
+    };
+    int sansSerifId = -1, defaultId = -1;
+    if (sansId >= 0) {
+        sansSerifId = nvgFindFont(canvas->vg, "sans-serif");
+        defaultId = nvgFindFont(canvas->vg, "default");
+    }
+    for (int i = 0; cjkPaths[i]; i++) {
+        int cjkId = nvgCreateFont(canvas->vg, "cjk", cjkPaths[i]);
+        if (cjkId >= 0) {
+            LOGD("canvas_load_system_fonts: loaded CJK font '%s' (id=%d)", cjkPaths[i], cjkId);
+            if (sansId >= 0) nvgAddFallbackFontId(canvas->vg, sansId, cjkId);
+            if (sansSerifId >= 0) nvgAddFallbackFontId(canvas->vg, sansSerifId, cjkId);
+            if (defaultId >= 0) nvgAddFallbackFontId(canvas->vg, defaultId, cjkId);
+            break;
+        }
+    }
+    static const char *boldPaths[] = {
+        "/System/Library/Fonts/SFNS-Bold.ttf",
+        "/System/Library/Fonts/SFNSText-Bold.ttf",
+        "/System/Library/Fonts/HelveticaNeue.ttc",
+        nullptr
+    };
+    int boldId = -1;
+    for (int i = 0; boldPaths[i]; i++) {
+        boldId = nvgCreateFont(canvas->vg, "sans-bold", boldPaths[i]);
+        if (boldId >= 0) {
+            LOGD("canvas_load_system_fonts: loaded bold font '%s' (id=%d)", boldPaths[i], boldId);
+            break;
+        }
+    }
+    if (sansId < 0) {
+        LOGE("canvas_load_system_fonts: WARNING — no system font found, text rendering will fail");
+    }
+#endif
+}
+
 int dm_canvas_init_surface(DMCanvasRef canvas, void *native_window) {
     if (!canvas) return -1;
 
@@ -1083,154 +1291,7 @@ int dm_canvas_init_surface(DMCanvasRef canvas, void *native_window) {
             return -1;
         }
         LOGD("dm_canvas_init_surface: NanoVG context OK");
-
-        /* Load system fonts for text rendering.
-           NanoVG requires at least one font loaded before nvgText can draw.
-           Strategy: load a base Latin font, then add CJK font as fallback
-           so both Latin and Chinese/Japanese/Korean text render correctly. */
-#if defined(DIMINA_PLATFORM_HARMONY)
-        /* Base Latin font */
-        static const char *latinPaths[] = {
-            "/system/fonts/HarmonyOS_Sans_Regular.ttf",
-            "/system/fonts/HarmonyOS_Sans.ttf",
-            "/system/fonts/DroidSans.ttf",
-            nullptr
-        };
-        int sansId = -1;
-        for (int i = 0; latinPaths[i]; i++) {
-            sansId = nvgCreateFont(canvas->vg, "sans", latinPaths[i]);
-            if (sansId >= 0) {
-                LOGD("dm_canvas_init_surface: loaded Latin font '%{public}s' as 'sans' (id=%{public}d)", latinPaths[i], sansId);
-                nvgCreateFont(canvas->vg, "sans-serif", latinPaths[i]);
-                nvgCreateFont(canvas->vg, "default", latinPaths[i]);
-                break;
-            }
-        }
-        /* CJK (Chinese/Japanese/Korean) fallback font */
-        static const char *cjkPaths[] = {
-            "/system/fonts/HarmonyOS_Sans_SC_Regular.ttf",
-            "/system/fonts/HarmonyOS_Sans_SC.ttf",
-            "/system/fonts/NotoSansCJK-Regular.ttc",
-            "/system/fonts/NotoSansSC-Regular.otf",
-            "/system/fonts/DroidSansFallback.ttf",
-            nullptr
-        };
-        int sansSerifId = -1, defaultId = -1;
-        if (sansId >= 0) {
-            sansSerifId = nvgFindFont(canvas->vg, "sans-serif");
-            defaultId = nvgFindFont(canvas->vg, "default");
-        }
-        for (int i = 0; cjkPaths[i]; i++) {
-            int cjkId = nvgCreateFont(canvas->vg, "cjk", cjkPaths[i]);
-            if (cjkId >= 0) {
-                LOGD("dm_canvas_init_surface: loaded CJK font '%{public}s' (id=%{public}d)", cjkPaths[i], cjkId);
-                /* Add CJK as fallback for all base font variants */
-                if (sansId >= 0) nvgAddFallbackFontId(canvas->vg, sansId, cjkId);
-                if (sansSerifId >= 0) nvgAddFallbackFontId(canvas->vg, sansSerifId, cjkId);
-                if (defaultId >= 0) nvgAddFallbackFontId(canvas->vg, defaultId, cjkId);
-                break;
-            }
-        }
-        /* Bold variants */
-        static const char *boldPaths[] = {
-            "/system/fonts/HarmonyOS_Sans_Bold.ttf",
-            nullptr
-        };
-        int boldId = -1;
-        for (int i = 0; boldPaths[i]; i++) {
-            boldId = nvgCreateFont(canvas->vg, "sans-bold", boldPaths[i]);
-            if (boldId >= 0) {
-                LOGD("dm_canvas_init_surface: loaded bold font '%{public}s' (id=%{public}d)", boldPaths[i], boldId);
-                break;
-            }
-        }
-        static const char *boldCjkPaths[] = {
-            "/system/fonts/HarmonyOS_Sans_SC_Bold.ttf",
-            "/system/fonts/NotoSansCJK-Bold.ttc",
-            nullptr
-        };
-        for (int i = 0; boldCjkPaths[i]; i++) {
-            int bcjkId = nvgCreateFont(canvas->vg, "cjk-bold", boldCjkPaths[i]);
-            if (bcjkId >= 0) {
-                LOGD("dm_canvas_init_surface: loaded bold CJK font '%{public}s' (id=%{public}d)", boldCjkPaths[i], bcjkId);
-                if (boldId >= 0) nvgAddFallbackFontId(canvas->vg, boldId, bcjkId);
-                break;
-            }
-        }
-        if (sansId < 0) {
-            LOGE("dm_canvas_init_surface: WARNING — no system font found, text rendering will fail");
-        }
-#elif defined(DIMINA_PLATFORM_ANDROID)
-        int sansId = nvgCreateFont(canvas->vg, "sans", "/system/fonts/Roboto-Regular.ttf");
-        nvgCreateFont(canvas->vg, "sans-serif", "/system/fonts/Roboto-Regular.ttf");
-        int boldId = nvgCreateFont(canvas->vg, "sans-bold", "/system/fonts/Roboto-Bold.ttf");
-        /* CJK fallback for Android */
-        int cjkId = nvgCreateFont(canvas->vg, "cjk", "/system/fonts/NotoSansCJK-Regular.ttc");
-        if (cjkId < 0) cjkId = nvgCreateFont(canvas->vg, "cjk", "/system/fonts/DroidSansFallback.ttf");
-        if (cjkId >= 0 && sansId >= 0) nvgAddFallbackFontId(canvas->vg, sansId, cjkId);
-        if (cjkId >= 0 && boldId >= 0) nvgAddFallbackFontId(canvas->vg, boldId, cjkId);
-#elif defined(DIMINA_PLATFORM_IOS)
-        /* iOS system fonts — located in the CoreServices framework bundle.
-           Try SF Pro (iOS 9+), then Helvetica as fallback. */
-        static const char *latinPaths[] = {
-            "/System/Library/Fonts/SFNS.ttf",
-            "/System/Library/Fonts/SFNSText.ttf",
-            "/System/Library/Fonts/HelveticaNeue.ttc",
-            "/System/Library/Fonts/Helvetica.ttc",
-            "/System/Library/Fonts/Core/Helvetica.ttc",
-            nullptr
-        };
-        int sansId = -1;
-        for (int i = 0; latinPaths[i]; i++) {
-            sansId = nvgCreateFont(canvas->vg, "sans", latinPaths[i]);
-            if (sansId >= 0) {
-                LOGD("dm_canvas_init_surface: loaded Latin font '%s' as 'sans' (id=%d)", latinPaths[i], sansId);
-                nvgCreateFont(canvas->vg, "sans-serif", latinPaths[i]);
-                nvgCreateFont(canvas->vg, "default", latinPaths[i]);
-                break;
-            }
-        }
-        /* CJK fallback for iOS */
-        static const char *cjkPaths[] = {
-            "/System/Library/Fonts/PingFang.ttc",
-            "/System/Library/Fonts/Core/PingFang.ttc",
-            "/System/Library/Fonts/STHeiti Light.ttc",
-            nullptr
-        };
-        int sansSerifId = -1, defaultId = -1;
-        if (sansId >= 0) {
-            sansSerifId = nvgFindFont(canvas->vg, "sans-serif");
-            defaultId = nvgFindFont(canvas->vg, "default");
-        }
-        for (int i = 0; cjkPaths[i]; i++) {
-            int cjkId = nvgCreateFont(canvas->vg, "cjk", cjkPaths[i]);
-            if (cjkId >= 0) {
-                LOGD("dm_canvas_init_surface: loaded CJK font '%s' (id=%d)", cjkPaths[i], cjkId);
-                if (sansId >= 0) nvgAddFallbackFontId(canvas->vg, sansId, cjkId);
-                if (sansSerifId >= 0) nvgAddFallbackFontId(canvas->vg, sansSerifId, cjkId);
-                if (defaultId >= 0) nvgAddFallbackFontId(canvas->vg, defaultId, cjkId);
-                break;
-            }
-        }
-        /* Bold variant */
-        static const char *boldPaths[] = {
-            "/System/Library/Fonts/SFNS-Bold.ttf",
-            "/System/Library/Fonts/SFNSText-Bold.ttf",
-            "/System/Library/Fonts/HelveticaNeue.ttc",
-            nullptr
-        };
-        int boldId = -1;
-        for (int i = 0; boldPaths[i]; i++) {
-            boldId = nvgCreateFont(canvas->vg, "sans-bold", boldPaths[i]);
-            if (boldId >= 0) {
-                LOGD("dm_canvas_init_surface: loaded bold font '%s' (id=%d)", boldPaths[i], boldId);
-                break;
-            }
-        }
-        if (sansId < 0) {
-            LOGE("dm_canvas_init_surface: WARNING — no system font found, text rendering will fail");
-        }
-#endif
+        canvas_load_system_fonts(canvas);
     }
 
     /* Set up FBO */
@@ -1251,6 +1312,45 @@ int dm_canvas_init_surface(DMCanvasRef canvas, void *native_window) {
     return 0;
 }
 
+int dm_canvas_init_offscreen(DMCanvasRef canvas) {
+    if (!canvas) return -1;
+    canvas->offscreen = true;
+
+    LOGD("dm_canvas_init_offscreen: START canvas=%{public}p size=%{public}dx%{public}d",
+         (void*)canvas, canvas->width, canvas->height);
+
+    if (egl_init(&canvas->eglState) != 0) {
+        LOGE("dm_canvas_init_offscreen: EGL init failed");
+        return -1;
+    }
+
+    if (egl_create_pbuffer_surface(&canvas->eglState, canvas->width, canvas->height) != 0) {
+        LOGE("dm_canvas_init_offscreen: PBuffer surface creation failed");
+        return -1;
+    }
+
+    if (!canvas->vg) {
+        canvas->vg = nvgCreateGLES2(NVG_ANTIALIAS | NVG_STENCIL_STROKES);
+        if (!canvas->vg) {
+            LOGE("dm_canvas_init_offscreen: nvgCreateGLES2 failed");
+            return -1;
+        }
+        canvas_load_system_fonts(canvas);
+    }
+
+    if (canvas_setup_fbo(canvas) != 0) {
+        LOGE("dm_canvas_init_offscreen: FBO setup failed");
+        return -1;
+    }
+
+    canvas->surfaceReady = true;
+    canvas->surfaceWidth  = canvas->width;
+    canvas->surfaceHeight = canvas->height;
+    LOGD("dm_canvas_init_offscreen: DONE ready %{public}dx%{public}d",
+         canvas->width, canvas->height);
+    return 0;
+}
+
 void dm_canvas_destroy_surface(DMCanvasRef canvas) {
     if (!canvas) return;
     canvas->surfaceReady = false;
@@ -1266,6 +1366,7 @@ void dm_canvas_swap_buffers(DMCanvasRef canvas) {
              canvas ? (void*)canvas->nvgFbo : nullptr);
         return;
     }
+    if (canvas->offscreen) return;  /* no display to present to */
     /* Surface = EGL display area (XComponent physical pixels).
        FBO = drawing buffer (canvas.width/height, may be larger for HD export). */
     int sw = canvas->surfaceWidth  > 0 ? canvas->surfaceWidth  : canvas->width;
