@@ -1,0 +1,33 @@
+fe/packages/compiler/package.json
+  6fe149b21128fc22 38
+fe/packages/compiler/__tests__/build-concurrency.spec.js
+  6fe149b21128fc22 1-51
+fe/packages/compiler/src/env.js
+  6fe149b21128fc22 5,13-46,156,158,163-164,167-170,175-177,179-180,184,188-191,193,197,203,207,211,215,234,626,683,926
+fe/packages/compiler/src/index.js
+  6fe149b21128fc22 13,34-38
+fe/packages/compiler/src/common/utils.js
+  6fe149b21128fc22 90-98,103,116,118,123
+fe/packages/compiler/__tests__/common-utils.spec.js
+  6fe149b21128fc22 73-109
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "4aede0e68bc2d8fcf9c2637d1f7dbbb1538422b2",
+  "prompts": {
+    "6fe149b21128fc22": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0379e-64eb-7d13-adaa-3189e8b9ce6c",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 170,
+      "total_deletions": 36,
+      "accepted_lines": 170,
+      "overriden_lines": 0
+    }
+  }
+}
