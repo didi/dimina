@@ -652,6 +652,10 @@ void initBridges(JSContext *ctx) {
     JSValue global = JS_GetGlobalObject(ctx);
     JS_SetPropertyStr(ctx, global, "DiminaServiceBridge", diminaServiceBridge);
 
+    // Inject virtual file prefix for JSSDK
+    JS_SetPropertyStr(ctx, global, "__VIRTUAL_FILE_PREFIX__",
+                      JS_NewString(ctx, "difile://"));
+
     JS_FreeValue(ctx, global);
 }
 

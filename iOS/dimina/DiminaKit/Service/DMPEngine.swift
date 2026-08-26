@@ -117,7 +117,8 @@ public class DMPEngine: NSObject {
         }
         
         context.evaluateScript("DiminaServiceBridge = {};")
-        
+        context.evaluateScript("globalThis.__VIRTUAL_FILE_PREFIX__ = '\(DMPFileUtil.DMPFileURLScheme)://';")
+
         DMPEngineLog.injectConsole(to: context)
         // setTimeout/setInterval callbacks must land on this engine's own JS thread like
         // every other entry into `context`, not on the timer source queue — otherwise a timer

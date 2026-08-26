@@ -1133,7 +1133,11 @@ static void register_dimina_service_bridge(JSContext *ctx) {
     
     // Add DiminaServiceBridge to global object
     JS_SetPropertyStr(ctx, global, "DiminaServiceBridge", diminaObj);
-    
+
+    // Inject virtual file prefix for JSSDK
+    JS_SetPropertyStr(ctx, global, "__VIRTUAL_FILE_PREFIX__",
+                      JS_NewString(ctx, "difile://"));
+
     // Free the global object reference
     JS_FreeValue(ctx, global);
 }
