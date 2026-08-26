@@ -1,5 +1,5 @@
 import { invokeAPI } from '@/api/common'
-import { fileSystemManagerAPINames } from '@/api/core/file'
+import { fileSystemManagerAPINames, VIRTUAL_FILE_PREFIX } from '@/api/core/file'
 import { updateManagerAPINames } from '@/api/core/base/update/api-names'
 
 /**
@@ -7,7 +7,7 @@ import { updateManagerAPINames } from '@/api/core/base/update/api-names'
  * https://developers.weixin.qq.com/miniprogram/dev/api/base/wx.env.html
  */
 export const env = {
-	USER_DATA_PATH: 'difile://usr',
+	USER_DATA_PATH: `${VIRTUAL_FILE_PREFIX}usr`,
 }
 
 // JS 层内置支持的API列表

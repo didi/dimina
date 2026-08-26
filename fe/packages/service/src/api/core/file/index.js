@@ -1,5 +1,7 @@
 import { invokeAPI } from '@/api/common'
 
+export const VIRTUAL_FILE_PREFIX = globalThis.__VIRTUAL_FILE_PREFIX__ || 'difile://'
+
 /**
  * 新开页面打开文档
  * https://developers.weixin.qq.com/miniprogram/dev/api/file/wx.openDocument.html
@@ -651,7 +653,14 @@ let fileSystemManagerInstance = null
  */
 export function getFileSystemManager() {
 	if (!fileSystemManagerInstance) {
-		fileSystemManagerInstance = new FileSystemManager()
+		const fsm = new FileSystemManager()
+		// Copy prototype methods as own properties so that
+		// Object.keys(fsm).filter(k => typeof fsm[k] === 'function')
+		// works as callers expect (e.g. Taro compatibility layer).
+		for (const name of fileSystemManagerAPINames) {
+			fsm[name] = fsm[name].bind(fsm)
+		}
+		fileSystemManagerInstance = fsm
 	}
 	return fileSystemManagerInstance
 }
