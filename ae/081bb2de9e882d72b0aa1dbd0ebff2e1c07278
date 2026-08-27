@@ -1,0 +1,65 @@
+examples/miniprogram/base/pages/custom-component/components/bar-icon/bar-icon.js
+  10c0a34f4e797369 22
+  40d0fb6cb5e1e58c 15,18,21,23-30,35,38-44
+fe/packages/service/src/instance/page/page.js
+  40d0fb6cb5e1e58c 36,38,176,182-196,198,221-224
+fe/packages/service/src/index.js
+  40d0fb6cb5e1e58c 147-149,157,231-233
+fe/packages/service/__tests__/lifecycle-order.spec.js
+  40d0fb6cb5e1e58c 90-139,430-499,511,545-579,581
+fe/packages/service/src/instance/component/component.js
+  40d0fb6cb5e1e58c 53,84,109,436-438,444-449,491,505-519,521,523,1014-1018,1070-1073,1081-1084,1093-1096,1102
+fe/packages/render/__tests__/runtime.spec.js
+  40d0fb6cb5e1e58c 62-105
+fe/packages/render/src/core/runtime.js
+  40d0fb6cb5e1e58c 881-887
+docs/Architecture-Lifecycle.md
+  40d0fb6cb5e1e58c 30,38-43,49,58,60-62,66-68,70-74,103-104,109
+examples/miniprogram/base/pages/custom-component/components/navigation-bar/navigation-bar.js
+  10c0a34f4e797369 130
+  40d0fb6cb5e1e58c 62,65,68,83-91,95-98,101-107,127-129
+fe/packages/service/__tests__/behavior-runtime.spec.js
+  40d0fb6cb5e1e58c 124,143,149-273
+fe/packages/service/src/core/utils.js
+  40d0fb6cb5e1e58c 327-329
+fe/packages/service/__tests__/page-startup-protocol.spec.js
+  40d0fb6cb5e1e58c 14,41,47-51
+examples/miniprogram/base/pages/custom-component/index.js
+  40d0fb6cb5e1e58c 17,20,23,26,29,31-32
+  10c0a34f4e797369 30
+fe/packages/service/src/core/runtime.js
+  40d0fb6cb5e1e58c 191,221,238,276-277,279-284,337-341,376-399,422,613-622,634-640
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "ae081bb2de9e882d72b0aa1dbd0ebff2e1c07278",
+  "prompts": {
+    "10c0a34f4e797369": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fc587-99e6-7380-a597-4301b7cc2ed1",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 43090,
+      "overriden_lines": 0
+    },
+    "40d0fb6cb5e1e58c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0416e-f080-7f41-a6c0-9bfe55d28490",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 578,
+      "total_deletions": 96,
+      "accepted_lines": 2705,
+      "overriden_lines": 0
+    }
+  }
+}
