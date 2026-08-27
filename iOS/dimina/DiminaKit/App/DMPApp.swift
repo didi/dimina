@@ -18,12 +18,37 @@ public class DMPApp {
     private var currentLaunchConfig: DMPLaunchConfig?
     
     public var render: DMPRender?
-    public var service: DMPService?
+    public var service: DMPService? {
+        didSet {
+            guard service !== oldValue else { return }
+            // 新 service 是新的 JS 运行时：bundle 还没求值，它自己随后会派发一次
+            // App.onLaunch/onShow，所以送达状态回到「已显示」，等就绪再补差额。
+            // 容器意图不动——换掉运行时不等于容器隐藏，重启期间到达的真实前后台变化
+            // 记在 appVisibleDesired 上，由新运行时就绪时结算。
+            appRuntimeReady = false
+            appVisibleSent = true
+        }
+    }
     public var container: DMPContainer?
     public var containerApi: DMPContainerApi?
 
     private var isLaunching = false
     private var isDestroyed = false
+
+    // App 级可见性账本。微信里 App.onShow/onHide 严格交替，同一个状态不会重复派发；
+    // 而跨小程序打开的目标在启动窗口里还没有 service，此刻到达的系统前后台事件直接
+    // 发出去就整条丢了，小程序会在后台以为自己仍在前台。账本只记两件事：容器认定的
+    // 可见状态，和最后真正送达 service 的状态，两者不一致且 service 存在时才派发。
+    // 起点是「已显示」：小程序启动本身就是一次 onShow，由 JS 侧自己派发。
+    private var appVisibleDesired = true
+    private var appVisibleSent = true
+    // service.js / logic.js 求值之前 DiminaServiceBridge 还不存在，此刻投递的消息
+    // 会在引擎队列里整条丢掉，所以就绪之前只记账不派发。
+    private var appRuntimeReady = false
+    // 宿主在后台时被交还展示关系的小程序：容器意图仍是不可见，这次恢复该带的 enter options
+    // 先存在这里，等宿主真正回到前台、账本第一次派发 App.onShow 时一并交出去。
+    private var pendingShowScene: Int?
+    private var pendingShowReferrerInfo: [String: Any]?
     
     public init(appConfig: DMPAppConfig, appIndex: Int) {
         self.appConfig = appConfig
@@ -73,8 +98,7 @@ public class DMPApp {
             return false
         }
 
-        await openPage(launchConfig: launchConfig)
-        return true
+        return await openPage(launchConfig: launchConfig)
     }
 
     @MainActor
@@ -232,6 +256,17 @@ public class DMPApp {
         await service?.loadFile(path: DMPSandboxManager.appServicePath(appId: appId))
     }
 
+    /// service 侧 App 实例已经存在，可以接生命周期消息了：把启动窗口期只记在账本里、
+    /// 还没派发的可见性变化补上。
+    ///
+    /// 只有 `serviceResourceLoaded` 能给出这个保证。`loadFile` 返回时 logic.js 才刚被投给
+    /// 引擎求值，App 实例要等 loader 的 `modRequire('app')` 才建出来；在那之前投递的 appHide
+    /// 会被 service 侧 `runtime.appHide()` 的 `this.app` 判空静默丢掉。
+    func markAppRuntimeReady() {
+        appRuntimeReady = true
+        flushAppVisibility()
+    }
+
     func notifyUpdateStatus(event: String) async {
         let message = DMPMap([
             "type": "onUpdateStatusChange",
@@ -243,7 +278,8 @@ public class DMPApp {
     }
 
     @MainActor
-    public func openPage(launchConfig: DMPLaunchConfig) async {
+    @discardableResult
+    public func openPage(launchConfig: DMPLaunchConfig) async -> Bool {
         DMPLogger.debug("openPage")
         var newLaunchConfig = launchConfig
         // 尊重调用方指定的启动页（扫码/分享等场景从内页启动，此时导航栏按
@@ -252,7 +288,8 @@ public class DMPApp {
         // DMPBundleAppConfig.entryPagePath 及页面栈 key 同口径
         newLaunchConfig.appEntryPath = resolvedEntryPath(for: launchConfig)
         currentLaunchConfig = newLaunchConfig
-        await navigator?.launch(to: newLaunchConfig.appEntryPath ?? "", query: newLaunchConfig.query)
+        guard let navigator else { return false }
+        return await navigator.launch(to: newLaunchConfig.appEntryPath ?? "", query: newLaunchConfig.query)
     }
 
     private func resolvedEntryPath(for launchConfig: DMPLaunchConfig) -> String {
@@ -434,6 +471,106 @@ public class DMPApp {
             msg: DMPMap(["type": "appShow", "body": body]),
             app: self
         )
+    }
+
+    @MainActor
+    func notifyMiniProgramHide() {
+        notifyMiniProgramHide(webViewId: getCurrentWebViewId())
+    }
+
+    @MainActor
+    func notifyMiniProgramHide(webViewId: Int) {
+        guard appVisibleDesired else { return }
+        appVisibleDesired = false
+        guard appRuntimeReady else { return }
+        appVisibleSent = false
+        if webViewId > 0 {
+            navigator?.dispatchPageHide(webViewId: webViewId)
+        }
+        notifyAppHide()
+    }
+
+    /// 运行时整体销毁前把终态 App.onHide 交给旧 service。
+    ///
+    /// 这不是一次容器隐藏，所以只推进送达状态、不动 `appVisibleDesired`：重启期间到达的
+    /// 系统前后台变化才是容器的真实意图，要留给新运行时结算。派发后旧 service 不再是有效
+    /// 投递目标，`appRuntimeReady` 一并归假，避免这段窗口里的事件发给正在销毁的引擎。
+    @MainActor
+    func notifyRuntimeTeardownHide() {
+        guard appRuntimeReady else { return }
+        appRuntimeReady = false
+        guard appVisibleSent else { return }
+        appVisibleSent = false
+        let webViewId = getCurrentWebViewId()
+        if webViewId > 0 {
+            navigator?.dispatchPageHide(webViewId: webViewId)
+        }
+        notifyAppHide()
+    }
+
+    @MainActor
+    func notifyMiniProgramShow(scene: Int? = nil, referrerInfo: [String: Any]? = nil) {
+        notifyMiniProgramShow(
+            webViewId: getCurrentWebViewId(),
+            scene: scene,
+            referrerInfo: referrerInfo
+        )
+    }
+
+    @MainActor
+    func notifyMiniProgramShow(
+        webViewId: Int,
+        scene: Int? = nil,
+        referrerInfo: [String: Any]? = nil
+    ) {
+        guard !appVisibleDesired else { return }
+        appVisibleDesired = true
+        guard appRuntimeReady else { return }
+        appVisibleSent = true
+        let options = consumePendingShow(scene: scene, referrerInfo: referrerInfo)
+        notifyAppShow(scene: options.scene, referrerInfo: options.referrerInfo)
+        guard webViewId > 0 else { return }
+        navigator?.dispatchPageShow(webViewId: webViewId)
+    }
+
+    /// 宿主在后台时把这个小程序恢复成展示中的那一个。
+    ///
+    /// 这不是一次可见性变化——容器整体不可见，opener 也就没有显示——所以账本不动，只记下
+    /// 这次恢复该带的 scene/referrerInfo。真正的 App.onShow 由宿主回到前台时派发，届时
+    /// 这份 enter options 会覆盖掉调用方的默认值，把 1038 和 referrerInfo 带到正确的那条
+    /// show 上。
+    @MainActor
+    func stashMiniProgramShow(scene: Int?, referrerInfo: [String: Any]?) {
+        pendingShowScene = scene
+        pendingShowReferrerInfo = referrerInfo
+    }
+
+    /// 取出并清空暂存的 enter options；没有暂存时原样返回调用方传入的值。
+    private func consumePendingShow(
+        scene: Int?,
+        referrerInfo: [String: Any]?
+    ) -> (scene: Int?, referrerInfo: [String: Any]?) {
+        guard pendingShowScene != nil || pendingShowReferrerInfo != nil else {
+            return (scene, referrerInfo)
+        }
+        let pending = (scene: pendingShowScene, referrerInfo: pendingShowReferrerInfo)
+        pendingShowScene = nil
+        pendingShowReferrerInfo = nil
+        return pending
+    }
+
+    /// 结算账本：service 缺席期间记下的可见性变化，在新 service 出现时补发。
+    /// 只补 App 级事件——页面级的 show/hide 由当时的页面栈决定，缺席期间那些
+    /// 页面并不存在，补发一条针对旧 webViewId 的消息只会送到已经没了的页面。
+    private func flushAppVisibility() {
+        guard appRuntimeReady, appVisibleSent != appVisibleDesired else { return }
+        appVisibleSent = appVisibleDesired
+        if appVisibleDesired {
+            let options = consumePendingShow(scene: nil, referrerInfo: nil)
+            notifyAppShow(scene: options.scene, referrerInfo: options.referrerInfo)
+        } else {
+            notifyAppHide()
+        }
     }
 
     /// 注册第三方扩展 bridge 模块。

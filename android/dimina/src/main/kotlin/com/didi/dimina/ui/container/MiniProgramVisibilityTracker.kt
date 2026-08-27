@@ -42,6 +42,10 @@ internal class MiniProgramVisibilityTracker<T> {
         return true
     }
 
+    /** Records an explicit whole-app transition, independent of Activity callback interleaving. */
+    @Synchronized
+    fun onMiniProgramHidden(appId: String): Boolean = visibleActivities.remove(appId) != null
+
     /** [appId] 名下当前是否还有可见的 Activity。 */
     @Synchronized
     fun isForeground(appId: String): Boolean = !visibleActivities[appId].isNullOrEmpty()

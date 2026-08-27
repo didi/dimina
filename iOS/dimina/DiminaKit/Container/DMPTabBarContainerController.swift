@@ -23,6 +23,9 @@ final class DMPTabBarContainerController: UIViewController {
     )
     private var tabBarHeightConstraint: NSLayoutConstraint?
     private var tabControllers: [Int: DMPPageController] = [:]
+    // tab 页的销毁和普通页一样可能晚到转场之后，原因由容器统一持有并转交给每个 tab 页，
+    // 包括标注之后才建出来的那个。
+    private var pageStateTeardownReason: DMPPageStateTeardown = .routing
     private var tabPageRecords: [Int: DMPPageRecord] = [:]
 
     private(set) var selectedIndex: Int = 0
@@ -199,6 +202,11 @@ final class DMPTabBarContainerController: UIViewController {
         tabBarView.hideRedDot(index: index)
     }
 
+    func markTeardownReason(_ reason: DMPPageStateTeardown) {
+        pageStateTeardownReason = reason
+        tabControllers.values.forEach { $0.markTeardownReason(reason) }
+    }
+
     func destroy() {
         tabControllers.values.forEach { $0.destroy() }
     }
@@ -259,6 +267,7 @@ final class DMPTabBarContainerController: UIViewController {
         pageRecord.query = query
         pageRecord.navStyle = app.getBundleAppConfig()?.getPageConfig(pagePath: pagePath)
 
+        pageController.markTeardownReason(pageStateTeardownReason)
         tabControllers[index] = pageController
         tabPageRecords[index] = pageRecord
         attachLoadedTabIfNeeded(index)

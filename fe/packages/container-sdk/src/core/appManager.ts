@@ -122,7 +122,8 @@ export class AppManager {
 			const appsToDestroy = [...this.apps.values()].filter(app => app.appId !== appId)
 			for (const app of appsToDestroy) {
 				const currentBridge = app.navigator.popPage()
-				currentBridge?.destroy()
+				// 整个小程序被关掉，不是一次路由：静默回收，不派发 Page.onUnload。
+				currentBridge?.destroy('exit')
 				await dimina.destroyRootView(app) // view.destroy() 内部会把自己从 apps 里移除
 			}
 		}

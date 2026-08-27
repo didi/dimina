@@ -68,7 +68,14 @@ export struct DMPCapsuleButton {
         if (this.onCloseClick) {
           this.onCloseClick()
         } else {
-          DMPAppManager.sharedInstance().getApp(this.appIndex)?.closeDimina()
+          const app = DMPAppManager.sharedInstance().getApp(this.appIndex)
+          if (app) {
+            // Mirrors DMPPageContainer.closeMiniProgram: exitMiniProgram (not
+            // closeDimina directly) restores the opener when one exists.
+            DMPAppManager.sharedInstance().exitMiniProgram(app, async () => {}).catch((error: Error) => {
+              DMPLogger.e(Tags.DMP_PAGE, `capsule close failed: ${error.message}`)
+            })
+          }
         }
       })
     }

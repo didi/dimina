@@ -7,6 +7,13 @@ import { uuid } from '../utils/util.js'
 const RESOURCE_READY_TIMEOUT_MS = 15000
 
 /** Bridge.start(options) 的可选启动参数：透传 visible 覆盖 desiredPageVisible 缺省值。 */
+/**
+ * 拆掉页面的两种原因。微信里 unloadPage 只有路由事件（reLaunch/redirectTo/navigateBack/
+ * switchTab）会触发，退出小程序走的是 onAppEnterBackground，只派发 App.onHide，页面不收
+ * onUnload。三端语义一致，Android 见 core/Bridge.kt 的 PageStateTeardown。
+ */
+export type PageStateTeardown = 'routing' | 'exit'
+
 export interface BridgeStartOptions {
 	visible?: boolean
 }
@@ -374,6 +381,10 @@ export class Bridge {
 		) {
 			return
 		}
+		if (!this.desiredPageVisible && this.sentPageVisible === null) {
+			this.sentPageVisible = false
+			return
+		}
 
 		this.jscore.postMessage({
 			type: this.desiredPageVisible ? 'pageShow' : 'pageHide',
@@ -384,7 +395,11 @@ export class Bridge {
 		this.sentPageVisible = this.desiredPageVisible
 	}
 
-	destroy(): void {
+	/**
+	 * @param reason 默认按路由处理：直接销毁一个 Bridge 的调用点全都是路由卸载页面。
+	 * 退出小程序或整体换 runtime 由关闭方显式传 'exit'，那时只静默回收资源。
+	 */
+	destroy(reason: PageStateTeardown = 'routing'): void {
 		const wasResourceLoaded = this.isResourceLoaded()
 		this.#rejectResourceReady(new Error('bridge was destroyed before resources became ready'))
 		this.destroyed = true
@@ -394,7 +409,7 @@ export class Bridge {
 		this.resourceLoadId = null
 		this.desiredPageVisible = null
 		this.sentPageVisible = null
-		if (wasResourceLoaded) {
+		if (wasResourceLoaded && reason === 'routing') {
 			this.jscore.postMessage({
 				type: 'pageUnload',
 				body: {

@@ -116,6 +116,7 @@ import com.didi.dimina.common.Utils
 import com.didi.dimina.common.VersionUtils
 import com.didi.dimina.core.Bridge
 import com.didi.dimina.core.MiniApp
+import com.didi.dimina.core.PageStateTeardown
 import com.didi.dimina.core.RemoteUpdateManager
 import com.didi.dimina.ui.theme.DiminaAndroidTheme
 import com.didi.dimina.ui.view.ActionSheet
@@ -145,6 +146,7 @@ import kotlin.math.sin
 class DiminaActivity : ComponentActivity() {
     private val tag = "DiminaActivity"
     private val isLoading = mutableStateOf(true)
+    private var suspendedForMiniProgramNavigation = false
 
     // UI state for navigation bar
     private val showNavigationBar = mutableStateOf(true)
@@ -285,6 +287,13 @@ class DiminaActivity : ComponentActivity() {
     private var adjustBottom = 0.0
     private var preserveMiniAppOnDestroy = false
     private var pageResourcesReleased = false
+
+    /**
+     * 这个页面 Activity 因何而销毁。每个页面都是一个 Activity，onDestroy 既覆盖 navigateBack
+     * 这类路由卸载，也覆盖退出小程序时整栈一起 finish——只有前者该派发 Page.onUnload。默认按
+     * 路由处理（含系统回收），关栈的一方在 finish() 之前改写它。
+     */
+    private var pageStateTeardownReason = PageStateTeardown.ROUTING
 
     // 屏幕高度
     private var screenHeight = 0
@@ -744,6 +753,7 @@ class DiminaActivity : ComponentActivity() {
             this.bridge = bridge
         }
         miniApp.startUpdateCheckIfNeeded(applicationContext, miniProgram)
+        reconcileAppVisibilityWithCore()
         return bridge
     }
 
@@ -1515,7 +1525,7 @@ class DiminaActivity : ComponentActivity() {
         }
     }
 
-    private fun releasePageResources() {
+    private fun releasePageResources(reason: PageStateTeardown) {
         if (pageResourcesReleased || !isMiniProgramInitialized) return
         pageResourcesReleased = true
 
@@ -1527,7 +1537,7 @@ class DiminaActivity : ComponentActivity() {
         }.distinct()
 
         bridgesToDestroy.forEach { cBridge ->
-            miniApp.removeBridge(miniProgram.appId, cBridge)?.destroy()
+            miniApp.removeBridge(miniProgram.appId, cBridge)?.destroy(reason = reason)
         }
         bridge = null
         tabPageStates.values.forEach { it.bridge = null }
@@ -1545,7 +1555,8 @@ class DiminaActivity : ComponentActivity() {
         // 这批 Activity 的 onDestroy 可能晚于新 Activity 创建，由重启协调者统一
         // clear MiniApp，避免旧页面再次清掉刚创建的新 JS 运行时。
         preserveMiniAppOnDestroy = true
-        releasePageResources()
+        // 冷重启是「关掉再重开」而不是一次路由：旧运行时紧接着整体销毁，不补 onUnload。
+        releasePageResources(PageStateTeardown.EXIT)
 
         val ownedWebViews = buildList {
             webView?.let { add(it) }
@@ -1568,36 +1579,39 @@ class DiminaActivity : ComponentActivity() {
     }
 
     /**
-     * WebSocket 的后台判据挂在 onStart/onStop 而不是 onResume/onPause 上：权限弹窗、系统
-     * 分享面板和对话框式的系统选择器只会让这个 Activity onPause，它仍然可见，小程序也并没有
-     * 进入后台；按 onPause 判定会在用户停留超过后台宽限期时误杀掉全部连接。真正的迁移由
-     * [visibilityTracker] 按 appId 判定，多页面小程序在自己的页面之间跳转不构成前后台变化。
+     * 系统前后台变化由 onStart/onStop 驱动；跨小程序 API 则在 owner 交接时显式更新同一份
+     * [visibilityTracker]。onPause 不作为 App 后台判据，避免权限弹窗或系统面板误杀连接。
      */
     override fun onStart() {
         super.onStart()
         if (isMiniProgramInitialized && visibilityTracker.onActivityVisible(miniProgram.appId, this)) {
-            com.didi.dimina.api.network.WebSocketManager.shared.setBackgrounded(miniProgram.appId, false)
+            dispatchMiniProgramShow()
         }
+        suspendedForMiniProgramNavigation = false
     }
 
     override fun onStop() {
         if (isMiniProgramInitialized && visibilityTracker.onActivityHidden(miniProgram.appId, this)) {
-            com.didi.dimina.api.network.WebSocketManager.shared.setBackgrounded(miniProgram.appId, true)
+            dispatchMiniProgramHide()
         }
         super.onStop()
     }
 
     override fun onResume() {
         super.onResume()
+        if (suspendedForMiniProgramNavigation) {
+            if (visibilityTracker.onActivityVisible(miniProgram.appId, this)) {
+                dispatchMiniProgramShow()
+            }
+            suspendedForMiniProgramNavigation = false
+        }
         getActiveBridge()?.let {
-            it.appShow(miniApp.consumePendingAppShowOptions(miniProgram.appId))
             it.pageShow()
         }
     }
 
     override fun onPause() {
         getActiveBridge()?.let {
-            it.appHide()
             it.pageHide()
         }
         super.onPause()
@@ -1608,7 +1622,7 @@ class DiminaActivity : ComponentActivity() {
             activityRegistry.unregister(miniProgram.appId, this)
         }
 
-        releasePageResources()
+        releasePageResources(pageStateTeardownReason)
 
         if (!preserveMiniAppOnDestroy && miniApp.isBridgeListEmpty(miniProgram.appId)) {
             // Clear resources for this specific MiniProgram
@@ -1651,7 +1665,7 @@ class DiminaActivity : ComponentActivity() {
                 },
                 onCloseClick = {
                     showMiniProgramMenu.value = false
-                    closeMiniProgram()
+                    exitMiniProgram()
                 },
                 onDismiss = {
                     showMiniProgramMenu.value = false
@@ -1854,7 +1868,7 @@ class DiminaActivity : ComponentActivity() {
                     onMoreClick = {
                         showMiniProgramMenu.value = true
                     },
-                    onCloseClick = { closeMiniProgram() },
+                    onCloseClick = { exitMiniProgram() },
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(
@@ -1869,13 +1883,21 @@ class DiminaActivity : ComponentActivity() {
 
     private fun closeMiniProgram() {
         activityRegistry.closeAll(miniProgram.appId) { activity ->
+            // 退出对齐微信的「小程序切入后台」：只派发 App.onHide，整栈页面都不收 onUnload。
+            activity.pageStateTeardownReason = PageStateTeardown.EXIT
             activity.finish()
         }
     }
 
     /** Opens a resolved bundled mini program as a new root above this one. */
     fun navigateToMiniProgram(target: MiniProgram) {
-        miniApp.openApp(this, target)
+        suspendForMiniProgramNavigation()
+        try {
+            miniApp.openApp(this, target)
+        } catch (error: Exception) {
+            resumeAfterMiniProgramNavigationFailure()
+            throw error
+        }
     }
 
     /**
@@ -1884,6 +1906,7 @@ class DiminaActivity : ComponentActivity() {
      */
     fun navigateBackMiniProgram(extraData: JSONObject): Boolean {
         if (!queueOpenerReturn(extraData)) return false
+        suspendForMiniProgramNavigation()
         closeMiniProgram()
         return true
     }
@@ -1892,8 +1915,71 @@ class DiminaActivity : ComponentActivity() {
         // exit has no return extraData, but revealing a live opener is still scene 1038
         // ("returned from another mini program"). Queue it before closing this Activity;
         // MiniApp consumes the payload exactly once when the opener resumes.
-        queueOpenerReturn(extraData = null)
+        if (queueOpenerReturn(extraData = null)) {
+            suspendForMiniProgramNavigation()
+        }
         closeMiniProgram()
+    }
+
+    private fun suspendForMiniProgramNavigation() {
+        if (suspendedForMiniProgramNavigation) return
+        getActiveBridge()?.pageHide()
+        if (visibilityTracker.onMiniProgramHidden(miniProgram.appId)) {
+            dispatchMiniProgramHide()
+        }
+        suspendedForMiniProgramNavigation = true
+    }
+
+    private fun resumeAfterMiniProgramNavigationFailure() {
+        if (!suspendedForMiniProgramNavigation) return
+        if (visibilityTracker.onActivityVisible(miniProgram.appId, this)) {
+            dispatchMiniProgramShow()
+        }
+        getActiveBridge()?.pageShow()
+        suspendedForMiniProgramNavigation = false
+    }
+
+    /**
+     * [MiniApp.getJsCore] would synchronously unzip and evaluate service.js on whatever thread
+     * calls it; onStart/onStop run on the main thread, so this only forwards to an instance that
+     * `initialize()` has already bootstrapped off it. A recreate that bypasses [MiniApp.openApp]
+     * (a config change, or a process-death restore from Recents) can call this before that
+     * bootstrap lands - the pending intent is not lost, it is left for
+     * [reconcileAppVisibilityWithCore] to replay once a real JsCore exists.
+     */
+    private fun dispatchMiniProgramShow() {
+        val jsCore = miniApp.peekJsCore(miniProgram.appId)
+        if (jsCore != null) {
+            val showOptions = miniApp.consumePendingAppShowOptions(miniProgram.appId)?.apply {
+                getActiveBridge()?.options?.pathInfo?.let { pathInfo ->
+                    if (!has("pagePath")) put("pagePath", pathInfo.pagePath)
+                    if (!has("query")) put("query", pathInfo.query ?: JSONObject())
+                }
+            }
+            jsCore.appShow(showOptions)
+        }
+        com.didi.dimina.api.network.WebSocketManager.shared.setBackgrounded(miniProgram.appId, false)
+    }
+
+    private fun dispatchMiniProgramHide() {
+        miniApp.peekJsCore(miniProgram.appId)?.appHide()
+        com.didi.dimina.api.network.WebSocketManager.shared.setBackgrounded(miniProgram.appId, true)
+    }
+
+    /**
+     * A freshly-created JsCore's AppVisibilityLedger defaults to "shown" - the service-side App's
+     * own construction already fires an implicit onShow. [dispatchMiniProgramShow]/
+     * [dispatchMiniProgramHide] may have run earlier in onStart/onStop with no JsCore to forward
+     * to yet; reconcile that default against the tracker's live truth once this Activity's
+     * `initialize()` hands a real JsCore to its Bridge. Idempotent when the JsCore already
+     * existed and was already current.
+     */
+    private fun reconcileAppVisibilityWithCore() {
+        if (visibilityTracker.isForeground(miniProgram.appId)) {
+            dispatchMiniProgramShow()
+        } else {
+            dispatchMiniProgramHide()
+        }
     }
 
     private fun queueOpenerReturn(extraData: JSONObject?): Boolean {

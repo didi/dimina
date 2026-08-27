@@ -28,6 +28,11 @@ class DMPChannelProxy {
             ])
 
             if type == "serviceResourceLoaded" || type == "renderResourceLoaded" {
+                if type == "serviceResourceLoaded" {
+                    // service 端发出这条消息时 loader 已经跑完 modRequire('app')，App 实例必定存在。
+                    // 渲染层是否就绪与此无关，所以放在 isResourceLoaded 分支之外。
+                    app.markAppRuntimeReady()
+                }
                 guard let container = app.container else {
                     DMPLogger.debug("resourceLoaded ignored: runtime container is unavailable")
                     return DMPMap()

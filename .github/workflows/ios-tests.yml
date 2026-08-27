@@ -2,9 +2,9 @@ name: iOS Tests
 
 on:
   push:
-    paths: ['iOS/**', 'shared/**', '.github/workflows/ios-tests.yml']
+    paths: ['iOS/**', 'harmony/**', 'shared/**', '.github/workflows/ios-tests.yml']
   pull_request:
-    paths: ['iOS/**', 'shared/**', '.github/workflows/ios-tests.yml']
+    paths: ['iOS/**', 'harmony/**', 'shared/**', '.github/workflows/ios-tests.yml']
   workflow_dispatch:
 
 jobs:

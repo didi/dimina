@@ -4,7 +4,16 @@ import { Tags } from '../EventTrack/Tags';
 import { DMPChannelProxyNext } from '../Service/DMPChannelProxyNext';
 import { DMPMap } from '../Utils/DMPMap';
 
-export class DMPPageLifecycle {
+// Narrow surface DMPNavigatorManager depends on, so tests can substitute a Fake
+// without constructing a real DMPApp (whose construction spins up a real
+// DMPService/Worker - unsafe to build inside a local unit test).
+export interface DMPPageLifecycleLike {
+  onShow(webviewId: number): void
+
+  onHide(webviewId: number): void
+}
+
+export class DMPPageLifecycle implements DMPPageLifecycleLike {
   app: DMPApp
 
   constructor(app: DMPApp) {

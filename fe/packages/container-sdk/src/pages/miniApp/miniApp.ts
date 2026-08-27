@@ -1061,15 +1061,15 @@ export class MiniApp {
 	onPresentOut(): void {
 		const currentBridge = this.navigator.top
 
+		currentBridge?.pageHide()
 		this.webSocketManager.onAppHide()
 		this.jscore.appHide()
-		currentBridge?.pageHide()
 	}
 
 	/**
-	 * Queue Page.onUnload for every live stack/tab page before the caller's FIFO callback barrier.
-	 * Bridge destruction does not remove the iframe DOM, so exit animations can still finish while
-	 * the old service runtime drains these terminal lifecycle messages.
+	 * 回收整个小程序的 Bridge 资源，排在调用方的 FIFO 回调 barrier 之前。这条链路只由退出
+	 * 小程序和整体换 runtime 走，不是路由，所以按 'exit' 静默回收，不派发 Page.onUnload——
+	 * 关掉整个小程序在微信里走的是切后台那条路。Bridge 销毁不摘 iframe DOM，退出动画照常播完。
 	 */
 	queueDestructionLifecycle(): void {
 		if (this._destructionLifecycleQueued) {
@@ -1078,7 +1078,7 @@ export class MiniApp {
 		this._destructionLifecycleQueued = true
 		const bridges = new Set([...this.navigator.getStack(), ...this.navigator.getTabBridges()])
 		for (const bridge of bridges) {
-			bridge.destroy()
+			bridge.destroy('exit')
 		}
 	}
 

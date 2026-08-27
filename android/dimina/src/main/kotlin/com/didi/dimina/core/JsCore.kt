@@ -21,6 +21,7 @@ class JsCore {
     private val runtimeMessageQueue = RuntimeMessageQueue { action ->
         mainHandler.post(action)
     }
+    private val appVisibilityLedger = AppVisibilityLedger()
     // 记录所有已加载的 JS 文件路径
     private val loadedJsPaths = mutableSetOf<String>()
 
@@ -201,6 +202,35 @@ class JsCore {
         }
     }
 
+    @Synchronized
+    fun appShow(options: JSONObject? = null) {
+        dispatchAppVisibility(appVisibilityLedger.onShow(options))
+    }
+
+    @Synchronized
+    fun appHide() {
+        dispatchAppVisibility(appVisibilityLedger.onHide())
+    }
+
+    @Synchronized
+    fun notifyServiceReady() {
+        dispatchAppVisibility(appVisibilityLedger.onServiceReady())
+    }
+
+    private fun dispatchAppVisibility(delivery: AppVisibilityDelivery?) {
+        delivery ?: return
+        if (delivery.visible) {
+            val options = delivery.options
+            if (options == null) {
+                postMessage(type = "appShow")
+            } else {
+                postMessage(type = "appShow", body = options)
+            }
+        } else {
+            postMessage(type = "appHide")
+        }
+    }
+
     /**
      * Enqueues lifecycle work behind every service message already posted to this runtime.
      * Destructive API actions use this instead of a delay so callback ordering is deterministic.
@@ -213,7 +243,8 @@ class JsCore {
 
     /**
      * Stops accepting new service messages and destroys QuickJS behind every message already
-     * queued for this runtime. Bridge.destroy() can therefore deliver Page.onUnload first.
+     * queued for this runtime, so App.onHide and every terminal API callback still reach the page
+     * before the engine goes away.
      */
     fun destroyAfterMessages() {
         runtimeMessageQueue.closeAfterPending {
@@ -240,6 +271,7 @@ class JsCore {
     }
 
     private fun destroyEngine() {
+        appVisibilityLedger.reset()
         if (!::jsEngine.isInitialized) return
         loadedJsPaths.clear()
         jsEngine.destroy()

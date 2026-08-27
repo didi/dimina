@@ -21,6 +21,19 @@ import org.json.JSONObject
 import java.io.File
 
 /**
+ * 拆掉一个页面运行时状态的两种原因。微信里 unloadPage 只有路由事件（reLaunch/
+ * redirectTo/navigateBack/switchTab）会触发，退出小程序走的是 onAppEnterBackground，
+ * 只派发 App.onHide，页面不收 onUnload。
+ */
+enum class PageStateTeardown {
+    /** 路由卸载页面：页面确实被路由销毁。 */
+    ROUTING,
+
+    /** 退出小程序或整体换运行时：运行时随后整体销毁，页面不派发 onUnload。 */
+    EXIT,
+}
+
+/**
  * Author: Doslin
  */
 class Bridge(
@@ -39,12 +52,12 @@ class Bridge(
     private var destroyed: Boolean = false
     @Volatile
     private var resourceLoadId: String? = null
-    @Volatile
-    private var desiredPageVisible: Boolean? = null
-    @Volatile
-    private var sentPageVisible: Boolean? = null
-    @Volatile
-    private var pendingAppShowOptions: JSONObject? = null
+    private val pageVisibilityLedger = PageVisibilityLedger { delivery ->
+        options.jscore.postMessage(
+            if (delivery == PageVisibilityDelivery.SHOW) "pageShow" else "pageHide",
+            mapOf("bridgeId" to id)
+        )
+    }
 
     /**
      * Bridge 初始化逻辑
@@ -83,11 +96,7 @@ class Bridge(
         val currentResourceLoadId = synchronized(this) {
             destroyed = false
             resourceLoadId = Utils.uuid()
-            if (visible != null) {
-                desiredPageVisible = visible
-            } else if (desiredPageVisible == null) {
-                desiredPageVisible = true
-            }
+            pageVisibilityLedger.onStart(visible)
             resourceLoadId!!
         }
 
@@ -187,7 +196,9 @@ class Bridge(
             "service" -> {
                 when (type) {
                     "serviceResourceLoaded" -> {
-                        if (markResourceLoaded(service = true)) {
+                        val resourceLoaded = markResourceLoaded(service = true)
+                        options.jscore.notifyServiceReady()
+                        if (resourceLoaded) {
                             transMsg.put("type", "resourceLoaded")
                         } else {
                             return null
@@ -294,80 +305,22 @@ class Bridge(
         }
         options.jscore.postMessage(msg.toString())
         if (msg.optString("type") == "resourceLoaded") {
-            flushPendingAppShow()
-            flushPageVisibility()
+            pageVisibilityLedger.onResourceReady()
         }
-    }
-
-    fun appShow(enterOptions: JSONObject? = null) {
-        val pending = synchronized(this) {
-            if (enterOptions != null) {
-                pendingAppShowOptions = JSONObject(enterOptions.toString())
-            }
-            if (!isResourceLoaded()) {
-                return
-            }
-            pendingAppShowOptions.also { pendingAppShowOptions = null }
-        }
-        if (pending == null) {
-            options.jscore.postMessage(type = "appShow")
-        } else {
-            postAppShow(pending)
-        }
-    }
-
-    fun appHide() {
-        if (!isResourceLoaded()) {
-            return
-        }
-        options.jscore.postMessage(type="appHide")
     }
 
     fun pageShow() {
-        desiredPageVisible = true
-        flushPageVisibility()
+        pageVisibilityLedger.onShow()
     }
 
     fun pageHide() {
-        desiredPageVisible = false
-        flushPageVisibility()
+        pageVisibilityLedger.onHide()
     }
 
-    @Synchronized
-    private fun flushPageVisibility() {
-        val visible = desiredPageVisible
-        if (!isResourceLoaded() || visible == null || sentPageVisible == visible) {
-            return
-        }
-
-        options.jscore.postMessage(
-            if (visible) "pageShow" else "pageHide",
-            mapOf("bridgeId" to id)
-        )
-        sentPageVisible = visible
-    }
-
-    private fun flushPendingAppShow() {
-        val pending = synchronized(this) {
-            if (!isResourceLoaded()) return
-            pendingAppShowOptions.also { pendingAppShowOptions = null }
-        } ?: return
-        postAppShow(pending)
-    }
-
-    private fun postAppShow(enterOptions: JSONObject) {
-        val body = JSONObject(enterOptions.toString()).apply {
-            if (!has("pagePath")) {
-                put("pagePath", options.pathInfo.pagePath)
-            }
-            if (!has("query")) {
-                put("query", options.pathInfo.query ?: JSONObject())
-            }
-        }
-        options.jscore.postMessage("appShow", body)
-    }
-
-    fun destroy(keepHandler: Boolean = false) {
+    fun destroy(
+        keepHandler: Boolean = false,
+        reason: PageStateTeardown = PageStateTeardown.ROUTING,
+    ) {
         parent.clearNativeComponents(this)
         val wasResourceLoaded = isResourceLoaded()
         synchronized(this) {
@@ -376,13 +329,11 @@ class Bridge(
             renderResource = false
             resourceLoadedForwarded = false
             resourceLoadId = null
-            desiredPageVisible = null
-            sentPageVisible = null
-            pendingAppShowOptions = null
+            pageVisibilityLedger.reset()
         }
 
-        // 发送页面卸载消息
-        if (wasResourceLoaded) {
+        // 发送页面卸载消息。退出小程序不是路由，页面不该收 onUnload——运行时紧接着整体销毁。
+        if (wasResourceLoaded && reason == PageStateTeardown.ROUTING) {
             options.jscore.postMessage("pageUnload", mapOf("bridgeId" to id))
         }
 

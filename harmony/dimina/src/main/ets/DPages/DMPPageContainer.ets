@@ -234,7 +234,12 @@ export struct DMPPageContainer {
   }
 
   private closeMiniProgram() {
-    this.app.closeDimina()
+    // Route through exitMiniProgram (not closeDimina directly) so a mini program
+    // opened via navigateToMiniProgram gets its opener restored on capsule/menu
+    // close the same way wx.exitMiniProgram already does.
+    DMPAppManager.sharedInstance().exitMiniProgram(this.app, async () => {}).catch((error: Error) => {
+      DMPLogger.e(Tags.DMP_PAGE, `closeMiniProgram failed: ${error.message}`)
+    })
   }
 
   private shouldShowTabBar(): boolean {

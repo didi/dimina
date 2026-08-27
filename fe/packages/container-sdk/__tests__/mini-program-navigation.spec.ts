@@ -34,6 +34,19 @@ async function markTopBridgeReady(app: MiniApp): Promise<void> {
 	})
 }
 
+async function markTopBridgeServiceReady(app: MiniApp): Promise<void> {
+	await vi.waitFor(() => expect(app.navigator.top?.resourceLoadId).toEqual(expect.any(String)), { timeout: 8000 })
+	const bridge = app.navigator.top!
+	bridge.messageInvoke('service', {
+		type: 'serviceResourceLoaded',
+		target: 'service',
+		body: {
+			bridgeId: bridge.id,
+			resourceLoadId: bridge.resourceLoadId!,
+		},
+	})
+}
+
 describe('mini program container navigation APIs', () => {
 	let mount: HTMLElement
 
@@ -48,6 +61,7 @@ describe('mini program container navigation APIs', () => {
 		const container = createContainer({ mount })
 		const source = await container.openApp({ appId: 'source-app', path: ENTRY_PAGE_PATH })
 		await waitForReady(source)
+		await markTopBridgeReady(source)
 		source.jscore.notifyServiceReady()
 		const sourceWorker = source.jscore.worker as unknown as FakeWorker
 
@@ -69,6 +83,10 @@ describe('mini program container navigation APIs', () => {
 		expect(source.jscore.worker).toBe(sourceWorker)
 		expect(sourceWorker.terminate).not.toHaveBeenCalled()
 		expect(messagesOfType(sourceWorker, 'appHide')).toHaveLength(1)
+		const sourceHideTypes = sourceWorker.postMessage.mock.calls
+			.map(([message]) => message.type)
+			.filter(type => type === 'pageHide' || type === 'appHide')
+		expect(sourceHideTypes).toEqual(['pageHide', 'appHide'])
 		expect(target.opener).toBe(source)
 		expect(loadResource.body).toMatchObject({
 			pagePath: ENTRY_PAGE_PATH,
@@ -82,6 +100,31 @@ describe('mini program container navigation APIs', () => {
 			{ id: 'open-success', args: { errMsg: 'navigateToMiniProgram:ok' } },
 			{ id: 'open-complete', args: { errMsg: 'navigateToMiniProgram:ok' } },
 		])
+	}, 15000)
+
+	it('does not emit a late pageHide after appHide when the source render is still loading', async () => {
+		const container = createContainer({ mount })
+		const source = await container.openApp({ appId: 'pending-source', path: ENTRY_PAGE_PATH })
+		await waitForReady(source)
+		await markTopBridgeServiceReady(source)
+		const sourceBridge = source.navigator.top!
+		const sourceWorker = source.jscore.worker as unknown as FakeWorker
+
+		await source.navigateToMiniProgram({ appId: 'pending-target' })
+		sourceBridge.messageInvoke('render', {
+			type: 'renderResourceLoaded',
+			target: 'service',
+			body: {
+				bridgeId: sourceBridge.id,
+				resourceLoadId: sourceBridge.resourceLoadId!,
+			},
+		})
+
+		const visibilityTypes = sourceWorker.postMessage.mock.calls
+			.map(([message]) => message.type)
+			.filter(type => type === 'pageShow' || type === 'pageHide' || type === 'appHide')
+		expect(visibilityTypes).toEqual(['appHide'])
+		expect(sourceBridge.sentPageVisible).toBe(false)
 	}, 15000)
 
 	it('navigateBackMiniProgram destroys the target and resumes its opener with scene 1038 return data', async () => {
@@ -122,10 +165,10 @@ describe('mini program container navigation APIs', () => {
 			{ id: 'back-complete', args: { errMsg: 'navigateBackMiniProgram:ok' } },
 		])
 		expect(messagesOfType(targetWorker, 'flushCallbacks')).toHaveLength(1)
-		expect(messagesOfType(targetWorker, 'pageUnload')).toHaveLength(1)
+		// 退出不是路由：页面静默回收，只有 App.onHide，不发 Page.onUnload。
+		expect(messagesOfType(targetWorker, 'pageUnload')).toHaveLength(0)
 		const targetMessageTypes = targetWorker.postMessage.mock.calls.map(([message]) => message.type)
-		expect(targetMessageTypes.indexOf('triggerCallback')).toBeLessThan(targetMessageTypes.indexOf('pageUnload'))
-		expect(targetMessageTypes.indexOf('pageUnload')).toBeLessThan(targetMessageTypes.indexOf('flushCallbacks'))
+		expect(targetMessageTypes.indexOf('triggerCallback')).toBeLessThan(targetMessageTypes.indexOf('flushCallbacks'))
 	}, 20000)
 
 	it('exitMiniProgram runs callbacks before terminating and removes the current runtime', async () => {
@@ -144,10 +187,10 @@ describe('mini program container navigation APIs', () => {
 			{ id: 'exit-complete', args: { errMsg: 'exitMiniProgram:ok' } },
 		])
 		expect(messagesOfType(worker, 'flushCallbacks')).toHaveLength(1)
-		expect(messagesOfType(worker, 'pageUnload')).toHaveLength(1)
+		// 退出不是路由：页面静默回收，只有 App.onHide，不发 Page.onUnload。
+		expect(messagesOfType(worker, 'pageUnload')).toHaveLength(0)
 		const messageTypes = worker.postMessage.mock.calls.map(([message]) => message.type)
-		expect(messageTypes.indexOf('triggerCallback')).toBeLessThan(messageTypes.indexOf('pageUnload'))
-		expect(messageTypes.indexOf('pageUnload')).toBeLessThan(messageTypes.indexOf('flushCallbacks'))
+		expect(messageTypes.indexOf('triggerCallback')).toBeLessThan(messageTypes.indexOf('flushCallbacks'))
 		expect(worker.terminate).toHaveBeenCalledTimes(1)
 	}, 15000)
 
@@ -218,10 +261,10 @@ describe('mini program container navigation APIs', () => {
 			{ id: 'restart-complete', args: { errMsg: 'restartMiniProgram:ok' } },
 		])
 		expect(messagesOfType(originalWorker, 'flushCallbacks')).toHaveLength(1)
-		expect(messagesOfType(originalWorker, 'pageUnload')).toHaveLength(1)
+		// 冷重启整体换 runtime，同样不是路由：旧页面静默回收，不发 Page.onUnload。
+		expect(messagesOfType(originalWorker, 'pageUnload')).toHaveLength(0)
 		const originalMessageTypes = originalWorker.postMessage.mock.calls.map(([message]) => message.type)
-		expect(originalMessageTypes.indexOf('triggerCallback')).toBeLessThan(originalMessageTypes.indexOf('pageUnload'))
-		expect(originalMessageTypes.indexOf('pageUnload')).toBeLessThan(originalMessageTypes.indexOf('flushCallbacks'))
+		expect(originalMessageTypes.indexOf('triggerCallback')).toBeLessThan(originalMessageTypes.indexOf('flushCallbacks'))
 		expect(originalWorker.terminate).toHaveBeenCalledTimes(1)
 	}, 15000)
 

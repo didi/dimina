@@ -94,9 +94,21 @@ class MiniApp private constructor() {
      */
     fun openApp(context: Activity, miniProgram: MiniProgram) {
         // Initialize or get JsCore for this MiniProgram
+        val alreadyRunning = isRunning(miniProgram.appId)
         getOrCreateJsCore(miniProgram.appId, context)
 
-        DiminaActivity.launch(context, miniProgram)
+        try {
+            DiminaActivity.launch(context, miniProgram)
+        } catch (error: Exception) {
+            // The runtime is registered before the Activity exists. A start that never happened
+            // would otherwise leave [isRunning] true with no Activity to ever clear it, and every
+            // retry would be rejected by navigateToMiniProgram's "already running" guard.
+            if (!alreadyRunning) {
+                LogUtils.e(tag, "Rolling back runtime for ${miniProgram.appId}: ${error.message}")
+                clear(miniProgram.appId)
+            }
+            throw error
+        }
     }
 
     @Synchronized
@@ -122,6 +134,14 @@ class MiniApp private constructor() {
     fun getJsCore(appId: String, context: Context? = null): JsCore {
         return getOrCreateJsCore(appId, context)
     }
+
+    /**
+     * Look up an already-running JsCore without creating one. A JsCore built without a real
+     * Context never loads service.js (see [getOrCreateJsCore]), so callers that only want to
+     * forward a lifecycle signal - and have no Context to hand over synchronously on the
+     * caller's thread - must use this instead of [getJsCore].
+     */
+    fun peekJsCore(appId: String): JsCore? = jsCoreMap[appId]
 
     fun postUpdateStatus(appId: String, event: String) {
         jsCoreMap[appId]?.postMessage("onUpdateStatusChange", mapOf("event" to event))

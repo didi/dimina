@@ -14,6 +14,9 @@ import dmpMiniProgramNavigationCallbackTest from './DMPMiniProgramNavigationCall
 import dmpAppRuntimeLifecycleTest from './DMPAppRuntimeLifecycle.test';
 import dmpContainerCallbackContractTest from './DMPContainerCallbackContract.test';
 import dmpWebResourceImageFormatTest from './DMPWebResourceImageFormat.test';
+import dmpNavigatorManagerPageDispatchTest from './DMPNavigatorManagerPageDispatch.test';
+import dmpAppVisibilityLedgerTest from './DMPAppVisibilityLedger.test';
+import dmpPageStateTeardownTest from './DMPPageStateTeardown.test';
 import dmpFileUrlConvertorTest from './DMPFileUrlConvertor.test';
 import dmpCanvasCallbackTest from './DMPCanvasCallback.test';
 import dmpCanvasExportJobRegistryTest from './DMPCanvasExportJobRegistry.test';
@@ -36,6 +39,9 @@ export default function testsuite() {
   dmpAppRuntimeLifecycleTest();
   dmpContainerCallbackContractTest();
   dmpWebResourceImageFormatTest();
+  dmpNavigatorManagerPageDispatchTest();
+  dmpAppVisibilityLedgerTest();
+  dmpPageStateTeardownTest();
   dmpFileUrlConvertorTest();
   dmpCanvasCallbackTest();
   dmpCanvasExportJobRegistryTest();

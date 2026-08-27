@@ -25,6 +25,10 @@ public class DMPPageController: UIViewController {
     private let isRoot: Bool
     private let showsLaunchLoading: Bool
 
+    // 这个页面为什么被拆掉。默认按路由处理：系统主动回收、宿主自己 pop 都属于路由，
+    // 页面照常卸载。退出小程序由关闭方在拆栈之前标注，见 DMPNavigator.markPageTeardownReason。
+    private var pageStateTeardownReason: DMPPageStateTeardown = .routing
+
     // WebView related
     private var webview: DMPWebview
     private let loadingStateObserverToken = UUID()
@@ -974,9 +978,9 @@ public class DMPPageController: UIViewController {
         DMPLogger.debug("🗑️ DMPPageController: Destroy WebView (ID: \(webview.getWebViewId()))")
         isWebViewDestroyed = true
         webview.clearLoadingStateObserver(ownerToken: loadingStateObserverToken)
-        
+
         // Notify page unload
-        if let app = app {
+        if pageStateTeardownReason == .routing, let app = app {
             let msg = DMPMap([
                 "type": "pageUnload",
                 "body": [
@@ -990,6 +994,12 @@ public class DMPPageController: UIViewController {
         app?.render?.releaseWebView(webview)
     }
     
+    /// 标注这次拆栈的原因。必须在页面离开导航栈之前调用：销毁可能要等转场动画结束才发生，
+    /// 那时导航栈里已经找不到这个控制器了。
+    public func markTeardownReason(_ reason: DMPPageStateTeardown) {
+        pageStateTeardownReason = reason
+    }
+
     // Manual destroy method (for external calls)
     public func destroy() {
         destroyWebView()

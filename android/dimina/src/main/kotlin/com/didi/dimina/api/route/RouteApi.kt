@@ -4,6 +4,7 @@ import com.didi.dimina.api.APIResult
 import com.didi.dimina.api.AsyncResult
 import com.didi.dimina.api.BaseApiHandler
 import com.didi.dimina.common.ApiUtils
+import com.didi.dimina.common.LogUtils
 import com.didi.dimina.core.BundledMiniProgramResolver
 import com.didi.dimina.core.MiniApp
 import com.didi.dimina.ui.container.DiminaActivity
@@ -19,6 +20,36 @@ internal fun miniProgramSuccessResult(apiName: String, afterComplete: () -> Unit
 
 internal fun miniProgramErrorResult(apiName: String, errorMessage: String): AsyncResult {
     return ApiUtils.createErrorResponse(apiName, errorMessage).copy(completeCarriesResult = true)
+}
+
+/**
+ * Runs one cross-mini-program operation behind [guard], which admits a single operation at a time.
+ *
+ * The operation itself runs from `afterComplete`, once success and complete have already reached
+ * the page - suspending the opener's runtime any earlier would strand those callbacks. A failure
+ * past that point therefore has no `fail` left to report, and letting it out would take the JS
+ * runtime's message loop down with it, so it is contained here. Everything the operation can throw
+ * rolls its own state back first (`MiniApp.openApp` drops the runtime it registered,
+ * `DiminaActivity` restores the suspended opener), leaving the opener usable and the call
+ * retryable.
+ */
+internal fun miniProgramOperationResult(
+    apiName: String,
+    guard: MiniProgramOperationGuard,
+    action: () -> Unit,
+): AsyncResult {
+    if (!guard.tryBegin()) {
+        return miniProgramErrorResult(apiName, "another mini program operation is in progress")
+    }
+    return miniProgramSuccessResult(apiName) {
+        try {
+            action()
+        } catch (error: Exception) {
+            LogUtils.e("RouteApi", "$apiName failed after success was reported: ${error.message}")
+        } finally {
+            guard.end()
+        }
+    }
 }
 
 /**
@@ -220,24 +251,7 @@ class RouteApi : BaseApiHandler() {
         }
     }
 
-    private fun success(apiName: String, afterComplete: () -> Unit): AsyncResult {
-        return miniProgramSuccessResult(apiName, afterComplete)
-    }
-
     private fun withMiniProgramOperation(apiName: String, action: () -> Unit): AsyncResult {
-        if (!miniProgramOperationGuard.tryBegin()) {
-            return miniProgramErrorResult(
-                apiName,
-                "another mini program operation is in progress",
-            )
-        }
-        return success(apiName) {
-            try {
-                action()
-            }
-            finally {
-                miniProgramOperationGuard.end()
-            }
-        }
+        return miniProgramOperationResult(apiName, miniProgramOperationGuard, action)
     }
 }

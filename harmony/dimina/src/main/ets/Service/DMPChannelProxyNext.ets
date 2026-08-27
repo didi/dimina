@@ -26,6 +26,9 @@ export class DMPChannelProxyNext {
 
     if (target === 'service') {
       if (type === 'serviceResourceLoaded') {
+        // service 侧 App 实例此刻必定已存在，补发启动窗口期欠下的 appHide。渲染层可能还没就绪
+        // （isResourceLoaded 为 false），所以放在分支之外，不跟着 resourceLoaded 一起等。
+        app.notifyServiceReady();
         app.container.hasLoadResource(webViewId, ResourceLoadType.ServiceLoaded);
         if (app.container.isResourceLoaded(webViewId)) {
           transMsg.set('type', 'resourceLoaded');

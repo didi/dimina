@@ -12,6 +12,7 @@ import { promptAction } from '@kit.ArkUI';
 import { DMPStack } from '../Utils/DMPStack';
 import { DRouter } from './DRouter';
 import { DMPPage } from '../DPages/DMPPage';
+import { dispatchesPageUnload, DMPPageStateTeardown } from './DMPPageStateTeardown';
 
 
 export class DMPNavigator {
@@ -27,6 +28,14 @@ export class DMPNavigator {
   constructor(app: DMPApp) {
     this.app = app;
     this.pageLifecycle = new DMPPageLifecycle(app)
+  }
+
+  dispatchPageShow(webViewId: number) {
+    this.pageLifecycle.onShow(webViewId)
+  }
+
+  dispatchPageHide(webViewId: number) {
+    this.pageLifecycle.onHide(webViewId)
   }
 
   public isContainsWebViewId(webViewId: number): boolean {
@@ -230,7 +239,7 @@ export class DMPNavigator {
       DMPLogger.e(Tags.NAVIGATOR, `msg: ${(err as BusinessError).message}`)
     }
 
-    this.pageLifecycle.onShow(newWebViewId)
+    this.dispatchPageShow(newWebViewId)
   }
 
   async pop(delta: number = 1, animated: boolean = true, canDestroy = true, isReLaunch = false) {
@@ -279,17 +288,20 @@ export class DMPNavigator {
       // 用 getActivePageRecord：tab 模式下从 navigateTo 推入页面退回时，
       // 应当 onShow 真实的当前 tab，而非栈底初始 tab
       let currentPageRecord = this.app.navigatorManager.getActivePageRecord();
-      this.pageLifecycle.onShow(currentPageRecord?.webViewId ?? -1)
+      this.dispatchPageShow(currentPageRecord?.webViewId ?? -1)
 
     } catch (err) {
       DMPLogger.e(Tags.BRIDGE, `msg: ${(err as BusinessError).message}`)
     }
   }
 
-  closeAllPages(animated: boolean = false) {
+  closeAllPages(reason: DMPPageStateTeardown, animated: boolean = false) {
     const pageCount = this._stacks.size()
+    const unloadPages = dispatchesPageUnload(reason)
     for (let i = 0; i < pageCount; i++) {
-      this.pageLifecycle.onUnload(this.app.currentWebViewId)
+      if (unloadPages) {
+        this.pageLifecycle.onUnload(this.app.currentWebViewId)
+      }
       // 同 pop()：customLaunchPageCallBack 挂载的记录从未占用 NavPathStack 槽位，
       // 无条件 DRouter.pop() 会误弹宿主自己挂载的页面
       if (DMPPageRecord.shouldPopRouter(this._stacks.peek()?.ownsRouterEntry)) {
@@ -404,7 +416,7 @@ export class DMPNavigator {
     try {
       DMPLogger.i(Tags.LAUNCH, "openPage");
       DMPLogger.d(Tags.LAUNCH, "notify page.onHide start");
-      this.pageLifecycle.onHide(this.app.currentWebViewId)
+      this.dispatchPageHide(this.app.currentWebViewId)
       DMPLogger.d(Tags.LAUNCH, "notify page.onHide end");
       const pageRecord = this.preLoadPage(pagePath, params)
       // A preloaded record does not own a shared NavPathStack slot yet. Keep it false until
@@ -423,7 +435,7 @@ export class DMPNavigator {
           .start()
         pageRecord.ownsRouterEntry = DMPPageRecord.computeOwnsRouterEntry(false)
       }
-      this.pageLifecycle.onShow(pageRecord.webViewId)
+      this.dispatchPageShow(pageRecord.webViewId)
       return true
     } catch (err) {
       DMPLogger.e(Tags.NAVIGATOR, `msg: ${(err as BusinessError).message}`)
@@ -546,12 +558,12 @@ export class DMPNavigator {
 
     // Trigger onHide for previous tab (if it was actually visible)
     if (triggerPrevHide && previousWebViewId >= 0) {
-      this.pageLifecycle.onHide(previousWebViewId)
+      this.dispatchPageHide(previousWebViewId)
       DMPLogger.d(Tags.TABBAR, `onHide called for tab webViewId: ${previousWebViewId}`)
     }
 
     // Trigger onShow for current tab
-    this.pageLifecycle.onShow(currentWebViewId)
+    this.dispatchPageShow(currentWebViewId)
     DMPLogger.d(Tags.TABBAR, `onShow called for tab webViewId: ${currentWebViewId}`)
   }
 

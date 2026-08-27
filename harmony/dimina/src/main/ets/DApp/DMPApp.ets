@@ -27,6 +27,7 @@ import { common } from '@kit.AbilityKit'
 import { DMPNavigatorDelegate } from '../Navigator/DMPNavigatorDelegate'
 import { DMPAppManager } from './DMPAppManager'
 import { DMPNavigatorManager } from '../Navigator/DMPNavigatorManager'
+import { DMPPageStateTeardown } from '../Navigator/DMPPageStateTeardown'
 import { DRouter } from '../Navigator/DRouter'
 import { DMPAppLifecycle } from './DMPAppLifecycle'
 import { DMPDeviceUtil } from '../Utils/DMPDeviceUtils'
@@ -34,6 +35,7 @@ import { DMPRemoteUpdateManager } from '../Bundle/DMPRemoteUpdateManager'
 import { DMPWebSocketManager } from '../Bridges/Network/DMPWebSocketManager'
 import { DMPAppModuleManagerLifecycle } from '../Bridges/DMPAppModuleManagerLifecycle'
 import { DMPAppRuntimeLifecycle } from './utils/DMPAppRuntimeLifecycle'
+import { DMPAppVisibilityLedger } from './utils/DMPAppVisibilityLedger'
 import { CanvasExportJobRegistry } from '../Bridges/CanvasExportJobRegistry'
 export type DMPBundleUpdateCallback = () => void;
 
@@ -56,6 +58,10 @@ export class DMPApp {
   private _mapManager: DMPMapManager = new DMPMapManager(this)
   private _runtimeGeneration: number = 0
   private _runtimeLifecycle: DMPAppRuntimeLifecycle = new DMPAppRuntimeLifecycle()
+  private _visibilityLedger: DMPAppVisibilityLedger = new DMPAppVisibilityLedger()
+  // 宿主后台期间攒下的那一次恢复要带的 enter options，见 [stashMiniProgramShow]。
+  private _pendingShowScene: DMPScene | undefined = undefined
+  private _pendingShowReferrer: DMPMap | undefined = undefined
   private _closeInProgress?: Promise<void>
   private _deferredLaunchConfigs: DMPLaunchConfig[] = []
   private _webViewCachePool: DMPWebViewCachePool = new DMPWebViewCachePool(this)
@@ -204,7 +210,7 @@ export class DMPApp {
     // 层）——不清掉的话它们会在共享 NavPathStack 里永久残留。复用现有的批量关闭能力，不
     // 单独实现一套清栈逻辑
     if (!this.navigatorManager.isEmpty()) {
-      this.navigatorManager.closeAllNavigators(false)
+      this.navigatorManager.closeAllNavigators(DMPPageStateTeardown.Routing, false)
     }
     //为什么延时，因为鸿蒙pop和push 会相互抵消，导致页面不能正常关闭
     setTimeout(() => {
@@ -252,10 +258,12 @@ export class DMPApp {
       // runtime its own one-shot route completion used by restartMiniProgram.
       nextLaunchConfig.completion = config.completion
     }
-    this.notifyMiniProgramHide()
-    this.navigatorManager.closeAllNavigators(false)
-    // pageUnload and any terminal API callback are queued to the Worker. Drain them before
-    // terminating the old runtime; a fixed timeout cannot provide this ordering guarantee.
+    this.notifyRuntimeTeardownHide()
+    // restart 是「关掉再重开」而不是一次路由：上面已经发过 App.onHide，旧运行时紧接着
+    // 整体销毁，所以和退出同源，不补 onUnload。
+    this.navigatorManager.closeAllNavigators(DMPPageStateTeardown.Exit, false)
+    // Terminal API callbacks are queued to the Worker. Drain them before terminating the old
+    // runtime; a fixed timeout cannot provide this ordering guarantee.
     await this._service.flush()
     this.destroyEngine()
     this.resetAndStartDimina(nextLaunchConfig)
@@ -266,7 +274,11 @@ export class DMPApp {
     this.startDimina(DMPContextUtils.getUIAbilityContext(), config);
   }
 
-  private rebuildRuntime() {
+  /**
+   * @param afterExit 小程序已经退出过、这次是重新展示。restart 则是容器留在原地只换运行时，
+   * 两者对「容器当前是否可见」的判断不同，见 DMPAppVisibilityLedger。
+   */
+  private rebuildRuntime(afterExit: boolean = false) {
     this.onUpdateResults = []
     this._runtimeGeneration++
     CanvasExportJobRegistry.activate(this.appConfig.appId, this.canvasExportOwner)
@@ -281,6 +293,14 @@ export class DMPApp {
     this._webViewCachePool = new DMPWebViewCachePool(this);
     this._engineStatus = new StatusMonitor();
     this._runtimeLifecycle.markReady()
+    if (afterExit) {
+      this._visibilityLedger.markRuntimeRelaunched()
+      // 重新启动的小程序带的是自己的启动场景，退出前攒下的那次返回场景已经过期。
+      this._pendingShowScene = undefined
+      this._pendingShowReferrer = undefined
+    } else {
+      this._visibilityLedger.markRuntimeReplaced()
+    }
     const deferredLaunchConfigs = this._deferredLaunchConfigs.splice(0)
     deferredLaunchConfigs.forEach((launchConfig: DMPLaunchConfig): void => {
       this.launchWhenRuntimeReady(launchConfig)
@@ -295,7 +315,7 @@ export class DMPApp {
     const appManager = DMPAppManager.sharedInstance()
     appManager.restoreExitedApp(this)
     try {
-      this.rebuildRuntime()
+      this.rebuildRuntime(true)
     } catch (error) {
       appManager.exitApp(this.appConfig.appId, this.appIndex)
       throw error as Error
@@ -454,7 +474,8 @@ export class DMPApp {
 
   private async performClose(afterPagesClosed?: () => Promise<void>) {
     this.notifyMiniProgramHide()
-    this.navigatorManager.closeAllNavigators(false)
+    // 退出对齐微信的「小程序切入后台」：只派发 App.onHide，页面不收 onUnload。
+    this.navigatorManager.closeAllNavigators(DMPPageStateTeardown.Exit, false)
     if (afterPagesClosed) {
       // The callback uses the old service runtime, so it must run after page unload is queued
       // but before destroyEngine terminates that Worker.
@@ -472,12 +493,27 @@ export class DMPApp {
 
   /** Hide only this mini program; unlike DMPAppLifecycle this never broadcasts to every pooled app. */
   public notifyMiniProgramHide() {
+    if (!this._visibilityLedger.request(false)) {
+      return
+    }
+    this.dispatchAppHide()
+  }
+
+  /**
+   * 运行时整体销毁前把终态 App.onHide 交给旧 Worker。容器留在原地，所以这不是一次容器
+   * 隐藏：销毁窗口期内到达的真实前后台变化仍记在账本上，由新运行时就绪时结算。
+   */
+  private notifyRuntimeTeardownHide() {
+    if (!this._visibilityLedger.requestRuntimeTeardownHide()) {
+      return
+    }
+    this.dispatchAppHide()
+  }
+
+  private dispatchAppHide() {
     const bridgeId = this.currentWebViewId
     if (bridgeId > 0) {
-      DMPChannelProxyNext.ContainerToService(new DMPMap({
-        type: 'pageHide',
-        body: { bridgeId }
-      }), this.appIndex)
+      this.navigatorManager.dispatchPageHide(bridgeId)
     }
     DMPChannelProxyNext.ContainerToService(new DMPMap({
       type: 'appHide',
@@ -487,6 +523,33 @@ export class DMPApp {
 
   /** Reveal only this mini program and update App.onShow/GetEnterOptionsSync data. */
   public notifyMiniProgramShow(scene: DMPScene, referrerInfo?: DMPMap) {
+    if (!this._visibilityLedger.request(true)) {
+      return
+    }
+    if (this._pendingShowScene !== undefined) {
+      const pendingScene = this._pendingShowScene
+      const pendingReferrer = this._pendingShowReferrer
+      this._pendingShowScene = undefined
+      this._pendingShowReferrer = undefined
+      this.dispatchAppShow(pendingScene, pendingReferrer)
+      return
+    }
+    this.dispatchAppShow(scene, referrerInfo)
+  }
+
+  /**
+   * 宿主在后台时把这个小程序恢复成展示中的那一个。
+   *
+   * 这不是一次可见性变化——容器整体不可见，opener 也就没有显示——所以账本不动，只记下这次
+   * 恢复该带的 scene/referrerInfo。真正的 App.onShow 由宿主回到前台时派发，届时这份
+   * enter options 会覆盖调用方的默认值，把 1038 和 referrerInfo 带到正确的那条 show 上。
+   */
+  public stashMiniProgramShow(scene: DMPScene, referrerInfo?: DMPMap) {
+    this._pendingShowScene = scene
+    this._pendingShowReferrer = referrerInfo
+  }
+
+  private dispatchAppShow(scene: DMPScene, referrerInfo?: DMPMap) {
     const record = this.navigatorManager.getActivePageRecord()
     const bridgeId = record?.webViewId ?? -1
     const body = new DMPMap({
@@ -504,10 +567,7 @@ export class DMPApp {
       body
     }), this.appIndex)
     if (bridgeId > 0) {
-      DMPChannelProxyNext.ContainerToService(new DMPMap({
-        type: 'pageShow',
-        body: { bridgeId }
-      }), this.appIndex)
+      this.navigatorManager.dispatchPageShow(bridgeId)
     }
   }
 
@@ -662,6 +722,20 @@ export class DMPApp {
     const logicJsPath = await this._bundleManager.requestLogicJsUri();
     await this._service.loadFileUri(logicJsPath);
     DMPLogger.i(Tags.LAUNCH, "startMainService end");
+  }
+
+  /**
+   * service 侧已经把 logic.js 求值完：loader.loadResource 里先 modRequire('app')（同步跑完
+   * App() → runtime.createApp() → App.onLaunch/onShow），再回报 serviceResourceLoaded。
+   * 这是唯一能保证 App 实例已存在的信号，窗口期欠下的那次 appHide 在这里补发。
+   *
+   * startMainService 返回得更早：loadFileUri 只是把 logic.js 投给 Worker，不等求值，
+   * 在那里补发会把 appHide 排在 App 实例创建之前，被 runtime.appHide() 的 this.app 判空丢掉。
+   */
+  public notifyServiceReady() {
+    if (this._visibilityLedger.markServiceReady()) {
+      this.dispatchAppHide()
+    }
   }
 
   private launchInner(launchConfig: DMPLaunchConfig) {
