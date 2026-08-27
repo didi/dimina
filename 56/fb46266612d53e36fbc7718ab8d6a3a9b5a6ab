@@ -1,0 +1,41 @@
+iOS/diminaTests/DMPNavigatorCapsuleTests.swift
+  40d0fb6cb5e1e58c 1556-1591
+android/dimina/src/test/java/com/didi/dimina/core/PageVisibilityLedgerTest.kt
+  40d0fb6cb5e1e58c 90-112
+examples/miniprogram/base/pages/custom-component/components/bar-icon/bar-icon.js
+  40d0fb6cb5e1e58c 1-11,13-18,20,24-31,33-35,41-43,46,49,52,55,58,60-61,63,66,69,72,74
+examples/miniprogram/base/pages/custom-component/index.js
+  40d0fb6cb5e1e58c 14-15,74-82
+examples/miniprogram/base/pages/custom-component/index.json
+  40d0fb6cb5e1e58c 3-4,10
+examples/miniprogram/base/pages/custom-component/index.wxml
+  40d0fb6cb5e1e58c 3,6-18
+examples/miniprogram/base/pages/custom-component/components/bar-icon/bar-icon.wxml
+  40d0fb6cb5e1e58c 1-3
+examples/miniprogram/base/pages/custom-component/index.wxss
+  40d0fb6cb5e1e58c 12-51
+examples/miniprogram/base/pages/custom-component/components/navigation-bar/navigation-bar.wxml
+  40d0fb6cb5e1e58c 64
+fe/packages/service/__tests__/lifecycle-order.spec.js
+  40d0fb6cb5e1e58c 549-641
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "56fb46266612d53e36fbc7718ab8d6a3a9b5a6ab",
+  "prompts": {
+    "40d0fb6cb5e1e58c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0416e-f080-7f41-a6c0-9bfe55d28490",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 270,
+      "total_deletions": 22,
+      "accepted_lines": 2408,
+      "overriden_lines": 0
+    }
+  }
+}
