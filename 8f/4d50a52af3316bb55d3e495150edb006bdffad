@@ -1,0 +1,43 @@
+fe/.oxlintrc.json
+  10c0a34f4e797369 391
+examples/miniprogram/.gitignore
+  10c0a34f4e797369 1-20
+.github/workflows/fe-deploy-pages.yml
+  10c0a34f4e797369 9
+fe/packages/compiler/__tests__/compile-cli-cache.spec.js
+  10c0a34f4e797369 15,21-24,26,49
+README.md
+  10c0a34f4e797369 85
+fe/packages/container-sdk/README.md
+  10c0a34f4e797369 57
+.github/workflows/fe-tests.yml
+  10c0a34f4e797369 7,11
+.github/workflows/fe-lint.yml
+  10c0a34f4e797369 8
+fe/packages/compiler/src/bin/compile.js
+  10c0a34f4e797369 11-13,151,153,157,161,165,176,195,198
+README_EN.md
+  10c0a34f4e797369 85
+fe/README.md
+  10c0a34f4e797369 36,39,73
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "8f4d50a52af3316bb55d3e495150edb006bdffad",
+  "prompts": {
+    "10c0a34f4e797369": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fc587-99e6-7380-a597-4301b7cc2ed1",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 43137,
+      "total_deletions": 33,
+      "accepted_lines": 43155,
+      "overriden_lines": 0
+    }
+  }
+}
