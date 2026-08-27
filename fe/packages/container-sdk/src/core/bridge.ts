@@ -38,6 +38,8 @@ export class Bridge {
 		timer: ReturnType<typeof setTimeout>
 		unsubscribeWorkerFailure: () => void
 	} | null
+	private unsubscribeServiceInvoke: (() => void) | null
+	private unsubscribeServicePublish: (() => void) | null
 
 	constructor(opts: BridgeOptions & { jscore: JSCore }) {
 		this.id = `bridge_${uuid()}`
@@ -46,6 +48,8 @@ export class Bridge {
 		this.jscore = opts.jscore
 		this.parent = null
 		this.resourceReadyWaiter = null
+		this.unsubscribeServiceInvoke = null
+		this.unsubscribeServicePublish = null
 		this.resetStatus()
 	}
 
@@ -57,8 +61,10 @@ export class Bridge {
 		if (!this.webview) {
 			return
 		}
-		this.jscore.invoke(msg => this.messageInvoke('service', msg))
-		this.jscore.publish(msg => this.messagePublish(msg))
+		this.unsubscribeServiceInvoke?.()
+		this.unsubscribeServicePublish?.()
+		this.unsubscribeServiceInvoke = this.jscore.invoke(msg => this.messageInvoke('service', msg))
+		this.unsubscribeServicePublish = this.jscore.publish(msg => this.messagePublish(msg))
 		this.webview.invoke(msg => this.messageInvoke('render', msg))
 		this.webview.publish(msg => this.messagePublish(msg))
 	}
@@ -409,6 +415,10 @@ export class Bridge {
 		this.resourceLoadId = null
 		this.desiredPageVisible = null
 		this.sentPageVisible = null
+		this.unsubscribeServiceInvoke?.()
+		this.unsubscribeServicePublish?.()
+		this.unsubscribeServiceInvoke = null
+		this.unsubscribeServicePublish = null
 		if (wasResourceLoaded && reason === 'routing') {
 			this.jscore.postMessage({
 				type: 'pageUnload',
