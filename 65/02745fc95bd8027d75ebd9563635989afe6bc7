@@ -1,0 +1,168 @@
+examples/flutter/ios/Runner/SceneDelegate.swift
+  40d0fb6cb5e1e58c 1-6
+examples/flutter/ohos/entry/src/main/module.json5
+  40d0fb6cb5e1e58c 1-84
+examples/flutter/analysis_options.yaml
+  40d0fb6cb5e1e58c 1-11
+examples/flutter/android/.gitignore
+  40d0fb6cb5e1e58c 1-15
+examples/flutter/ios/Runner/Assets.xcassets/AppIcon.appiconset/Contents.json
+  40d0fb6cb5e1e58c 1-122
+examples/flutter/ios/Runner/Base.lproj/LaunchScreen.storyboard
+  40d0fb6cb5e1e58c 1-37
+examples/flutter/ios/Runner/Info.plist
+  40d0fb6cb5e1e58c 1-86
+examples/flutter/ios/Flutter/AppFrameworkInfo.plist
+  40d0fb6cb5e1e58c 1-24
+examples/flutter/test/dimina_host_test.dart
+  40d0fb6cb5e1e58c 1-54
+examples/flutter/android/build.gradle.kts
+  40d0fb6cb5e1e58c 1-24
+examples/flutter/README.md
+  40d0fb6cb5e1e58c 1-67
+examples/flutter/ios/Runner.xcodeproj/project.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings
+  40d0fb6cb5e1e58c 1-8
+examples/flutter/ios/Runner.xcworkspace/contents.xcworkspacedata
+  40d0fb6cb5e1e58c 1-7
+examples/flutter/ohos/entry/src/main/ets/plugin/DiminaFlutterPlugin.ets
+  40d0fb6cb5e1e58c 1-63
+examples/flutter/ios/RunnerTests/RunnerTests.swift
+  40d0fb6cb5e1e58c 1-12
+examples/flutter/ohos/entry/build-profile.json5
+  40d0fb6cb5e1e58c 1-10
+examples/flutter/.gitignore
+  40d0fb6cb5e1e58c 1-48
+examples/flutter/ohos/entry/src/main/ets/entryability/EntryAbility.ets
+  40d0fb6cb5e1e58c 1-24
+examples/flutter/ohos/entry/.gitignore
+  40d0fb6cb5e1e58c 1-6
+examples/flutter/android/app/src/main/res/drawable-v21/launch_background.xml
+  40d0fb6cb5e1e58c 1-12
+examples/flutter/ohos/AppScope/app.json5
+  40d0fb6cb5e1e58c 1-10
+examples/flutter/ohos/entry/oh-package.json5
+  40d0fb6cb5e1e58c 1-8
+examples/flutter/.metadata
+  40d0fb6cb5e1e58c 1-34
+examples/flutter/android/app/src/debug/AndroidManifest.xml
+  40d0fb6cb5e1e58c 1-7
+examples/flutter/ios/Runner/Base.lproj/Main.storyboard
+  40d0fb6cb5e1e58c 1-26
+examples/flutter/android/app/src/main/res/drawable/launch_background.xml
+  40d0fb6cb5e1e58c 1-12
+examples/flutter/ohos/entry/src/main/resources/base/element/string.json
+  40d0fb6cb5e1e58c 1-20
+README_EN.md
+  40d0fb6cb5e1e58c 93
+examples/flutter/ios/Runner.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings
+  40d0fb6cb5e1e58c 1-8
+examples/flutter/ios/Runner.xcworkspace/xcshareddata/swiftpm/Package.resolved
+  40d0fb6cb5e1e58c 1-32
+examples/flutter/ios/Runner/Assets.xcassets/LaunchImage.imageset/Contents.json
+  40d0fb6cb5e1e58c 1-23
+examples/flutter/pubspec.yaml
+  40d0fb6cb5e1e58c 1-19
+examples/flutter/ohos/entry/src/main/ets/pages/Index.ets
+  40d0fb6cb5e1e58c 1-39
+examples/flutter/android/settings.gradle.kts
+  40d0fb6cb5e1e58c 1-33
+examples/flutter/ohos/entry/src/main/resources/base/element/color.json
+  40d0fb6cb5e1e58c 1-8
+examples/flutter/ohos/hvigor/hvigor-config.json5
+  40d0fb6cb5e1e58c 1-4
+examples/flutter/lib/dimina_host.dart
+  40d0fb6cb5e1e58c 1-38
+examples/flutter/ios/.gitignore
+  40d0fb6cb5e1e58c 1-34
+examples/flutter/ios/Runner.xcodeproj/xcshareddata/xcschemes/Runner.xcscheme
+  40d0fb6cb5e1e58c 1-119
+examples/flutter/android/app/build.gradle.kts
+  40d0fb6cb5e1e58c 1-66
+examples/flutter/ohos/.gitignore
+  40d0fb6cb5e1e58c 1-14
+examples/flutter/ohos/entry/src/main/resources/base/profile/main_pages.json
+  40d0fb6cb5e1e58c 1-3
+examples/flutter/android/app/src/main/kotlin/com/didi/dimina/dimina_flutter_example/MainActivity.kt
+  40d0fb6cb5e1e58c 1-68
+examples/flutter/android/app/src/main/res/values-night/styles.xml
+  40d0fb6cb5e1e58c 1-18
+examples/flutter/ios/Runner.xcodeproj/project.xcworkspace/contents.xcworkspacedata
+  40d0fb6cb5e1e58c 1-7
+examples/flutter/ohos/oh-package.json5
+  40d0fb6cb5e1e58c 1-15
+examples/flutter/ios/Runner.xcodeproj/project.pbxproj
+  40d0fb6cb5e1e58c 1-663
+README.md
+  40d0fb6cb5e1e58c 93
+examples/flutter/android/gradle.properties
+  40d0fb6cb5e1e58c 1-6
+examples/flutter/tool/generate_app_icons.swift
+  40d0fb6cb5e1e58c 1-202
+examples/flutter/ios/Runner.xcodeproj/project.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist
+  40d0fb6cb5e1e58c 1-8
+docs/README.md
+  40d0fb6cb5e1e58c 13
+examples/flutter/android/app/src/main/res/values/styles.xml
+  40d0fb6cb5e1e58c 1-18
+examples/flutter/ios/Runner.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+  40d0fb6cb5e1e58c 1-32
+examples/flutter/ios/Runner/Assets.xcassets/LaunchImage.imageset/README.md
+  40d0fb6cb5e1e58c 1-5
+docs/Flutter-Integration.md
+  h_26bc2624df64e5 3
+examples/flutter/lib/main.dart
+  40d0fb6cb5e1e58c 1-188
+examples/flutter/ios/Flutter/Release.xcconfig
+  40d0fb6cb5e1e58c 1
+examples/flutter/ios/Runner.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist
+  40d0fb6cb5e1e58c 1-8
+examples/flutter/ios/Runner/Runner-Bridging-Header.h
+  40d0fb6cb5e1e58c 1
+examples/flutter/ohos/AppScope/resources/base/element/string.json
+  40d0fb6cb5e1e58c 1-8
+examples/flutter/ios/Flutter/Debug.xcconfig
+  40d0fb6cb5e1e58c 1
+examples/flutter/ohos/entry/src/main/ets/host/DiminaFlutterHost.ets
+  40d0fb6cb5e1e58c 1-69
+examples/flutter/ohos/entry/hvigorfile.ts
+  40d0fb6cb5e1e58c 1-6
+Package.swift
+  40d0fb6cb5e1e58c 44-47
+examples/flutter/android/app/src/profile/AndroidManifest.xml
+  40d0fb6cb5e1e58c 1-7
+examples/flutter/android/gradle/wrapper/gradle-wrapper.properties
+  40d0fb6cb5e1e58c 1-5
+examples/flutter/ios/Runner/AppDelegate.swift
+  40d0fb6cb5e1e58c 1-129
+examples/flutter/ohos/hvigorfile.ts
+  40d0fb6cb5e1e58c 1-35
+examples/flutter/ohos/build-profile.json5
+  40d0fb6cb5e1e58c 1-40
+examples/flutter/android/app/src/main/AndroidManifest.xml
+  40d0fb6cb5e1e58c 1-45
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "6502745fc95bd8027d75ebd9563635989afe6bc7",
+  "prompts": {
+    "40d0fb6cb5e1e58c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0416e-f080-7f41-a6c0-9bfe55d28490",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 5058,
+      "total_deletions": 38,
+      "accepted_lines": 5010,
+      "overriden_lines": 0
+    }
+  },
+  "humans": {
+    "h_26bc2624df64e5": {
+      "author": "doslin"
+    }
+  }
+}
