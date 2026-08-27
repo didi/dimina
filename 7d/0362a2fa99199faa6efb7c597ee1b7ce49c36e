@@ -1,0 +1,51 @@
+harmony/dimina/README.md
+  40d0fb6cb5e1e58c 120-127
+iOS/dimina/DiminaKit/App/DMPApp.swift
+  40d0fb6cb5e1e58c 594-602
+android/dimina/src/main/kotlin/com/didi/dimina/ui/container/MiniProgramActivityRegistry.kt
+  40d0fb6cb5e1e58c 26-28
+android/README.md
+  40d0fb6cb5e1e58c 124-131
+android/dimina/src/test/java/com/didi/dimina/ui/container/MiniProgramActivityRegistryTest.kt
+  40d0fb6cb5e1e58c 10-32
+android/dimina/src/main/kotlin/com/didi/dimina/Dimina.kt
+  40d0fb6cb5e1e58c 5,120-133
+iOS/diminaTests/DMPNavigatorCapsuleTests.swift
+  40d0fb6cb5e1e58c 1329-1376
+README_EN.md
+  40d0fb6cb5e1e58c 92
+android/dimina/src/test/java/com/didi/dimina/DiminaHostCloseContractTest.kt
+  40d0fb6cb5e1e58c 1-55
+android/dimina/src/main/kotlin/com/didi/dimina/ui/container/DiminaActivity.kt
+  40d0fb6cb5e1e58c 2489-2499
+docs/README.md
+  40d0fb6cb5e1e58c 13,45
+harmony/dimina/src/main/ets/DApp/DMPApp.ets
+  40d0fb6cb5e1e58c 475-482
+README.md
+  40d0fb6cb5e1e58c 92
+docs/Flutter-Integration.md
+  40d0fb6cb5e1e58c 1-424
+iOS/README.md
+  40d0fb6cb5e1e58c 132,135
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "7d0362a2fa99199faa6efb7c597ee1b7ce49c36e",
+  "prompts": {
+    "40d0fb6cb5e1e58c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0416e-f080-7f41-a6c0-9bfe55d28490",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 629,
+      "total_deletions": 7,
+      "accepted_lines": 623,
+      "overriden_lines": 0
+    }
+  }
+}
