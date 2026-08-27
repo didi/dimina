@@ -1,0 +1,27 @@
+shared/jsapp/wx92269e3b2f304afc/config.json
+  40d0fb6cb5e1e58c 5-6
+shared/jsapp/wxe5f52902cf4de896/config.json
+  40d0fb6cb5e1e58c 5-6
+shared/jsapp/wx9f8c2d7e6a5b4c3d/config.json
+  40d0fb6cb5e1e58c 5-6
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "cc479d3d1a62c6a432e7e706735820eaa17ad8ef",
+  "prompts": {
+    "40d0fb6cb5e1e58c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0416e-f080-7f41-a6c0-9bfe55d28490",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 1180,
+      "total_deletions": 1049,
+      "accepted_lines": 3318,
+      "overriden_lines": 0
+    }
+  }
+}
