@@ -82,7 +82,6 @@ class FileApi : BaseApiHandler() {
         const val SAVE_FILE_TO_DISK = "saveFileToDisk"
         const val OPEN_DOCUMENT = "openDocument"
         const val PREFIX = "FileSystemManager."
-        const val VIRTUAL_PREFIX = "difile://"
         const val USER_PREFIX = "usr"
         const val TEMP_PREFIX = "tmp"
         const val ARRAY_BUFFER_BASE64_KEY = "__diminaArrayBufferBase64"
@@ -306,8 +305,8 @@ class FileApi : BaseApiHandler() {
 
     private fun resolve(activity: DiminaActivity, appId: String, rawPath: String): File {
         val path = rawPath.ifBlank { throw IllegalArgumentException("missing file path") }
-        val file = if (path.startsWith(VIRTUAL_PREFIX)) {
-            val relative = path.removePrefix(VIRTUAL_PREFIX).trimStart('/')
+        val file = if (path.startsWith(PathUtils.VIRTUAL_DOMAIN_URL)) {
+            val relative = path.removePrefix(PathUtils.VIRTUAL_DOMAIN_URL).trimStart('/')
             when {
                 relative == USER_PREFIX -> userRoot(activity, appId)
                 relative.startsWith("$USER_PREFIX/") -> File(userRoot(activity, appId), relative.removePrefix("$USER_PREFIX/"))
@@ -331,7 +330,7 @@ class FileApi : BaseApiHandler() {
         val rootPath = userRoot(activity, appId).canonicalPath
         val path = file.canonicalPath
         val relative = path.removePrefix(rootPath).trimStart(File.separatorChar)
-        return "$VIRTUAL_PREFIX$USER_PREFIX/$relative"
+        return "${PathUtils.VIRTUAL_DOMAIN_URL}$USER_PREFIX/$relative"
     }
 
     private fun pathParam(params: JSONObject): String =

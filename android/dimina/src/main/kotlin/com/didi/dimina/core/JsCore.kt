@@ -4,6 +4,7 @@ import android.os.Handler
 import android.os.Looper
 import com.didi.dimina.common.JavaScriptUtils
 import com.didi.dimina.common.LogUtils
+import com.didi.dimina.common.PathUtils
 import com.didi.dimina.engine.qjs.JSValue
 import com.didi.dimina.engine.qjs.QuickJSEngine
 import org.json.JSONObject
@@ -32,7 +33,7 @@ class JsCore {
     fun init(callback: ((Boolean) -> Unit)? = null): Boolean {
         // Create and initialize the QuickJS engine
         jsEngine = QuickJSEngine()
-        val initialized = jsEngine.initialize()
+        val initialized = jsEngine.initialize(PathUtils.VIRTUAL_DOMAIN_URL)
         LogUtils.d(tag, "QuickJS engine initialized: $initialized")
         // Notify callback if provided
         callback?.invoke(initialized)

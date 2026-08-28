@@ -1,8 +1,6 @@
 import fs from '@ohos.file.fs';
 import { DMPContextUtils } from '../../Utils/DMPContextUtils';
-import { DMPFileUrlConvertor } from './DMPFileUrlConvertor';
-
-const VIRTUAL_PREFIX = 'difile://';
+import { DMPFileURLScheme as VIRTUAL_PREFIX, DMPFileUrlConvertor } from './DMPFileUrlConvertor';
 const USER_PREFIX = 'usr';
 const TEMP_PREFIX = 'tmp';
 

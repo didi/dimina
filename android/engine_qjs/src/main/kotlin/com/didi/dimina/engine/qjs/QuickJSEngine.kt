@@ -110,7 +110,7 @@ class QuickJSEngine {
      * Initialize and create a new QuickJS runtime and context
      * @return true if initialization was successful, false otherwise
      */
-    fun initialize(): Boolean {
+    fun initialize(virtualFilePrefix: String = ""): Boolean {
         if (isRunning) {
             Log.d(tag, "QuickJS engine already initialized (instance ID: $instanceId)")
             return false
@@ -124,7 +124,7 @@ class QuickJSEngine {
             Log.d(tag, "Starting JavaScript thread with libuv event loop for instance ID: $instanceId")
 
             // Initialize the QuickJS engine on this thread
-            val initResult = nativeInitialize(instanceId)
+            val initResult = nativeInitialize(instanceId, virtualFilePrefix)
             if (!initResult) {
                 Log.e(tag, "Failed to initialize QuickJS engine on JS thread (instance ID: $instanceId)")
                 engineInstances.remove(instanceId)
@@ -333,7 +333,7 @@ class QuickJSEngine {
     /**
      * Native method declarations
      */
-    private external fun nativeInitialize(instanceId: Int): Boolean
+    private external fun nativeInitialize(instanceId: Int, virtualFilePrefix: String): Boolean
     private external fun nativeEvaluate(script: String, instanceId: Int = this.instanceId): JSValue
     private external fun nativeEvaluateFromFile(filePath: String, instanceId: Int = this.instanceId): JSValue
     private external fun nativeRunEventLoop(instanceId: Int = this.instanceId)

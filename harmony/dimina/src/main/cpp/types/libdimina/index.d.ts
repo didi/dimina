@@ -1,7 +1,8 @@
 // Dimina Native
 export const StartJsEngine: (appIndex: number,
   f: (t: number, w: number, d: string, a: ArrayBuffer) => number | string | boolean | object,
-  isDebugMode: boolean) => number;
+  isDebugMode: boolean,
+  virtualFilePrefix: string) => number;
 
 export const dispatchJsTask: (appIndex: number, script: string) => void;
 

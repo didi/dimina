@@ -72,7 +72,7 @@ public class FileAPI: DMPContainerApi {
     private static let SAVE_FILE_TO_DISK = "saveFileToDisk"
     private static let OPEN_DOCUMENT = "openDocument"
     private static let PREFIX = "FileSystemManager."
-    private static let VIRTUAL_PREFIX = "difile://"
+    private static let VIRTUAL_PREFIX = "\(DMPFileUtil.DMPFileURLScheme)://"
     private static let USER_PREFIX = "usr"
     private static let TEMP_PREFIX = "tmp"
     private static let ARRAY_BUFFER_BASE64_KEY = "__diminaArrayBufferBase64"

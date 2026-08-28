@@ -1,6 +1,6 @@
 import { DMPContextUtils } from "../../Utils/DMPContextUtils";
 
-const DMPFileURLScheme: string = 'difile://';
+export const DMPFileURLScheme: string = 'difile://';
 
 // vPath example: difile://data/storage/el2/base/haps/entry/files/dm_bundles_v2/dd8a9edfa385c38808/resource
 // localPath example: /data/storage/el2/base/haps/entry/files/dm_bundles_v2/dd8a9edfa385c38808/resource
@@ -11,8 +11,8 @@ export class DMPFileUrlConvertor {
   static uri2UploadImageFilePath(url: string): string {
     const cacheDir = DMPContextUtils.getUIAbilityContext().cacheDir;
     const cacheUri = 'internal://cache'
-    if (url.startsWith("difile://")) {
-      return url.replace("difile://", cacheUri)
+    if (url.startsWith(DMPFileURLScheme)) {
+      return url.replace(DMPFileURLScheme, cacheUri)
     } else if (url.startsWith(cacheDir)) {
       return url.replace(cacheDir, cacheUri)
     }
@@ -22,7 +22,7 @@ export class DMPFileUrlConvertor {
   // 将虚拟路径转换为本地路径
   static localPathFromVPath(vPath: string): string {
     if (vPath.startsWith(DMPFileURLScheme)) {
-      const localPath = vPath.replace(/^difile:\/\//, "/");
+      const localPath = vPath.replace(DMPFileURLScheme, "/");
       return localPath;
     }
     return vPath;
@@ -38,7 +38,7 @@ export class DMPFileUrlConvertor {
   }
 
   static isDifilePath(path: string): boolean {
-    return path.startsWith('difile://');
+    return path.startsWith(DMPFileURLScheme);
   }
 }
 

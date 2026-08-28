@@ -953,7 +953,7 @@ class NativeComponentHost(
             val uri = Uri.parse(source)
             return when (uri.scheme?.lowercase()) {
                 "http", "https" -> uri
-                null, "file", "difile" -> Uri.fromFile(
+                null, "file", PathUtils.VIRTUAL_SCHEME -> Uri.fromFile(
                     File(PathUtils.pathToAppResource(activity, source, activity.getMiniProgram().appId)),
                 )
                 else -> throw IllegalArgumentException("unsupported video source scheme")

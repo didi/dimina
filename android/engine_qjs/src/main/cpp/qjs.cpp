@@ -1120,7 +1120,7 @@ static void register_timer_functions(JSContext *ctx) {
 }
 
 // Register DiminaServiceBridge global object and methods
-static void register_dimina_service_bridge(JSContext *ctx) {
+static void register_dimina_service_bridge(JSContext *ctx, const char* virtualFilePrefix) {
     // Create the DiminaServiceBridge object
     JSValue global = JS_GetGlobalObject(ctx);
     JSValue diminaObj = JS_NewObject(ctx);
@@ -1136,7 +1136,7 @@ static void register_dimina_service_bridge(JSContext *ctx) {
 
     // Inject virtual file prefix for JSSDK
     JS_SetPropertyStr(ctx, global, "__VIRTUAL_FILE_PREFIX__",
-                      JS_NewString(ctx, "difile://"));
+                      JS_NewString(ctx, virtualFilePrefix));
 
     // Free the global object reference
     JS_FreeValue(ctx, global);
@@ -1147,7 +1147,8 @@ extern "C" JNIEXPORT jboolean JNICALL
 Java_com_didi_dimina_engine_qjs_QuickJSEngine_nativeInitialize(
         JNIEnv* env,
         jobject thiz,
-        jint instanceId) {
+        jint instanceId,
+        jstring virtualFilePrefix) {
     
     // Check if instance already exists
     std::lock_guard<std::mutex> lock(gEngineInstancesMutex);
@@ -1198,7 +1199,9 @@ Java_com_didi_dimina_engine_qjs_QuickJSEngine_nativeInitialize(
     }
     
     // Register DiminaServiceBridge global object
-    register_dimina_service_bridge(instance->ctx);
+    const char* prefix = env->GetStringUTFChars(virtualFilePrefix, nullptr);
+    register_dimina_service_bridge(instance->ctx, prefix);
+    env->ReleaseStringUTFChars(virtualFilePrefix, prefix);
     
     // Register console API
     register_console_api(instance->ctx);

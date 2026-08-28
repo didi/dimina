@@ -1,4 +1,5 @@
-const VIRTUAL_USER_PREFIX = 'difile://usr/'
+export const VIRTUAL_FILE_PREFIX = (globalThis as any).__VIRTUAL_FILE_PREFIX__ || 'difile://'
+export const VIRTUAL_USER_PREFIX = VIRTUAL_FILE_PREFIX + 'usr/'
 const STORAGE_ROOT = 'dimina-file-system'
 
 interface StorageManagerWithDirectory {
@@ -75,7 +76,7 @@ async function sourceBlob(tempFilePath: string, resourceBaseUrl: string): Promis
 	if (!tempFilePath) {
 		throw new Error('tempFilePath is required')
 	}
-	if (tempFilePath.startsWith('difile://')) {
+	if (tempFilePath.startsWith(VIRTUAL_FILE_PREFIX)) {
 		throw new Error(`temporary virtual file is not available on Web: ${tempFilePath}`)
 	}
 

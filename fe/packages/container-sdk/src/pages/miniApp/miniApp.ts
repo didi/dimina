@@ -6,7 +6,7 @@ import { LAUNCH_SCREEN_MIN_MS, MODAL_GUARD_MS, WAIT_TRANSITION_TIMEOUT_MS } from
 import { Bridge } from '../../core/bridge.js'
 import { JSCore } from '../../core/jscore.js'
 import { WebSocketManager } from '../../core/webSocketManager.js'
-import { readWebFile, saveWebFile } from '../../core/webFileSystem.js'
+import { readWebFile, saveWebFile, VIRTUAL_FILE_PREFIX, VIRTUAL_USER_PREFIX } from '../../core/webFileSystem.js'
 import { resolveStorageAdapter } from '../../config.js'
 import { mergePageConfig, queryPath, readFile, sleep, uuid } from '../../utils/util.js'
 import { Navigator } from './navigator.js'
@@ -3443,13 +3443,13 @@ export class MiniApp {
 	}
 
 	private async _resolveMediaObjectUrl(source: string): Promise<string> {
-		if (source.startsWith('difile://usr/')) {
+		if (source.startsWith(VIRTUAL_USER_PREFIX)) {
 			const file = await readWebFile(this.appId, source)
 			const url = URL.createObjectURL(file)
 			this._tempObjectUrls.add(url)
 			return url
 		}
-		if (source.startsWith('difile://')) {
+		if (source.startsWith(VIRTUAL_FILE_PREFIX)) {
 			throw new Error(`temporary virtual file is not available on Web: ${source}`)
 		}
 		return this._resolveMediaUrl(source)

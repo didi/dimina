@@ -7,20 +7,21 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		4F8C9A102F23000100000001 /* DMPWebResourceLoaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F8C9A102F23000100000002 /* DMPWebResourceLoaderTests.swift */; };
-		7B2760012F26000100000001 /* DMPRemoteUpdateManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B2760012F26000100000002 /* DMPRemoteUpdateManagerTests.swift */; };
 		14603AA5921BC560B952F3E9 /* DMPUtilPathTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61DD3E623362F9D7264941CD /* DMPUtilPathTests.swift */; };
-		9A1D30A12F12000100000001 /* DMPNavigatorCapsuleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1D30A12F12000100000002 /* DMPNavigatorCapsuleTests.swift */; };
 		1A2B3C4D5E6F700000000001 /* Alamofire in Frameworks */ = {isa = PBXBuildFile; productRef = 1A2B3C4D5E6F700000000101 /* Alamofire */; };
 		1A2B3C4D5E6F700000000002 /* MMKV in Frameworks */ = {isa = PBXBuildFile; productRef = 1A2B3C4D5E6F700000000102 /* MMKV */; };
 		1A2B3C4D5E6F700000000003 /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = 1A2B3C4D5E6F700000000103 /* ZIPFoundation */; };
-		D3AF9DC58D4F29D8D2A8F71F /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2EAA9C0614F7638987B22EAC /* Foundation.framework */; };
 		1AE8A186852DBE677D065599 /* DMPWebSocketTestDoubles.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A624932ADE9898E587249FA /* DMPWebSocketTestDoubles.swift */; };
 		4AAB204EFEBA61F955A67553 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 69C73737CB86CC434E8DE5B7 /* Foundation.framework */; };
+		4F8C9A102F23000100000001 /* DMPWebResourceLoaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F8C9A102F23000100000002 /* DMPWebResourceLoaderTests.swift */; };
 		7500C22DE15B570EC7A4FD2B /* DMPWebSocketValidationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAB6B466B43575C7978B1BAD /* DMPWebSocketValidationTests.swift */; };
+		7B2760012F26000100000001 /* DMPRemoteUpdateManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B2760012F26000100000002 /* DMPRemoteUpdateManagerTests.swift */; };
+		9A1D30A12F12000100000001 /* DMPNavigatorCapsuleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1D30A12F12000100000002 /* DMPNavigatorCapsuleTests.swift */; };
 		9E9F7EDCE127D18B2331A8DC /* DMPWebSocketManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23EDE52DA8E2C3DFF607829B /* DMPWebSocketManagerTests.swift */; };
+		D3AF9DC58D4F29D8D2A8F71F /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2EAA9C0614F7638987B22EAC /* Foundation.framework */; };
 		E90FD67E791E4377923344EF /* DMPEngineTimerThreadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 898FFD601DB04AFEBBAAAE0A /* DMPEngineTimerThreadTests.swift */; };
 /* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		425BDC30CA314D645195B564 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -37,30 +38,31 @@
 			remoteInfo = dimina;
 		};
 /* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
-		4F8C9A102F23000100000002 /* DMPWebResourceLoaderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DMPWebResourceLoaderTests.swift; sourceTree = "<group>"; };
-		7B2760012F26000100000002 /* DMPRemoteUpdateManagerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DMPRemoteUpdateManagerTests.swift; sourceTree = "<group>"; };
 		0A6F85D82DAE3D7D0047A006 /* dimina.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = dimina.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		23EDE52DA8E2C3DFF607829B /* DMPWebSocketManagerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DMPWebSocketManagerTests.swift; sourceTree = "<group>"; };
 		2EAA9C0614F7638987B22EAC /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
+		3A624932ADE9898E587249FA /* DMPWebSocketTestDoubles.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DMPWebSocketTestDoubles.swift; sourceTree = "<group>"; };
+		4F8C9A102F23000100000002 /* DMPWebResourceLoaderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DMPWebResourceLoaderTests.swift; sourceTree = "<group>"; };
 		5D995E363EB06797E5E3DB0D /* diminaTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = diminaTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		61DD3E623362F9D7264941CD /* DMPUtilPathTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DMPUtilPathTests.swift; sourceTree = "<group>"; };
-		9A1D30A12F12000100000002 /* DMPNavigatorCapsuleTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DMPNavigatorCapsuleTests.swift; sourceTree = "<group>"; };
-		23EDE52DA8E2C3DFF607829B /* DMPWebSocketManagerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DMPWebSocketManagerTests.swift; sourceTree = "<group>"; };
-		3A624932ADE9898E587249FA /* DMPWebSocketTestDoubles.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DMPWebSocketTestDoubles.swift; sourceTree = "<group>"; };
 		69C73737CB86CC434E8DE5B7 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
+		7B2760012F26000100000002 /* DMPRemoteUpdateManagerTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DMPRemoteUpdateManagerTests.swift; sourceTree = "<group>"; };
+		898FFD601DB04AFEBBAAAE0A /* DMPEngineTimerThreadTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DMPEngineTimerThreadTests.swift; sourceTree = "<group>"; };
+		9A1D30A12F12000100000002 /* DMPNavigatorCapsuleTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DMPNavigatorCapsuleTests.swift; sourceTree = "<group>"; };
 		AE429915A2BA3583BF99A758 /* DiminaKitTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DiminaKitTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		FAB6B466B43575C7978B1BAD /* DMPWebSocketValidationTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DMPWebSocketValidationTests.swift; sourceTree = "<group>"; };
-		898FFD601DB04AFEBBAAAE0A /* DMPEngineTimerThreadTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DMPEngineTimerThreadTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		0A6F85DA2DAE3D7D0047A006 /* dimina */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = dimina;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
+
 /* Begin PBXFrameworksBuildPhase section */
 		0A6F85D52DAE3D7D0047A006 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
@@ -72,14 +74,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		A9DECAB17F22C566C3183280 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				D3AF9DC58D4F29D8D2A8F71F /* Foundation.framework in Frameworks */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		75359533A9166B5EE35DA73F /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -88,7 +82,16 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A9DECAB17F22C566C3183280 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D3AF9DC58D4F29D8D2A8F71F /* Foundation.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
+
 /* Begin PBXGroup section */
 		0A6F85CF2DAE3D7D0047A006 = {
 			isa = PBXGroup;
@@ -112,34 +115,6 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
-		A1A880FA1CE19FE5226DD6BF /* iOS */ = {
-			isa = PBXGroup;
-			children = (
-				2EAA9C0614F7638987B22EAC /* Foundation.framework */,
-			);
-			name = iOS;
-			sourceTree = "<group>";
-		};
-		A25481309172EDD172D6037B /* diminaTests */ = {
-			isa = PBXGroup;
-			children = (
-				7B2760012F26000100000002 /* DMPRemoteUpdateManagerTests.swift */,
-				4F8C9A102F23000100000002 /* DMPWebResourceLoaderTests.swift */,
-				9A1D30A12F12000100000002 /* DMPNavigatorCapsuleTests.swift */,
-				61DD3E623362F9D7264941CD /* DMPUtilPathTests.swift */,
-			);
-			name = diminaTests;
-			path = diminaTests;
-			sourceTree = "<group>";
-		};
-		E07F041A9E2897B4C9F7EE93 /* Frameworks */ = {
-			isa = PBXGroup;
-			children = (
-				A1A880FA1CE19FE5226DD6BF /* iOS */,
-			);
-			name = Frameworks;
-			sourceTree = "<group>";
-		};
 		3F49A794699EE10985C26AE0 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
@@ -156,6 +131,33 @@
 			name = iOS;
 			sourceTree = "<group>";
 		};
+		A1A880FA1CE19FE5226DD6BF /* iOS */ = {
+			isa = PBXGroup;
+			children = (
+				2EAA9C0614F7638987B22EAC /* Foundation.framework */,
+			);
+			name = iOS;
+			sourceTree = "<group>";
+		};
+		A25481309172EDD172D6037B /* diminaTests */ = {
+			isa = PBXGroup;
+			children = (
+				7B2760012F26000100000002 /* DMPRemoteUpdateManagerTests.swift */,
+				4F8C9A102F23000100000002 /* DMPWebResourceLoaderTests.swift */,
+				9A1D30A12F12000100000002 /* DMPNavigatorCapsuleTests.swift */,
+				61DD3E623362F9D7264941CD /* DMPUtilPathTests.swift */,
+			);
+			path = diminaTests;
+			sourceTree = "<group>";
+		};
+		E07F041A9E2897B4C9F7EE93 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				A1A880FA1CE19FE5226DD6BF /* iOS */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		F7BE9FF6DC45813219FFB35C /* DiminaKitTests */ = {
 			isa = PBXGroup;
 			children = (
@@ -164,11 +166,11 @@
 				23EDE52DA8E2C3DFF607829B /* DMPWebSocketManagerTests.swift */,
 				898FFD601DB04AFEBBAAAE0A /* DMPEngineTimerThreadTests.swift */,
 			);
-			name = DiminaKitTests;
 			path = DiminaKitTests;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
+
 /* Begin PBXNativeTarget section */
 		0A6F85D72DAE3D7D0047A006 /* dimina */ = {
 			isa = PBXNativeTarget;
@@ -233,6 +235,7 @@
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
 /* End PBXNativeTarget section */
+
 /* Begin PBXProject section */
 		0A6F85D02DAE3D7D0047A006 /* Project object */ = {
 			isa = PBXProject;
@@ -271,15 +274,9 @@
 			);
 		};
 /* End PBXProject section */
+
 /* Begin PBXResourcesBuildPhase section */
 		0A6F85D62DAE3D7D0047A006 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		8686C926F6396745BC2C85D0 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -293,7 +290,15 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		8686C926F6396745BC2C85D0 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
+
 /* Begin PBXShellScriptBuildPhase section */
 		95105B9A2DDC3FF3004B4A04 /* Copy Shared Resources */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -316,6 +321,7 @@
 			showEnvVarsInLog = 0;
 		};
 /* End PBXShellScriptBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		0A6F85D42DAE3D7D0047A006 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -347,6 +353,7 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
 /* Begin PBXTargetDependency section */
 		21D2CF2ECD81EA695D26AD0F /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
@@ -361,6 +368,7 @@
 			targetProxy = DB8F7A3C5399B5683486B7A7 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
 		0A6F85E42DAE3D7F0047A006 /* Debug */ = {
 			isa = XCBuildConfiguration;
@@ -493,7 +501,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"dimina/Preview Content\"";
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = 86UK82S9M4;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -531,7 +539,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"dimina/Preview Content\"";
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = 86UK82S9M4;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -579,28 +587,6 @@
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/dimina.app/dimina";
 			};
 			name = Debug;
-		};
-		BDBAD9C9F0C0C97BA6E50B44 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				CLANG_ENABLE_OBJC_WEAK = NO;
-				"CODE_SIGNING_ALLOWED[sdk=iphonesimulator*]" = NO;
-				CODE_SIGN_IDENTITY = "Apple Development";
-				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = "";
-				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.didi.dimina.diminaTests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = iphoneos;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/dimina.app/dimina";
-				VALIDATE_PRODUCT = YES;
-			};
-			name = Release;
 		};
 		A1B810AC2DE773DC11A10B06 /* Release */ = {
 			isa = XCBuildConfiguration;
@@ -651,7 +637,30 @@
 			};
 			name = Debug;
 		};
+		BDBAD9C9F0C0C97BA6E50B44 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				"CODE_SIGNING_ALLOWED[sdk=iphonesimulator*]" = NO;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.didi.dimina.diminaTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/dimina.app/dimina";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
+
 /* Begin XCConfigurationList section */
 		0A6F85D32DAE3D7D0047A006 /* Build configuration list for PBXProject "dimina" */ = {
 			isa = XCConfigurationList;
@@ -671,15 +680,6 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		B2B2982469D8FB223BE46D4D /* Build configuration list for PBXNativeTarget "diminaTests" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				BDBAD9C9F0C0C97BA6E50B44 /* Release */,
-				410698C041695C27E7C612D8 /* Debug */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
 		202F716BC818E780D6A72F4F /* Build configuration list for PBXNativeTarget "DiminaKitTests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -689,7 +689,17 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		B2B2982469D8FB223BE46D4D /* Build configuration list for PBXNativeTarget "diminaTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BDBAD9C9F0C0C97BA6E50B44 /* Release */,
+				410698C041695C27E7C612D8 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
+
 /* Begin XCRemoteSwiftPackageReference section */
 		1A2B3C4D5E6F700000000201 /* XCRemoteSwiftPackageReference "Alamofire" */ = {
 			isa = XCRemoteSwiftPackageReference;
@@ -716,6 +726,7 @@
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		1A2B3C4D5E6F700000000101 /* Alamofire */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -733,21 +744,6 @@
 			productName = ZIPFoundation;
 		};
 /* End XCSwiftPackageProductDependency section */
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 	};
 	rootObject = 0A6F85D02DAE3D7D0047A006 /* Project object */;
 }

@@ -687,7 +687,7 @@ internal fun createWebViewClientWithInterceptor(
             view: WebView,
             request: WebResourceRequest
         ): WebResourceResponse? {
-            if (request.url.scheme == "difile") {
+            if (request.url.scheme == PathUtils.VIRTUAL_SCHEME) {
                 return handleVirtualFileRequest(context, request.url, appId)
             }
             return assetLoader.shouldInterceptRequest(request.url)

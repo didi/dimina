@@ -13,8 +13,7 @@ import { DMPApp } from '../DApp/DMPApp';
 import { WorkerAppData } from '../Service/DMPSendableObjects';
 import { DMPUnzipManager } from '../Bundle/Util/DMPUnzipManager';
 import { DMPFilePathResolver } from '../Bundle/Util/DMPFilePathResolver';
-
-const VIRTUAL_PREFIX = 'difile://';
+import { DMPFileURLScheme as VIRTUAL_PREFIX } from '../Bundle/Util/DMPFileUrlConvertor';
 const USER_PREFIX = 'usr';
 const ARRAY_BUFFER_BASE64_KEY = '__diminaArrayBufferBase64';
 const FILE_DATA_BASE64_KEY = '__diminaFileDataBase64';
