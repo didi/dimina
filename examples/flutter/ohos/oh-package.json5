@@ -1,0 +1,15 @@
+{
+  "modelVersion": "5.0.0",
+  "name": "dimina_flutter_example",
+  "version": "1.0.0",
+  "description": "Flutter host integration example for Dimina",
+  "dependencies": {
+    "@ohos/flutter_ohos": "file:./har/flutter.har"
+  },
+  "devDependencies": {
+    "@ohos/hypium": "1.0.19"
+  },
+  "overrides": {
+    "@ohos/flutter_ohos": "file:./har/flutter.har"
+  }
+}

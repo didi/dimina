@@ -155,7 +155,6 @@ body {
 			border: 3px solid var(--color-accent);
 			border-radius: inherit;
 			clip-path: polygon(41% 0, 59% 0, 66% 18%, 34% 18%);
-			filter: var(--filter-orbit);
 			pointer-events: none;
 			transform: rotate(var(--orbit-light-angle));
 			transform-origin: center;
@@ -205,7 +204,6 @@ body {
 		inline-size: min(20.625rem, 28vi);
 		min-inline-size: 0;
 		padding-block: var(--space-md);
-		background: var(--color-paper);
 
 		h1 {
 			min-inline-size: 0;

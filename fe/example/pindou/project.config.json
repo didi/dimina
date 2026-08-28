@@ -1,0 +1,15 @@
+{
+  "miniprogramRoot": "./",
+  "projectname": "拼豆工具",
+  "description": "拼豆工具",
+  "appid": "echoNtTPrEORNj1sqcC4",
+  "setting": {
+    "urlCheck": true,
+    "es6": false,
+    "enhance": false,
+    "compileHotReLoad": false,
+    "postcss": false,
+    "minified": false
+  },
+  "compileType": "miniprogram"
+}

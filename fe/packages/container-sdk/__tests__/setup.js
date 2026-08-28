@@ -1,5 +1,5 @@
 import { afterEach, vi } from 'vitest'
-import { installFakeWorker, resetFakeWorker } from './fixtures/fake-worker.js'
+import { installFakeWorker, isAutoRuntimeReady, resetFakeWorker } from './fixtures/fake-worker.js'
 
 // jsdom 里没有 Worker，真实 SDK 的逻辑线程初始化（new Worker(...)）不 polyfill 的话
 // 会同步抛 ReferenceError，进而在 openApp 的后台链路里变成 unhandled rejection。
@@ -16,7 +16,22 @@ function ensureRenderBridge(win) {
 			win.DiminaRenderBridge = {
 				invoke: null,
 				publish: null,
-				onMessage: vi.fn(),
+				onMessage: vi.fn((message) => {
+					if (message?.type !== 'loadResource' || !isAutoRuntimeReady()) return
+					const { bridgeId, resourceLoadId } = message.body || {}
+					queueMicrotask(() => {
+						win.DiminaRenderBridge?.invoke?.({
+							type: 'renderResourceLoaded',
+							target: 'service',
+							body: { bridgeId, resourceLoadId },
+						})
+						win.DiminaRenderBridge?.invoke?.({
+							type: 'domReady',
+							target: 'container',
+							body: { bridgeId, resourceLoadId },
+						})
+					})
+				}),
 			}
 		}
 	}

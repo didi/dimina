@@ -97,7 +97,6 @@ export default defineConfig({
 			// `@dimina/service?url` 不能 external——`?url` 后缀只有 Vite 认识，
 			// 残留到产物里会让消费方解析失败，必须交给 diminaServiceUrlPlugin 处理。
 			external: [
-				'chalk',
 				'mitt',
 				'vconsole',
 			],

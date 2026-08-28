@@ -8,9 +8,9 @@ describe('ComponentHost component structure', () => {
 	it('keeps the custom component tag without creating a browser ShadowRoot', () => {
 		const source = fs.readFileSync(COMPONENT_HOST_FILE, 'utf-8')
 
-		expect(source).toContain('<component :is="componentName" v-bind="$attrs">')
+		expect(source).toContain('<component :is="componentName" ref="hostRef" v-bind="$attrs">')
 		expect(source).not.toContain('attachShadow')
 		expect(source).not.toContain('createShadowDOM')
-		expect(source).not.toMatch(/\bref=/)
+		expect(source).not.toContain('shadowRoot')
 	})
 })

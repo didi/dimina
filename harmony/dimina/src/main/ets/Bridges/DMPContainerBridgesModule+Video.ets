@@ -198,10 +198,6 @@ export class DMPContainerBridgesModuleVideo extends DMPContainerBridgesModule {
     return dot >= 0 ? cleanPath.substring(dot + 1).toLowerCase() : fallback;
   }
 
-  private currentAppId(): string {
-    return this.appData.appId || this.app?.appConfig?.appId || 'default';
-  }
-
   private mediaTempDirectory(name: string): string {
     const directory = `${DMPFilePathResolver.tempRoot(this.currentAppId())}/${name}`;
     DMPFilePathResolver.ensureDirectory(directory);

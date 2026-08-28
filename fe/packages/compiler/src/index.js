@@ -15,6 +15,7 @@ import { getAppConfigInfo, getAppId, getAppName, getAppStyleScopeId, getPages, g
 let isPrinted = false
 const previousCompatibilityWarnings = new Map()
 const COMPILE_STAGE_ORDER = ['view', 'logic', 'style']
+const MAX_WARNING_PROJECTS = 32
 
 /**
  * 构建命令入口
@@ -30,13 +31,24 @@ const COMPILE_STAGE_ORDER = ['view', 'logic', 'style']
  * @param {string} [options.seedPath] 增量构建前用于保留未受影响产物的已发布目录
  * @param {object} [options.dependencyGraph] 上一次构建的依赖图快照
  * @param {Array<'view'|'logic'|'style'>} [options.stages] 仅运行指定编译阶段
+ * @param {boolean} [options.prepareConfig] 是否重新生成配置产物
+ * @param {boolean} [options.prepareNpm] 是否重新复制 miniprogram_npm 产物
  */
 export default function build(targetPath, workPath, useAppIdDir = true, options = {}) {
 	return runWithCompilerContext(() => runBuild(targetPath, workPath, useAppIdDir, options))
 }
 
 async function runBuild(targetPath, workPath, useAppIdDir = true, options = {}) {
-	const { sourcemap = false, fileTypes, affectedEntries, seedPath, dependencyGraph, stages } = options
+	const {
+		sourcemap = false,
+		fileTypes,
+		affectedEntries,
+		seedPath,
+		dependencyGraph,
+		stages,
+		prepareConfig = true,
+		prepareNpm = true,
+	} = options
 	if (stages !== undefined
 		&& (!Array.isArray(stages) || stages.some(stage => !COMPILE_STAGE_ORDER.includes(stage)))) {
 		throw new TypeError(`Invalid compiler stages: ${JSON.stringify(stages)}`)
@@ -44,6 +56,8 @@ async function runBuild(targetPath, workPath, useAppIdDir = true, options = {}) 
 	const enabledStages = new Set(stages === undefined
 		? COMPILE_STAGE_ORDER
 		: COMPILE_STAGE_ORDER.filter(stage => stages.includes(stage)))
+	const shouldPrepareConfig = !seedPath || prepareConfig
+	const shouldPrepareNpm = !seedPath || prepareNpm
 	resetAssetCache()
 	if (!isPrinted) {
 		artCode()
@@ -69,19 +83,19 @@ async function runBuild(targetPath, workPath, useAppIdDir = true, options = {}) 
 									createDist(seedPath)
 								},
 							},
-							{
+							...(shouldPrepareConfig ? [{
 								title: '编译配置信息',
 								task: () => {
 									compileConfig()
 								},
-							},
-							{
+							}] : []),
+							...(shouldPrepareNpm ? [{
 								title: '构建 npm 包',
 								task: async (ctx) => {
 									const npmBuilder = new NpmBuilder(getWorkPath(), getTargetPath(), ctx.dependencyGraph)
 									await npmBuilder.buildNpmPackages()
 								},
-							},
+							}] : []),
 						],
 						{ concurrent: false },
 					),
@@ -111,7 +125,16 @@ async function runBuild(targetPath, workPath, useAppIdDir = true, options = {}) 
 							title: '编译逻辑',
 							rendererOptions: { outputBar: true, persistentOutput: false },
 							task: async (ctx, task) => {
-								return runCompileInWorker('logic', ctx, task, { sourcemap, pages: ctx.allPages })
+								const sourcemapTargetPath = path.resolve(
+									process.cwd(),
+									targetPath,
+									useAppIdDir ? getAppId() : '',
+								)
+								return runCompileInWorker('logic', ctx, task, {
+									sourcemap,
+									pages: ctx.allPages,
+									sourcemapTargetPath,
+								})
 							},
 						})
 					}
@@ -197,18 +220,31 @@ function runCompileInWorker(script, ctx, task, options = {}) {
 
 		let isResolved = false
 		let workerError = null
+		let terminationPromise
+
+		const terminateWorker = () => {
+			terminationPromise ||= worker.terminate().catch(() => undefined)
+			return terminationPromise
+		}
 
 		// 统一的错误处理函数，防止重复 reject
-		const handleError = (error) => {
+		const handleError = async (error) => {
 			if (isResolved) return
 			isResolved = true
-			worker.terminate()
+			// WorkerPool 只有在 isolate 确实退出后才能释放槽位；否则排队的
+			// 阶段会与仍在回收中的 Worker 重叠，突破 CPU/RSS 限制。
+			await terminateWorker()
 			reject(error)
 		}
 
-		worker.postMessage({ pages, storeInfo: ctx.storeInfo, sourcemap: !!options.sourcemap })
+			worker.postMessage({
+				pages,
+				storeInfo: ctx.storeInfo,
+				sourcemap: !!options.sourcemap,
+				sourcemapTargetPath: options.sourcemapTargetPath,
+			})
 		// 接收 Worker 完成后的消息
-		worker.on('message', (message) => {
+		worker.on('message', async (message) => {
 			try {
 				for (const warning of message.compatibilityWarnings || []) {
 					ctx.compatibilityWarnings.add(warning)
@@ -220,12 +256,12 @@ function runCompileInWorker(script, ctx, task, options = {}) {
 
 				if (message.success) {
 					if (isResolved) return
-					isResolved = true
 					if (process.stdout.isTTY && totalTasks > 0) {
 						task.output = formatCompileProgress(totalTasks, totalTasks)
 					}
 					ctx.dependencyGraph.merge(message.dependencyGraph)
-					worker.terminate()
+					isResolved = true
+					await terminateWorker()
 					resolve()
 				}
 				else if (message.error) {
@@ -242,18 +278,18 @@ function runCompileInWorker(script, ctx, task, options = {}) {
 						error.column = message.error.column
 					if (message.error.stage)
 						error.stage = message.error.stage
-					handleError(error)
+					await handleError(error)
 				}
 			}
 			catch (err) {
-				handleError(new Error(`Error processing worker message: ${err.message}\n${err.stack}`))
+				await handleError(new Error(`Error processing worker message: ${err.message}\n${err.stack}`))
 			}
 		})
 
 		worker.on('error', (err) => {
 			// 保存错误信息，可能在 exit 事件中使用
 			workerError = err
-			handleError(err)
+			void handleError(err)
 		})
 		worker.on('exit', (code) => {
 			if (code !== 0 && !isResolved) {
@@ -264,7 +300,7 @@ function runCompileInWorker(script, ctx, task, options = {}) {
 						? 'Worker terminated due to reaching memory limit: JS heap out of memory'
 						: `Worker stopped with exit code ${code}`
 				)
-				handleError(error)
+				void handleError(error)
 			}
 		})
 	}))
@@ -276,7 +312,11 @@ function printCompatibilityWarnings(workPath, warnings = new Set()) {
 	const previousWarnings = previousCompatibilityWarnings.get(projectPath) || new Set()
 	const currentWarnings = new Set(warnings)
 	const newWarnings = [...currentWarnings].filter(warning => !previousWarnings.has(warning))
+	previousCompatibilityWarnings.delete(projectPath)
 	previousCompatibilityWarnings.set(projectPath, currentWarnings)
+	if (previousCompatibilityWarnings.size > MAX_WARNING_PROJECTS) {
+		previousCompatibilityWarnings.delete(previousCompatibilityWarnings.keys().next().value)
+	}
 
 	if (newWarnings.length === 0) {
 		return

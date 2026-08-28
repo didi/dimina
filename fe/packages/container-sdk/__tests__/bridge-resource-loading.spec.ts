@@ -8,6 +8,7 @@ type BridgeCtorOptions = ConstructorParameters<typeof Bridge>[0]
 interface FakeJSCore {
 	postMessage: ReturnType<typeof vi.fn>
 	notifyServiceReady: ReturnType<typeof vi.fn>
+	onWorkerFailure?: ReturnType<typeof vi.fn>
 }
 
 /**
@@ -18,7 +19,146 @@ function createBridge(opts: { jscore: FakeJSCore } & Record<string, unknown>): B
 	return new Bridge(opts as unknown as BridgeCtorOptions)
 }
 
+function createStartableBridge() {
+	const jscore = {
+		postMessage: vi.fn(),
+		notifyServiceReady: vi.fn(),
+		onWorkerFailure: vi.fn(() => vi.fn()),
+	}
+	const bridge = createBridge({
+		jscore,
+		appId: 'app-startup-ready',
+		pagePath: 'pages/index/index',
+		root: 'main',
+		scene: 1001,
+		query: {},
+	})
+	bridge.id = 'bridge-startup-ready'
+	bridge.webview = { postMessage: vi.fn() } as unknown as WebView
+	bridge.parent = { getHostEnvSnapshot: vi.fn(() => ({})) } as unknown as MiniApp
+	return { bridge, jscore }
+}
+
+function acknowledgeResources(bridge: Bridge) {
+	for (const [source, type] of [
+		['service', 'serviceResourceLoaded'],
+		['render', 'renderResourceLoaded'],
+	] as const) {
+		bridge.messageInvoke(source, {
+			type,
+			target: 'service',
+			body: { bridgeId: bridge.id, resourceLoadId: bridge.resourceLoadId },
+		})
+	}
+}
+
 describe('Bridge resource loading protocol', () => {
+	it('keeps startup pending after resources load and resolves only for the current domReady', async () => {
+		const { bridge } = createStartableBridge()
+		let resolved = false
+		const ready = bridge.startAndWait().then(() => {
+			resolved = true
+		})
+		const currentResourceLoadId = bridge.resourceLoadId
+
+		acknowledgeResources(bridge)
+		await Promise.resolve()
+		expect(bridge.isResourceLoaded()).toBe(true)
+		expect(bridge.isStartupReady()).toBe(false)
+		expect(resolved).toBe(false)
+
+		bridge.messageInvoke('render', {
+			type: 'domReady',
+			target: 'container',
+			body: { bridgeId: bridge.id },
+		})
+		bridge.messageInvoke('render', {
+			type: 'domReady',
+			target: 'container',
+			body: { bridgeId: bridge.id, resourceLoadId: 'load-stale' },
+		})
+		await Promise.resolve()
+		expect(resolved).toBe(false)
+
+		bridge.messageInvoke('render', {
+			type: 'domReady',
+			target: 'container',
+			body: { bridgeId: bridge.id, resourceLoadId: currentResourceLoadId },
+		})
+		await ready
+		expect(bridge.isStartupReady()).toBe(true)
+		expect(resolved).toBe(true)
+	})
+
+	it('rejects startup when render loading fails before domReady', async () => {
+		const { bridge } = createStartableBridge()
+		const ready = bridge.startAndWait()
+
+		bridge.messageInvoke('render', {
+			type: 'renderResourceLoadFailed',
+			target: 'service',
+			body: {
+				bridgeId: bridge.id,
+				resourceLoadId: bridge.resourceLoadId,
+				errors: ['render failed'],
+			},
+		})
+
+		await expect(ready).rejects.toThrow('render failed')
+	})
+
+	it('rejects a pending startup when the bridge is destroyed', async () => {
+		const { bridge } = createStartableBridge()
+		const ready = bridge.startAndWait()
+		bridge.destroy()
+		await expect(ready).rejects.toThrow('bridge was destroyed before startup became ready')
+	})
+
+	it('resets readiness and rejects the previous waiter when startup is superseded', async () => {
+		const { bridge } = createStartableBridge()
+		const firstReady = bridge.startAndWait()
+		const firstRejected = expect(firstReady).rejects.toThrow('startup was superseded')
+		const firstResourceLoadId = bridge.resourceLoadId
+		acknowledgeResources(bridge)
+
+		const secondReady = bridge.startAndWait()
+		const secondResourceLoadId = bridge.resourceLoadId
+		await firstRejected
+		expect(secondResourceLoadId).not.toBe(firstResourceLoadId)
+		expect(bridge.isResourceLoaded()).toBe(false)
+		expect(bridge.isStartupReady()).toBe(false)
+
+		bridge.messageInvoke('render', {
+			type: 'domReady',
+			target: 'container',
+			body: { bridgeId: bridge.id, resourceLoadId: firstResourceLoadId },
+		})
+		acknowledgeResources(bridge)
+		bridge.messageInvoke('render', {
+			type: 'domReady',
+			target: 'container',
+			body: { bridgeId: bridge.id, resourceLoadId: secondResourceLoadId },
+		})
+
+		await secondReady
+		expect(bridge.isStartupReady()).toBe(true)
+	})
+
+	it('rejects startup when domReady never arrives', async () => {
+		vi.useFakeTimers()
+		try {
+			const { bridge } = createStartableBridge()
+			const ready = bridge.startAndWait()
+			acknowledgeResources(bridge)
+			const assertion = expect(ready).rejects.toThrow('startup ready timed out')
+			await vi.runAllTimersAsync()
+			await assertion
+		}
+		finally {
+			vi.useRealTimers()
+		}
+	})
+
 	it('flushes the queued pageShow after resourceLoaded in service message order', () => {
 		const jscore = { postMessage: vi.fn(), notifyServiceReady: vi.fn() }
 		const bridge = createBridge({
@@ -50,7 +190,7 @@ describe('Bridge resource loading protocol', () => {
 		])
 	})
 
-	it('keeps only the latest queued visibility and suppresses duplicate notifications', () => {
+	it('suppresses duplicate visibility notifications after the page becomes visible', () => {
 		const jscore = { postMessage: vi.fn(), notifyServiceReady: vi.fn() }
 		const bridge = createBridge({
 			jscore,
@@ -62,7 +202,6 @@ describe('Bridge resource loading protocol', () => {
 		bridge.resourceLoadId = 'load-hidden'
 
 		bridge.pageShow()
-		bridge.pageHide()
 		bridge.messageInvoke('service', {
 			type: 'serviceResourceLoaded',
 			target: 'service',
@@ -74,14 +213,16 @@ describe('Bridge resource loading protocol', () => {
 			body: { bridgeId: bridge.id, resourceLoadId: bridge.resourceLoadId },
 		})
 		bridge.pageHide()
+		bridge.pageHide()
 
 		expect(jscore.postMessage.mock.calls.map(([message]) => message.type)).toEqual([
 			'resourceLoaded',
+			'pageShow',
 			'pageHide',
 		])
 	})
 
-	it('does not overwrite an early pageHide when start uses its default visibility', () => {
+	it('does not emit pageHide for a page that never became visible', () => {
 		const jscore = { postMessage: vi.fn(), notifyServiceReady: vi.fn() }
 		const bridge = createBridge({
 			jscore,
@@ -118,8 +259,8 @@ describe('Bridge resource loading protocol', () => {
 		expect(jscore.postMessage.mock.calls.map(([message]) => message.type)).toEqual([
 			'loadResource',
 			'resourceLoaded',
-			'pageHide',
 		])
+		expect(bridge.sentPageVisible).toBe(false)
 	})
 
 	it('uses the per-app resource base for both render and service loaders', () => {

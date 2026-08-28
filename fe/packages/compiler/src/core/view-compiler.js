@@ -192,6 +192,7 @@ const wxsModuleRegistry = new Set()
 
 // wxs 文件路径映射表，用于快速查找模块对应的文件路径
 const wxsFilePathMap = new Map()
+let wxsScannedWorkPath = null
 
 let enableSourcemap = false
 
@@ -200,6 +201,7 @@ if (!isMainThread) {
 		try {
 			resetStoreInfo(storeInfo)
 			enableSourcemap = !!sourcemap
+			wxsScannedWorkPath = null
 
 			const progress = {
 				_completedTasks: 0,
@@ -223,6 +225,7 @@ if (!isMainThread) {
 			compileResCache.clear()
 			wxsModuleRegistry.clear()
 			wxsFilePathMap.clear()
+			wxsScannedWorkPath = null
 
 			parentPort.postMessage({
 				success: true,
@@ -235,6 +238,7 @@ if (!isMainThread) {
 			compileResCache.clear()
 			wxsModuleRegistry.clear()
 			wxsFilePathMap.clear()
+			wxsScannedWorkPath = null
 
 			parentPort.postMessage({
 				success: false,
@@ -254,8 +258,11 @@ if (!isMainThread) {
 async function compileML(pages, root, progress) {
 	const workPath = getWorkPath()
 
-	// 初始化 wxs 文件路径映射
-	initWxsFilePathMap(workPath)
+	// 主包和所有分包共享同一 npm WXS 索引；一次 Worker 任务只扫描一次。
+	if (wxsScannedWorkPath !== workPath) {
+		initWxsFilePathMap(workPath)
+		wxsScannedWorkPath = workPath
+	}
 
 	for (const page of pages) {
 		const scriptRes = new Map()
@@ -281,31 +288,41 @@ async function compileML(pages, root, progress) {
 			fs.writeFileSync(`${outputDir}/${sourcemapFileName}`, sourcemap)
 		}
 		else {
-			let mergeRender = ''
+			const moduleRanges = []
+			let bundleSource = ''
+			let nextLine = 1
 			for (const [key, value] of scriptRes.entries()) {
 				const amdFormat = `modDefine('${key}', function(require, module, exports) {
 			${value}
-			});`
-				try {
-					const { code: minifiedCode } = await transform(amdFormat, {
-						minify: true,
-						target: ['es2020'],
-						platform: 'browser',
-					})
-					mergeRender += minifiedCode
-				}
-				catch (error) {
-					const location = error.errors?.[0]?.location
-					const sourceLines = amdFormat.split('\n')
-					const sourceHint = location?.line
-						? sourceLines
-							.slice(Math.max(0, location.line - 3), location.line + 2)
-							.map((line, index) => `${Math.max(1, location.line - 2) + index}: ${line.trim()}`)
-							.join('\n')
-						: ''
-					error.message = `视图模块 ${key} 转换失败: ${error.message}${sourceHint ? `\n${sourceHint}` : ''}`
-					throw error
-				}
+			});\n`
+				const lineCount = amdFormat.split('\n').length
+				moduleRanges.push({ key, startLine: nextLine, endLine: nextLine + lineCount - 2 })
+				bundleSource += amdFormat
+				nextLine += lineCount - 1
+			}
+
+			let mergeRender = ''
+			try {
+				const { code: minifiedCode } = await transform(bundleSource, {
+					minify: true,
+					target: ['es2020'],
+					platform: 'browser',
+				})
+				mergeRender = minifiedCode
+			}
+			catch (error) {
+				const location = error.errors?.[0]?.location
+				const sourceLines = bundleSource.split('\n')
+				const sourceHint = location?.line
+					? sourceLines
+						.slice(Math.max(0, location.line - 3), location.line + 2)
+						.map((line, index) => `${Math.max(1, location.line - 2) + index}: ${line.trim()}`)
+						.join('\n')
+					: ''
+				const failedModule = moduleRanges.find(range =>
+					location?.line >= range.startLine && location.line <= range.endLine)
+				error.message = `视图模块 ${failedModule?.key || 'bundle'} 转换失败: ${error.message}${sourceHint ? `\n${sourceHint}` : ''}`
+				throw error
 			}
 			fs.writeFileSync(`${outputDir}/${filename}.js`, mergeRender)
 		}
@@ -943,13 +960,13 @@ function processIncludeConditionalAttrs($, elem, includeContent) {
 
 /**
  * 递归处理被引入文件中的组件 wxs 依赖
- * @param {*} content 被引入文件的内容
+ * @param {Set<string>} componentTags 被引入文件中使用的组件标签
  * @param {*} includePath 被引入文件的路径
  * @param {*} scriptModule 用于收集 wxs 模块的数组
  * @param {*} components 当前可用的组件映射
  * @param {Set} processedPaths 已处理的路径集合，防止循环引用和栈溢出
  */
-function processIncludedFileWxsDependencies(content, includePath, scriptModule, components, processedPaths = new Set()) {
+function processIncludedFileWxsDependencies(componentTags, includePath, scriptModule, components, processedPaths = new Set()) {
 	// 如果当前路径已经处理过，直接返回避免循环引用
 	if (processedPaths.has(includePath)) {
 		return
@@ -957,26 +974,6 @@ function processIncludedFileWxsDependencies(content, includePath, scriptModule, 
 
 	// 将当前路径添加到已处理集合中
 	processedPaths.add(includePath)
-
-	const $ = cheerio.load(content, {
-		xmlMode: true,
-		decodeEntities: false,
-		_useHtmlParser2: true,
-		// 减少内存占用的配置
-		lowerCaseTags: false,
-		lowerCaseAttributeNames: false,
-	})
-
-	// 查找所有组件标签
-	const componentTags = new Set()
-
-	// 遍历所有元素，查找组件标签
-	$('*').each((_, elem) => {
-		const tagName = elem.tagName
-		if (components && components[tagName]) {
-			componentTags.add(tagName)
-		}
-	})
 
 	// 对每个组件，直接处理其 wxs 依赖（避免递归调用 buildCompileView）
 	for (const tagName of componentTags) {
@@ -1002,6 +999,20 @@ function processIncludedFileWxsDependencies(content, includePath, scriptModule, 
 			}
 		}
 	}
+}
+
+function collectIncludedComponentTags($, components) {
+	const componentTags = new Set()
+	if (!components) {
+		return componentTags
+	}
+
+	$('*').each((_, elem) => {
+		if (components[elem.tagName]) {
+			componentTags.add(elem.tagName)
+		}
+	})
+	return componentTags
 }
 
 /**
@@ -1038,20 +1049,6 @@ function toCompileTemplate(isComponent, path, components, componentPlaceholder, 
 			// 自定义组件统一添加宿主节点，承载组件边界、属性、事件与样式隔离语义。
 			content = `<component-host name="${path}">${content}</component-host>`
 		}
-		else {
-			// 检查是否有唯一根节点，如果不是唯一根节点，则使用 <view></view> 包裹，以修复多节点导致的警告：
-			// attributes (class) were passed to component but could not be automatically inherited
-			const tempRoot = cheerio.load(content, {
-				xmlMode: true,
-				decodeEntities: false,
-			})
-			// 获取根级别的节点数量（不包括注释节点）
-			const rootNodes = tempRoot.root().children().toArray().filter(node => node.type !== 'comment')
-			// 如果根节点数量大于1，则使用 <view></view> 包裹
-			if (rootNodes.length > 1) {
-				content = `<view>${content}</view>`
-			}
-		}
 	}
 
 	const templateModule = []
@@ -1066,6 +1063,15 @@ function toCompileTemplate(isComponent, path, components, componentPlaceholder, 
 		withStartIndices: true,
 		withEndIndices: true,
 	})
+	if (!isComponent && originalContent.trim()) {
+		// 在主 DOM 上完成多根节点包装，避免仅为计数再次解析模板。
+		const root = $.root()
+		if (root.children().length > 1) {
+			const wrapper = $('<view></view>')
+			wrapper.append(root.contents())
+			root.append(wrapper)
+		}
+	}
 
 	// 处理 include 节点
 	// 可以将目标文件除了 <template/> <wxs/> 外的整个代码引入，相当于是拷贝到 include 位置
@@ -1098,6 +1104,7 @@ function toCompileTemplate(isComponent, path, components, componentPlaceholder, 
 					withStartIndices: true,
 					withEndIndices: true,
 				})
+				const componentTags = collectIncludedComponentTags($includeContent, components)
 
 				// 提取其中的 template 节点
 				transTagTemplate(
@@ -1119,7 +1126,7 @@ function toCompileTemplate(isComponent, path, components, componentPlaceholder, 
 				)
 
 				// 处理被引入文件中的组件 wxs 依赖
-				processIncludedFileWxsDependencies(includeContent, includePath, scriptModule, components, processedPaths)
+				processIncludedFileWxsDependencies(componentTags, includePath, scriptModule, components, processedPaths)
 
 				$includeContent('template').remove()
 				$includeContent(getViewScriptTags().join(',')).remove()
@@ -1182,6 +1189,7 @@ function toCompileTemplate(isComponent, path, components, componentPlaceholder, 
 					withStartIndices: true,
 					withEndIndices: true,
 				})
+				const componentTags = collectIncludedComponentTags($$, components)
 				// 提取其中的 template 节点
 				transTagTemplate(
 					$$,
@@ -1202,7 +1210,7 @@ function toCompileTemplate(isComponent, path, components, componentPlaceholder, 
 				)
 
 				// 处理被导入文件中的组件 wxs 依赖
-				processIncludedFileWxsDependencies(importContent, importPath, scriptModule, components, processedPaths)
+				processIncludedFileWxsDependencies(componentTags, importPath, scriptModule, components, processedPaths)
 			}
 		}
 	})
@@ -1212,6 +1220,7 @@ function toCompileTemplate(isComponent, path, components, componentPlaceholder, 
 
 	const res = []
 
+	normalizeTemplateDom($, $.root(), components)
 	transHtmlTag($.html(), res, components, componentPlaceholder)
 
 	return {
@@ -1238,6 +1247,7 @@ function transTagTemplate($, templateModule, path, components, componentPlacehol
 		templateContent.find(getViewScriptTags().join(',')).remove()
 		transAsses($, templateContent.find('image'), path, graphOwnerPath)
 		const res = []
+		normalizeTemplateDom($, templateContent, components)
 		transHtmlTag(templateContent.html(), res, components, componentPlaceholder)
 
 		templateModule.push({
@@ -1290,8 +1300,8 @@ function hasForAndIf(attrs) {
 		&& getDirectiveAttributeNames(attrs, [':if']).length > 0
 }
 
-function groupDuplicateNamedSlots($, components) {
-	const slotHosts = $('*').toArray().filter((element) => {
+function groupDuplicateNamedSlots($, root, components) {
+	const slotHosts = root.find('*').toArray().filter((element) => {
 		const tag = element.tagName
 		return tag === 'component' || Boolean(components?.[tag])
 	})
@@ -1323,8 +1333,8 @@ function groupDuplicateNamedSlots($, components) {
 	}
 }
 
-function wrapForIfScopes($) {
-	const nodes = $('*').toArray()
+function wrapForIfScopes($, root) {
+	const nodes = root.find('*').toArray()
 	for (const node of nodes) {
 		if (node.tagName === DIMINA_FOR_SCOPE_TAG || !hasForAndIf(node.attribs)) {
 			continue
@@ -1347,6 +1357,11 @@ function wrapForIfScopes($) {
 	}
 }
 
+function normalizeTemplateDom($, root, components) {
+	groupDuplicateNamedSlots($, root, components)
+	wrapForIfScopes($, root)
+}
+
 function normalizeTemplateSyntax(html, components) {
 	const $ = cheerio.load(html, {
 		xmlMode: true,
@@ -1355,8 +1370,7 @@ function normalizeTemplateSyntax(html, components) {
 		lowerCaseTags: false,
 		lowerCaseAttributeNames: false,
 	})
-	groupDuplicateNamedSlots($, components)
-	wrapForIfScopes($)
+	normalizeTemplateDom($, $.root(), components)
 	return $.html()
 }
 
@@ -1381,7 +1395,7 @@ function transHtmlTag(html, res, components, componentPlaceholder) {
 		{ xmlMode: true },
 	)
 
-	parser.write(normalizeTemplateSyntax(html, components))
+	parser.write(html)
 	parser.end()
 }
 
@@ -1409,7 +1423,7 @@ function transTag(opts) {
 	else if (components && components[tag]) {
 		res = `dd-${tag}`
 	}
-	else if (tag === 'component' || tag === 'canvas') {
+	else if (tag === 'component') {
 		// 动态组件
 		res = tag
 	}

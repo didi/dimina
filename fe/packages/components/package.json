@@ -25,7 +25,7 @@
 	},
 	"dependencies": {
 		"@dimina/common": "workspace:^",
-		"dompurify": "^3.4.13",
+		"dompurify": "^3.4.14",
 		"vue": "^3.5.41"
 	},
 	"devDependencies": {

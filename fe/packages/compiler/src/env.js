@@ -221,6 +221,7 @@ function storePathInfo(workPath) {
 	// 优先使用环境变量中的 TARGET_PATH
 	if (process.env.TARGET_PATH) {
 		pathInfo.targetPath = process.env.TARGET_PATH
+		pathInfo.temporaryTargetPath = false
 	} else {
 		// 使用工作区目录或系统临时目录，确保有写入权限
 		const tempDir = process.env.GITHUB_WORKSPACE || os.tmpdir()
@@ -228,6 +229,7 @@ function storePathInfo(workPath) {
 		const targetDir = fs.mkdtempSync(path.join(tempDir, 'dimina-fe-dist-'))
 
 		pathInfo.targetPath = targetDir
+		pathInfo.temporaryTargetPath = true
 	}
 	
 	// 初始化 npm 解析器
@@ -900,6 +902,10 @@ function getAppStyleScopeId() {
 	return uuid('app')
 }
 
+function isTemporaryTargetPath() {
+	return pathInfo.temporaryTargetPath === true
+}
+
 export {
 	getAppConfigInfo,
 	getDependencyGraph,
@@ -921,6 +927,7 @@ export {
 	getViewScriptTags,
 	getWorkPath,
 	isMiniGame,
+	isTemporaryTargetPath,
 	resetStoreInfo,
 	resolveAppAlias,
 	runWithCompilerContext,

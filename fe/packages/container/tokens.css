@@ -6,7 +6,6 @@
 	--color-rule: oklch(89% 0.007 250);
 	--color-rule-muted: oklch(24% 0.02 258 / 0.06);
 	--color-accent: oklch(58% 0.2 256);
-	--color-accent-shadow: oklch(58% 0.2 256 / 0.38);
 	--color-focus: oklch(52% 0.21 256);
 	--color-device-island: oklch(19% 0.008 258);
 	--color-transparent: oklch(0% 0 0 / 0);
@@ -41,5 +40,4 @@
 	--size-logo: 7.25rem;
 	--size-hit: 2.75rem;
 	--shadow-device: 0 1.875rem 2.625rem oklch(24% 0.02 258 / 0.14);
-	--filter-orbit: drop-shadow(0 0 0.625rem var(--color-accent-shadow));
 }

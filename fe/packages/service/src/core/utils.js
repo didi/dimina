@@ -324,7 +324,9 @@ export function mergeBehaviors(obj, behaviors) {
 			target.behaviorLifetimes = target.behaviorLifetimes || {}
 
 			for (const lifetime of lifetimes) {
-				const lifecycleMethod = behavior.lifetimes?.[lifetime] || behavior[lifetime]
+				const lifecycleMethod = behavior.lifetimes?.[lifetime] !== undefined
+					? behavior.lifetimes[lifetime]
+					: behavior[lifetime]
 				if (isFunction(lifecycleMethod)) {
 					target.behaviorLifetimes[lifetime] = target.behaviorLifetimes[lifetime] || []
 					target.behaviorLifetimes[lifetime].push(lifecycleMethod)

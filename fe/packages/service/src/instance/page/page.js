@@ -33,9 +33,9 @@ export class Page {
 		this.__pendingInitSetDataCallbacks__ = []
 	}
 
-	init({ deferInitialData = false } = {}) {
+	init({ deferInitialData = false, deferPageLoad = false } = {}) {
 		this.#initMembers()
-		this.#invokeInitLifecycle()
+		this.#invokeInitLifecycle({ deferPageLoad })
 		if (!deferInitialData) {
 			this.sendInitialData()
 		}
@@ -173,15 +173,29 @@ export class Page {
 		}
 	}
 
-	#invokeInitLifecycle() {
+	#invokeInitLifecycle({ deferPageLoad = false } = {}) {
 		invokeSafelyAll(this, this.__info__.behaviorLifetimes?.created, [], 'created lifetime')
 		invokeSafely(this, this.created, [], 'created lifetime')
 		invokeSafelyAll(this, this.__info__.behaviorLifetimes?.attached, [], 'attached lifetime')
 		invokeSafely(this, this.attached, [], 'attached lifetime')
 
-		// 页面创建时执行
-		invokeSafely(this, this.onLoad, [this.opts.query || {}], 'onLoad')
+		if (deferPageLoad) {
+			this.__pageLoadPending__ = true
+		}
+		else {
+			this.pageAttached()
+		}
+	}
+
+	pageAttached() {
+		if (this.initd) {
+			return
+		}
+		this.__pageLoadPending__ = false
+		// Mark the page initialized before user code so setData in onLoad is
+		// delivered to the render tree that has just finished mounting.
 		this.initd = true
+		invokeSafely(this, this.onLoad, [this.opts.query || {}], 'onLoad')
 	}
 
 	/**
@@ -204,9 +218,12 @@ export class Page {
 	}
 
 	pageUnload() {
+		invokeSafely(this, this.onUnload, [], 'onUnload')
+	}
+
+	pageDetached() {
 		invokeSafelyAll(this, this.__info__.behaviorLifetimes?.detached, [], 'detached lifetime')
 		invokeSafely(this, this.detached, [], 'detached lifetime')
-		invokeSafely(this, this.onUnload, [], 'onUnload')
 		this.initd = false
 	}
 

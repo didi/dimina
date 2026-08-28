@@ -54,7 +54,7 @@ resourceBaseUrl/
 
 真实例子见 `fe/packages/container/public/wx6d707864656d6f01/`（单页面）；带分包的见 `wxbaf4b47de04f1d8a/`（`main/` 之外还有平级的 `sub_xxx/` 分包目录，各自一份 `logic.js`）。
 
-产物不绑定任何编译器，目录结构符合约定即可。本仓库的产物由内置编译器生成：`fe/example/{projectName}/` 是小程序源码（appId 取 `project.config.json` 的 `appid` 字段），在 `fe/`（pnpm workspace 根）跑 `pnpm compile` 编译到 `fe/packages/container/public/{appId}/`，demo 再把 `public/` 当静态资源托管、原样作为 `resourceBaseUrl`。
+产物不绑定任何编译器，目录结构符合约定即可。本仓库的产物由内置编译器生成：`examples/miniprogram/{projectName}/` 是小程序源码（appId 取 `project.config.json` 的 `appid` 字段），在 `fe/`（pnpm workspace 根）跑 `pnpm compile` 编译到 `fe/packages/container/public/{appId}/`，demo 再把 `public/` 当静态资源托管、原样作为 `resourceBaseUrl`。
 
 ## 页面渲染帧宿主页面
 

@@ -89,15 +89,17 @@ export class JSCore {
 	/**
 	 * 在逻辑线程注册消息处理监听器 invoke
 	 */
-	invoke(handler: (msg: BridgeMessage) => void): void {
+	invoke(handler: (msg: BridgeMessage) => void): () => void {
 		this.event.on('invoke', handler)
+		return () => this.event.off('invoke', handler)
 	}
 
 	/**
 	 * 在逻辑线程注册消息中转监听器 publish
 	 */
-	publish(handler: (msg: BridgeMessage) => void): void {
+	publish(handler: (msg: BridgeMessage) => void): () => void {
 		this.event.on('publish', handler)
+		return () => this.event.off('publish', handler)
 	}
 
 	/**
@@ -256,5 +258,6 @@ export class JSCore {
 		this.pendingAppShowOptions = null
 		this.serviceReady = false
 		this.workerFailureHandlers.clear()
+		this.event.all.clear()
 	}
 }

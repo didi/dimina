@@ -24,26 +24,29 @@ sequenceDiagram
 
     C->>S: resourceLoaded(pagePath, query)
     S->>S: 创建 Page 实例
-    S->>S: created / attached / onLoad
     S->>R: firstRender
     S->>R: 页面初始数据
     C->>S: pageShow（紧随 resourceLoaded 的同通道消息）
-    S->>S: Page.onShow
+    S->>S: 暂存首次显示
 
     R->>R: 创建 Vue 页面与自定义组件
     R->>S: mC：创建组件实例
     S->>S: component created
     R->>S: mA：组件节点已 mounted
     S->>S: component attached（父组件优先）
-
     R->>S: mR：组件首轮视图更新完成
-    S->>S: component ready
+    S->>S: 暂存 component ready
+    R->>S: pageAttached：初始组件已挂载
+    S->>S: Page.onLoad
+    S->>S: component pageLifetimes.show
+    S->>S: Page.onShow
+    S->>S: component ready（子组件优先）
     R->>S: pageReady：页面根视图已挂载
     S->>S: 等待已初始化组件全部 ready
     S->>S: Page.onReady
 ```
 
-`pageShow` 由容器的真实页面可见状态驱动。Web 与 Android 容器会在双线程资源未就绪时缓存最新可见状态，先发送 `resourceLoaded`，再通过同一 service 通道发送 `pageShow` 或 `pageHide`；iOS 与 Harmony 的真实早到事件则由 service 暂存。每次 Web / Android `start` 都会生成独立的 `resourceLoadId`，service 和 render 回传同一标识，容器会丢弃已销毁或前一次加载的延迟确认。service 不再根据“页面已创建且未隐藏”自行猜测首次显示，只消费容器信号并对重复事件去重。即使 render 的 `pageReady` 先到，service 也会等到页面实际显示后再触发 `onReady`，保证 `onLoad` → `onShow` → `onReady`。因此可以依赖以下稳定边界：
+`pageShow` 由容器的真实页面可见状态驱动。Web 与 Android 容器会在双线程资源未就绪时缓存最新可见状态，先发送 `resourceLoaded`，再通过同一 service 通道发送 `pageShow` 或 `pageHide`；iOS 与 Harmony 的真实早到事件则由 service 暂存。每次 Web / Android `start` 都会生成独立的 `resourceLoadId`，service 和 render 回传同一标识，容器会丢弃已销毁或前一次加载的延迟确认。service 不根据“页面已创建且未隐藏”猜测首次显示，只消费容器信号并对重复事件去重；首次 `pageShow` 还要等待 render 的 `pageAttached` 握手，确保初始组件已经 attached。即使 `mR` 或 `pageReady` 先到，service 也会先完成 `onLoad` 和 `onShow`，再释放组件 `ready` 与页面 `onReady`，保证 `onLoad` → `onShow` → 组件 `ready` → `onReady`。因此可以依赖以下稳定边界：
 
 - `onLoad`：页面实例已创建，可以读取路由参数、初始化状态并调用 `setData()`；此时不能假设 DOM 已存在。
 - `onShow`：页面已经进入前台，但不保证第一次渲染完成。
@@ -52,16 +55,23 @@ sequenceDiagram
 
 ## 3. 页面与组件顺序
 
-当前页面初始化分为两个阶段：
+当前页面初始化分为三个阶段：
 
-1. service 先创建 Page 实例，依次完成页面的 `created`、`attached` 和 `onLoad`，再把初始数据交给 render。
-2. render 根据页面模板创建自定义组件；先注册该组件的初始数据监听，再通过 `mC` 请求 service 建立实例并执行 `created`。render 节点 mounted 后通过 `mA` 触发 `attached`，首轮视图更新完成后通过 `mR` 触发 `ready`。“先监听、后请求”保证 service 同步返回时不会丢失初始数据。
+1. service 先建立 Page 实例并发送基础初始数据，但暂不执行 `onLoad`；render 因而可以先创建真实的页面组件树。
+2. render 根据页面模板创建自定义组件；先注册该组件的初始数据监听，再通过 `mC` 请求 service 建立实例并执行 `created`。render 节点 mounted 后通过 `mA` 触发 `attached`，首轮视图更新完成后通过 `mR` 报告 ready 条件。“先监听、后请求”保证 service 同步返回时不会丢失初始数据。
+3. 页面根 mounted 的 `nextTick` 发送 `pageAttached`。同一 render 消息队列中，所有初始组件的 `mA` / `mR` 已先发出；service 此时执行 `onLoad`、消费暂存的真实 `pageShow`，再按子到父释放组件 `ready`，最终由 `pageReady` 触发页面 `onReady`。
 
 页面 `onReady` 使用就绪屏障：render 报告页面根节点挂载完成后，service 仍会等待已初始化组件全部 `ready`，再调用页面 `onReady`。这样可以避免页面测量早于组件真实挂载。
 
-父子组件同时进入节点树时，`attached` 按父组件到子组件的顺序执行；尚未 attached 的子组件会等待父组件。组件的 `pageLifetimes` 按真实组件树深度优先、父先于子的顺序传播，不使用仅按层级深度的排序；销毁时则先子后父执行 `detached`，`detached` 回调结束后再触发 relation `unlinked`。`ready` 由各自的视图完成信号驱动，页面 `onReady` 则统一等待当前已初始化组件。
+父子组件同时进入节点树时，`attached` 按父组件到子组件的顺序执行；尚未 attached 的子组件会等待父组件。组件的 `pageLifetimes` 按真实组件树深度优先、父先于子的顺序传播，不使用仅按层级深度的排序，并且先于页面自身的 `onShow`、`onHide` 和 `onResize`。销毁页面时先调用页面 `onUnload`，再按子到父的顺序执行自定义组件 `detached`，最后执行页面根组件的 `detached`；每个组件的 `detached` 回调结束后再触发 relation `unlinked`。`ready` 由各自的视图完成信号驱动，页面 `onReady` 则统一等待当前已初始化组件。
 
-service 内的 `created`、初始 property observer、`attached` 和 `onLoad` 在当前生命周期消息的同一调用栈内执行。生命周期函数返回 Promise 不会延迟后续生命周期或实例初始化；同一阶段的每个生命周期、observer、relation 和 `setData` 回调独立隔离异常，某个回调抛错不会截断剩余回调或组件树遍历，组件错误会传给 `error` 生命周期。需要异步更新数据时，应在异步任务完成后显式调用 `setData()`，不能依赖 `async onLoad()` 或 `async attached()` 的返回值控制框架顺序。页面首屏数据仍由 service 明确安排在 `firstRender` 消息之后发送，这是跨线程协议顺序，而不是生命周期 Promise 或微任务边界。
+首次启动时，container 的真实 `pageShow` 可能先于 render 的初始组件 `attached` 消息到达，service 会暂存该信号并等到 `pageAttached` 后统一遍历初始组件树。若 `onLoad` 等首次初始化逻辑又插入了组件，使其 attachment 跨过首次 `onShow`，service 会在第一次 `onReady` 前补齐这次初始 `pageLifetimes.show`。页面已经 `onReady` 后通过 `wx:if` 等方式插入的组件只加入当前可见状态，不补发 `show`，但会收到下一次 `hide`，并在后续重新显示页面时正常收到 `show`。
+
+使用 `Component({...})` 构造页面时，根实例同时具有组件生命周期、`pageLifetimes` 和 `methods` 中的页面回调。behavior 回调先于根实例自身回调；显示阶段依次执行 behavior `pageLifetimes.show`、自身 `pageLifetimes.show`、`methods.onShow`，ready 阶段依次执行 behavior `ready`、自身 `ready`、`methods.onReady`。页面方法和 `pageLifetimes` 独立保存，不会因为都使用 `onShow` / `onHide` 语义而互相覆盖。
+
+组件声明同时包含 `lifetimes.created` 与旧式顶层 `created` 等同名字段时，只要 `lifetimes` 中的字段已定义，就以该字段为准；不会因为其值为 `null` 等非函数值而回退执行旧式字段。behavior 使用相同规则。
+
+service 内的 `created`、初始 property observer、`attached` 和 `onLoad` 分别在对应生命周期消息的同一调用栈内执行。生命周期函数返回 Promise 不会延迟后续生命周期或实例初始化；同一阶段的每个生命周期、observer、relation 和 `setData` 回调独立隔离异常，某个回调抛错不会截断剩余回调或组件树遍历，组件错误会传给 `error` 生命周期。需要异步更新数据时，应在异步任务完成后显式调用 `setData()`，不能依赖 `async onLoad()` 或 `async attached()` 的返回值控制框架顺序。页面基础初始数据由 service 明确安排在 `firstRender` 消息之后发送；`onLoad` 中的 `setData()` 则更新已经挂载的 render 树。这些都是显式消息协议，不依赖固定延时或微任务猜测。
 
 ## 4. `setData()` 的时机
 
@@ -90,11 +100,13 @@ stateDiagram-v2
 
 | 容器事件 | 页面回调 | 组件回调 |
 | --- | --- | --- |
-| `pageShow` | `Page.onShow` | `pageLifetimes.show` |
-| `pageHide` | `Page.onHide` | `pageLifetimes.hide` |
+| `pageShow` | 组件 `pageLifetimes.show` 完成后执行 `Page.onShow` | 按组件树父到子执行 `pageLifetimes.show` |
+| `pageHide` | 组件 `pageLifetimes.hide` 完成后执行 `Page.onHide` | 按组件树父到子执行 `pageLifetimes.hide` |
 | `pageUnload` | `Page.onUnload` | `detached`，并清理实例记录 |
 
 页面从后台返回前台时会再次触发 `onShow`，但不会再次触发 `onLoad` 或 `onReady`。重新创建页面实例后，才会重新经历完整初始化流程。
+
+`pageUnload` 的完整顺序是：页面 `onUnload` → 后代组件 `detached`（子先于父）→ 页面根组件 `detached`。退出过程中会先标记卸载与 detached 状态，再调用业务回调；即使回调重入触发销毁消息，也不会重复执行生命周期。
 
 ## 6. 编写与排查建议
 

@@ -14,64 +14,13 @@ project("qjs")
 # Define the root path for NativeRender
 set(NATIVERENDER_ROOT_PATH ${CMAKE_CURRENT_SOURCE_DIR})
 
-# Include FetchContent for downloading dependencies
-include(FetchContent)
-
 include("${CMAKE_CURRENT_LIST_DIR}/../../../../../cmake/DependencyVersions.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/../../../../../cmake/DiminaLibuv.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/../../../../../cmake/DiminaQuickJS.cmake")
 
-# Download QuickJS from GitHub
-FetchContent_Declare(
-    quickjs
-    GIT_REPOSITORY https://github.com/bellard/quickjs.git
-    GIT_TAG ${DIMINA_QUICKJS_GIT_TAG}
-)
-FetchContent_MakeAvailable(quickjs)
-
-# Download libuv from GitHub
-FetchContent_Declare(
-    libuv
-    GIT_REPOSITORY https://github.com/libuv/libuv.git
-    GIT_TAG ${DIMINA_LIBUV_GIT_TAG}
-)
-
-# Only the static libuv target is linked into libdimina.so. Keeping libuv's
-# shared target enabled produces a separately packaged libuv.so, which must also
-# satisfy Android 16 KB page-size alignment checks.
-set(LIBUV_BUILD_SHARED OFF CACHE BOOL "Build shared libuv" FORCE)
-FetchContent_MakeAvailable(libuv)
-
-if(ANDROID AND TARGET uv_a)
-    # Android NDK r28 does not expose LLONG_MAX from <limits.h> in libuv's
-    # default GNU90 mode, while current libuv uses it in src/unix/linux.c.
-    set_property(TARGET uv_a PROPERTY C_STANDARD 99)
-endif()
-
-# Handle the version file to prevent compilation errors
-set(VERSION_FILE "${quickjs_SOURCE_DIR}/version")
-if(EXISTS "${VERSION_FILE}")
-    # Read the version content
-    file(READ "${VERSION_FILE}" QJS_VERSION)
-    string(STRIP "${QJS_VERSION}" QJS_VERSION)
-    
-    # Create a version.h file instead
-    file(WRITE "${quickjs_SOURCE_DIR}/version.h" "#define QJS_VERSION \"${QJS_VERSION}\"\n")
-    
-    # Remove or rename the original version file to prevent it from being compiled
-    file(RENAME "${VERSION_FILE}" "${quickjs_SOURCE_DIR}/version.txt")
-endif()
-
-# QuickJS ships a plain text file named "version". If the QuickJS source root
-# is added as a normal -I directory, libc++'s #include <version> can resolve to
-# that text file instead of the standard C++ header. Expose only the public
-# headers qjs.cpp needs through a clean generated include directory.
-set(QUICKJS_PUBLIC_INCLUDE_DIR "${CMAKE_CURRENT_BINARY_DIR}/quickjs_public_include")
-file(MAKE_DIRECTORY "${QUICKJS_PUBLIC_INCLUDE_DIR}")
-foreach(QUICKJS_PUBLIC_HEADER quickjs.h cutils.h libregexp.h libunicode.h)
-    file(WRITE
-        "${QUICKJS_PUBLIC_INCLUDE_DIR}/${QUICKJS_PUBLIC_HEADER}"
-        "#pragma once\n#include \"${quickjs_SOURCE_DIR}/${QUICKJS_PUBLIC_HEADER}\"\n"
-    )
-endforeach()
+# Android does not expose the debugger API yet. Keeping the option explicit lets
+# the shared QuickJS preparation be enabled when the runtime wiring lands.
+option(DIMINA_ENABLE_QUICKJS_DEBUGGER "Build the QuickJS breakpoint debugger" OFF)
 
 # Set build type to Release for optimization
 if(NOT CMAKE_BUILD_TYPE)
@@ -81,8 +30,6 @@ endif()
 # Add compiler options
 add_compile_options(
         -DENABLE_ONELOGGER
-        -DCONFIG_BIGNUM
-        -DCONFIG_VERSION="${CONFIG_VERSION}"
         -O3              # 使用较高的优化级别
         -flto            # 启用链接时优化
 )
@@ -91,22 +38,11 @@ add_compile_options(
 include_directories(
         ${NATIVERENDER_ROOT_PATH}
         ${NATIVERENDER_ROOT_PATH}/include
-        ${QUICKJS_PUBLIC_INCLUDE_DIR}  # Avoid exposing QuickJS's "version" file as <version>
-        ${libuv_SOURCE_DIR}/include  # Include libuv headers
 )
 
 # Explicitly list source files for better control
 file(GLOB sources
         ${NATIVERENDER_ROOT_PATH}/*.cpp
-)
-
-# Add QuickJS source files directly - explicitly list only the C files we need
-set(QUICKJS_SOURCES
-    ${quickjs_SOURCE_DIR}/quickjs.c
-    ${quickjs_SOURCE_DIR}/libregexp.c
-    ${quickjs_SOURCE_DIR}/libunicode.c
-    ${quickjs_SOURCE_DIR}/cutils.c
-    ${quickjs_SOURCE_DIR}/dtoa.c
 )
 
 # Creates and names a library, sets it as either STATIC
@@ -122,7 +58,12 @@ set(QUICKJS_SOURCES
 # System.loadLibrary() and pass the name of the library defined here;
 # for GameActivity/NativeActivity derived applications, the same library name must be
 # used in the AndroidManifest.xml file.
-add_library(dimina SHARED ${sources} ${QUICKJS_SOURCES})
+add_library(dimina SHARED ${sources})
+
+dimina_configure_quickjs(dimina
+    ENABLE_DEBUGGER "${DIMINA_ENABLE_QUICKJS_DEBUGGER}"
+)
+dimina_configure_libuv(dimina)
 
 # Add linker option for 16KB page size compatibility
 # This helps ensure the .so is compatible with systems using 16KB page sizes,
@@ -133,11 +74,11 @@ target_link_options(dimina PRIVATE "-Wl,-z,max-page-size=16384")
 # can link libraries from various origins, such as libraries defined in this
 # build script, prebuilt third-party libraries, or Android system libraries.
 target_link_libraries(dimina
+        PRIVATE
         # List libraries link to the target library
         android
         log
-        m
-        uv_a)  # Link libuv static library
+        m)
 
 # Additional target properties for Release mode
 if(CMAKE_BUILD_TYPE STREQUAL "Release")

@@ -1,5 +1,34 @@
 # Changelog
 
+## [v1.6.0] 2026-08-28
+
+### 新增
+
+- 支持多个不同 `appId` 的小程序实例共存，并新增 `navigateToMiniProgram`、`navigateBackMiniProgram`、`exitMiniProgram` 和 `restartMiniProgram` 跨小程序导航能力。
+- 新增微信小游戏运行时，支持 `game.js` 启动、Canvas、图片、动画帧、触摸事件及前后台切换。
+- 新增小程序卸载及用户数据清理能力。
+- 新增 `openDocument`、网络状态变化订阅，并完善文件管理、权限、视频处理、屏幕管理及 HEIF/HEIC 图片转码能力。
+- 补齐旧版 `CanvasContext` 接口，统一触摸手势与 Label 激活行为。
+- 支持 QuickJS JavaScript 断点调试，新增 POSIX 调试传输层和协议测试。
+- 新增 Flutter 接入示例与集成文档。
+
+### 优化
+
+- 完善跨小程序生命周期派发、运行时恢复、关闭及导航资源清理流程。
+- 存储键升级为 v2 编码，并兼容旧数据迁移。
+- 将 QuickJS 源码纳入 `third_party` 管理，抽取 Android、Harmony 共用的 CMake 源码准备、Debug 补丁和编译配置。
+- 统一 libuv CMake 接口及生命周期测试；Harmony 继续使用系统 libuv 实现。
+- 升级 Brotli、MMKV 等原生依赖，其中 MMKV 升级至 2.4.1。
+
+### 修复
+
+- 修复跨小程序页面与应用生命周期顺序不一致的问题。
+- 完善视频码率、帧率等参数校验，以及文件和权限相关异常处理。
+
+### 兼容性
+
+- HarmonyOS SDK 升级到 1.6.0，JSSDK 升级到 1.0.33。
+
 ## [v1.5.0] 2026-08-13
 
 ### 新增

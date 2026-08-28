@@ -15,14 +15,14 @@ export default defineConfig({
 		lib: {
 			// Multiple entry points
 			entry: {
-				'index': resolve(__dirname, 'src/index.js'),
-				'core/view-compiler': resolve(__dirname, 'src/core/view-compiler.js'),
-				'core/logic-compiler': resolve(__dirname, 'src/core/logic-compiler.js'),
-				'core/style-compiler': resolve(__dirname, 'src/core/style-compiler.js'),
-				'bin/index': resolve(__dirname, 'src/bin/index.js'),
+				'index': resolve(import.meta.dirname, 'src/index.js'),
+				'core/view-compiler': resolve(import.meta.dirname, 'src/core/view-compiler.js'),
+				'core/logic-compiler': resolve(import.meta.dirname, 'src/core/logic-compiler.js'),
+				'core/style-compiler': resolve(import.meta.dirname, 'src/core/style-compiler.js'),
+				'bin/index': resolve(import.meta.dirname, 'src/bin/index.js'),
 			},
-			formats: ['es', 'cjs'],
-			fileName: (format, entryName) => `${entryName}.${format === 'es' ? 'js' : 'cjs'}`,
+			formats: ['es'],
+			fileName: (_format, entryName) => `${entryName}.js`,
 		},
 		rollupOptions: {
 			external: [
@@ -56,7 +56,7 @@ export default defineConfig({
 		outDir: 'dist',
 		emptyOutDir: true,
 		sourcemap: false,
-		target: 'node20',
+		target: 'node22',
 		minify: false,
 	},
 })

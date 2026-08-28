@@ -1,5 +1,5 @@
 {
-  "originHash" : "4995addd3f8bfeb652d6002d469ffc70f6ce09f9c0fad24d25ed0694aab0516d",
+  "originHash" : "72805100c58751b9f43a1da139a463bec08dc1bf603999bc12a44ae725a1bb6c",
   "pins" : [
     {
       "identity" : "alamofire",
@@ -15,8 +15,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/Tencent/MMKV.git",
       "state" : {
-        "revision" : "6ad828c3507a941f9692affdd283a5c968bf71b8",
-        "version" : "2.4.1"
+        "revision" : "ad7657ef9d120dbcdd7432d75aa6c59391149b22",
+        "version" : "2.4.2"
       }
     },
     {

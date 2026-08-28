@@ -72,6 +72,8 @@ describe('persistent compiler cache', () => {
 				affectedEntries: ['pages/index/index'],
 				stages: ['view', 'style'],
 				seedPath: publishedPath,
+				prepareConfig: false,
+				prepareNpm: false,
 			},
 		})
 	})
@@ -84,6 +86,8 @@ describe('persistent compiler cache', () => {
 			options: {
 				affectedEntries: ['pages/index/index'],
 				stages: ['logic'],
+				prepareConfig: false,
+				prepareNpm: false,
 			},
 		})
 	})
@@ -103,6 +107,29 @@ describe('persistent compiler cache', () => {
 			options: {
 				affectedEntries: ['pages/index/index'],
 				stages: [],
+				prepareConfig: true,
+				prepareNpm: false,
+			},
+		})
+	})
+
+	it('refreshes npm and config outputs only for changed miniprogram_npm files', () => {
+		const npmView = path.join(tempDir, 'miniprogram_npm/card/index.wxml')
+		fs.mkdirSync(path.dirname(npmView), { recursive: true })
+		fs.writeFileSync(npmView, '<view />\n')
+		graph.addFile('pages/index/index', npmView, 'view')
+		graph.addFile('pages/index/index', npmView, 'config')
+		cacheEntry.dependencyGraph = graph.toJSON()
+		cacheEntry.projectFiles = getProjectFileManifest(tempDir)
+		cacheEntry.fileFingerprints = createDependencyFileFingerprints(cacheEntry.dependencyGraph)
+
+		fs.writeFileSync(npmView, '<view>changed</view>\n')
+		expect(createPlan()).toMatchObject({
+			mode: 'incremental',
+			options: {
+				stages: ['view'],
+				prepareConfig: true,
+				prepareNpm: true,
 			},
 		})
 	})

@@ -23,6 +23,7 @@ class Render {
 		// 资源加载消息
 		this.message.on('loadResource', (msg) => {
 			const { bridgeId, appId, pagePath, root = '.', baseUrl = '/', resourceLoadId, runtimeType } = msg
+			runtime.registerResourceLoad(bridgeId, resourceLoadId)
 			loader.loadResource({ bridgeId, appId, pagePath, root, baseUrl, resourceLoadId, runtimeType })
 		})
 

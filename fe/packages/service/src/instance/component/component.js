@@ -50,6 +50,7 @@ export class Component {
 		this.__type__ = module.type
 		this.__id__ = this.opts.moduleId
 		this.__info__ = module.moduleInfo
+		this.__pageLifetimeMethods__ = Object.create(null)
 		this.__eventAttr__ = opts.eventAttr
 		this.__eventPath__ = null
 		this.__pageId__ = opts.pageId
@@ -80,7 +81,7 @@ export class Component {
 		)
 	}
 
-	init({ deferInitialData = false } = {}) {
+	init({ deferInitialData = false, deferPageLoad = false } = {}) {
 		this.#initCustomMethods()
 		if (this.__isComponent__) {
 			const initialProperties = this.opts.properties || {}
@@ -105,7 +106,7 @@ export class Component {
 		this.#initLifecycle()
 		this.#initRelations()
 		this.#initComponentExport()
-		this.#invokeInitLifecycle()
+		this.#invokeInitLifecycle({ deferPageLoad })
 		if (!deferInitialData) {
 			this.sendInitialData()
 		}
@@ -432,27 +433,20 @@ export class Component {
 	 */
 	#initLifecycle() {
 		componentLifetimes.forEach((method) => {
-			const lifecycleMethod = this.__info__.lifetimes?.[method] || this.__info__[method]
+			const lifecycleMethod = this.__info__.lifetimes?.[method] !== undefined
+				? this.__info__.lifetimes[method]
+				: this.__info__[method]
 			if (!isFunction(lifecycleMethod)) {
 				return
 			}
 			this[method] = lifecycleMethod.bind(this)
 		})
-		if (this.__isComponent__) {
-			pageLifetimes.forEach((method) => {
-				const lifecycleMethod = this.__info__.pageLifetimes?.[method]
-				if (!isFunction(lifecycleMethod)) {
-					return
-				}
-				if (method === 'show') {
-					method = 'onShow'
-				}
-				else if (method === 'hide') {
-					method = 'onHide'
-				}
-				this[method] = lifecycleMethod.bind(this)
-			})
-		}
+		pageLifetimes.forEach((method) => {
+			const lifecycleMethod = this.__info__.pageLifetimes?.[method]
+			if (isFunction(lifecycleMethod)) {
+				this.__pageLifetimeMethods__[method] = lifecycleMethod.bind(this)
+			}
+		})
 	}
 
 	/**
@@ -494,7 +488,7 @@ export class Component {
 		}
 	}
 
-	#invokeInitLifecycle() {
+	#invokeInitLifecycle({ deferPageLoad = false } = {}) {
 		if (this.__isComponent__) {
 			// exparser creates the component with declared defaults, then applies
 			// incoming template properties and their observers after created.
@@ -508,9 +502,25 @@ export class Component {
 			// Component 构造的页面根实例在页面节点树创建阶段进入 attached。
 			this.componentAttached()
 
-			invokeSafely(this, this.onLoad, [this.opts.query || {}], 'onLoad')
+			if (deferPageLoad) {
+				this.__pageLoadPending__ = true
+			}
+			else {
+				this.pageAttached()
+			}
 		}
+		if (this.__isComponent__) {
+			this.initd = true
+		}
+	}
+
+	pageAttached() {
+		if (this.__isComponent__ || this.initd) {
+			return
+		}
+		this.__pageLoadPending__ = false
 		this.initd = true
+		invokeSafely(this, this.onLoad, [this.opts.query || {}], 'onLoad')
 	}
 
 	/**
@@ -1001,7 +1011,11 @@ export class Component {
 
 	pageReady() {
 		if (!this.__isComponent__) {
-			invokeSafely(this, this.ready, [], 'ready lifetime')
+			if (!this.__componentReadied__) {
+				this.__componentReadied__ = true
+				this.componentReadied()
+			}
+			invokeSafely(this, this.onReady, [], 'onReady')
 		}
 	}
 
@@ -1053,7 +1067,10 @@ export class Component {
 	 */
 	pageShow() {
 		invokeSafelyAll(this, this.__info__.behaviorPageLifetimes?.show, [], 'page show lifetime')
-		invokeSafely(this, this.onShow, [], 'page show lifetime')
+		invokeSafely(this, this.__pageLifetimeMethods__.show, [], 'page show lifetime')
+		if (!this.__isComponent__) {
+			invokeSafely(this, this.onShow, [], 'onShow')
+		}
 	}
 
 	/**
@@ -1061,7 +1078,10 @@ export class Component {
 	 */
 	pageHide() {
 		invokeSafelyAll(this, this.__info__.behaviorPageLifetimes?.hide, [], 'page hide lifetime')
-		invokeSafely(this, this.onHide, [], 'page hide lifetime')
+		invokeSafely(this, this.__pageLifetimeMethods__.hide, [], 'page hide lifetime')
+		if (!this.__isComponent__) {
+			invokeSafely(this, this.onHide, [], 'onHide')
+		}
 	}
 
 	/**
@@ -1070,13 +1090,16 @@ export class Component {
 	 */
 	pageResize(size) {
 		invokeSafelyAll(this, this.__info__.behaviorPageLifetimes?.resize, [size], 'page resize lifetime')
-		invokeSafely(this, this.resize, [size], 'page resize lifetime')
+		invokeSafely(this, this.__pageLifetimeMethods__.resize, [size], 'page resize lifetime')
+		if (!this.__isComponent__) {
+			invokeSafely(this, this.onResize, [size], 'onResize')
+		}
 	}
 
 	// 组件所在页面路由动画完成时执行
 	componentRouteDone() {
 		invokeSafelyAll(this, this.__info__.behaviorPageLifetimes?.routeDone, [], 'page routeDone lifetime')
-		invokeSafely(this, this.routeDone, [], 'page routeDone lifetime')
+		invokeSafely(this, this.__pageLifetimeMethods__.routeDone, [], 'page routeDone lifetime')
 	}
 
 	// --- 组件的生命周期 ---

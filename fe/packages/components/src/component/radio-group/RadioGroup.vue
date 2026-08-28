@@ -47,6 +47,7 @@ function registerRadio(item) {
 }
 
 const info = useInfo()
+const rootRef = ref(null)
 function selectRadio(item, event) {
 	if (item.isChecked()) return
 	for (const other of items) {
@@ -57,6 +58,9 @@ function selectRadio(item, event) {
 	triggerEvent('change', {
 		event,
 		info,
+		// change 绑在 radio-group 上，事件的 id / dataset 要取自 group 自己；
+		// 转发过来的这个事件的 currentTarget 还停在被选中的那个 radio 上。
+		currentTarget: rootRef.value,
 		detail: {
 			value,
 		},
@@ -81,7 +85,7 @@ provide('radioGroup', { registerRadio, selectRadio })
 </script>
 
 <template>
-	<div :id="id" v-bind="$attrs" class="dd-radio-group">
+	<div :id="id" ref="rootRef" v-bind="$attrs" class="dd-radio-group">
 		<slot />
 	</div>
 </template>

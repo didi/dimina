@@ -72,7 +72,7 @@ DMCC 将小程序源码转换为逻辑、视图、样式和配置资源。进入
 
 ## 最快上手
 
-想先看看 Dimina 的运行效果，可以直接打开[在线演示](https://didi.github.io/dimina/)。要在本地跑起仓库自带的 Web 示例，请准备 Node.js 22+ 与 pnpm 7+：
+想先看看 Dimina 的运行效果，可以直接打开[在线演示](https://didi.github.io/dimina/)。要在本地跑起仓库自带的 Web 示例，请准备 Node.js 22.22.3+ 与 pnpm 7+：
 
 ```sh
 git clone https://github.com/didi/dimina.git
@@ -82,13 +82,15 @@ pnpm compile
 pnpm dev
 ```
 
-其中，`pnpm compile` 负责构建 `fe/example/` 下的小程序，`pnpm dev` 会启动 Web 容器与代理服务。更多构建、打包和调试命令见[前端工作区说明](./fe/README.md)。
+其中，`pnpm compile` 负责构建 `examples/miniprogram/` 下的小程序，`pnpm dev` 会启动 Web 容器与代理服务。更多构建、打包和调试命令见[前端工作区说明](./fe/README.md)。
 
 准备把资源包接入原生应用时，可以从对应平台的接入文档开始：
 
 - [Android 接入说明](./android/README.md)
 - [iOS 接入说明](./iOS/README.md)
 - [Harmony 接入说明](./harmony/dimina/README.md)
+- [Flutter 宿主接入说明](./docs/Flutter-Integration.md)
+- [Flutter 三端接入示例](./examples/flutter/README.md)
 
 ## 能力边界与延伸阅读
 

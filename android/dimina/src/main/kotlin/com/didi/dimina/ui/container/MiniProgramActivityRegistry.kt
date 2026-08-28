@@ -23,6 +23,9 @@ internal class MiniProgramActivityRegistry<T> {
         }
     }
 
+    @Synchronized
+    fun lastRegistered(appId: String): T? = activitiesByAppId[appId]?.lastOrNull()
+
     fun closeAll(appId: String, close: (T) -> Unit) {
         val activities = synchronized(this) {
             activitiesByAppId.remove(appId)?.toList().orEmpty()

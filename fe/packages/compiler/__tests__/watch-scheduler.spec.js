@@ -102,6 +102,8 @@ describe('compiler watch scheduler', () => {
 				affectedEntries: ['pages/index/index'],
 				stages: ['view'],
 				seedPath: '/dist/app',
+				prepareConfig: false,
+				prepareNpm: false,
 			},
 		})
 

@@ -8,7 +8,7 @@
 
 ### 安装
 
-运行环境要求 Node.js 20 或更高版本。
+运行环境要求 Node.js 22.22.3 或更高版本。编译器仅发布 ESM 产物。
 
 ```sh
 npm install @dimina/compiler -g
@@ -71,6 +71,7 @@ Usage: dmcc build [选项]
   -c, --work-path <path>     编译文件所在目录（默认为当前目录）
   -s, --target-path <path>   编译产物存放路径（默认为当前目录）
   -w, --watch                启用改动监听（实时编译）
+  --sourcemap                生成 logic.js.map，用于原生逻辑层断点调试
   --no-app-id-dir            产物根目录不包含appId，默认为 false
   -h, --help                 显示帮助信息
 ```
@@ -92,7 +93,13 @@ dmcc build -c ./src -s ./dist -w
 
 # 产物根目录不包含appId
 dmcc build --no-app-id-dir
+
+# 生成 Harmony QuickJS 断点调试所需的 source map
+dmcc build -c ./miniapp -s ./dist --sourcemap
 ```
+
+Harmony 端的虚拟脚本路径、VS Code attach 与 HDC 端口转发配置见
+[JavaScript 断点调试](../../../docs/JavaScript-Debugging.md)。
 
 ### 编译流程说明
 
@@ -110,6 +117,25 @@ app.json, index.json  ->  config.json  (配置文件)
 game.js, game.json    ->  logic.js + app-config.json（小游戏入口，不生成页面视图/样式）
 miniprogram_npm/      ->  npm包构建   (npm组件支持)
 ```
+
+### CPU 与内存调优
+
+DMCC 默认最多并发两个编译阶段，在编译速度、CPU 峰值和 Worker 内存之间取平衡；
+普通 WXSS/DDSS 项目不会加载 Less 或 Sass 运行时。可按 CI 或开发机资源显式调整：
+
+```sh
+# 内存紧张或希望降低 CPU 峰值
+DIMINA_COMPILER_MAX_WORKERS=1 dmcc build
+
+# 吞吐优先的高配构建机
+DIMINA_COMPILER_MAX_WORKERS=3 dmcc build
+
+# 单个 Worker 的 V8 old generation 上限（MiB，默认最多 2048）
+DIMINA_COMPILER_WORKER_MEMORY_MB=1024 dmcc build
+```
+
+容器环境会读取 cgroup v1/v2 的 CPU、内存限额。以上变量只改变资源预算，
+不会改变 logic/view/style 的产物或增量编译语义。
 
 ### 微信小游戏入口
 

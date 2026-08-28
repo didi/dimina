@@ -1,0 +1,3 @@
+<view class="lifecycle-probe" catchtap="selectIcon">
+	{{instanceId}} · taps {{tapCount}}
+</view>

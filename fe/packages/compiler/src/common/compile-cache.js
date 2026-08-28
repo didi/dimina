@@ -145,6 +145,10 @@ function createFullBuildPlan(reason) {
 	return { mode: 'full', reason, options: {} }
 }
 
+function isNpmPackageFile(filePath) {
+	return path.normalize(filePath).split(path.sep).includes('miniprogram_npm')
+}
+
 function createCachedAppBuildPlan({ cacheEntry, workPath, publishedPath }) {
 	if (!cacheEntry?.appInfo || !cacheEntry.dependencyGraph || !cacheEntry.fileFingerprints) {
 		return createFullBuildPlan('missing-cache-data')
@@ -214,6 +218,8 @@ function createCachedAppBuildPlan({ cacheEntry, workPath, publishedPath }) {
 			stages,
 			seedPath: publishedPath,
 			dependencyGraph: hydratedDependencyGraph,
+			prepareConfig: changedFilePaths.some(filePath => dependencyGraph.getFileKinds(filePath).includes('config')),
+			prepareNpm: changedFilePaths.some(isNpmPackageFile),
 		},
 	}
 }

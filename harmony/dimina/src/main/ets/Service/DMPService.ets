@@ -6,16 +6,28 @@ import { DMPApp } from '../DApp/DMPApp';
 import { buffer, util } from '@kit.ArkTS';
 import { http } from '@kit.NetworkKit';
 import { DMPLogger } from '../EventTrack/DMPLogger';
+import { DMPAppConfig } from '../DApp/config/DMPAppConfig';
+import { DMPContextUtils } from '../Utils/DMPContextUtils';
+import { DMPJavaScriptSourceURL } from './DMPJavaScriptSourceURL';
 
 
 export class DMPService {
   appIndex: number;
   ww: DMPWorkerWrapper;
   appData = new WorkerAppData();
+  appId: string;
 
-  constructor(appIndex: number) {
+  constructor(appIndex: number, appConfig: DMPAppConfig) {
     this.appIndex = appIndex
-    this.ww = new DMPWorkerWrapper(appIndex)
+    this.appId = appConfig.appId
+    const port = appConfig.javaScriptDebuggerPort;
+    const debuggerAddress = DMPContextUtils.debugMode && appConfig.isDebugMode && port !== undefined ?
+      `127.0.0.1:${port}` : '';
+    this.ww = new DMPWorkerWrapper(
+      appIndex,
+      debuggerAddress,
+      DMPJavaScriptSourceURL.runtimeEval(this.appId)
+    )
     // this.ww.updateWorkerAppData(new WorkerAppData())
     this.initJsEngine()
   }
@@ -27,15 +39,16 @@ export class DMPService {
   public async initBridges() {
   }
 
-  public executeScript(script: string) {
-    this.executeScriptAb(this.stringToArrayBuffer(script));
+  public executeScript(script: string, sourceURL: string = DMPJavaScriptSourceURL.runtimeEval(this.appId)) {
+    this.executeScriptAb(this.stringToArrayBuffer(script), sourceURL);
   }
 
-  public executeScriptAb(ab: ArrayBuffer) {
-    this.ww.evalJSAb(ab)
+  public executeScriptAb(ab: ArrayBuffer,
+    sourceURL: string = DMPJavaScriptSourceURL.runtimeEval(this.appId)) {
+    this.ww.evalJSAb(ab, sourceURL)
   }
 
-  public async loadFileUri(uri: string) {
+  public async loadFileUri(uri: string, sourceURL: string = uri) {
     // debug 模式放在 worker 加载还是有时序问题，就还是放在主线程阻塞加载
     if (uri.startsWith("http")) {
       DMPLogger.i('', `evalJSByUri 1 ${uri}`);
@@ -43,9 +56,9 @@ export class DMPService {
       const data: http.HttpResponse = await httpRequest.request(uri);
       const c: string = data.result as string;
       DMPLogger.i('', `evalJSByUri 2 ${uri}`);
-      this.executeScript(c);
+      this.executeScript(c, sourceURL);
     } else {
-      this.ww.evalJSByUri(uri);
+      this.ww.evalJSByUri(uri, sourceURL);
     }
   }
 

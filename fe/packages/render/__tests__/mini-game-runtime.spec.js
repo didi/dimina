@@ -1,18 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { send } = vi.hoisted(() => ({ send: vi.fn() }))
-vi.mock('../src/core/message', () => ({ default: { send } }))
+const { invoke, send } = vi.hoisted(() => ({ invoke: vi.fn(), send: vi.fn() }))
+vi.mock('../src/core/message', () => ({ default: { invoke, send } }))
 
 import runtime from '../src/core/runtime.js'
 
 describe('mini game render surface', () => {
 	beforeEach(() => {
+		invoke.mockReset()
 		send.mockReset()
 		document.body.innerHTML = ''
 		runtime.canvasNodes.clear()
+		runtime.canvasResources.clear()
+		runtime.resourceLoadIds.clear()
 	})
 
 	it('mounts one full-screen canvas and forwards touch and simulated mouse events to service', () => {
+		runtime.registerResourceLoad('bridge-game', 'load-game')
 		runtime.createGameCanvas({
 			bridgeId: 'bridge-game',
 			params: { nodeId: 'game-canvas', width: 390, height: 844, type: '2d' },
@@ -22,6 +26,12 @@ describe('mini game render surface', () => {
 		expect(canvas.width).toBe(390)
 		expect(canvas.height).toBe(844)
 		expect(canvas.style.touchAction).toBe('none')
+		expect(invoke).toHaveBeenCalledOnce()
+		expect(invoke).toHaveBeenCalledWith({
+			type: 'domReady',
+			target: 'container',
+			body: { bridgeId: 'bridge-game', resourceLoadId: 'load-game' },
+		})
 
 		const event = new Event('touchstart', { cancelable: true })
 		Object.defineProperties(event, {
@@ -88,5 +98,52 @@ describe('mini game render surface', () => {
 				touches: [expect.objectContaining({ clientX: 90, clientY: 120 })],
 			}),
 		}))
+	})
+
+	it('releases the old game surface and its resources before a replacement is created', () => {
+		runtime.createGameCanvas({
+			bridgeId: 'bridge-game',
+			params: { nodeId: 'game-old', width: 390, height: 844, type: '2d' },
+		})
+		const oldCanvas = document.querySelector('[data-dimina-game-canvas]')
+		const oldContext = { fillRect: vi.fn() }
+		runtime.canvasNodes.get('game-old').contexts.set('context-old', oldContext)
+		runtime.canvasNodes.get('game-old').resourceIds.add('context-old')
+		runtime.canvasResources.set('context-old', oldContext)
+
+		runtime.disposeCanvasNodes({
+			bridgeId: 'bridge-game',
+			params: { nodeIds: ['game-old'] },
+		})
+		runtime.createGameCanvas({
+			bridgeId: 'bridge-game',
+			params: { nodeId: 'game-new', width: 320, height: 568, type: '2d' },
+		})
+
+		expect(oldCanvas.isConnected).toBe(false)
+		expect(runtime.canvasNodes.has('game-old')).toBe(false)
+		expect(runtime.canvasResources.has('context-old')).toBe(false)
+		expect(document.querySelectorAll('[data-dimina-game-canvas]')).toHaveLength(1)
+		expect(runtime.canvasNodes.has('game-new')).toBe(true)
+	})
+
+	// 超预算的尺寸只可能来自不做前置检查的旧版基础库。这条链上其余入口都把失败收敛成告警，
+	// 这里抛出去会变成 webview 的未捕获异常，连同后续同批消息一起丢掉。
+	it('warns instead of throwing when a canvas exceeds the pixel budget', () => {
+		const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+		expect(() => runtime.createGameCanvas({
+			bridgeId: 'bridge-game',
+			params: { nodeId: 'game-oversized', width: 100000, height: 100000, type: '2d' },
+		})).not.toThrow()
+		expect(() => runtime.createOffscreenCanvas({
+			bridgeId: 'bridge-game',
+			params: { nodeId: 'offscreen-oversized', width: 100000, height: 100000, type: '2d' },
+		})).not.toThrow()
+
+		expect(runtime.canvasNodes.has('game-oversized')).toBe(false)
+		expect(runtime.canvasNodes.has('offscreen-oversized')).toBe(false)
+		expect(warn).toHaveBeenCalledTimes(2)
+		warn.mockRestore()
 	})
 })

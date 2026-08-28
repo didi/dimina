@@ -1,5 +1,15 @@
 import { vi } from 'vitest'
 
+let autoRuntimeReady = true
+
+export function isAutoRuntimeReady() {
+	return autoRuntimeReady
+}
+
+export function setAutoRuntimeReady(value) {
+	autoRuntimeReady = value
+}
+
 /**
  * jsdom 不实现 Worker。真实 SDK 会为逻辑线程 new 一个 Worker（同
  * fe/packages/container/src/core/jscore.js 的现状），这里给一个可观测的假 Worker，
@@ -13,6 +23,17 @@ export class FakeWorker {
 		this.onerror = null
 		this.onmessageerror = null
 		this.postMessage = vi.fn((message) => {
+			if (message?.type === 'loadResource' && autoRuntimeReady) {
+				const { bridgeId, resourceLoadId } = message.body || {}
+				queueMicrotask(() => this.onmessage?.({
+					data: {
+						method: 'invoke',
+						type: 'serviceResourceLoaded',
+						target: 'service',
+						body: { bridgeId, resourceLoadId },
+					},
+				}))
+			}
 			if (message?.type === 'flushCallbacks') {
 				queueMicrotask(() => this.onmessage?.({
 					data: {
@@ -38,4 +59,5 @@ export function installFakeWorker() {
 
 export function resetFakeWorker() {
 	FakeWorker.instances.length = 0
+	autoRuntimeReady = true
 }

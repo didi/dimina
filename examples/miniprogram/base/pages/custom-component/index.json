@@ -1,0 +1,10 @@
+{
+	"usingComponents": {
+		"navigation-bar": "/pages/custom-component/components/navigation-bar/navigation-bar",
+		"bar-icon": "/pages/custom-component/components/bar-icon/bar-icon"
+	},
+	"window": {
+		"navigationBarTextStyle": "black",
+		"navigationStyle": "custom"
+	}
+}

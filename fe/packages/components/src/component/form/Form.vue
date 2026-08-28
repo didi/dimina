@@ -58,12 +58,17 @@ provide('collectFormValue', collectFormValue)
 provide('registerFormControl', registerFormControl)
 
 const info = useInfo()
+const rootRef = ref(null)
 function handleEvent(event, formType) {
 	event.stopPropagation()
+	// submit / reset 绑在 form 上，事件的 id / dataset 要取自 form 自己；
+	// 转发过来的这个事件的 currentTarget 还停在触发它的那个 button 上。
+	const currentTarget = rootRef.value
 	if (formType === 'submit') {
 		triggerEvent('submit', {
 			event,
 			info,
+			currentTarget,
 			detail: {
 				value: readFormValues(),
 			},
@@ -77,6 +82,7 @@ function handleEvent(event, formType) {
 		triggerEvent('reset', {
 			event,
 			info,
+			currentTarget,
 		})
 	}
 }
@@ -85,7 +91,7 @@ provide('formEvent', handleEvent)
 </script>
 
 <template>
-	<span v-bind="$attrs">
+	<span ref="rootRef" v-bind="$attrs">
 		<slot />
 	</span>
 </template>

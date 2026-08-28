@@ -3,6 +3,10 @@ import { getCompileStagesForFiles } from '../common/compile-stages.js'
 
 const WATCH_FILE_EVENTS = new Set(['add', 'change', 'unlink'])
 
+function isNpmPackageFile(filePath) {
+	return path.normalize(filePath).split(path.sep).includes('miniprogram_npm')
+}
+
 function createWatchRebuildScheduler({ rebuild, onRebuild = () => {}, onError = () => {} }) {
 	let pendingChange
 	let running = false
@@ -82,6 +86,8 @@ function createWatchBuildPlan({ event, filePath, count = 1, dependencyGraph, pub
 			stages,
 			seedPath: publishedPath,
 			dependencyGraph: dependencyGraph.toJSON(),
+			prepareConfig: dependencyGraph.getFileKinds(filePath).includes('config'),
+			prepareNpm: isNpmPackageFile(filePath),
 		},
 	}
 }

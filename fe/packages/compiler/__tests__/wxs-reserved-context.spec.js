@@ -58,7 +58,7 @@ describe('wxs 保留上下文字段', () => {
 		await compileML(getPages().mainPages, null, { completedTasks: 0 })
 
 		const output = fs.readFileSync(path.join(outputDir, 'main/pages_home_index.js'), 'utf-8')
-		expect(output).toContain('o("_")')
+		expect(output).toMatch(/modDefine\("pages\/home\/index",function\(([$\w]+),[^)]*\)\{[^]*?\1\("_"\)/)
 		expect(output).toContain('.cls("home")')
 		expect(output).not.toContain('_ctx._=')
 		expect(output).not.toContain('_.=')

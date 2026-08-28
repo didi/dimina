@@ -8,6 +8,13 @@
 #include "log.h"
 #include "utils.h"
 #include "types/qjs_extension/settimeout.h"
+#ifdef DIMINA_ENABLE_QUICKJS_DEBUGGER
+#include "quickjs-debugger.h"
+
+static int shouldCancelDebuggerWait(void *opaque) {
+    return static_cast<JSCore *>(opaque)->closing.load() ? 1 : 0;
+}
+#endif
 
 // 构造函数
 JSCore::JSCore() : rt(nullptr), ctx(nullptr), js_loop(nullptr), starting(false), running(false), closing(false) {
@@ -38,12 +45,12 @@ JSCore::~JSCore() {
     uv_close((uv_handle_t *)&prepare_handle, nullptr);
     uv_close((uv_handle_t *)&check_handle, nullptr);
     // 清空任务队列
-    std::queue<std::string> empty;
+    std::queue<JavaScriptTask> empty;
     std::swap(jsTaskQueue, empty);
 }
 
 // 实现成员函数
-bool JSCore::executeJavaScript(const std::string &code) {
+bool JSCore::executeJavaScript(const std::string &code, const std::string &sourceUrl) {
     if (firstTaskMark) {
         firstTaskMark = false;
         auto now = std::chrono::system_clock::now();
@@ -53,9 +60,7 @@ bool JSCore::executeJavaScript(const std::string &code) {
 
     // 执行 JavaScript 代码
 //     OHWarn("before JS_Eval:  %{public}s", code.c_str());
-//     OHWarn("before JS_Eval, jsTaskQueue size: %{public}zu", jsTaskQueue.size());
-    JSValue result = JS_Eval(ctx, code.c_str(), code.size(), "", JS_EVAL_TYPE_GLOBAL);
-    OHWarn("after JS_Eval, jsTaskQueue size: %{public}zu", jsTaskQueue.size());
+    JSValue result = JS_Eval(ctx, code.c_str(), code.size(), sourceUrl.c_str(), JS_EVAL_TYPE_GLOBAL);
     if (JS_IsException(result)) {
         exceptionLogFunc(ctx);
         JS_FreeValue(ctx, result);
@@ -82,14 +87,14 @@ void JSCore::processPendingJobs() {
 }
 
 // 线程函数
-void *JSCore::startEngine(int index, std::function<void(JSContext *ctx)> registerFunc) {
+void *JSCore::startEngine(int index, std::function<void(JSContext *ctx)> registerFunc,
+                          const std::string &debuggerAddress) {
     auto now = std::chrono::system_clock::now();
     auto timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
     PFLog("[launch-container][%{public}lld]JS引擎启动-Runtime/事件循环初始化开始", timestamp);
 
     thread::id this_id = this_thread::get_id();
     OHWarn("startEngine thread::id %{public}d index %{public}d", this_id, index);
-    OHWarn("startEngine, jsTaskQueue size: %{public}zu", jsTaskQueue.size());
     OHWarn("startEngine, core_closing: %{public}d", closing ? 1 : 0);
 
     starting = true;
@@ -120,6 +125,21 @@ void *JSCore::startEngine(int index, std::function<void(JSContext *ctx)> registe
     uv_idle_init(js_loop, &idle_handle);
     idle_handle.data = this;
     uv_idle_start(&idle_handle, idle_cb);
+    handlesReady.store(true);
+
+#ifdef DIMINA_ENABLE_QUICKJS_DEBUGGER
+    if (!debuggerAddress.empty() && !closing.load()) {
+        OHLog("QuickJS engine %{public}d waiting for debugger at %{public}s", index, debuggerAddress.c_str());
+        if (!js_debugger_wait_connection_interruptible(ctx, debuggerAddress.c_str(),
+                                                       shouldCancelDebuggerWait, this) && !closing.load()) {
+            OHError("QuickJS debugger failed to listen at %{public}s", debuggerAddress.c_str());
+        }
+    }
+#endif
+
+    if (closing.load()) {
+        uv_async_send(&destroy_handle);
+    }
 
     now = std::chrono::system_clock::now();
     timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
@@ -128,6 +148,30 @@ void *JSCore::startEngine(int index, std::function<void(JSContext *ctx)> registe
     starting = false;
     running = true;
     uv_run(js_loop, UV_RUN_DEFAULT);
+
+    if (js_loop) {
+        while (uv_loop_alive(js_loop)) {
+            uv_run(js_loop, UV_RUN_NOWAIT);
+        }
+        const int closeResult = uv_loop_close(js_loop);
+        if (closeResult == 0) {
+            free(js_loop);
+        } else {
+            OHError("QuickJS uv loop close failed: %{public}d", closeResult);
+        }
+        js_loop = nullptr;
+    }
+
+    if (ctx) {
+#ifdef DIMINA_ENABLE_QUICKJS_DEBUGGER
+        // Harmony currently keeps the runtime alive because JS_FreeRuntime can
+        // hit an existing GC assertion. Explicitly release the debugger-owned
+        // socket and protocol state before freeing the context.
+        js_debugger_free(JS_GetRuntime(ctx), js_debugger_info(JS_GetRuntime(ctx)));
+#endif
+        JS_FreeContext(ctx);
+        ctx = nullptr;
+    }
 
     OHLog("jsThreadFunc end");
     return nullptr;
@@ -166,11 +210,16 @@ void JSCore::destroy_cb_impl(uv_async_t *handle) {
 
     running = false;
     closing = true;
+    handlesReady = false;
     clearAllTimers(ctx);
 
-    if (js_loop) {
-        uv_stop(js_loop);
+    {
+        std::lock_guard<std::mutex> lock(queueMutex);
+        std::queue<JavaScriptTask> emptyQueue;
+        jsTaskQueue.swap(emptyQueue);
+    }
 
+    if (js_loop) {
         if (!uv_is_closing((uv_handle_t *)&idle_handle)) {
             uv_close((uv_handle_t *)&idle_handle, NULL);
         }
@@ -180,18 +229,13 @@ void JSCore::destroy_cb_impl(uv_async_t *handle) {
         if (!uv_is_closing((uv_handle_t *)&check_handle)) {
             uv_close((uv_handle_t *)&check_handle, NULL);
         }
-
-        // 等待事件循环彻底停止
-        uv_run(js_loop, UV_RUN_NOWAIT);
-        // 释放事件循环
-        uv_loop_close(js_loop);
-        free(js_loop);
-        js_loop = nullptr;
-    }
-
-    if (ctx) {
-        JS_FreeContext(ctx);
-        ctx = nullptr;
+        if (!uv_is_closing((uv_handle_t *)&eval_handle)) {
+            uv_close((uv_handle_t *)&eval_handle, NULL);
+        }
+        if (!uv_is_closing((uv_handle_t *)&destroy_handle)) {
+            uv_close((uv_handle_t *)&destroy_handle, NULL);
+        }
+        uv_stop(js_loop);
     }
 
     // 检查 JS 运行时是否存在，然后销毁
@@ -202,17 +246,18 @@ void JSCore::destroy_cb_impl(uv_async_t *handle) {
     //        rt = nullptr;
     //    }
 
-    std::queue<std::string> emptyQueue;
-    jsTaskQueue.swap(emptyQueue);
-
     OHWarn("core destroy end %{public}d", this_id);
-    pthread_exit(NULL);
 }
 
 void JSCore::prepare_cb_impl(uv_prepare_t *handle) {
     processPendingJobs();
 
-    if (jsTaskQueue.empty()) {
+    bool queueEmpty;
+    {
+        std::lock_guard<std::mutex> lock(queueMutex);
+        queueEmpty = jsTaskQueue.empty();
+    }
+    if (queueEmpty) {
         uv_idle_stop(&idle_handle);
     }
 }
@@ -222,23 +267,26 @@ void JSCore::idle_cb_impl(uv_idle_t *handle) {
 }
 
 void JSCore::js_task_cb_impl(uv_async_t *handle) {
+    if (closing.load()) {
+        return;
+    }
     if (!uv_is_active((uv_handle_t *)&idle_handle)) {
         uv_idle_start(&idle_handle, idle_cb);
     }
 }
 
 void JSCore::check_cb_impl(uv_check_t *handle) {
-    std::string script;
+    JavaScriptTask task;
     {
         std::lock_guard<std::mutex> lock(queueMutex);
         if (!jsTaskQueue.empty()) {
-            script = jsTaskQueue.front();
+            task = std::move(jsTaskQueue.front());
             jsTaskQueue.pop();
         } else {
             return;
         }
     }
-    executeJavaScript(script);
+    executeJavaScript(task.code, task.sourceUrl);
 }
 
 // C 兼容的接口函数实现

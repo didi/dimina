@@ -1,0 +1,20 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "Dimina Flutter integration example"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "Dimina Flutter integration example"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "Dimina Flutter Example"
+    },
+    {
+      "name": "permission_reason",
+      "value": "小程序需要在您授权后使用该系统能力。"
+    }
+  ]
+}

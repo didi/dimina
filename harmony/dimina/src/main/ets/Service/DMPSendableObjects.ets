@@ -38,10 +38,12 @@ export class Payload {
 export class AbPayload {
   command: string;
   ab: ArrayBuffer;
+  sourceURL: string;
 
-  constructor(command: string, ab: ArrayBuffer) {
+  constructor(command: string, ab: ArrayBuffer, sourceURL: string) {
     this.command = command;
     this.ab = ab;
+    this.sourceURL = sourceURL;
   }
 }
 
@@ -49,10 +51,12 @@ export class AbPayload {
 export class EvalPayload {
   command: string;
   strVal: string;
+  sourceURL: string;
 
-  constructor(command: string, strVal: string) {
+  constructor(command: string, strVal: string, sourceURL: string) {
     this.command = command;
     this.strVal = strVal;
+    this.sourceURL = sourceURL;
   }
 }
 
@@ -62,12 +66,17 @@ export class initPayload {
   context: common.UIAbilityContext;
   appIndex: number;
   isDebugMode: boolean;
+  debuggerAddress: string;
+  runtimeSourceURL: string;
 
-  constructor(command: string, appIndex: number, context: common.UIAbilityContext, isDebugMode: boolean) {
+  constructor(command: string, appIndex: number, context: common.UIAbilityContext, isDebugMode: boolean,
+    debuggerAddress: string, runtimeSourceURL: string) {
     this.command = command;
     this.appIndex = appIndex;
     this.context = context;
     this.isDebugMode = isDebugMode;
+    this.debuggerAddress = debuggerAddress;
+    this.runtimeSourceURL = runtimeSourceURL;
   }
 }
 

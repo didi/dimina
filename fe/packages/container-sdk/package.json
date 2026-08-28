@@ -3,6 +3,9 @@
 	"author": "doslin",
 	"description": "Web 端小程序容器运行时 SDK",
 	"type": "module",
+	"engines": {
+		"node": ">=22.22.3"
+	},
 	"types": "./dist/index.d.ts",
 	"files": [
 		"dist"
@@ -29,7 +32,6 @@
 		"dev": "concurrently --kill-others-on-fail \"vite build --watch\" \"tsc -p tsconfig.build.json --watch\""
 	},
 	"dependencies": {
-		"chalk": "^5.6.2",
 		"mitt": "^3.0.1",
 		"vconsole": "^3.15.1"
 	},
@@ -38,9 +40,9 @@
 		"@dimina/components": "workspace:^",
 		"@dimina/render": "workspace:^",
 		"@dimina/service": "workspace:^",
-		"@types/node": "^26.2.0",
-		"sass": "^1.102.0",
+		"@types/node": "^26.4.0",
+		"sass": "^1.103.1",
 		"typescript": "^5.9.3",
-		"vite": "^8.2.1"
+		"vite": "^8.2.2"
 	}
 }

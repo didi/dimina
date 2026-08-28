@@ -41,7 +41,7 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: lts/*
+          node-version-file: fe/.nvmrc
 
       - name: Generate Changelog
         run: npx changelogithub

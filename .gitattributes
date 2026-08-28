@@ -1,0 +1,4 @@
+# Keep the vendored snapshot byte-for-byte identical to upstream. QuickJS
+# intentionally contains whitespace that would otherwise make diff --check
+# report errors when the snapshot is added or replaced.
+third_party/quickjs/upstream/** -whitespace

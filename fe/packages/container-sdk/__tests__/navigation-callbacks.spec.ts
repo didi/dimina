@@ -22,16 +22,19 @@ function createElement(): HTMLElement {
 }
 
 function createBridge(pagePath: string): Bridge {
-	return {
+	const bridge = {
 		opts: { pagePath },
 		destroy: vi.fn(),
 		start: vi.fn(),
+		startAndWait: vi.fn(),
 		pageShow: vi.fn(),
 		pageHide: vi.fn(),
 		webview: {
 			el: createElement(),
 		},
 	} as unknown as Bridge
+	bridge.startAndWait = vi.fn(async (options: Parameters<Bridge['start']>[0]) => bridge.start(options))
+	return bridge
 }
 
 function createApp(): MiniApp {

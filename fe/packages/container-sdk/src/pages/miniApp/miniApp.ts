@@ -877,19 +877,25 @@ export class MiniApp {
 
 			const isRestoringPageStack = (this.appInfo.restoreStack?.length ?? 0) > 1
 			const startOptions = { visible: !isRestoringPageStack && this.isPresentedTop() }
-			if (waitForInitialResources) {
-				await entryPageBridge.startAndWait(startOptions)
-			}
-			else {
-				entryPageBridge.start(startOptions)
-			}
-
-			// 7. 若携带额外的恢复栈（刷新后恢复场景），静默重建后续页面
 			if (isRestoringPageStack) {
+				// 恢复栈时根页会被后续页面覆盖；替换 runtime 仍需先确认根页完整就绪，
+				// 普通冷启动则直接开始加载，最终由真实栈顶页的 domReady 关闭遮罩。
+				if (waitForInitialResources) {
+					await entryPageBridge.startAndWait(startOptions)
+				}
+				else {
+					entryPageBridge.start(startOptions)
+				}
+
+				// 7. 若携带额外的恢复栈（刷新后恢复场景），静默重建后续页面
 				await this.restorePageStack(this.appInfo.restoreStack!.slice(1))
 				if (this._destroyed) {
 					return
 				}
+			}
+			else {
+				// 资源加载完成不代表首屏已经挂载；页面与小游戏统一等本轮 domReady。
+				await entryPageBridge.startAndWait(startOptions)
 			}
 
 			this.safeSyncUrl()
@@ -996,7 +1002,14 @@ export class MiniApp {
 				bridge.webview!.el.classList.add('dimina-native-view--slide-out')
 			}
 
-			bridge.start({ visible: isTop && this.isPresentedTop() })
+			const startOptions = { visible: isTop && this.isPresentedTop() }
+			if (isTop) {
+				// 启动遮罩覆盖的是恢复后的栈顶页，不能被底层页面的迟到 ready 提前关闭。
+				await bridge.startAndWait(startOptions)
+			}
+			else {
+				bridge.start(startOptions)
+			}
 		}
 
 		if (pages.length > 0) {
@@ -1061,15 +1074,15 @@ export class MiniApp {
 	onPresentOut(): void {
 		const currentBridge = this.navigator.top
 
+		currentBridge?.pageHide()
 		this.webSocketManager.onAppHide()
 		this.jscore.appHide()
-		currentBridge?.pageHide()
 	}
 
 	/**
-	 * Queue Page.onUnload for every live stack/tab page before the caller's FIFO callback barrier.
-	 * Bridge destruction does not remove the iframe DOM, so exit animations can still finish while
-	 * the old service runtime drains these terminal lifecycle messages.
+	 * 回收整个小程序的 Bridge 资源，排在调用方的 FIFO 回调 barrier 之前。这条链路只由退出
+	 * 小程序和整体换 runtime 走，不是路由，所以按 'exit' 静默回收，不派发 Page.onUnload——
+	 * 关掉整个小程序在微信里走的是切后台那条路。Bridge 销毁不摘 iframe DOM，退出动画照常播完。
 	 */
 	queueDestructionLifecycle(): void {
 		if (this._destructionLifecycleQueued) {
@@ -1078,7 +1091,7 @@ export class MiniApp {
 		this._destructionLifecycleQueued = true
 		const bridges = new Set([...this.navigator.getStack(), ...this.navigator.getTabBridges()])
 		for (const bridge of bridges) {
-			bridge.destroy()
+			bridge.destroy('exit')
 		}
 	}
 

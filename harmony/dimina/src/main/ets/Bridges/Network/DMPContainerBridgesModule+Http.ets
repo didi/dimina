@@ -192,10 +192,6 @@ export class DMPContainerBridgesModuleHttp extends DMPContainerBridgesModule {
     }
   }
 
-  private currentAppId(): string {
-    return this.appData.appId || this.app?.appConfig?.appId || 'default';
-  }
-
   private safeExtension(path: string, fallback: string): string {
     const cleanPath = path.split('?')[0].split('#')[0];
     const dotIndex = cleanPath.lastIndexOf('.');

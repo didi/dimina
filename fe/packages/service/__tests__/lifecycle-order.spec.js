@@ -87,6 +87,56 @@ describe('Skyline/exparser lifecycle ordering', () => {
 		expect(calls).toEqual(['page:onShow'])
 	})
 
+	it('waits for initial component attachment before onLoad, show and ready', () => {
+		const calls = []
+		const bridgeId = 'bridge-page-attached-handshake'
+		const pageModule = new PageModule({
+			onLoad: () => calls.push('page:onLoad'),
+			onShow: () => calls.push('page:onShow'),
+			onReady: () => calls.push('page:onReady'),
+		}, {
+			path: 'pages/attached-handshake/index',
+			usingComponents: {},
+		})
+		const page = new Page(pageModule, {
+			bridgeId,
+			moduleId: 'page',
+			path: 'pages/attached-handshake/index',
+			query: {},
+		})
+		page.init({ deferInitialData: true, deferPageLoad: true })
+
+		const component = {
+			__id__: 'component',
+			__parentId__: page.__id__,
+			__type__: ComponentModule.type,
+			__isComponent__: true,
+			initd: true,
+			componentAttached: () => calls.push('component:attached'),
+			componentReadied: () => calls.push('component:ready'),
+			pageShow: () => calls.push('component:show'),
+			flushInitSetDataCallbacks: vi.fn(),
+		}
+		runtime.instances[bridgeId] = { page, component }
+
+		runtime.pageShow({ bridgeId })
+		runtime.moduleAttached({ bridgeId, moduleId: component.__id__ })
+		runtime.moduleReady({ bridgeId, moduleId: component.__id__ })
+		expect(calls).toEqual(['component:attached'])
+
+		runtime.pageAttached({ bridgeId, moduleId: page.__id__ })
+		runtime.pageReady({ bridgeId, moduleId: page.__id__ })
+
+		expect(calls).toEqual([
+			'component:attached',
+			'page:onLoad',
+			'component:show',
+			'page:onShow',
+			'component:ready',
+			'page:onReady',
+		])
+	})
+
 	it('does not synthesize pageShow while creating a page without a visibility signal', () => {
 		const calls = []
 		const bridgeId = 'bridge-no-synthetic-show'
@@ -377,6 +427,76 @@ describe('Skyline/exparser lifecycle ordering', () => {
 		expect(component.__componentReadied__).toBe(true)
 	})
 
+	it('does not synthesize show for a component attached to an already-visible page', () => {
+		const calls = []
+		const bridgeId = 'bridge-late-visible-component'
+		const page = {
+			__id__: 'page',
+			__type__: PageModule.type,
+			initd: true,
+			pageShow: () => calls.push('page:show'),
+			pageHide: () => calls.push('page:hide'),
+		}
+		runtime.instances[bridgeId] = { page }
+		runtime.pageShow({ bridgeId })
+		runtime.getPageState(bridgeId).ready = true
+
+		const component = {
+			__id__: 'late-component',
+			__parentId__: page.__id__,
+			__type__: ComponentModule.type,
+			__isComponent__: true,
+			componentAttached: () => calls.push('component:attached'),
+			pageShow: () => calls.push('component:show'),
+			pageHide: () => calls.push('component:hide'),
+		}
+		runtime.instances[bridgeId][component.__id__] = component
+		runtime.moduleAttached({ bridgeId, moduleId: component.__id__ })
+
+		expect(calls).toEqual(['page:show', 'component:attached'])
+
+		runtime.pageHide({ bridgeId })
+		runtime.pageShow({ bridgeId })
+		expect(calls).toEqual([
+			'page:show',
+			'component:attached',
+			'component:hide',
+			'page:hide',
+			'component:show',
+			'page:show',
+		])
+	})
+
+	it('preserves initial component show when attachment crosses the first visibility signal', () => {
+		const calls = []
+		const bridgeId = 'bridge-initial-visible-component'
+		const page = {
+			__id__: 'page',
+			__type__: PageModule.type,
+			initd: true,
+			pageShow: () => calls.push('page:show'),
+		}
+		const component = {
+			__id__: 'initial-component',
+			__parentId__: page.__id__,
+			__type__: ComponentModule.type,
+			__isComponent__: true,
+			componentAttached: () => calls.push('component:attached'),
+			pageShow: () => calls.push('component:show'),
+		}
+		runtime.instances[bridgeId] = { page }
+
+		runtime.pageShow({ bridgeId })
+		runtime.instances[bridgeId][component.__id__] = component
+		runtime.moduleAttached({ bridgeId, moduleId: component.__id__ })
+
+		expect(calls).toEqual([
+			'page:show',
+			'component:attached',
+			'component:show',
+		])
+	})
+
 	it('dispatches page lifetimes in component-tree DFS order and detaches in post-order', () => {
 		const calls = []
 		const bridgeId = 'bridge-tree-order'
@@ -388,6 +508,7 @@ describe('Skyline/exparser lifecycle ordering', () => {
 			pageHide: () => calls.push('page:hide'),
 			pageResize: () => calls.push('page:resize'),
 			pageUnload: () => calls.push('page:unload'),
+			pageDetached: () => calls.push('page:detached'),
 		}
 		const component = (id, parentId) => ({
 			__id__: id,
@@ -421,8 +542,149 @@ describe('Skyline/exparser lifecycle ordering', () => {
 			'a:hide', 'a-child:hide', 'b:hide', 'page:hide',
 			'a:resize', 'a-child:resize', 'b:resize', 'page:resize',
 			'a:routeDone', 'a-child:routeDone', 'b:routeDone',
-			'a-child:detached', 'a:detached', 'b:detached', 'page:unload',
+			'page:unload', 'a-child:detached', 'a:detached', 'b:detached', 'page:detached',
 		])
+	})
+
+	it('keeps lifecycle state isolated for sibling instances created from the same component module', () => {
+		const calls = []
+		const bridgeId = 'bridge-same-component-siblings'
+		const path = 'components/same-definition/index'
+		const module = new ComponentModule({
+			lifetimes: {
+				created() {
+					calls.push(`${this.__id__}:created`)
+				},
+				attached() {
+					calls.push(`${this.__id__}:attached`)
+				},
+				ready() {
+					calls.push(`${this.__id__}:ready`)
+				},
+				detached() {
+					calls.push(`${this.__id__}:detached`)
+				},
+			},
+			pageLifetimes: {
+				show() {
+					calls.push(`${this.__id__}:show`)
+				},
+				hide() {
+					calls.push(`${this.__id__}:hide`)
+				},
+				resize() {
+					calls.push(`${this.__id__}:resize`)
+				},
+				routeDone() {
+					calls.push(`${this.__id__}:routeDone`)
+				},
+			},
+			methods: {},
+		}, {
+			component: true,
+			path,
+			usingComponents: {},
+		})
+		const page = {
+			__id__: 'page',
+			__type__: PageModule.type,
+			initd: true,
+			pageShow: () => calls.push('page:show'),
+			pageHide: () => calls.push('page:hide'),
+			pageResize: () => calls.push('page:resize'),
+			pageUnload: () => calls.push('page:unload'),
+			pageDetached: () => calls.push('page:detached'),
+		}
+		const createSibling = moduleId => new Component(module, {
+			bridgeId,
+			moduleId,
+			path,
+			pageId: page.__id__,
+			parentId: page.__id__,
+			properties: {},
+			propertyNames: [],
+			eventAttr: {},
+			targetInfo: {},
+		})
+		const siblingA = createSibling('sibling-a')
+		const siblingB = createSibling('sibling-b')
+		runtime.instances[bridgeId] = {
+			[page.__id__]: page,
+			[siblingA.__id__]: siblingA,
+			[siblingB.__id__]: siblingB,
+		}
+
+		siblingA.init()
+		siblingB.init()
+		runtime.moduleAttached({ bridgeId, moduleId: siblingA.__id__ })
+		runtime.moduleAttached({ bridgeId, moduleId: siblingB.__id__ })
+		runtime.moduleReady({ bridgeId, moduleId: siblingA.__id__ })
+		runtime.moduleReady({ bridgeId, moduleId: siblingB.__id__ })
+		runtime.pageShow({ bridgeId })
+		runtime.pageHide({ bridgeId })
+		runtime.pageResize({ bridgeId, size: { width: 320, height: 640 } })
+		runtime.componentRouteDone({ bridgeId })
+		runtime.pageUnload({ bridgeId })
+
+		const lifecycleOf = id => calls
+			.filter(call => call.startsWith(`${id}:`))
+			.map(call => call.slice(id.length + 1))
+
+		// WeChat does not promise an observable order between sibling instances.
+		// Assert each instance and the page boundary independently instead.
+		expect(lifecycleOf('sibling-a')).toEqual([
+			'created', 'attached', 'ready', 'show', 'hide', 'resize', 'routeDone', 'detached',
+		])
+		expect(lifecycleOf('sibling-b')).toEqual([
+			'created', 'attached', 'ready', 'show', 'hide', 'resize', 'routeDone', 'detached',
+		])
+		expect(lifecycleOf('page')).toEqual(['show', 'hide', 'resize', 'unload', 'detached'])
+		expect(calls).toHaveLength(21)
+
+		for (const event of ['show', 'hide', 'resize']) {
+			expect(calls.indexOf('page:' + event)).toBeGreaterThan(calls.indexOf('sibling-a:' + event))
+			expect(calls.indexOf('page:' + event)).toBeGreaterThan(calls.indexOf('sibling-b:' + event))
+		}
+		expect(calls.indexOf('page:unload')).toBeLessThan(calls.indexOf('sibling-a:detached'))
+		expect(calls.indexOf('page:unload')).toBeLessThan(calls.indexOf('sibling-b:detached'))
+		expect(calls.indexOf('page:detached')).toBeGreaterThan(calls.indexOf('sibling-a:detached'))
+		expect(calls.indexOf('page:detached')).toBeGreaterThan(calls.indexOf('sibling-b:detached'))
+		expect(runtime.instances[bridgeId]).toBeUndefined()
+	})
+
+	it('marks unload and detach before invoking re-entrant lifecycle callbacks', () => {
+		const calls = []
+		const bridgeId = 'bridge-reentrant-unload'
+		const page = {
+			__id__: 'page',
+			__type__: PageModule.type,
+			pageUnload() {
+				calls.push('page:unload')
+				runtime.pageUnload({ bridgeId })
+			},
+			pageDetached: () => calls.push('page:detached'),
+		}
+		const child = {
+			__id__: 'child',
+			__parentId__: page.__id__,
+			__type__: ComponentModule.type,
+			__isComponent__: true,
+			__componentAttached__: true,
+			componentDetached() {
+				calls.push('child:detached')
+				runtime.moduleUnmounted({ bridgeId, moduleId: child.__id__ })
+			},
+		}
+		runtime.instances[bridgeId] = { page, child }
+
+		runtime.pageUnload({ bridgeId })
+
+		expect(calls).toEqual([
+			'page:unload',
+			'child:detached',
+			'page:detached',
+		])
+		expect(runtime.instances[bridgeId]).toBeUndefined()
 	})
 
 	it('isolates lifecycle exceptions, reports error lifetimes and continues attachment', () => {

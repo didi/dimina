@@ -129,8 +129,10 @@ JSSDK 直接依赖 vConsole，并随 pageFrame 静态同步打包；只有检测
 当不再需要小程序时，可以关闭它：
 
 ```swift
-app.destroy()
+try await app.closeMiniProgram()
 ```
+
+`closeMiniProgram()` 会先完成页面退出、App/Page 隐藏和可能存在的来源小程序恢复，再销毁运行时。`destroy()` 是底层资源回收入口，不应代替可见小程序的正常关闭。
 
 ## 权限处理
 

@@ -7,6 +7,30 @@ import org.junit.Test
 
 class MiniProgramActivityRegistryTest {
     @Test
+    fun `lastRegistered returns the current top page without removing it`() {
+        val registry = MiniProgramActivityRegistry<String>()
+        registry.register("app", "root")
+        registry.register("app", "page-1")
+        registry.register("app", "page-2")
+
+        assertEquals("page-2", registry.lastRegistered("app"))
+
+        val closed = mutableListOf<String>()
+        registry.closeAll("app", closed::add)
+        assertEquals(listOf("page-2", "page-1", "root"), closed)
+    }
+
+    @Test
+    fun `lastRegistered returns null for an unknown or emptied mini program`() {
+        val registry = MiniProgramActivityRegistry<String>()
+        registry.register("app", "root")
+        registry.unregister("app", "root")
+
+        assertNull(registry.lastRegistered("app"))
+        assertNull(registry.lastRegistered("missing"))
+    }
+
+    @Test
     fun `closeAll closes every page of the requested mini program from top to root`() {
         val registry = MiniProgramActivityRegistry<String>()
         registry.register("app-a", "root")

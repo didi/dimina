@@ -9,6 +9,7 @@
 
 #include "quickjs.h"
 #include "napi/native_api.h"
+#include <atomic>
 #include <mutex>
 #include <queue>
 #include <string>
@@ -28,9 +29,15 @@ public:
     JSCore();
     ~JSCore();
     
-    bool executeJavaScript(const std::string &code);
+    struct JavaScriptTask {
+        std::string code;
+        std::string sourceUrl;
+    };
+
+    bool executeJavaScript(const std::string &code, const std::string &sourceUrl);
     void processPendingJobs();
-    void *startEngine(int index, std::function<void(JSContext *ctx)> registerFunc);
+    void *startEngine(int index, std::function<void(JSContext *ctx)> registerFunc,
+                      const std::string &debuggerAddress);
     
     void destroy_cb_impl(uv_async_t *handle);
     void prepare_cb_impl(uv_prepare_t *handle);
@@ -44,16 +51,17 @@ public:
     static void js_task_cb(uv_async_t *handle);
     static void check_cb(uv_check_t *handle);
     
-    bool starting;
-    bool running;
-    bool closing;
+    std::atomic<bool> starting;
+    std::atomic<bool> running;
+    std::atomic<bool> closing;
+    std::atomic<bool> handlesReady{false};
 
     JSContext* getContext() {
         return ctx;
     };
 
     std::mutex queueMutex;
-    std::queue<std::string> jsTaskQueue;
+    std::queue<JavaScriptTask> jsTaskQueue;
     uv_async_t eval_handle;
     uv_async_t destroy_handle;
     

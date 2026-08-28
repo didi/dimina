@@ -9,7 +9,7 @@ import Foundation
 
 /// Dimina SDK 版本管理
 public class DiminaVersion {
-    private static let defaultSDKVersion = "1.5.0"
+    private static let defaultSDKVersion = "1.6.0"
     
     /// 获取 SDK 版本号
     /// Swift Package 集成时无法从 MARKETING_VERSION 获取 SDK 版本，使用 SDK 内置版本号

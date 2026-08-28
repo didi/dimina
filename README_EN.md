@@ -72,7 +72,7 @@ DMCC converts mini program source into logic, view, style, and configuration res
 
 ## Quick start
 
-To see Dimina in action, open the [live demo](https://didi.github.io/dimina/). To run the repository's Web examples locally, have Node.js 22+ and pnpm 7+ ready:
+To see Dimina in action, open the [live demo](https://didi.github.io/dimina/). To run the repository's Web examples locally, have Node.js 22.22.3+ and pnpm 7+ ready:
 
 ```sh
 git clone https://github.com/didi/dimina.git
@@ -82,13 +82,15 @@ pnpm compile
 pnpm dev
 ```
 
-Here, `pnpm compile` builds the mini programs in `fe/example/`, and `pnpm dev` starts the Web container and proxy service. See the [frontend workspace guide](./fe/README.md) for more build, packaging, and debugging commands.
+Here, `pnpm compile` builds the mini programs in `examples/miniprogram/`, and `pnpm dev` starts the Web container and proxy service. See the [frontend workspace guide](./fe/README.md) for more build, packaging, and debugging commands.
 
 When you are ready to integrate a bundle into a native app, start with the guide for your platform:
 
 - [Android integration guide](./android/README.md)
 - [iOS integration guide](./iOS/README.md)
 - [Harmony integration guide](./harmony/dimina/README.md)
+- [Flutter host integration guide](./docs/Flutter-Integration.md)
+- [Flutter three-platform example](./examples/flutter/README.md)
 
 ## Capability boundaries and further reading
 

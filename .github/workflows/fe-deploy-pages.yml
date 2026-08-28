@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - 'fe/**'
+      - 'examples/miniprogram/**'
   workflow_dispatch:
 
 permissions:
@@ -31,7 +32,7 @@ jobs:
         uses: actions/setup-node@v6
         id: node-setup
         with:
-          node-version: lts/*
+          node-version-file: fe/.nvmrc
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6

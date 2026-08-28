@@ -131,7 +131,7 @@ class Service {
 	onAppMsg() {
 		// 双线程资源就绪后创建首个页面实例
 		this.message.on('resourceLoaded', (msg) => {
-			const { bridgeId, pagePath, query, stackId } = msg
+			const { bridgeId, pagePath, query, resourceLoadId, stackId } = msg
 			if (runtime.isMiniGame()) {
 				return
 			}
@@ -144,8 +144,9 @@ class Service {
 			const initialProps = loader.getPropsByPath(module.usingComponents)
 
 			const pageId = `page_${uuid()}`
-			// 创建页面实例。生命周期同步执行，但首屏数据必须排在 firstRender 后发送，
-			// 确保渲染线程已经注册对应 pageId 的数据监听。
+			// 先建立页面实例并发送首屏数据；onLoad 等 render 确认初始组件
+			// attached 后再执行。首屏数据仍必须排在 firstRender 后发送，确保
+			// 渲染线程已经注册对应 pageId 的数据监听。
 			const page = runtime.createInstance({
 				bridgeId,
 				moduleId: pageId,
@@ -153,6 +154,7 @@ class Service {
 				query,
 				stackId,
 				deferInitialData: true,
+				deferPageLoad: true,
 			})
 
 			message.send({
@@ -164,6 +166,7 @@ class Service {
 					pagePath,
 					initialProps,
 					query,
+					resourceLoadId,
 				},
 			})
 			page?.sendInitialData()
@@ -224,6 +227,11 @@ class Service {
 		this.message.on('pageReady', (msg) => {
 			// 页面首次渲染完毕时执行
 			runtime.pageReady(msg)
+		})
+
+		this.message.on('pageAttached', (msg) => {
+			// 页面根 mounted，且初始自定义组件 attached 消息均已发出。
+			runtime.pageAttached(msg)
 		})
 
 		this.message.on('pageHide', (msg) => {

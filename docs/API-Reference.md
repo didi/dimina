@@ -270,6 +270,8 @@ DMPApp.init(context, { apiNamespaces: ["myapp"] })
 |               | createOffscreenCanvas            | ✓       | ✓   | ✓       | ✓   |
 |               | createCanvas                     | ✓       | ✓   | ✓       | ✓   |
 |               | createImage                      | ✓       | ✓   | ✓       | ✓   |
+|               | canvasGetImageData               | ✓       | ✓   | ✓       | ✓   |
+|               | canvasPutImageData               | ✓       | ✓   | ✓       | ✓   |
 |               | canvasToTempFilePath             | ✓       | ✓   | ✓       | ✓   |
 | 设备 - 小游戏触摸 | onTouchStart                   | ✓       | ✓   | ✓       | ✓   |
 |               | offTouchStart                    | ✓       | ✓   | ✓       | ✓   |

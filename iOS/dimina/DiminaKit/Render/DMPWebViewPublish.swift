@@ -22,10 +22,11 @@ public class DMPWebViewPublish {
             
             DMPLogger.debug("🔴 DiminaRenderBridge.publish: \(data)")
             
-            if let message = data as? String {   
-                Task {
-                    await DMPChannelProxy.renderToService(msg: message, app: self.render?.getApp())
-                }
+            if let message = data as? String {
+                // 不要包 `Task { ... }`：每条消息各起一个不受管的 Task 会被丢到并发线程池，
+                // 一次触摸沿路径同步发出的多条 tap 谁先跑到 JS 线程完全看调度，次序会颠倒。
+                // 直接调用，由引擎的串行队列保证投递顺序等于调用顺序。
+                DMPChannelProxy.renderToService(msg: message, app: self.render?.getApp())
             } else {
                 DMPLogger.debug("publish消息格式不正确，期望字符串类型: \(data)")
             }

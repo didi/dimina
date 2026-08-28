@@ -46,9 +46,18 @@ export class DMPAppConfig {
   isKeepAlive = false;
   //目前打包模式都是debug, 因此在上线时需要手动修改
   isDebugMode = false;
+  javaScriptDebuggerPort?: number;
 
   constructor(appName: string, appId: string) {
     this.appName = appName;
     this.appId = appId;
+  }
+
+  setJavaScriptDebugger(port: number): DMPAppConfig {
+    if (Math.floor(port) !== port || port < 1 || port > 65535) {
+      throw new Error('Debugger port must be an integer between 1 and 65535');
+    }
+    this.javaScriptDebuggerPort = port;
+    return this;
   }
 }

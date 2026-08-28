@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import UIKit
 
 enum DMPMiniProgramNavigationError: LocalizedError {
     case invalidAppId
@@ -70,8 +71,19 @@ public class DMPAppManager {
     /// operation suspends across await points, so reject overlapping
     /// navigate/back/exit/restart transactions explicitly.
     @MainActor private var isMiniProgramOperationInProgress = false
+    /// 宿主自己的前后台状态，由 [setupSystemLifecycleObservers] 维护。跨小程序恢复 opener
+    /// 时要看它，而不是看「谁在展示」——后者在宿主后台里同样会变。
+    @MainActor private var hostVisible = true
 
-    private init() {}
+    private var systemLifecycleObservers: [NSObjectProtocol] = []
+
+    private init() {
+        setupSystemLifecycleObservers()
+    }
+
+    deinit {
+        systemLifecycleObservers.forEach(NotificationCenter.default.removeObserver)
+    }
 
     public static func sharedInstance() -> DMPAppManager {
         return instance
@@ -86,7 +98,53 @@ public class DMPAppManager {
         defer { stateLock.unlock() }
         return body()
     }
-    
+
+    /// UIApplication has exactly one foreground scene worth caring about here (no split-screen /
+    /// Stage Manager support in this container), so the *whole* pool's system background verdict
+    /// funnels through the one mini program actually on screen - the DMPApp whose navigator
+    /// currently owns the shared UINavigationController. Suspended openers behind it are, by
+    /// definition, already hidden (see [DMPNavigator.notifyPresentOut]) and receive nothing here.
+    ///
+    /// 这两个通知也是宿主可见性的唯一来源。跨小程序返回可以发生在宿主已经进后台之后
+    /// （目标启动失败、或返回操作在后台完成），那时把 opener 恢复成展示中的小程序并不等于
+    /// 它可见，所以 [hostVisible] 要独立于「谁在展示」记住宿主自己的前后台状态。
+    private func setupSystemLifecycleObservers() {
+        let center = NotificationCenter.default
+        systemLifecycleObservers = [
+            center.addObserver(
+                forName: UIApplication.didEnterBackgroundNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in
+                    self?.hostVisible = false
+                    self?.activePresentedApp()?.notifyMiniProgramHide()
+                }
+            },
+            center.addObserver(
+                forName: UIApplication.willEnterForegroundNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in
+                    self?.hostVisible = true
+                    self?.activePresentedApp()?.notifyMiniProgramShow()
+                }
+            },
+        ]
+    }
+
+    /// The one DMPApp whose navigator currently owns the shared UINavigationController - the
+    /// mini program actually on screen. `nil` when nothing is presented (e.g. an empty pool, or
+    /// mid owner hand-off).
+    @MainActor
+    private func activePresentedApp() -> DMPApp? {
+        stateLock.lock()
+        let apps = Array(appPools.values)
+        stateLock.unlock()
+        return apps.first { $0.getNavigator()?.isActiveNavigationOwner() == true }
+    }
+
     func getApp(appIndex: Int) -> DMPApp? {
         return withStateLock { appPools[appIndex] }
     }
@@ -207,6 +265,20 @@ public class DMPAppManager {
         }
     }
 
+    /// Establishes the same opener/target relationship `navigateToMiniProgram`
+    /// records after a successful launch, without requiring a real bundled
+    /// launch. Exists so tests can exercise `navigateBackMiniProgram` /
+    /// `exitMiniProgram`'s opener-restoration paths directly.
+    func markOpenedByMiniProgramForTesting(target: DMPApp, opener: DMPApp) {
+        setOpenerContext(
+            MiniProgramOpenerContext(
+                openerAppIndex: opener.getAppIndex(),
+                targetAppId: target.getAppId()
+            ),
+            for: target.getAppIndex()
+        )
+    }
+
     // MARK: - Mini Program Navigation
 
     @MainActor
@@ -226,6 +298,13 @@ public class DMPAppManager {
     @MainActor
     func isMiniProgramOperationInFlight() -> Bool {
         return isMiniProgramOperationInProgress
+    }
+
+    /// 宿主前后台状态的只读视图。系统通知是异步送达的，测试用它确认通知已经生效，
+    /// 再驱动依赖这个真相的跨小程序恢复路径。
+    @MainActor
+    func isHostVisibleForTesting() -> Bool {
+        return hostVisible
     }
 
     @MainActor
@@ -297,9 +376,8 @@ public class DMPAppManager {
             )
             guard launched else {
                 target.destroy()
-                opener.notifyAppShow()
                 openerNavigator.reactivate()
-                openerNavigator.resumeAfterMiniProgramNavigation()
+                openerNavigator.resumeAfterMiniProgramNavigation(hostVisible: hostVisible)
                 throw DMPMiniProgramNavigationError.targetLaunchFailed(appId)
             }
 
@@ -439,28 +517,18 @@ public class DMPAppManager {
         _ context: MiniProgramOpenerContext,
         extraData: [String: Any]?
     ) {
-        guard let opener = notifyOpenerReturn(context, extraData: extraData),
+        guard let opener = getApp(appIndex: context.openerAppIndex),
               let openerNavigator = opener.getNavigator() else { return }
-        openerNavigator.reactivate()
-        openerNavigator.resumeAfterMiniProgramNavigation()
-    }
-
-    @MainActor
-    @discardableResult
-    private func notifyOpenerReturn(
-        _ context: MiniProgramOpenerContext,
-        extraData: [String: Any]?
-    ) -> DMPApp? {
-        guard let opener = getApp(appIndex: context.openerAppIndex) else { return nil }
         var referrerInfo: [String: Any] = ["appId": context.targetAppId]
         if let extraData {
             referrerInfo["extraData"] = extraData
         }
-        opener.notifyAppShow(
+        openerNavigator.reactivate()
+        openerNavigator.resumeAfterMiniProgramNavigation(
             scene: DMPScene.fromMiniProgramBack.rawValue,
-            referrerInfo: referrerInfo
+            referrerInfo: referrerInfo,
+            hostVisible: hostVisible
         )
-        return opener
     }
 
     // MARK: - Ext Module Registration

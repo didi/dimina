@@ -33,6 +33,9 @@ export class DMPAppManager {
   private appIndex = 0;
   private miniProgramPresentations = new DMPMiniProgramPresentationStack()
   private miniProgramOperationInProgress = false
+  // 宿主自己的前后台状态，由 DMPAppLifecycle 的 windowStage 事件维护。跨小程序恢复 opener
+  // 时要看它，而不是看「谁在展示」——后者在宿主后台里同样会变。
+  private hostVisible = true
 
   public static sharedInstance(): DMPAppManager {
     if (!DMPAppManager.instance) {
@@ -225,7 +228,7 @@ export class DMPAppManager {
         await targetApp.closeDimina()
       }
       if (sourceHidden) {
-        sourceApp.notifyMiniProgramShow(sourceLaunchConfig?.scene ?? DMPScene.fromMainEntry,
+        this.resumeOpener(sourceApp, sourceLaunchConfig?.scene ?? DMPScene.fromMainEntry,
           sourceLaunchConfig?.referrerInfo)
       }
       throw error as Error
@@ -245,7 +248,7 @@ export class DMPAppManager {
         extraData
       })
       await currentApp.closeDimina(beforeClose)
-      opener.notifyMiniProgramShow(DMPScene.fromMiniProgramBack, referrerInfo)
+      this.resumeOpener(opener, DMPScene.fromMiniProgramBack, referrerInfo)
     } finally {
       this.endMiniProgramOperation()
     }
@@ -260,7 +263,7 @@ export class DMPAppManager {
       const opener = openerIndex === undefined ? undefined : this.appPools.get(openerIndex)
       await currentApp.closeDimina(beforeClose)
       if (opener) {
-        opener.notifyMiniProgramShow(DMPScene.fromMiniProgramBack, new DMPMap({
+        this.resumeOpener(opener, DMPScene.fromMiniProgramBack, new DMPMap({
           appId: currentApp.appConfig.appId
         }))
       }
@@ -314,6 +317,26 @@ export class DMPAppManager {
 
   private endMiniProgramOperation(): void {
     this.miniProgramOperationInProgress = false
+  }
+
+  /** 宿主前后台状态的唯一入口，由 DMPAppLifecycle 在 windowStage SHOWN/HIDDEN 时更新。 */
+  setHostVisible(visible: boolean): void {
+    this.hostVisible = visible
+  }
+
+  /**
+   * 把展示关系交还给 opener。
+   *
+   * 宿主在前台时这就是一次真实的 App.onShow；宿主已经进后台时（目标启动失败，或返回/退出
+   * 在后台完成）只暂存 enter options：此刻派发会让账本以为 opener 已经显示，宿主真正回到
+   * 前台时那条 show 就被去重掉，小程序再也收不到本次返回的 onShow。
+   */
+  private resumeOpener(opener: DMPApp, scene: DMPScene, referrerInfo?: DMPMap): void {
+    if (this.hostVisible) {
+      opener.notifyMiniProgramShow(scene, referrerInfo)
+    } else {
+      opener.stashMiniProgramShow(scene, referrerInfo)
+    }
   }
 
   private resolveOpener(currentApp: DMPApp, apiName: string): DMPApp {

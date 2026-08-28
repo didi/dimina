@@ -116,6 +116,27 @@ describe('slider wechat alignment', () => {
 		expect(event.event.detail.value).toBe(0)
 	})
 
+	it('does not seek when the tap lands on the value text beside the track', async () => {
+		// 手势装在根元素上，数值文本也在根元素里；按落点算值会把落点 clamp 到端点，
+		// 表现为点一下数字滑块就跳满格。
+		const { host } = mountComponent(Slider, {
+			bindchange: 'changeHandler',
+			showValue: true,
+			min: 0,
+			max: 100,
+			value: 30,
+		})
+		mockTrackGeometry(host, { left: 0, width: 100 })
+		await nextTick()
+
+		host.querySelector('.dd-slider-value').dispatchEvent(
+			new MouseEvent('click', { bubbles: true, clientX: 150 })
+		)
+		await nextTick()
+
+		expect(sentEvents()).toHaveLength(0)
+	})
+
 	it('clamps blockSize into the wechat range of 12 - 28', async () => {
 		const { host } = mountComponent(Slider, {
 			blockSize: 40,
@@ -294,6 +315,34 @@ describe('slider wechat alignment', () => {
 		expect(events[0].event.detail.value).toBe(75)
 		expect(events[1].event.detail.value).toBe(75)
 		expect(events[1].event.currentTarget.id).toBe('drag-slider')
+	})
+
+	// 真实鼠标序列里 pointerup 早于 mouseup，合成 tap 排在两者之间的微任务上。tap 只是拖动的
+	// 观察者，结算 change 的所有权始终在 endDrag 手里；tap 提前把拖动状态清掉会让 change 消失。
+	it('fires change after a short mouse drag even though the synthesized tap lands before mouseup', async () => {
+		const { host } = mountComponent(Slider, {
+			id: 'short-drag-slider',
+			bindchange: 'changeHandler',
+			bindtap: 'tapHandler',
+			min: 0,
+			max: 100,
+			step: 1,
+		})
+		mockTrackGeometry(host)
+		await nextTick()
+
+		const handle = host.querySelector('.dd-slider-handle')
+		handle.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 1, pointerType: 'mouse', button: 0, clientX: 0 }))
+		handle.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: 0 }))
+		// 位移小于手势层的 moveThreshold，tap 不会被移动取消，但值已经变了
+		window.dispatchEvent(new MouseEvent('mousemove', { clientX: 8 }))
+		document.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 1, pointerType: 'mouse', button: 0, clientX: 8 }))
+		await new Promise(resolve => queueMicrotask(resolve))
+		window.dispatchEvent(new MouseEvent('mouseup', { clientX: 8 }))
+
+		const changes = sentEvents().filter(e => e.methodName === 'changeHandler')
+		expect(changes).toHaveLength(1)
+		expect(changes[0].event.detail.value).toBe(8)
 	})
 
 	it('uses changedTouches to calculate the final value before firing change', async () => {

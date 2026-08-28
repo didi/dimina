@@ -154,8 +154,22 @@ describe('exparser component alignment', () => {
 		expect(canvas.getAttribute('canvas-id')).toBe('paint')
 		expect(canvas.width).toBe(320)
 		expect(canvas.height).toBe(180)
-		expect(canvas.dataset.type).toBe('2d')
+		// 画布上不挂框架自己的 data-*：事件序列化整份复制 target.dataset，
+		// 而 exparser 的 wx-canvas 也不带这类属性。
+		expect(Object.keys(canvas.dataset)).toEqual([])
 		expect(host.querySelector('.dd-canvas-slot .canvas-child')).not.toBeNull()
+	})
+
+	it('does not pass an oversized component bitmap request to the inner canvas', () => {
+		const { host } = mountComponent(Canvas, {
+			canvasId: 'oversized',
+			renderHeight: 100000,
+			renderWidth: 100000,
+		})
+		const canvas = host.querySelector('canvas')
+
+		expect(canvas.width).toBe(300)
+		expect(canvas.height).toBe(150)
 	})
 
 	it('reports duplicate legacy canvas ids like exparser', async () => {

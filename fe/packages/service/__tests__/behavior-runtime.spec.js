@@ -121,6 +121,7 @@ describe('behavior runtime alignment', () => {
 		page.pageResize({ width: 320 })
 		page.pageReady()
 		page.pageUnload()
+		page.pageDetached()
 
 		expect(calls).toEqual([
 			'behavior:created',
@@ -139,10 +140,137 @@ describe('behavior runtime alignment', () => {
 			'behavior:ready',
 			'page:ready',
 			'page:onReady',
+			'page:onUnload',
 			'behavior:detached',
 			'page:detached',
-			'page:onUnload',
 		])
+	})
+
+	it('runs Component page lifetimes, page callbacks and root teardown in WeChat order', () => {
+		const calls = []
+		const bridgeId = 'bridge-component-page'
+		const componentModule = new ComponentModule({
+			behaviors: [{
+				lifetimes: {
+					created: () => calls.push('behavior:created'),
+					attached: () => calls.push('behavior:attached'),
+					ready: () => calls.push('behavior:ready'),
+					detached: () => calls.push('behavior:detached'),
+				},
+				pageLifetimes: {
+					show: () => calls.push('behavior:show'),
+					hide: () => calls.push('behavior:hide'),
+				},
+			}],
+			lifetimes: {
+				created: () => calls.push('component-page:created'),
+				attached: () => calls.push('component-page:attached'),
+				ready: () => calls.push('component-page:ready'),
+				detached: () => calls.push('component-page:detached'),
+			},
+			pageLifetimes: {
+				show: () => calls.push('component-page:show'),
+				hide: () => calls.push('component-page:hide'),
+			},
+			methods: {
+				onLoad: () => calls.push('component-page:onLoad'),
+				onShow: () => calls.push('component-page:onShow'),
+				onReady: () => calls.push('component-page:onReady'),
+				onHide: () => calls.push('component-page:onHide'),
+				onUnload: () => calls.push('component-page:onUnload'),
+			},
+		}, {
+			component: false,
+			path: 'pages/component-page/index',
+			usingComponents: {},
+		})
+		const page = new Component(componentModule, {
+			bridgeId,
+			moduleId: 'component-page',
+			path: 'pages/component-page/index',
+			query: {},
+			eventAttr: {},
+			properties: {},
+		})
+
+		page.init({ deferPageLoad: true })
+		const child = {
+			__id__: 'component-page-child',
+			__parentId__: page.__id__,
+			__type__: ComponentModule.type,
+			__isComponent__: true,
+			__componentAttached__: true,
+			__componentReadied__: true,
+			initd: true,
+			pageShow() {},
+			pageHide() {},
+			componentDetached: () => calls.push('child:detached'),
+		}
+		runtime.instances[bridgeId] = {
+			[page.__id__]: page,
+			[child.__id__]: child,
+		}
+		runtime.pageShow({ bridgeId })
+		expect(calls).toEqual([
+			'behavior:created',
+			'component-page:created',
+			'behavior:attached',
+			'component-page:attached',
+		])
+		runtime.pageAttached({ bridgeId, moduleId: page.__id__ })
+		runtime.pageReady({ bridgeId, moduleId: page.__id__ })
+		runtime.pageHide({ bridgeId })
+		runtime.pageUnload({ bridgeId })
+
+		expect(calls).toEqual([
+			'behavior:created',
+			'component-page:created',
+			'behavior:attached',
+			'component-page:attached',
+			'component-page:onLoad',
+			'behavior:show',
+			'component-page:show',
+			'component-page:onShow',
+			'behavior:ready',
+			'component-page:ready',
+			'component-page:onReady',
+			'behavior:hide',
+			'component-page:hide',
+			'component-page:onHide',
+			'component-page:onUnload',
+			'child:detached',
+			'behavior:detached',
+			'component-page:detached',
+		])
+	})
+
+	it('lets a defined lifetimes entry suppress its legacy top-level alias', () => {
+		const calls = []
+		const componentModule = new ComponentModule({
+			behaviors: [{
+				created: () => calls.push('behavior:legacy-created'),
+				lifetimes: { created: null },
+			}],
+			created: () => calls.push('component:legacy-created'),
+			lifetimes: { created: null },
+			methods: {},
+		}, {
+			component: true,
+			path: 'components/lifetime-precedence/index',
+			usingComponents: {},
+		})
+		const component = new Component(componentModule, {
+			bridgeId: 'bridge-lifetime-precedence',
+			moduleId: 'component-1',
+			path: 'components/lifetime-precedence/index',
+			pageId: 'page-1',
+			parentId: 'page-1',
+			eventAttr: {},
+			properties: {},
+		})
+
+		component.init()
+		expect(calls).toEqual([])
 	})
 
 	it('runs component behavior page lifetimes before component page lifetimes', async () => {

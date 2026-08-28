@@ -5,8 +5,15 @@ import process from 'node:process'
 import artCode from './art.js'
 
 function hasCompileInfo(modulePath, list, preList) {
-	const mergeList = Array.isArray(preList) ? [...preList, ...list] : list
-	for (const element of mergeList) {
+	for (const element of list) {
+		if (element.path === modulePath) {
+			return true
+		}
+	}
+	if (!Array.isArray(preList)) {
+		return false
+	}
+	for (const element of preList) {
 		if (element.path === modulePath) {
 			return true
 		}
@@ -40,6 +47,7 @@ function getAbsolutePath(workPath, pagePath, src) {
 }
 
 const assetsMap = {}
+const copiedAssetGroups = new Set()
 const collectableImageAssetPattern = /\.(?:png|jpe?g|gif|svg|webp|heic|heif)$/i
 
 function splitAssetReference(src) {
@@ -53,6 +61,7 @@ function resetAssetCache() {
 	for (const assetPath of Object.keys(assetsMap)) {
 		delete assetsMap[assetPath]
 	}
+	copiedAssetGroups.clear()
 }
 
 function isCollectableImageAsset(src) {
@@ -119,13 +128,17 @@ function collectAssets(workPath, pagePath, src, targetPath, appId) {
 			fs.mkdirSync(targetStatic, { recursive: true })
 		}
 
-		getFilesWithExtension(dirPath, ext).forEach((file) => {
-			fs.copyFileSync(path.resolve(dirPath, file), `${targetStatic}/${prefix}_${file}`)
-		})
-
-		const filename = sourcePath.split('/').pop()
 		const pathPrefix = process.env.ASSETS_PATH_PREFIX ? '' : '/'
-		assetsMap[cacheKey] = `${pathPrefix}${appId}/main/static/${prefix}_${filename}`
+		const groupKey = `${path.resolve(targetPath)}\0${dirPath}\0${ext}`
+		if (!copiedAssetGroups.has(groupKey)) {
+			for (const file of getFilesWithExtension(dirPath, ext)) {
+				const sourceFile = path.resolve(dirPath, file)
+				fs.copyFileSync(sourceFile, `${targetStatic}/${prefix}_${file}`)
+				assetsMap[`${path.resolve(targetPath)}\0${sourceFile}`]
+					= `${pathPrefix}${appId}/main/static/${prefix}_${file}`
+			}
+			copiedAssetGroups.add(groupKey)
+		}
 	}
 	catch (error) {
 		console.log(error)
@@ -201,6 +214,7 @@ const tagWhiteList = [
 	'block',
 	'button',
 	'camera',
+	'canvas',
 	'checkbox-group',
 	'checkbox',
 	'cover-image',
@@ -245,7 +259,6 @@ const tagWhiteList = [
 // and leaves undeclared tags as native elements.
 const miniProgramBuiltinTags = new Set([
 	...tagWhiteList,
-	'canvas',
 	'match-media',
 	'page-container',
 	'share-element',

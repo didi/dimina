@@ -1,8 +1,8 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
-import { collectAssets, transformRpx } from '../src/common/utils.js'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { collectAssets, resetAssetCache, transformRpx } from '../src/common/utils.js'
 
 describe('transformRpx', () => {
 	it('does not reuse rem as the rpx transport unit', () => {
@@ -15,6 +15,8 @@ describe('collectAssets', () => {
 	let tempDir
 
 	afterEach(() => {
+		vi.restoreAllMocks()
+		resetAssetCache()
 		if (tempDir) {
 			fs.rmSync(tempDir, { recursive: true, force: true })
 		}
@@ -157,5 +159,21 @@ describe('collectAssets', () => {
 
 		expect(fs.existsSync(path.join(firstTarget, 'main/static', first.split('/').pop()))).toBe(true)
 		expect(fs.existsSync(path.join(secondTarget, 'main/static', second.split('/').pop()))).toBe(true)
+	})
+
+	it('copies one asset directory group only once per build target', () => {
+		tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'compiler-assets-'))
+		const workPath = path.join(tempDir, 'project')
+		const targetPath = path.join(tempDir, 'output')
+		const assetDir = path.join(workPath, 'pages/detail/images')
+		fs.mkdirSync(assetDir, { recursive: true })
+		fs.writeFileSync(path.join(assetDir, 'first.png'), 'first')
+		fs.writeFileSync(path.join(assetDir, 'second.png'), 'second')
+		const copySpy = vi.spyOn(fs, 'copyFileSync')
+
+		collectAssets(workPath, '/pages/detail/index', './images/first.png', targetPath, 'test-app')
+		collectAssets(workPath, '/pages/detail/index', './images/second.png', targetPath, 'test-app')
+
+		expect(copySpy).toHaveBeenCalledTimes(2)
 	})
 })

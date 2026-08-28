@@ -25,12 +25,17 @@ import { DMPContextUtils } from '../Utils/DMPContextUtils';
 export class DMPWorkerWrapper {
   w: worker.ThreadWorker;
   appIndex: number;
+  debuggerAddress: string;
+  runtimeSourceURL: string;
   pendingRequests = new Map<string, PendingRequest>();
   private nextFlushRequestId = 0;
   private flushBarrier = new DMPWorkerFlushBarrier();
 
-  constructor(appIndex: number) {
+  constructor(appIndex: number, debuggerAddress: string = '',
+    runtimeSourceURL: string = '/__dimina__/unknown/runtime/eval.js') {
     this.appIndex = appIndex;
+    this.debuggerAddress = debuggerAddress;
+    this.runtimeSourceURL = runtimeSourceURL;
 
     this.w = new worker.ThreadWorker('./DMPWorker.ets');
 
@@ -75,18 +80,18 @@ export class DMPWorkerWrapper {
     });
   }
 
-  async evalJS(script: string) {
-    let message: EvalPayload = new EvalPayload('evalJS', script);
+  async evalJS(script: string, sourceURL: string) {
+    let message: EvalPayload = new EvalPayload('evalJS', script, sourceURL);
     this.w.postMessageWithSharedSendable(message);
   }
 
-  async evalJSByUri(path: string) {
-    let message: EvalPayload = new EvalPayload('evalJSByUri', path);
+  async evalJSByUri(path: string, sourceURL: string) {
+    let message: EvalPayload = new EvalPayload('evalJSByUri', path, sourceURL);
     this.w.postMessageWithSharedSendable(message);
   }
 
-  async evalJSAb(ab: ArrayBuffer) {
-    let message: AbPayload = new AbPayload('evalJSAb', ab);
+  async evalJSAb(ab: ArrayBuffer, sourceURL: string) {
+    let message: AbPayload = new AbPayload('evalJSAb', ab, sourceURL);
     this.w.postMessage(message, [ab]);
   }
 
@@ -111,7 +116,14 @@ export class DMPWorkerWrapper {
   async initEngine(appIndex: number) {
     const context: common.UIAbilityContext = DMPApp.context;
     const isDebugMode: boolean = DMPContextUtils.debugMode;
-    let payload = new initPayload('init', appIndex, context, isDebugMode);
+    let payload = new initPayload(
+      'init',
+      appIndex,
+      context,
+      isDebugMode,
+      this.debuggerAddress,
+      this.runtimeSourceURL
+    );
     this.w.postMessage(payload);
   }
 

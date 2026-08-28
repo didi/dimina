@@ -3,6 +3,8 @@
 // https://developers.weixin.qq.com/miniprogram/dev/component/radio.html
 
 import { triggerEvent, useInfo } from '@/common/events'
+import { useLabelActivation } from '@/common/labelActivation'
+import { useTouchEvents } from '@/common/useTouchEvents'
 
 const props = defineProps({
 	/**
@@ -72,14 +74,23 @@ const computedStyle = computed(() => {
 })
 
 const info = useInfo()
-function handleClicked(event) {
+const rootRef = ref(null)
+// 被 label 激活时只做选中本身，不补发控件自己的 tap
+function activate(event) {
+	if (props.disabled) {
+		return
+	}
+	if (radioGroup) {
+		radioGroup.selectRadio(radioControl, event)
+	}
+	else {
+		isOn.value = true
+	}
+}
+
+function handleTap({ event }) {
 	if (!props.disabled) {
-		if (radioGroup) {
-			radioGroup.selectRadio(radioControl, event)
-		}
-		else {
-			isOn.value = true
-		}
+		activate(event)
 
 		triggerEvent('tap', {
 			event,
@@ -88,13 +99,20 @@ function handleClicked(event) {
 		})
 	}
 }
+
+function handleKeyboard() {
+	rootRef.value?.click()
+}
+
+useTouchEvents(info, rootRef, { tapHandler: handleTap })
+useLabelActivation(rootRef, activate)
 </script>
 
 <template>
 	<div
-		:id="id" v-bind="$attrs" class="dd-radio" data-dd-label-target role="radio"
-		:tabindex="disabled ? -1 : 0" :aria-checked="isOn" :aria-disabled="disabled" @click="handleClicked"
-		@keydown.enter.prevent="handleClicked" @keydown.space.prevent="handleClicked"
+		:id="id" ref="rootRef" v-bind="$attrs" class="dd-radio" data-dd-label-target role="radio"
+		:tabindex="disabled ? -1 : 0" :aria-checked="isOn" :aria-disabled="disabled"
+		@keydown.enter.prevent="handleKeyboard" @keydown.space.prevent="handleKeyboard"
 	>
 		<div class="dd-radio-wrapper">
 			<div

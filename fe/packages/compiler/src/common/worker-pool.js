@@ -3,6 +3,14 @@ import os from 'node:os'
 
 function getCGroupCPUCount() {
 	try {
+		const unifiedPath = '/sys/fs/cgroup/cpu.max'
+		if (fs.existsSync(unifiedPath)) {
+			const [quota, period] = fs.readFileSync(unifiedPath, 'utf8').trim().split(/\s+/)
+			if (quota !== 'max') {
+				return Math.max(1, Math.floor(Number(quota) / Number(period)))
+			}
+		}
+
 		// 尝试读取容器的CPU quota和period
 		const quotaPath = '/sys/fs/cgroup/cpu/cpu.cfs_quota_us'
 		const periodPath = '/sys/fs/cgroup/cpu/cpu.cfs_period_us'
@@ -21,11 +29,22 @@ function getCGroupCPUCount() {
 		console.warn('Failed to read CPU limits from cgroup:', e.message)
 	}
 
-	return os.cpus().length
+	return typeof os.availableParallelism === 'function' ? os.availableParallelism() : os.cpus().length
 }
 
 function getCGroupMemoryLimit() {
 	try {
+		const unifiedPath = '/sys/fs/cgroup/memory.max'
+		if (fs.existsSync(unifiedPath)) {
+			const rawLimit = fs.readFileSync(unifiedPath, 'utf8').trim()
+			if (rawLimit !== 'max') {
+				const memoryLimit = Number.parseInt(rawLimit)
+				if (Number.isFinite(memoryLimit) && memoryLimit > 0) {
+					return memoryLimit
+				}
+			}
+		}
+
 		// 尝试读取容器的内存限制
 		const memLimitPath = '/sys/fs/cgroup/memory/memory.limit_in_bytes'
 
@@ -44,8 +63,15 @@ function getCGroupMemoryLimit() {
 	return os.totalmem()
 }
 
-// 默认使用CPU核心数的1/4，减少内存压力，最多4个worker
-export const MAX_WORKERS = Math.max(1, Math.min(4, Math.floor(getCGroupCPUCount() / 4)))
+function readPositiveInteger(name) {
+	const value = Number.parseInt(process.env[name], 10)
+	return Number.isInteger(value) && value > 0 ? value : null
+}
+
+// 两个并发阶段可以覆盖 logic 的短任务，同时避免 view/style/logic 三个重型
+// isolate 一起争抢 CPU。需要吞吐优先时可显式提高，低内存环境也可降为 1。
+export const MAX_WORKERS = readPositiveInteger('DIMINA_COMPILER_MAX_WORKERS')
+	?? Math.max(1, Math.min(2, Math.floor(getCGroupCPUCount() / 4)))
 
 // 工作线程池
 class WorkerPool {
@@ -78,7 +104,9 @@ class WorkerPool {
 	}
 
 	getWorkerOptions() {
-		const memoryMb = Math.floor(this.memoryLimit / (1024 * 1024))
+		const configuredMemoryMb = readPositiveInteger('DIMINA_COMPILER_WORKER_MEMORY_MB')
+		const memoryMb = configuredMemoryMb
+			?? Math.min(2048, Math.floor(this.memoryLimit / (1024 * 1024)))
 		return {
 			resourceLimits: {
 				maxOldGenerationSizeMb: Math.max(256, memoryMb), // 最少 256MB

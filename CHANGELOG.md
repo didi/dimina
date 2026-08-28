@@ -1,15 +1,40 @@
 # Changelog
 
-## [Unreleased]
+## [v1.6.0] 2026-08-28
 
 ### 新增
 
 - Android、iOS、HarmonyOS 和 Web 支持多个不同 `appId` 的小程序运行时并存；跨小程序跳转时保留来源实例及其后台任务，返回时恢复原实例。
+- 新增 `navigateToMiniProgram`、`navigateBackMiniProgram`、`exitMiniProgram` 和 `restartMiniProgram`，并支持卸载小程序及清理对应用户数据。
 - Android、iOS、HarmonyOS 和 Web 支持微信小游戏 `game.js` 入口，新增上屏 Canvas、图片、动画帧、触摸及小游戏前后台事件基础能力。
+- 补齐旧版 `CanvasContext` 跨端能力，统一 Canvas 触摸手势和 Label 激活行为。
+- 新增 `openDocument`、网络状态变化订阅、Web `FileSystemManager.saveFile`、HEIF/HEIC 转码与 MIME 类型识别，并完善文件、权限、视频及屏幕管理能力。
+- Android 支持嵌入式 WebView 与窗口 Insets 策略，完善原生组件交互和全面屏适配。
+- HarmonyOS 新增 QuickJS 断点调试器、POSIX 调试传输及协议测试。
+- 新增 Android、iOS、HarmonyOS 和 Web 共用的 Flutter 集成示例与接入文档。
 
 ### 优化
 
 - 补齐跨小程序前后台生命周期、来源关系、回调排空及销毁边界，避免隐藏实例被误清理。
+- 完善 Page、Component、App 的显示状态、兄弟组件顺序、页面卸载及 bridge listener 清理，补充真实组件重复创建和独立可见性回归测试。
+- 编译器新增并发构建、worker 池资源限制、编译缓存、watch 调度与资源处理配置，减少构建耗时、CPU 峰值和内存占用。
+- 优化视图与样式编译流程，清理无效 CSS token，并完善兼容性清单同步与包导出校验。
+- 存储键升级为 v2 编码并兼容旧数据迁移；完善应用运行时恢复及小程序关闭后的导航栈收敛。
+- Web 容器新增设备舞台和交互样式，优化逻辑视口尺寸、鼠标事件与开发服务器启动链路。
+- Android 与 HarmonyOS 统一 QuickJS、libuv 的 CMake 接口；QuickJS 改为仓库内固定上游源码，libuv 保持 Android 静态链接、HarmonyOS 系统动态库，并新增跨端生命周期测试。
+- 更新 QuickJS、libuv、Brotli、MMKV、Media3 及前端构建依赖，增加原生依赖版本校验与更新脚本。
+
+### 修复
+
+- 修复 iOS 重复发送 `pageUnload`、跨小程序生命周期顺序不一致及关闭小程序后页面栈未及时稳定的问题。
+- 修复 Canvas `putImageData` 参数校验失败后残留数据、Web 样式隔离和鼠标悬停误触发问题。
+- 修复 `getSystemInfoSync` 未优先使用逻辑视口尺寸、媒体处理参数边界及部分文件/权限异常路径。
+
+### 兼容性
+
+- Android、iOS 和 HarmonyOS SDK 版本统一升级到 1.6.0。
+- 编译器升级到 1.2.0，迁移为纯 ESM，并将 Node.js 最低版本升级到 22.22.3。
+- JSSDK 升级到 1.0.33。
 
 ## [v1.5.0] 2026-08-13
 

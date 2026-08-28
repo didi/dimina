@@ -6,11 +6,11 @@ import { defineConfig } from 'vitest/config'
 
 function resolveFile(base) {
 	const candidates = [
-		base,
 		`${base}.js`,
 		`${base}.vue`,
 		resolve(base, 'index.js'),
 		resolve(base, 'index.vue'),
+		base,
 	]
 
 	return candidates.find(path => existsSync(path))
@@ -24,6 +24,9 @@ function resolveWorkspaceAlias(source, importer, cwd) {
 		if (importer?.includes('/packages/components/')) {
 			return resolveFile(resolve(cwd, '../components/src', source.slice(2)))
 		}
+		if (importer?.includes('/packages/service/src/')) {
+			return resolveFile(resolve(cwd, '../service/src', source.slice(2)))
+		}
 		return resolveFile(resolve(cwd, 'src', source.slice(2)))
 	}
 
@@ -33,6 +36,9 @@ function resolveWorkspaceAlias(source, importer, cwd) {
 }
 
 export default defineConfig({
+	define: {
+		__DEV__: false,
+	},
 	plugins: [
 		vue(),
 		ViteAutoImport({

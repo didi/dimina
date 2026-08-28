@@ -4,6 +4,8 @@ import { Tags } from '../EventTrack/Tags';
 import { DMPStack } from '../Utils/DMPStack';
 import { DMPNavigatorDelegate } from './DMPNavigatorDelegate';
 import { DMPPageRecord } from './DMPPageRecord';
+import { DMPPageLifecycle, DMPPageLifecycleLike } from '../DPages/DMPPageLifecycle';
+import { DMPPageStateTeardown } from './DMPPageStateTeardown';
 
 export type PopListener = (destroyRecord?: DMPPageRecord, currentRecord?: DMPPageRecord) => void;
 
@@ -22,12 +24,31 @@ export class DMPNavigatorManager {
   // 因为非首个 tab 不进入 globalPageRecordStack，仅靠栈顶无法知道用户实际在看哪个 tab，
   // 这里由 DMPTabBarContainerView 在切换时同步更新。
   private _currentTabWebViewId: number = -1
-  app: DMPApp
+  // Nullable only so tests can supply a Fake pageLifecycle without constructing a real
+  // DMPApp (whose construction spins up a real DMPService/Worker - unsafe in a local unit
+  // test). Every production call site still passes a real, non-null app; the two existing
+  // reads below were already null-safe (`?.`) before this widened from a required DMPApp.
+  app: DMPApp | null
   //页面销毁监控
   private popListeners: Set<PopListener> = new Set();
+  // pageShow/pageHide only need the app index and target webViewId - they carry no
+  // per-navigator state - so this dispatches independently of whether a navigator
+  // delegate currently sits on the stack (unlike routing through getCurNavigator(),
+  // which silently drops the page-level event whenever the stack is momentarily empty).
+  private pageLifecycle: DMPPageLifecycleLike
 
-  constructor(app: DMPApp) {
+  // pageLifecycle is injectable so tests can substitute a Fake and observe dispatch
+  // without constructing a real DMPApp. Production call sites never pass either app as
+  // null or a custom pageLifecycle - both only exist for DMPNavigatorManagerPageDispatch.test.ets.
+  constructor(app: DMPApp | null, pageLifecycle?: DMPPageLifecycleLike) {
     this.app = app;
+    if (pageLifecycle) {
+      this.pageLifecycle = pageLifecycle
+    } else if (app) {
+      this.pageLifecycle = new DMPPageLifecycle(app)
+    } else {
+      throw new Error('DMPNavigatorManager requires either a real app or an injected pageLifecycle')
+    }
   }
 
   findNavigatorByWebViewId(webViewId?: number): DMPNavigatorDelegate | undefined {
@@ -81,6 +102,14 @@ export class DMPNavigatorManager {
     return this.globalPageRecordStack.peek()
   }
 
+  dispatchPageShow(webViewId: number) {
+    this.pageLifecycle.onShow(webViewId)
+  }
+
+  dispatchPageHide(webViewId: number) {
+    this.pageLifecycle.onHide(webViewId)
+  }
+
   getPageRecordById(webViewId: number): DMPPageRecord | undefined {
     const record = this.webViewIdAndPageRecordMaps.get(webViewId);
     if (!record) {
@@ -117,10 +146,10 @@ export class DMPNavigatorManager {
     this._currentTabWebViewId = -1
   }
 
-  closeAllNavigators(animated: boolean = false) {
+  closeAllNavigators(reason: DMPPageStateTeardown, animated: boolean = false) {
     const navigators = this._navigatorDelegateStack.data.slice().reverse()
     navigators.forEach((navigatorDelegate) => {
-      navigatorDelegate.getNavigator().closeAllPages(animated)
+      navigatorDelegate.getNavigator().closeAllPages(reason, animated)
     })
     while (!this._navigatorDelegateStack.isEmpty()) {
       this.popNavigator()

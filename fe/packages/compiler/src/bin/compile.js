@@ -8,7 +8,9 @@ import {
 	createCachedAppBuildPlan,
 } from '../common/compile-cache.js'
 
-const CACHE_FILE = path.resolve('./packages/container/public/compile-cache.json')
+const EXAMPLE_ROOT = path.resolve('../examples/miniprogram')
+const TARGET_PATH = path.resolve('./packages/container/public')
+const CACHE_FILE = path.join(TARGET_PATH, 'compile-cache.json')
 const COMPILER_SRC_DIR = path.resolve('./packages/compiler/src')
 
 function loadCache() {
@@ -139,7 +141,6 @@ async function cleanUpOldApps(targetPath, appList) {
 
 async function buildMiniApp(options = {}) {
 	const { force = false } = options
-	const currentDirectory = `${process.cwd()}/example`
 	const cache = loadCache()
 
 	// 检查编译器是否被修改
@@ -147,22 +148,21 @@ async function buildMiniApp(options = {}) {
 		|| cache.version !== COMPILE_CACHE_VERSION
 		|| isCompilerModified(cache.compilerLastModified)
 
-	const files = await fs.promises.readdir(currentDirectory)
+	const files = await fs.promises.readdir(EXAMPLE_ROOT)
 	const directories = files.filter(file => {
-		const filePath = path.join(currentDirectory, file)
+		const filePath = path.join(EXAMPLE_ROOT, file)
 		return fs.existsSync(filePath) && fs.statSync(filePath).isDirectory()
 	})
 
-	assertUniqueAppIds(currentDirectory, directories)
+	assertUniqueAppIds(EXAMPLE_ROOT, directories)
 
 	const appList = []
 	for (const fileName of directories) {
-		const workPath = path.resolve(`./example/${fileName}`)
-		const targetPath = path.resolve(workPath, '../../packages/container/public')
+		const workPath = path.join(EXAMPLE_ROOT, fileName)
 
 		const cacheEntry = cache.apps[fileName]
 		const publishedPath = cacheEntry?.appInfo?.appId
-			? path.join(targetPath, cacheEntry.appInfo.appId)
+			? path.join(TARGET_PATH, cacheEntry.appInfo.appId)
 			: null
 		const plan = compilerModified || !publishedPath
 			? { mode: 'full', options: {} }
@@ -173,7 +173,7 @@ async function buildMiniApp(options = {}) {
 			appList.push(cacheEntry.appInfo)
 		}
 		else {
-			const buildResult = await build(targetPath, workPath, true, plan.options)
+			const buildResult = await build(TARGET_PATH, workPath, true, plan.options)
 			const nextCacheEntry = createAppCacheEntry(
 				buildResult,
 				workPath,
@@ -191,12 +191,11 @@ async function buildMiniApp(options = {}) {
 		return timeB - timeA
 	})
 
-	const targetPath = path.resolve('./packages/container/public')
 	const appListString = JSON.stringify(appList, null, 2)
-	fs.writeFileSync(path.join(targetPath, 'appList.json'), appListString)
+	fs.writeFileSync(path.join(TARGET_PATH, 'appList.json'), appListString)
 
 	// 清理不存在的应用目录
-	await cleanUpOldApps(targetPath, appList)
+	await cleanUpOldApps(TARGET_PATH, appList)
 
 	// 清理缓存中不存在的应用配置
 	const cacheFileNames = Object.keys(cache.apps)

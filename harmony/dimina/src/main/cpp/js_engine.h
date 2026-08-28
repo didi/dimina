@@ -15,10 +15,10 @@
 class JSEngine {
 public:
     JSEngine();
-    JSEngine(int idx, std::function<void(JSContext *ctx)> registerFunc);
+    JSEngine(int idx, std::function<void(JSContext *ctx)> registerFunc, const std::string &debuggerAddress);
     ~JSEngine();
 
-    bool executeJavaScript(const std::string &code);
+    bool executeJavaScript(const std::string &code, const std::string &sourceUrl);
     void destroyEngine();
     
     std::function<void(JSContext *ctx)> registerFunc;
@@ -40,6 +40,7 @@ public:
 private:
     int index;
     JSCore *core = nullptr;
+    std::string debuggerAddress;
 };
 
 #endif // DIMINA_HARMONYOS_JS_ENGINE_H

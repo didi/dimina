@@ -16,7 +16,7 @@
 
 ## 环境要求
 
-建议使用 Node.js 22+ 和 pnpm 7+。仓库已配置 Volta Node.js 22.22.3；如果使用 Volta，可直接在 `fe/` 目录执行 pnpm 命令。
+要求使用 Node.js 22.22.3+ 和 pnpm 7+。仓库已配置 Volta Node.js 22.22.3；如果使用 Volta，可直接在 `fe/` 目录执行 pnpm 命令。
 
 ## 开始上手
  
@@ -33,10 +33,10 @@ pnpm install
 ### 开发说明
 
 ```sh
-# 编译 example/ 目录下的所有小程序
+# 编译 ../examples/miniprogram/ 目录下的所有小程序
 pnpm compile
 
-# 忽略本地编译缓存，强制重新编译 example/ 目录下的所有小程序
+# 忽略本地编译缓存，强制重新编译 ../examples/miniprogram/ 目录下的所有小程序
 pnpm compile --force
 
 # 构建（开发环境，不压缩）
@@ -70,7 +70,7 @@ pnpm generate:sdk
 
 #### pnpm compile
 
-编译 `example/` 目录下的所有小程序，并将产物输出到 `packages/container/public`。
+编译 `../examples/miniprogram/` 目录下的所有小程序，并将产物输出到 `packages/container/public`。
 
 默认情况下，命令会读取 `packages/container/public/compile-cache.json`：
 

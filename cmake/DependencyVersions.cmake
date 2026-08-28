@@ -1,15 +1,16 @@
-# Dependency revisions used by native SDK builds.
+# Revisions for native dependencies that are fetched during SDK builds.
 #
 # Keep these values immutable so local and CI builds can reuse FetchContent's
 # populated sources without contacting the upstream repository on every build.
+# QuickJS is vendored separately under third_party/quickjs so Android and
+# Harmony builds do not depend on a source checkout or network access.
 # Before creating an SDK release, run:
 #
 #   ./scripts/update-native-dependencies.sh
 #
 # The release workflow verifies that these revisions match upstream master.
-set(DIMINA_QUICKJS_GIT_TAG_DEFAULT "04be246001599f5995fa2f2d8c91a0f198d3f34c")
 set(DIMINA_LIBUV_GIT_TAG_DEFAULT "601a1537bb5628398c2389efbc7eecd062e8aac2")
-set(DIMINA_BROTLI_GIT_TAG_DEFAULT "8e10eeb3378f6c459dbaf033ca6727e9816afccb")
+set(DIMINA_BROTLI_GIT_TAG_DEFAULT "2ff28fb62deeb8c49720acf2c16ecc8f6f7408f1")
 
 macro(dimina_resolve_dependency_git_tag dependency_name)
     set(_dimina_git_tag_variable "DIMINA_${dependency_name}_GIT_TAG")
@@ -26,6 +27,5 @@ macro(dimina_resolve_dependency_git_tag dependency_name)
     endif()
 endmacro()
 
-dimina_resolve_dependency_git_tag(QUICKJS)
 dimina_resolve_dependency_git_tag(LIBUV)
 dimina_resolve_dependency_git_tag(BROTLI)

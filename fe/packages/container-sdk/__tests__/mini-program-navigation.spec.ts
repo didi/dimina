@@ -2,7 +2,7 @@ import type { MiniApp } from '../src/pages/miniApp/miniApp.js'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createContainer } from '../src/index.js'
 import { ENTRY_PAGE_PATH } from './fixtures/app-config.js'
-import { FakeWorker, resetFakeWorker } from './fixtures/fake-worker.js'
+import { FakeWorker, resetFakeWorker, setAutoRuntimeReady } from './fixtures/fake-worker.js'
 import { installFetchMock } from './fixtures/mock-fetch.js'
 
 function messagesOfType(worker: FakeWorker, type: string): Array<Record<string, unknown>> {
@@ -34,6 +34,19 @@ async function markTopBridgeReady(app: MiniApp): Promise<void> {
 	})
 }
 
+async function markTopBridgeServiceReady(app: MiniApp): Promise<void> {
+	await vi.waitFor(() => expect(app.navigator.top?.resourceLoadId).toEqual(expect.any(String)), { timeout: 8000 })
+	const bridge = app.navigator.top!
+	bridge.messageInvoke('service', {
+		type: 'serviceResourceLoaded',
+		target: 'service',
+		body: {
+			bridgeId: bridge.id,
+			resourceLoadId: bridge.resourceLoadId!,
+		},
+	})
+}
+
 describe('mini program container navigation APIs', () => {
 	let mount: HTMLElement
 
@@ -48,6 +61,7 @@ describe('mini program container navigation APIs', () => {
 		const container = createContainer({ mount })
 		const source = await container.openApp({ appId: 'source-app', path: ENTRY_PAGE_PATH })
 		await waitForReady(source)
+		await markTopBridgeReady(source)
 		source.jscore.notifyServiceReady()
 		const sourceWorker = source.jscore.worker as unknown as FakeWorker
 
@@ -69,6 +83,10 @@ describe('mini program container navigation APIs', () => {
 		expect(source.jscore.worker).toBe(sourceWorker)
 		expect(sourceWorker.terminate).not.toHaveBeenCalled()
 		expect(messagesOfType(sourceWorker, 'appHide')).toHaveLength(1)
+		const sourceHideTypes = sourceWorker.postMessage.mock.calls
+			.map(([message]) => message.type)
+			.filter(type => type === 'pageHide' || type === 'appHide')
+		expect(sourceHideTypes).toEqual(['pageHide', 'appHide'])
 		expect(target.opener).toBe(source)
 		expect(loadResource.body).toMatchObject({
 			pagePath: ENTRY_PAGE_PATH,
@@ -82,6 +100,42 @@ describe('mini program container navigation APIs', () => {
 			{ id: 'open-success', args: { errMsg: 'navigateToMiniProgram:ok' } },
 			{ id: 'open-complete', args: { errMsg: 'navigateToMiniProgram:ok' } },
 		])
+	}, 15000)
+
+	it('does not emit a late pageHide after appHide when the source render is still loading', async () => {
+		setAutoRuntimeReady(false)
+		const container = createContainer({ mount })
+		const source = await container.openApp({ appId: 'pending-source', path: ENTRY_PAGE_PATH })
+		await waitForReady(source)
+		await markTopBridgeServiceReady(source)
+		const sourceBridge = source.navigator.top!
+		const sourceWorker = source.jscore.worker as unknown as FakeWorker
+
+		// 只让 source 保持在 render 未就绪窗口；target 恢复正常的完整握手。
+		setAutoRuntimeReady(true)
+		await source.navigateToMiniProgram({ appId: 'pending-target' })
+		sourceBridge.messageInvoke('render', {
+			type: 'renderResourceLoaded',
+			target: 'service',
+			body: {
+				bridgeId: sourceBridge.id,
+				resourceLoadId: sourceBridge.resourceLoadId!,
+			},
+		})
+		sourceBridge.messageInvoke('render', {
+			type: 'domReady',
+			target: 'container',
+			body: {
+				bridgeId: sourceBridge.id,
+				resourceLoadId: sourceBridge.resourceLoadId!,
+			},
+		})
+
+		const visibilityTypes = sourceWorker.postMessage.mock.calls
+			.map(([message]) => message.type)
+			.filter(type => type === 'pageShow' || type === 'pageHide' || type === 'appHide')
+		expect(visibilityTypes).toEqual(['appHide'])
+		expect(sourceBridge.sentPageVisible).toBe(false)
 	}, 15000)
 
 	it('navigateBackMiniProgram destroys the target and resumes its opener with scene 1038 return data', async () => {
@@ -122,10 +176,10 @@ describe('mini program container navigation APIs', () => {
 			{ id: 'back-complete', args: { errMsg: 'navigateBackMiniProgram:ok' } },
 		])
 		expect(messagesOfType(targetWorker, 'flushCallbacks')).toHaveLength(1)
-		expect(messagesOfType(targetWorker, 'pageUnload')).toHaveLength(1)
+		// 退出不是路由：页面静默回收，只有 App.onHide，不发 Page.onUnload。
+		expect(messagesOfType(targetWorker, 'pageUnload')).toHaveLength(0)
 		const targetMessageTypes = targetWorker.postMessage.mock.calls.map(([message]) => message.type)
-		expect(targetMessageTypes.indexOf('triggerCallback')).toBeLessThan(targetMessageTypes.indexOf('pageUnload'))
-		expect(targetMessageTypes.indexOf('pageUnload')).toBeLessThan(targetMessageTypes.indexOf('flushCallbacks'))
+		expect(targetMessageTypes.indexOf('triggerCallback')).toBeLessThan(targetMessageTypes.indexOf('flushCallbacks'))
 	}, 20000)
 
 	it('exitMiniProgram runs callbacks before terminating and removes the current runtime', async () => {
@@ -144,10 +198,10 @@ describe('mini program container navigation APIs', () => {
 			{ id: 'exit-complete', args: { errMsg: 'exitMiniProgram:ok' } },
 		])
 		expect(messagesOfType(worker, 'flushCallbacks')).toHaveLength(1)
-		expect(messagesOfType(worker, 'pageUnload')).toHaveLength(1)
+		// 退出不是路由：页面静默回收，只有 App.onHide，不发 Page.onUnload。
+		expect(messagesOfType(worker, 'pageUnload')).toHaveLength(0)
 		const messageTypes = worker.postMessage.mock.calls.map(([message]) => message.type)
-		expect(messageTypes.indexOf('triggerCallback')).toBeLessThan(messageTypes.indexOf('pageUnload'))
-		expect(messageTypes.indexOf('pageUnload')).toBeLessThan(messageTypes.indexOf('flushCallbacks'))
+		expect(messageTypes.indexOf('triggerCallback')).toBeLessThan(messageTypes.indexOf('flushCallbacks'))
 		expect(worker.terminate).toHaveBeenCalledTimes(1)
 	}, 15000)
 
@@ -218,10 +272,10 @@ describe('mini program container navigation APIs', () => {
 			{ id: 'restart-complete', args: { errMsg: 'restartMiniProgram:ok' } },
 		])
 		expect(messagesOfType(originalWorker, 'flushCallbacks')).toHaveLength(1)
-		expect(messagesOfType(originalWorker, 'pageUnload')).toHaveLength(1)
+		// 冷重启整体换 runtime，同样不是路由：旧页面静默回收，不发 Page.onUnload。
+		expect(messagesOfType(originalWorker, 'pageUnload')).toHaveLength(0)
 		const originalMessageTypes = originalWorker.postMessage.mock.calls.map(([message]) => message.type)
-		expect(originalMessageTypes.indexOf('triggerCallback')).toBeLessThan(originalMessageTypes.indexOf('pageUnload'))
-		expect(originalMessageTypes.indexOf('pageUnload')).toBeLessThan(originalMessageTypes.indexOf('flushCallbacks'))
+		expect(originalMessageTypes.indexOf('triggerCallback')).toBeLessThan(originalMessageTypes.indexOf('flushCallbacks'))
 		expect(originalWorker.terminate).toHaveBeenCalledTimes(1)
 	}, 15000)
 
@@ -256,10 +310,14 @@ describe('mini program container navigation APIs', () => {
 		const container = createContainer({ mount })
 		const original = await container.openApp({ appId: 'restart-worker-app', path: ENTRY_PAGE_PATH })
 		await waitForReady(original)
+		await vi.waitFor(() => expect(original.navigator.top?.isStartupReady()).toBe(true), { timeout: 8000 })
 		const originalWorker = original.jscore.worker as unknown as FakeWorker
 		const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
 
 		try {
+			// 原 runtime 已完成握手；仅让 replacement 停留在资源启动阶段，以验证 Worker
+			// 失败会打断 domReady 门控并回滚，而不是被测试桩自动提交。
+			setAutoRuntimeReady(false)
 			const restartPromise = original.restartMiniProgram({
 				path: ENTRY_PAGE_PATH,
 				fail: 'worker-restart-fail',
@@ -276,6 +334,7 @@ describe('mini program container navigation APIs', () => {
 			await restartPromise
 		}
 		finally {
+			setAutoRuntimeReady(true)
 			consoleError.mockRestore()
 		}
 

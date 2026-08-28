@@ -174,19 +174,27 @@ export function invokePromiseAPI(name, params, target) {
 function storeSettlerPair(params, success, fail) {
 	let successId
 	let failId
-	const settle = () => {
+	let completeId
+	const cleanupOutcomeCallbacks = () => {
 		callback.remove(successId)
 		callback.remove(failId)
 	}
+	// complete 语义上收尾，但先到 success 还是先到 complete 是宿主的实现细节。就地回收两条
+	// outcome 会把同一批消息里排在后面的 success 一起摘掉，让出当前批次再收才两头都成立：
+	// 宿主只报 complete 时仍然清得掉，outcome 后到时也还在表里。
+	const cleanupAfterComplete = () => {
+		callback.remove(completeId)
+		queueMicrotask(cleanupOutcomeCallbacks)
+	}
 
 	successId = callback.store((res) => {
-		settle()
+		cleanupOutcomeCallbacks()
 		if (isFunction(success)) {
 			success(res)
 		}
 	})
 	failId = callback.store((res) => {
-		settle()
+		cleanupOutcomeCallbacks()
 		if (isFunction(fail)) {
 			fail(res)
 		}
@@ -194,6 +202,17 @@ function storeSettlerPair(params, success, fail) {
 
 	params.success = successId
 	params.fail = failId
+
+	return {
+		registerComplete(complete, keep, evtId) {
+			completeId = callback.store((res) => {
+				cleanupAfterComplete()
+				complete(res)
+			}, keep, evtId)
+			params.complete = completeId
+			return completeId
+		},
+	}
 }
 
 // 空字符串不是有效的回调 id，跟没传一个意思。
@@ -256,8 +275,9 @@ export function invokeAPI(name, data, target = 'container', allowPromise = true)
 			params.evtId = evtId
 		}
 
+		let settlerPair
 		if (canPairSettlers({ success, fail, keep, evtId })) {
-			storeSettlerPair(params, success, fail)
+			settlerPair = storeSettlerPair(params, success, fail)
 			disposableIds.push(params.success, params.fail)
 		}
 		else {
@@ -285,7 +305,9 @@ export function invokeAPI(name, data, target = 'container', allowPromise = true)
 		}
 
 		if (isFunction(complete)) {
-			params.complete = callback.store(complete, keep, evtId)
+			params.complete = settlerPair
+				? settlerPair.registerComplete(complete, keep, evtId)
+				: callback.store(complete, keep, evtId)
 			if (!keep && evtId === undefined) {
 				disposableIds.push(params.complete)
 			}

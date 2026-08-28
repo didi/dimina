@@ -1,10 +1,9 @@
 import window from '@ohos.window';
 import { DMPAppManager } from './DMPAppManager';
 
-import { DMPChannelProxyNext } from '../Service/DMPChannelProxyNext';
 import { DMPLogger } from '../EventTrack/DMPLogger';
 import { Tags } from '../EventTrack/Tags';
-import { DMPMap } from '../Utils/DMPMap';
+import { DMPScene } from './config/DMPLaunchConfig';
 import { DMPWebSocketManager } from '../Bridges/Network/DMPWebSocketManager';
 
 export class DMPAppLifecycle {
@@ -30,13 +29,13 @@ export class DMPAppLifecycle {
   static onAppShow() {
     const app = DMPAppManager.sharedInstance().getPresentedApp()
     if (app) {
-      const msg: DMPMap = new DMPMap({
-        type: 'appShow',
-        body: {
-          bridgeId: app.currentWebViewId
-        }
-      })
-      DMPChannelProxyNext.ContainerToService(msg, app.appIndex)
+      // Per 微信 App/Page 生命周期语义，App 从系统后台恢复前台时，当前显示页面也要收到
+      // Page.onShow（不只是 App.onShow）——这与是否跨小程序导航无关，是任何前台恢复场景
+      // 都成立的标准行为。notifyMiniProgramShow 早已实现"App+Page 双派发"（供跨小程序导航
+      // 复用），这里借用它只是为了不重复实现同一套派发逻辑；顺带保留了 app 自身的
+      // scene/path/query，不再像旧实现那样用裸 bridgeId body 覆盖 getEnterOptionsSync。
+      const launchConfig = app.getLaunchConfig()
+      app.notifyMiniProgramShow(launchConfig?.scene ?? DMPScene.fromMainEntry, launchConfig?.referrerInfo)
     }
   }
 
@@ -51,13 +50,7 @@ export class DMPAppLifecycle {
   static onAppHide() {
     const app = DMPAppManager.sharedInstance().getPresentedApp()
     if (app) {
-      const msg: DMPMap = new DMPMap({
-        type: 'appHide',
-        body: {
-          bridgeId: app.currentWebViewId
-        }
-      })
-      DMPChannelProxyNext.ContainerToService(msg, app.appIndex)
+      app.notifyMiniProgramHide()
     }
   }
 
@@ -66,6 +59,8 @@ export class DMPAppLifecycle {
     switch (stageEventType) {
       case window.WindowStageEventType.SHOWN: // 切到前台
         DMPWebSocketManager.sharedInstance().setAllBackgrounded(false)
+        // 宿主可见性要在派发之前更新：跨小程序恢复 opener 会读它决定是派发还是暂存。
+        DMPAppManager.sharedInstance().setHostVisible(true)
         DMPAppLifecycle.onShow()
         DMPLogger.i(Tags.APP_LIFECYCLE, 'windowStage foreground.');
         break;
@@ -77,6 +72,7 @@ export class DMPAppLifecycle {
         break;
       case window.WindowStageEventType.HIDDEN: // 切到后台
         DMPWebSocketManager.sharedInstance().setAllBackgrounded(true)
+        DMPAppManager.sharedInstance().setHostVisible(false)
         DMPAppLifecycle.onHide()
         DMPLogger.i(Tags.APP_LIFECYCLE, 'windowStage background.');
         break;

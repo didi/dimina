@@ -14,7 +14,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/Alamofire/Alamofire.git", exact: "5.12.0"),
-        .package(url: "https://github.com/Tencent/MMKV.git", exact: "2.4.1"),
+        .package(url: "https://github.com/Tencent/MMKV.git", exact: "2.4.2"),
         .package(url: "https://github.com/weichsel/ZIPFoundation.git", exact: "0.9.20"),
     ],
     targets: [
@@ -41,5 +41,8 @@ let package = Package(
                 .copy("Resources/JsSdk.bundle"),
             ]
         )
-    ]
+    ],
+    // Keep SwiftPM consumers aligned with the checked-in Xcode target until the SDK's shared
+    // mutable registries have completed a strict-concurrency migration.
+    swiftLanguageModes: [.v5]
 )

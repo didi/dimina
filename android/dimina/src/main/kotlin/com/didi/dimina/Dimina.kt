@@ -2,6 +2,7 @@ package com.didi.dimina
 
 import android.app.Activity
 import android.content.Context
+import androidx.annotation.MainThread
 import com.didi.dimina.api.ext.ExtModuleHandler
 import com.didi.dimina.bean.MiniProgram
 import com.didi.dimina.common.LogUtils
@@ -114,6 +115,22 @@ class Dimina private constructor(context: Context) {
     fun startMiniProgram(context: Activity, miniProgram: MiniProgram) {
         val miniApp = MiniApp.getInstance()
         miniApp.openApp(context, miniProgram)
+    }
+
+    /**
+     * Requests a normal mini-program exit from the host application.
+     *
+     * The request is routed through the top Activity's exit path so lifecycle ordering and a
+     * possible opener mini program are preserved. The method must be called on the main thread.
+     *
+     * @return `true` when a running Activity accepted the request, or `false` when [appId] is
+     * blank or no Activity is currently registered for it.
+     */
+    @MainThread
+    fun closeMiniProgram(appId: String): Boolean {
+        val normalizedAppId = appId.trim()
+        if (normalizedAppId.isEmpty()) return false
+        return DiminaActivity.closeMiniProgramFromHost(normalizedAppId)
     }
 
     /**

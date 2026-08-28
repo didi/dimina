@@ -188,7 +188,7 @@ class Runtime {
 	 * @param {*} opts
 	 */
 	createInstance(opts) {
-		const { bridgeId, moduleId, path, query, eventAttr, pageId, parentId, properties, propertyNames, targetInfo, stackId, isCustomTabBar = false, deferInitialData = false } = opts
+		const { bridgeId, moduleId, path, query, eventAttr, pageId, parentId, properties, propertyNames, targetInfo, stackId, isCustomTabBar = false, deferInitialData = false, deferPageLoad = false } = opts
 
 		const module = loader.getModuleByPath(path)
 		if (!module) {
@@ -218,7 +218,7 @@ class Runtime {
 			if (!module.isComponent) {
 				router.push(component, stackId)
 			}
-			component.init({ deferInitialData })
+			component.init({ deferInitialData, deferPageLoad })
 			const state = this.getPageState(bridgeId)
 			if (!module.isComponent && state.pendingShow && !state.hidden) {
 				this.pageShow({ bridgeId, moduleId })
@@ -235,7 +235,7 @@ class Runtime {
 			})
 			this.instances[bridgeId][moduleId] = page
 			router.push(page, stackId)
-			page.init({ deferInitialData })
+			page.init({ deferInitialData, deferPageLoad })
 			const state = this.getPageState(bridgeId)
 			if (state.pendingShow && !state.hidden) {
 				this.pageShow({ bridgeId, moduleId })
@@ -273,9 +273,15 @@ class Runtime {
 			instance.componentAttached()
 
 			instance.__componentAttaching__ = false
-			if (this.getPageState(bridgeId).shown && !instance.__pageShown__) {
+			const state = this.getPageState(bridgeId)
+			if (state.shown && !instance.__pageShown__) {
 				instance.__pageShown__ = true
-				instance.pageShow()
+				if (!state.ready) {
+					// The first visibility signal can cross the render thread's initial
+					// attachment messages. Preserve that initial show, but do not
+					// synthesize show for components inserted after page onReady.
+					instance.pageShow()
+				}
 			}
 
 			const children = Object.values(this.instances[bridgeId] || {}).filter(child => (
@@ -328,6 +334,11 @@ class Runtime {
 			if (instance.__componentReadied__) {
 				return
 			}
+			const pageInstance = this.getPageInstance(bridgeId)
+			if (instance.__isComponent__ && pageInstance?.__pageLoadPending__) {
+				instance.__pendingReadyOpts__ = opts
+				return
+			}
 			const pendingChildren = Object.values(this.instances[bridgeId] || {}).some(child => (
 				child?.__isComponent__
 				&& child.__componentAttached__
@@ -346,7 +357,6 @@ class Runtime {
 			instance.flushInitSetDataCallbacks?.()
 			
 			// 检查是否可以调用页面的 onReady
-			const pageInstance = this.getPageInstance(bridgeId)
 			if (pageInstance) {
 				this.checkAndCallPageReady(bridgeId, pageInstance.__id__)
 			}
@@ -361,6 +371,30 @@ class Runtime {
 				parent = this.instances[bridgeId]?.[parent.__parentId__]
 			}
 		}
+	}
+
+	pageAttached(opts) {
+		const { bridgeId } = opts
+		const pageInstance = this.getPageInstance(bridgeId)
+		if (!pageInstance?.__pageLoadPending__) {
+			return
+		}
+
+		pageInstance.pageAttached()
+		const state = this.getPageState(bridgeId)
+		if (state.pendingShow && !state.hidden) {
+			this.pageShow({ bridgeId, moduleId: pageInstance.__id__ })
+		}
+
+		// mR can arrive before the page-root mounted acknowledgement. Release
+		// those ready callbacks only after onLoad/onShow, child before parent.
+		this.getInstancesInTreeOrder(bridgeId, { postOrder: true })
+			.filter(instance => instance?.__isComponent__ && instance.__pendingReadyOpts__)
+			.forEach((instance) => {
+				const pendingReadyOpts = instance.__pendingReadyOpts__
+				delete instance.__pendingReadyOpts__
+				this.moduleReady(pendingReadyOpts)
+			})
 	}
 
 	isDescendantInstance(candidate, ancestor, bridgeId) {
@@ -384,8 +418,8 @@ class Runtime {
 
 		if (instance.__type__ === ComponentModule.type) {
 			if ((!instance.__isComponent__ || instance.__componentAttached__) && !instance.__componentDetached__) {
-				instance.componentDetached()
 				instance.__componentDetached__ = true
+				instance.componentDetached()
 			}
 		}
 		delete this.instances[bridgeId][moduleId]
@@ -576,28 +610,34 @@ class Runtime {
 		if (!instances) {
 			return
 		}
+		const state = this.getPageState(bridgeId)
+		if (state.unloading) {
+			return
+		}
+		state.unloading = true
 
-		const instanceList = this.getInstancesInTreeOrder(bridgeId)
+		const pageInstance = this.getPageInstance(bridgeId)
+		// WeChat dispatches the page's onUnload before tearing down its component
+		// subtree. The page root itself detaches after every descendant.
+		pageInstance?.pageUnload()
+
 		const customComponents = this.getInstancesInTreeOrder(bridgeId, { postOrder: true })
 			.filter(instance => instance?.__type__ === ComponentModule.type && instance.__isComponent__)
 
 		customComponents.forEach((instance) => {
 			if (instance.__componentAttached__ && !instance.__componentDetached__) {
-				instance.componentDetached()
 				instance.__componentDetached__ = true
+				instance.componentDetached()
 			}
 		})
 
-		instanceList.forEach((instance) => {
-			if (!instance) {
-				return
-			}
-			if (instance.__type__ === ComponentModule.type && !instance.__isComponent__ && !instance.__componentDetached__) {
-				instance.componentDetached()
-				instance.__componentDetached__ = true
-			}
-			instance.pageUnload()
-		})
+		if (pageInstance?.__type__ === ComponentModule.type && !pageInstance.__componentDetached__) {
+			pageInstance.__componentDetached__ = true
+			pageInstance.componentDetached()
+		}
+		else if (pageInstance?.__type__ === PageModule.type) {
+			pageInstance.pageDetached?.()
+		}
 
 		router.remove(bridgeId)
 

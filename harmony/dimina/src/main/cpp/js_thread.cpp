@@ -17,6 +17,19 @@ std::map<int, napi_threadsafe_function> tsfnMap;
 // 引擎是否处于调试模式
 bool isDebugMode = false;
 
+static bool getStringArgument(napi_env env, napi_value value, std::string &result) {
+    size_t length = 0;
+    if (value == nullptr || napi_get_value_string_utf8(env, value, nullptr, 0, &length) != napi_ok) {
+        return false;
+    }
+    std::unique_ptr<char[]> buffer(new char[length + 1]);
+    if (napi_get_value_string_utf8(env, value, buffer.get(), length + 1, &length) != napi_ok) {
+        return false;
+    }
+    result.assign(buffer.get(), length);
+    return true;
+}
+
 // 获取指定 appIndex 的 JSEngine 实例
 JSEngine *getEngine(int appIndex) {
     auto it = engineMap.find(appIndex);
@@ -390,10 +403,10 @@ static JSValue publish(JSContext *ctx, JSValueConst this_val, int argc, JSValueC
 
 
 napi_value dispatchJsTask(napi_env env, napi_callback_info info) {
-    size_t requireArgc = 2; // 修改为需要两个参数：appIndex 和 script
-    napi_value args[2] = {nullptr};
+    size_t requireArgc = 3;
+    napi_value args[3] = {nullptr};
 
-    if (napi_ok != napi_get_cb_info(env, info, &requireArgc, args, nullptr, nullptr)) {
+    if (napi_ok != napi_get_cb_info(env, info, &requireArgc, args, nullptr, nullptr) || requireArgc < 3) {
         napi_throw_error(env, "-1000", "arguments invalid");
         return nullptr;
     }
@@ -411,34 +424,32 @@ napi_value dispatchJsTask(napi_env env, napi_callback_info info) {
         return nullptr;
     }
 
-    size_t length = 0;
-    if (napi_ok != napi_get_value_string_utf8(env, args[1], nullptr, 0, &length)) {
-        napi_throw_error(env, "-1003", "napi_get_value_string_utf8 error");
+    std::string script;
+    if (!getStringArgument(env, args[1], script)) {
+        napi_throw_error(env, "-1003", "Invalid JavaScript source");
         return nullptr;
     }
-    if (length == 0) {
+    if (script.empty()) {
         napi_throw_error(env, "-1004", "the param length invalid");
         return nullptr;
     }
 
-    // 使用 unique_ptr 自动管理内存
-    length = length + 1;
-    unique_ptr<char[]> buffer(new char[length]);
-    if (napi_ok != napi_get_value_string_utf8(env, args[1], buffer.get(), length, &length)) {
-        napi_throw_error(env, "-1005", "napi_get_value_string_utf8 error");
+    std::string sourceUrl;
+    if (!getStringArgument(env, args[2], sourceUrl) || sourceUrl.empty()) {
+        napi_throw_error(env, "-1005", "Invalid JavaScript source URL");
         return nullptr;
     }
 
-    engine->executeJavaScript(buffer.get());
+    engine->executeJavaScript(script, sourceUrl);
 
     return nullptr;
 }
 
 napi_value dispatchJsTaskAb(napi_env env, napi_callback_info info) {
-    size_t requireArgc = 2; // 修改为需要两个参数：appIndex 和 ArrayBuffer
-    napi_value args[2] = {nullptr};
+    size_t requireArgc = 3;
+    napi_value args[3] = {nullptr};
 
-    if (napi_ok != napi_get_cb_info(env, info, &requireArgc, args, nullptr, nullptr)) {
+    if (napi_ok != napi_get_cb_info(env, info, &requireArgc, args, nullptr, nullptr) || requireArgc < 3) {
         napi_throw_error(env, "-1000", "arguments invalid");
         return nullptr;
     }
@@ -468,20 +479,23 @@ napi_value dispatchJsTaskAb(napi_env env, napi_callback_info info) {
         return nullptr;
     }
 
-    std::unique_ptr<char[]> buffer(new char[length + 1]);
-    memcpy(buffer.get(), data, length);
-    buffer[length] = '\0'; // 确保字符串以 null 结尾
-    engine->executeJavaScript(buffer.get());
+    std::string sourceUrl;
+    if (!getStringArgument(env, args[2], sourceUrl) || sourceUrl.empty()) {
+        napi_throw_error(env, "-1005", "Invalid JavaScript source URL");
+        return nullptr;
+    }
+
+    engine->executeJavaScript(std::string(static_cast<const char *>(data), length), sourceUrl);
 
     return nullptr;
 }
 
 
 napi_value dispatchJsTaskPath(napi_env env, napi_callback_info info) {
-    size_t requireArgc = 2; // 修改为需要两个参数：appIndex 和文件路径
-    napi_value args[2] = {nullptr};
+    size_t requireArgc = 3;
+    napi_value args[3] = {nullptr};
 
-    if (napi_ok != napi_get_cb_info(env, info, &requireArgc, args, nullptr, nullptr)) {
+    if (napi_ok != napi_get_cb_info(env, info, &requireArgc, args, nullptr, nullptr) || requireArgc < 3) {
         napi_throw_error(env, "-1000", "arguments invalid");
         return nullptr;
     }
@@ -499,26 +513,24 @@ napi_value dispatchJsTaskPath(napi_env env, napi_callback_info info) {
         return nullptr;
     }
 
-    // 获取文件路径
-    size_t length = 0;
-    if (napi_ok != napi_get_value_string_utf8(env, args[1], nullptr, 0, &length)) {
-        napi_throw_error(env, "-1003", "napi_get_value_string_utf8 error");
+    std::string filePath;
+    if (!getStringArgument(env, args[1], filePath)) {
+        napi_throw_error(env, "-1003", "Invalid JavaScript file path");
         return nullptr;
     }
-    if (length == 0) {
+    if (filePath.empty()) {
         napi_throw_error(env, "-1004", "the param length invalid");
         return nullptr;
     }
 
-    length = length + 1; // 为结尾的空字符留出空间
-    std::unique_ptr<char[]> filePath(new char[length]);
-    if (napi_ok != napi_get_value_string_utf8(env, args[1], filePath.get(), length, &length)) {
-        napi_throw_error(env, "-1005", "napi_get_value_string_utf8 error");
+    std::string sourceUrl;
+    if (!getStringArgument(env, args[2], sourceUrl) || sourceUrl.empty()) {
+        napi_throw_error(env, "-1005", "Invalid JavaScript source URL");
         return nullptr;
     }
 
     // 打开文件
-    int fd = open(filePath.get(), O_RDONLY);
+    int fd = open(filePath.c_str(), O_RDONLY);
     if (fd == -1) {
         napi_throw_error(env, "-1006", "Unable to open file");
         return nullptr;
@@ -548,9 +560,7 @@ napi_value dispatchJsTaskPath(napi_env env, napi_callback_info info) {
 
     close(fd);
 
-    std::unique_ptr<char[]> buffer(new char[fileSize + 1]);
-    memcpy(buffer.get(), data, fileSize);
-    buffer[fileSize] = '\0'; // 确保字符串以 null 结尾
+    std::string script(data, fileSize);
 
     // 解除映射
     if (munmap(data, fileSize) == -1) {
@@ -558,7 +568,7 @@ napi_value dispatchJsTaskPath(napi_env env, napi_callback_info info) {
         return nullptr;
     }
 
-    engine->executeJavaScript(buffer.get());
+    engine->executeJavaScript(script, sourceUrl);
 
     return nullptr;
 }
@@ -573,22 +583,36 @@ void registerFunc(JSContext *ctx, const std::string &virtualFilePrefix) {
 napi_value StartJsEngine(napi_env env, napi_callback_info info) {
     OHLog("StartJsEngine begin");
 
-    size_t argc = 4;
-    napi_value args[4];
-    napi_get_cb_info(env, info, &argc, args, NULL, NULL);
+    size_t argc = 5;
+    napi_value args[5] = {nullptr};
+    if (napi_get_cb_info(env, info, &argc, args, NULL, NULL) != napi_ok || argc < 4) {
+        napi_throw_error(env, "-1000", "StartJsEngine requires at least four arguments");
+        return nullptr;
+    }
 
     int appIndex;
-    napi_get_value_int32(env, args[0], &appIndex);
+    if (napi_get_value_int32(env, args[0], &appIndex) != napi_ok) {
+        napi_throw_error(env, "-1001", "Invalid appIndex");
+        return nullptr;
+    }
     // 获取调试模式
-    napi_get_value_bool(env, args[2], &isDebugMode);
+    if (napi_get_value_bool(env, args[2], &isDebugMode) != napi_ok) {
+        napi_throw_error(env, "-1002", "Invalid debug mode");
+        return nullptr;
+    }
+    std::string debuggerAddress;
+    if (!getStringArgument(env, args[3], debuggerAddress)) {
+        napi_throw_error(env, "-1003", "Invalid debugger address");
+        return nullptr;
+    }
 
     // 获取虚拟文件前缀
     std::string virtualFilePrefix;
-    if (argc > 3) {
+    if (argc > 4) {
         size_t prefixLen = 0;
-        napi_get_value_string_utf8(env, args[3], nullptr, 0, &prefixLen);
+        napi_get_value_string_utf8(env, args[4], nullptr, 0, &prefixLen);
         virtualFilePrefix.resize(prefixLen);
-        napi_get_value_string_utf8(env, args[3], &virtualFilePrefix[0], prefixLen + 1, &prefixLen);
+        napi_get_value_string_utf8(env, args[4], &virtualFilePrefix[0], prefixLen + 1, &prefixLen);
     }
 
     // 检查是否已存在该 appIndex 的实例
@@ -612,7 +636,7 @@ napi_value StartJsEngine(napi_env env, napi_callback_info info) {
 
     JSEngine *newEngine = new JSEngine(appIndex, [virtualFilePrefix](JSContext *ctx) {
         registerFunc(ctx, virtualFilePrefix);
-    });
+    }, debuggerAddress);
     engineMap[appIndex] = newEngine;
     OHLog("engine 地址: %{public}p for appIndex: %{public}d", (void *)newEngine, appIndex);
 

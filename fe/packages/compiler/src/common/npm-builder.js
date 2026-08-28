@@ -13,6 +13,14 @@ class NpmBuilder {
 		this.dependencyGraph = dependencyGraph
 		this.builtPackages = new Set()
 		this.packageDependencies = new Map()
+		this.miniprogramExts = new Set([
+			'.js',
+			'.json',
+			'.ts',
+			...getTemplateExts(),
+			...getStyleExts(),
+			...getViewScriptExts(),
+		])
 	}
 
 	/**
@@ -150,10 +158,9 @@ class NpmBuilder {
 	isMiniprogramFile(filename) {
 		// 根据自定义文件类型配置组合扩展名，覆盖内置 wx/dd 类型、样式预处理器和自定义扩展名。
 		// getStyleExts 已包含 .less/.scss/.sass；NpmBuilder 在主线程中构造，可直接读取 env getter。
-		const miniprogramExts = ['.js', '.json', '.ts', ...getTemplateExts(), ...getStyleExts(), ...getViewScriptExts()]
 		const ext = path.extname(filename).toLowerCase()
 		
-		return miniprogramExts.includes(ext) || 
+		return this.miniprogramExts.has(ext) ||
 			   filename === 'package.json' ||
 			   filename === 'README.md' ||
 			   filename.startsWith('.')

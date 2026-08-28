@@ -413,10 +413,6 @@ export class DMPContainerBridgesModuleImage extends DMPContainerBridgesModule {
     return DMPFilePathResolver.resolve(src, this.currentAppId(), this.app.bundleManager.getCurrentJSAppDir());
   }
 
-  private currentAppId(): string {
-    return this.appData.appId || this.app?.appConfig?.appId || 'default';
-  }
-
   private mediaTempDirectory(name: string): string {
     const directory = `${DMPFilePathResolver.tempRoot(this.currentAppId())}/${name}`;
     DMPFilePathResolver.ensureDirectory(directory);

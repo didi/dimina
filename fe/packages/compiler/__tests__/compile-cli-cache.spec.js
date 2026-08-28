@@ -12,16 +12,18 @@ const compileCliPath = path.resolve(testDir, '../src/bin/compile.js')
 
 describe('compile CLI persistent dependency cache', () => {
 	let tempDir
+	let feDir
 	let appPath
 	let publicPath
 
 	beforeEach(() => {
 		tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'compile-cli-cache-'))
-		appPath = path.join(tempDir, 'example/cache-app')
-		publicPath = path.join(tempDir, 'packages/container/public')
-		fs.mkdirSync(path.join(tempDir, 'packages/compiler/src'), { recursive: true })
+		feDir = path.join(tempDir, 'fe')
+		appPath = path.join(tempDir, 'examples/miniprogram/cache-app')
+		publicPath = path.join(feDir, 'packages/container/public')
+		fs.mkdirSync(path.join(feDir, 'packages/compiler/src'), { recursive: true })
 		fs.mkdirSync(publicPath, { recursive: true })
-		fs.writeFileSync(path.join(tempDir, 'packages/compiler/src/stamp.js'), 'compiler stamp\n')
+		fs.writeFileSync(path.join(feDir, 'packages/compiler/src/stamp.js'), 'compiler stamp\n')
 		writeAppFile('app.json', JSON.stringify({ pages: ['pages/index/index'] }))
 		writeAppFile('app.js', 'App({})\n')
 		writeAppFile('app.wxss', '')
@@ -44,7 +46,7 @@ describe('compile CLI persistent dependency cache', () => {
 
 	function runCompile() {
 		return spawnSync(process.execPath, [compileCliPath], {
-			cwd: tempDir,
+			cwd: feDir,
 			encoding: 'utf8',
 			env: {
 				...process.env,

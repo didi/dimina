@@ -1,5 +1,5 @@
 import fs from 'node:fs'
-import { resolve, sep } from 'node:path'
+import { relative, resolve, sep } from 'node:path'
 import { isMainThread, parentPort } from 'node:worker_threads'
 import { parseSync } from 'oxc-parser'
 import { walk } from 'oxc-walker'
@@ -15,12 +15,14 @@ const processedModules = new Set()
 
 // 是否生成 sourcemap
 let enableSourcemap = false
+let sourcemapTargetPath = null
 
 if (!isMainThread) {
-	parentPort.on('message', async ({ pages, storeInfo, sourcemap }) => {
+	parentPort.on('message', async ({ pages, storeInfo, sourcemap, sourcemapTargetPath: targetPath }) => {
 		try {
 			resetStoreInfo(storeInfo)
 			enableSourcemap = !!sourcemap
+			sourcemapTargetPath = targetPath || getTargetPath()
 
 			const progress = {
 				_completedTasks: 0,
@@ -91,7 +93,19 @@ async function writeCompileRes(compileRes, root) {
 	 * 若再对 bundle 整体 minify 则需用 remapping 串联两份 map，暂未实现
 	 */
 	if (enableSourcemap) {
-		const { bundleCode, sourcemap } = mergeSourcemap(compileRes)
+		const finalOutputDir = root
+			? resolve(sourcemapTargetPath, root)
+			: resolve(sourcemapTargetPath, 'main')
+		const rebasedCompileRes = compileRes.map((module) => {
+			if (!module.map) return module
+			const moduleMap = JSON.parse(module.map)
+			moduleMap.sources = moduleMap.sources.map((source) => {
+				const sourcePath = source.replace(/^[/\\]+/, '')
+				return relative(finalOutputDir, resolve(getWorkPath(), sourcePath)).split(sep).join('/')
+			})
+			return { ...module, map: JSON.stringify(moduleMap) }
+		})
+		const { bundleCode, sourcemap } = mergeSourcemap(rebasedCompileRes)
 		const sourcemapFileName = 'logic.js.map'
 		fs.writeFileSync(`${outputDir}/logic.js`, `${bundleCode}//# sourceMappingURL=${sourcemapFileName}\n`)
 		fs.writeFileSync(`${outputDir}/${sourcemapFileName}`, sourcemap)

@@ -24,6 +24,7 @@ const workerPort: ThreadWorkerGlobalScope = worker.workerPort;
 type DMPBridgeParams = DMPMap | number | string | boolean | object;
 
 let appIndex = -1;
+let runtimeSourceURL = '/__dimina__/unknown/runtime/eval.js';
 let jsEngine: DMPJSEngine = new DMPJSEngine()
 let workerModuleManager: DMPWorkerModuleManager;
 
@@ -83,7 +84,7 @@ const serviceToContainer = (t: number, wid: number, msg: string, ab: ArrayBuffer
             })
             // worker 内部闭环 js 调用
             // DMPLogger.d(Tags.JS_ENGINE, `worker before evalJS: ${methodName} ${msg.toStr()}`)
-            jsEngine.evalJS(`DiminaServiceBridge.onMessage(${msg.toStr()})`)
+            jsEngine.evalJS(`DiminaServiceBridge.onMessage(${msg.toStr()})`, runtimeSourceURL)
           }
         }
 
@@ -126,8 +127,9 @@ workerPort.onmessage = async (e: MessageEvents) => {
         // 记录当前是哪个 app 下
         let request: initPayload = e.data as initPayload;
         appIndex = request.appIndex;
+        runtimeSourceURL = request.runtimeSourceURL;
         const isDebugMode: boolean = request.isDebugMode
-        jsEngine.initWithWorker(appIndex, serviceToContainer,isDebugMode);
+        jsEngine.initWithWorker(appIndex, serviceToContainer, isDebugMode, request.debuggerAddress);
         // 提前存储 context，在子线程使用
         const c = DMPWorkerContext.sharedInstance();
         c.context = request.context;
@@ -141,17 +143,17 @@ workerPort.onmessage = async (e: MessageEvents) => {
       case 'evalJS': {
         let request: EvalPayload = e.data as EvalPayload;
         // DMPLogger.e(Tags.JS_ENGINE, `worker evalJS ${request.strVal!}`);
-        jsEngine.evalJS(request.strVal);
+        jsEngine.evalJS(request.strVal, request.sourceURL);
       }
         break;
       case 'evalJSByUri': {
         let request: EvalPayload = e.data as EvalPayload;
-        jsEngine.evalJSPath(request.strVal);
+        jsEngine.evalJSPath(request.strVal, request.sourceURL);
       }
         break;
       case 'evalJSAb': {
         let request: AbPayload = e.data as AbPayload;
-        jsEngine.evalJSAb(request.ab);
+        jsEngine.evalJSAb(request.ab, request.sourceURL);
       }
         break;
       case 'flush': {

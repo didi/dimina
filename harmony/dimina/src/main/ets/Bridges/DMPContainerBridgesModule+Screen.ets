@@ -114,10 +114,6 @@ export class DMPContainerBridgesModuleScreen extends DMPContainerBridgesModule {
     });
   }
 
-  private currentAppId(): string {
-    return this.appData.appId || this.app?.appConfig?.appId || 'default';
-  }
-
   private async applyKeepScreenState(): Promise<void> {
     await DMPApp.getWindowStage().getMainWindowSync()
       .setWindowKeepScreenOn(DMPContainerBridgesModuleScreen.keepScreenOwners.size > 0);

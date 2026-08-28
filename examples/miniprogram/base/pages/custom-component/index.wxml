@@ -1,0 +1,42 @@
+<!--index.wxml-->
+<navigation-bar title="Weixin" back="{{false}}" color="black" show="{{showTitle}}" background="#FFF"></navigation-bar>
+<button class="user-motto" bind:tap="toggleTitle">切换导航栏</button>
+<scroll-view class="scrollarea" scroll-y type="list">
+  <view class="container">
+    <view class="lifecycle-test-card">
+      <text class="lifecycle-test-title">自定义组件生命周期</text>
+      <text class="lifecycle-test-description">A、B 使用同一组件定义，点击计数应彼此独立。动态组件 C 用于验证挂载和卸载。</text>
+      <view class="lifecycle-probe-list">
+        <bar-icon instance-id="sibling-a"></bar-icon>
+        <bar-icon instance-id="sibling-b"></bar-icon>
+        <bar-icon wx:if="{{showDynamicProbe}}" instance-id="dynamic-c"></bar-icon>
+      </view>
+      <button size="mini" bind:tap="toggleDynamicProbe">
+        {{showDynamicProbe ? '卸载动态组件 C' : '挂载动态组件 C'}}
+      </button>
+      <button size="mini" bind:tap="openLifecycleTarget">进入下一页测试 Hide / Show</button>
+    </view>
+    <view class="userinfo">
+      <block wx:if="{{canIUseNicknameComp && !hasUserInfo}}">
+        <button class="avatar-wrapper" open-type="chooseAvatar" bind:chooseavatar="onChooseAvatar">
+          <image class="avatar" src="{{userInfo.avatarUrl}}"></image>
+        </button>
+        <view class="nickname-wrapper">
+          <text class="nickname-label">昵称</text>
+          <input type="nickname" class="nickname-input" placeholder="请输入昵称" bind:change="onInputChange" />
+        </view>
+      </block>
+      <block wx:elif="{{!hasUserInfo}}">
+        <button wx:if="{{canIUseGetUserProfile}}" bindtap="getUserProfile"> 获取头像昵称 </button>
+        <view wx:else> 请使用2.10.4及以上版本基础库 </view>
+      </block>
+      <block wx:else>
+        <image bindtap="bindViewTap" class="userinfo-avatar" src="{{userInfo.avatarUrl}}" mode="cover"></image>
+        <text class="userinfo-nickname">{{userInfo.nickName}}</text>
+      </block>
+    </view>
+    <view class="usermotto">
+      
+    </view>
+  </view>
+</scroll-view>

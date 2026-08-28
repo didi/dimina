@@ -1,0 +1,19 @@
+{
+  "pages": [
+    "pages/index/index",
+    "pages/edit/index",
+    "pages/view/index",
+    "pages/history/index",
+    "pages/points/index",
+    "pages/points-detail/index",
+    "pages/favorites/index"
+  ],
+  "window": {
+    "navigationBarTitleText": "拼豆工具",
+    "navigationStyle": "custom",
+    "backgroundColor": "#F8F8F8",
+    "backgroundTextStyle": "light",
+    "navigationBarBackgroundColor": "#F8F8F8",
+    "navigationBarTextStyle": "black"
+  }
+}

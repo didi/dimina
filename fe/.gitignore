@@ -8,11 +8,3 @@ dist-ssr
 package-lock.json
 pnpm-lock.yaml
 coverage
-example/*
-!example/base
-!example/air-battle
-!example/subpackages
-!example/weui
-!example/vant
-!example/taro-todo
-!example/mpx-demo

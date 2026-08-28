@@ -48,4 +48,27 @@ describe('concurrent compiler builds', () => {
 		expect(fs.readFileSync(path.join(firstOutput, 'main/app-config.json'), 'utf8')).toContain('pages/first/index')
 		expect(fs.readFileSync(path.join(secondOutput, 'main/app-config.json'), 'utf8')).toContain('pages/second/index')
 	})
+
+	it('moves compiler-owned temporary output instead of retaining a duplicate tree', async () => {
+		const project = createProject('move-output', 'move-output-id', 'pages/index/index')
+		const output = path.join(project, 'dist')
+		const originalWorkspace = process.env.GITHUB_WORKSPACE
+		const originalTargetPath = process.env.TARGET_PATH
+		process.env.GITHUB_WORKSPACE = project
+		delete process.env.TARGET_PATH
+
+		try {
+			await build(output, project, false)
+			const retainedCompilerDirs = fs.readdirSync(project)
+				.filter(name => name.startsWith('dimina-fe-dist-'))
+			expect(retainedCompilerDirs).toEqual([])
+			expect(fs.existsSync(path.join(output, 'main/app-config.json'))).toBe(true)
+		}
+		finally {
+			if (originalWorkspace === undefined) delete process.env.GITHUB_WORKSPACE
+			else process.env.GITHUB_WORKSPACE = originalWorkspace
+			if (originalTargetPath === undefined) delete process.env.TARGET_PATH
+			else process.env.TARGET_PATH = originalTargetPath
+		}
+	})
 })

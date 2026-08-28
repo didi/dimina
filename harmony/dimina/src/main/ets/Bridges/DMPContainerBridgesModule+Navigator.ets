@@ -8,6 +8,7 @@ import { DataTransformer } from '../Utils/DataTransformer'
 import { DMPLogger } from '../EventTrack/DMPLogger'
 import { DMPMap } from '../Utils/DMPMap'
 import { Tags } from '../EventTrack/Tags'
+import { DMPJavaScriptSourceURL } from '../Service/DMPJavaScriptSourceURL'
 
 export class DMPContainerBridgesModuleNavigator extends DMPContainerBridgesModule {
   getExportMethods(): string[] {
@@ -164,7 +165,10 @@ export class DMPContainerBridgesModuleNavigator extends DMPContainerBridgesModul
     if (packageName != 'main') {
       DMPLogger.d(Tags.SUB_PKG_MANAGER, "执行逻辑层 package=" + packageName)
       let data = await this.app.bundleManager.bundleLoader.requestModuleService(packageName)
-      this.app.service.executeScript(data)
+      this.app.service.executeScript(
+        data,
+        DMPJavaScriptSourceURL.appLogic(this.app.appConfig.appId, packageName)
+      )
     }
   }
 }

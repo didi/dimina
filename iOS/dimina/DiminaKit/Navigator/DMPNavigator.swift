@@ -290,6 +290,11 @@ public class DMPNavigator: NSObject {
         }
     }
 
+    private func notifyRoutingUnload(for controller: UIViewController) {
+        (controller as? DMPPageController)?.notifyRoutingUnloadIfNeeded()
+        (controller as? DMPTabBarContainerController)?.notifyRoutingUnloadIfNeeded()
+    }
+
     @MainActor
     func suspendForMiniProgramNavigation() {
         guard isActiveNavigationOwner() else { return }
@@ -297,31 +302,78 @@ public class DMPNavigator: NSObject {
         notifyPresentOut()
     }
 
-    /// Deliver the app/page presentation-out lifecycle while the old service
-    /// is still alive. Callers decide the API callback commit point, then this
-    /// method keeps App.onHide ahead of the current Page.onHide like the shared
-    /// runtime's MiniApp.onPresentOut().
     @MainActor
-    private func notifyPresentOut() {
-        guard isActiveNavigationOwner() else { return }
-        app?.notifyAppHide()
-        if let record = pageRecords.last {
-            pageLifecycle?.onHide(webviewId: record.webViewId)
-        }
+    func dispatchPageShow(webViewId: Int) {
+        pageLifecycle?.onShow(webviewId: webViewId)
     }
 
     @MainActor
-    func resumeAfterMiniProgramNavigation() {
+    func dispatchPageHide(webViewId: Int) {
+        pageLifecycle?.onHide(webviewId: webViewId)
+    }
+
+    @MainActor
+    private func notifyPresentOut() {
         guard isActiveNavigationOwner() else { return }
-        if let record = pageRecords.last {
-            pageLifecycle?.onShow(webviewId: record.webViewId)
+        app?.notifyMiniProgramHide()
+    }
+
+    /// restart 专用：容器留在原地，被换掉的是运行时，所以这条 App.onHide 是发给旧 service
+    /// 的终态，而不是一次容器隐藏。
+    @MainActor
+    private func notifyRuntimeTeardownOut() {
+        guard isActiveNavigationOwner() else { return }
+        app?.notifyRuntimeTeardownHide()
+    }
+
+    /// - Parameter hostVisible: 宿主此刻是否真的在前台。为 false 时这次恢复只交还展示关系，
+    ///   不派发 App.onShow：容器整体不可见，此刻派发会让账本以为已经显示，宿主真正回到
+    ///   前台时那条 show 就被去重掉，小程序再也收不到本次返回的 onShow。
+    @MainActor
+    func resumeAfterMiniProgramNavigation(
+        scene: Int? = nil,
+        referrerInfo: [String: Any]? = nil,
+        hostVisible: Bool
+    ) {
+        guard isActiveNavigationOwner() else { return }
+        if hostVisible {
+            app?.notifyMiniProgramShow(scene: scene, referrerInfo: referrerInfo)
+        } else {
+            app?.stashMiniProgramShow(scene: scene, referrerInfo: referrerInfo)
         }
         setCapsuleVisible(true)
         bringCapsuleToFront()
     }
 
-    private func clearMiniProgramPageState() {
-        pageRecords.reversed().forEach { pageLifecycle?.onUnload(webviewId: $0.webViewId) }
+    /// 把拆栈原因交给页面控制器本身。真正的 pageUnload 桥消息只由 DMPPageController 发出；
+    /// 路由会在改栈前让它提前派发，销毁则可能晚到转场结束后的 viewDidDisappear、甚至 deinit。
+    /// 退出原因必须在离栈之前标注，否则迟到的销毁会被误判为路由。
+    private func markPageTeardownReason(_ reason: DMPPageStateTeardown) {
+        tabBarContainerController?.markTeardownReason(reason)
+        guard let navigationController else { return }
+        for controller in ownedViewControllers(in: navigationController) {
+            (controller as? DMPPageController)?.markTeardownReason(reason)
+            (controller as? DMPTabBarContainerController)?.markTeardownReason(reason)
+        }
+    }
+
+    private func clearMiniProgramPageState(reason: DMPPageStateTeardown) {
+        markPageTeardownReason(reason)
+        if reason == .routing {
+            if let navigationController {
+                let controllers = ownedViewControllers(in: navigationController)
+                controllers.reversed().forEach {
+                    notifyRoutingUnload(for: $0)
+                }
+                if let tabBarContainerController,
+                   !controllers.contains(where: { $0 === tabBarContainerController })
+                {
+                    tabBarContainerController.notifyRoutingUnloadIfNeeded()
+                }
+            } else {
+                tabBarContainerController?.notifyRoutingUnloadIfNeeded()
+            }
+        }
         tabBarContainerController?.destroy()
         tabBarContainerController = nil
         pageRecords.removeAll()
@@ -368,23 +420,28 @@ public class DMPNavigator: NSObject {
 
     /// 启动到指定页面
     @MainActor
+    /// - Returns: whether a page actually ended up pushed onto the navigation stack. Callers that
+    ///   roll a failed cross-mini-program launch back into the foreground (see
+    ///   `DMPAppManager.navigateToMiniProgram`) depend on this being accurate - `true` on a launch
+    ///   that left the screen blank previously stranded the opener with no way back.
+    @discardableResult
     public func launch(
         to path: String, query: [String: Any]? = nil, animated: Bool = true,
         showsLaunchLoading: Bool = true
-    ) async {
+    ) async -> Bool {
         guard let navigationController = navigationController else {
             DMPLogger.debug("导航控制器未设置")
-            return
+            return false
         }
         guard isActiveNavigationOwner() else {
             DMPLogger.debug("launch skipped: navigator is not the active owner")
-            return
+            return false
         }
         pageRouteOperationDepth += 1
         defer { pageRouteOperationDepth -= 1 }
 
         navigationController.view.endEditing(true)
-        pageLifecycle?.onHide(webviewId: app!.getCurrentWebViewId())
+        dispatchPageHide(webViewId: app!.getCurrentWebViewId())
 
         if let tabBarConfig = app?.getBundleAppConfig()?.tabBar,
            isTabBarPage(path)
@@ -400,9 +457,9 @@ public class DMPNavigator: NSObject {
             )
 
             guard let pageRecord = await tabBarController.prepareInitialTab() else {
-                return
+                return false
             }
-            guard isActiveNavigationOwner() else { return }
+            guard isActiveNavigationOwner() else { return false }
 
             pageRecords.append(pageRecord)
             tabBarContainerController = tabBarController
@@ -412,8 +469,8 @@ public class DMPNavigator: NSObject {
             }
             navigationController.pushViewController(tabBarController, animated: animated)
 
-            pageLifecycle?.onShow(webviewId: pageRecord.webViewId)
-            return
+            dispatchPageShow(webViewId: pageRecord.webViewId)
+            return true
         }
 
         // 使用DMPPageController创建页面
@@ -435,14 +492,15 @@ public class DMPNavigator: NSObject {
         pageRecords.append(pageRecord)
 
         await app?.service?.loadSubPackage(pagePath: path)
-        guard isActiveNavigationOwner() else { return }
+        guard isActiveNavigationOwner() else { return false }
 
         if showsLaunchLoading {
             pageController.preparePageLoading(in: navigationController)
         }
         navigationController.pushViewController(pageController, animated: animated)
 
-        pageLifecycle?.onShow(webviewId: pageController.getWebView().getWebViewId())
+        dispatchPageShow(webViewId: pageController.getWebView().getWebViewId())
+        return true
     }
 
     /// 导航到指定页面
@@ -467,7 +525,7 @@ public class DMPNavigator: NSObject {
             return
         }
 
-        pageLifecycle?.onHide(webviewId: app!.getCurrentWebViewId())
+        dispatchPageHide(webViewId: app!.getCurrentWebViewId())
 
         // 使用DMPPageController创建页面
         let pageController = DMPPageController(
@@ -498,7 +556,7 @@ public class DMPNavigator: NSObject {
 
         navigationController.pushViewController(pageController, animated: animated)
 
-        pageLifecycle?.onShow(webviewId: pageController.getWebView().getWebViewId())
+        dispatchPageShow(webViewId: pageController.getWebView().getWebViewId())
     }
 
     /// 返回上一页或多页
@@ -514,43 +572,56 @@ public class DMPNavigator: NSObject {
         }
 
         navigationController.view.endEditing(true)
-        // 检查是否可以返回
-        if navigationController.viewControllers.count <= 1 {
-            if destroy {
+
+        // 退出判定对两种宿主拓扑同源：hostViewControllers 在跨小程序场景返回启动前保留的宿主栈，
+        // 独占导航栈时按「栈底连续的非小程序控制器」推断。currentIndex 不高于宿主段，说明小程序
+        // 自己只剩一个页面、没有可回退的页面，这次返回就是一次退出而不是路由。
+        let hostControllers = hostViewControllers(in: navigationController)
+        let currentIndex = navigationController.viewControllers.count - 1
+        if currentIndex <= hostControllers.count {
+            // 被另一个小程序拉起的 guest 只能从 exitMiniProgram / navigateBackMiniProgram 通道
+            // 退出——那里才会把 scene 1038 和 referrerInfo 交还 opener、并回收 target 运行时。
+            // 首页上的返回在微信同样是失败而非退出，所以这里不派发任何生命周期。
+            guard miniProgramBaseViewControllers == nil else {
+                DMPLogger.debug("navigateBack skipped: guest mini program has no page to pop")
+                return
+            }
+            guard destroy else { return }
+            setCapsuleVisible(false)
+            // 退出对齐微信的「小程序切入后台」：栈顶页先 onHide，App 再 onHide。关闭不派发
+            // onUnload——微信的 unloadPage 只由路由事件驱动，退出走的是 onAppEnterBackground。
+            let hidingWebViewId = app?.getCurrentWebViewId() ?? -1
+            // 标注必须早于 pop：动画结束后才走 viewDidDisappear，那时这些控制器已经离栈，
+            // clearMiniProgramPageState 再标注就来不及了。
+            markPageTeardownReason(.exit)
+            if let hostTopController = hostControllers.last {
+                navigationController.popToViewController(hostTopController, animated: animated)
+            }
+            app?.notifyMiniProgramHide(webViewId: hidingWebViewId)
+            clearMiniProgramPageState(reason: .exit)
+            if hostControllers.isEmpty {
+                // 没有宿主控制器可退回，页面壳随小程序一起消失，运行时也没有保活的意义。
                 app?.destroy()
             }
             return
         }
 
         // 计算要返回的目标控制器索引
-        let currentIndex = navigationController.viewControllers.count - 1
-        let targetFloor = miniProgramBaseViewControllers?.count ?? 0
-        let targetIndex = max(currentIndex - max(delta, 1), targetFloor)
-
-        // 如果目标是根控制器，直接返回到根
-        if targetIndex == 0 {
-            setCapsuleVisible(false)
-            pageLifecycle?.onUnload(webviewId: app!.getCurrentWebViewId())
-            tabBarContainerController?.destroy()
-            tabBarContainerController = nil
-            pageRecords.removeAll()
-            navigationController.popToRootViewController(animated: animated)
-            return
+        let targetIndex = max(currentIndex - max(delta, 1), hostControllers.count)
+        if targetIndex + 1 < navigationController.viewControllers.count {
+            navigationController.viewControllers[(targetIndex + 1)...]
+                .reversed()
+                .forEach { notifyRoutingUnload(for: $0) }
         }
 
-        // 处理返回逻辑
-        let removalCount: Int
-        if miniProgramBaseViewControllers != nil {
-            removalCount = min(max(delta, 1), max(pageRecords.count - 1, 0))
-        } else {
-            removalCount = max(delta, 1)
-        }
+        // 处理返回逻辑：最多弹到只剩栈底那条记录，首页记录必须留下——pageRecords 是
+        // getCurrentWebViewId 的唯一来源，清空它会让之后的前后台切换和跨小程序派发拿到 -1。
+        let removalCount = min(max(delta, 1), max(pageRecords.count - 1, 0))
         for _ in 0..<removalCount {
             if navigationController.viewControllers.count <= 1 || pageRecords.isEmpty {
                 break
             }
 
-            pageLifecycle?.onUnload(webviewId: app!.getCurrentWebViewId())
             pageRecords.removeLast()
         }
 
@@ -560,7 +631,7 @@ public class DMPNavigator: NSObject {
 
         // 显示前一个页面
         if let previousPageRecord = pageRecords.last {
-            pageLifecycle?.onShow(webviewId: previousPageRecord.webViewId)
+            dispatchPageShow(webViewId: previousPageRecord.webViewId)
         }
     }
 
@@ -611,11 +682,10 @@ public class DMPNavigator: NSObject {
         // 原生 viewControllers 的栈底可能是宿主自己的页面（如 demo 的应用列表），
         // 按原生栈位置判栈底会把"替换仅剩的一页"误判为非栈底，导航栏因此错显返回箭头
         let replacingStackBottom = pageRecords.count <= 1
+        notifyRoutingUnload(for: navigationController.viewControllers[currentIndex])
 
         // 如果当前只有一个页面，则需要特殊处理
         if currentIndex == 0 {
-            pageLifecycle?.onUnload(webviewId: app!.getCurrentWebViewId())
-
             if !pageRecords.isEmpty {
                 pageRecords.removeLast()
             }
@@ -646,13 +716,10 @@ public class DMPNavigator: NSObject {
             let viewControllers = [pageController]
             navigationController.setViewControllers(viewControllers, animated: false)
 
-            pageLifecycle?.onShow(webviewId: pageController.getWebView().getWebViewId())
+            dispatchPageShow(webViewId: pageController.getWebView().getWebViewId())
 
             return
         }
-
-        // 先触发当前页面的卸载生命周期
-        pageLifecycle?.onUnload(webviewId: app!.getCurrentWebViewId())
 
         if !pageRecords.isEmpty {
             pageRecords.removeLast()
@@ -678,7 +745,7 @@ public class DMPNavigator: NSObject {
         viewControllers.removeLast()
         viewControllers.append(pageController)
         navigationController.setViewControllers(viewControllers, animated: false)
-        pageLifecycle?.onShow(webviewId: pageController.getWebView().getWebViewId())
+        dispatchPageShow(webViewId: pageController.getWebView().getWebViewId())
     }
 
     @MainActor
@@ -697,7 +764,7 @@ public class DMPNavigator: NSObject {
 
         navigationController.view.endEditing(true)
         let hostControllers = hostViewControllers(in: navigationController)
-        clearMiniProgramPageState()
+        clearMiniProgramPageState(reason: .routing)
 
         await launch(to: path, query: query, animated: false, showsLaunchLoading: false)
         guard isActiveNavigationOwner() else { return }
@@ -741,8 +808,10 @@ public class DMPNavigator: NSObject {
         // API success/complete and presentation-out lifecycle must all reach
         // the old service before its engine is destroyed in prepareRuntime.
         onAccepted()
-        notifyPresentOut()
-        clearMiniProgramPageState()
+        notifyRuntimeTeardownOut()
+        // restart 是「关掉再重开」而不是一次路由：上面已经发过 App.onHide，
+        // 旧运行时紧接着整体销毁，所以和退出同源，不补 onUnload。
+        clearMiniProgramPageState(reason: .exit)
         pageControllers.forEach { $0.destroy() }
 
         guard let launchConfig = await prepareRuntime() else {
@@ -779,7 +848,7 @@ public class DMPNavigator: NSObject {
         notifyPresentOut()
         setCapsuleVisible(false)
         let hostControllers = hostViewControllers(in: navigationController)
-        clearMiniProgramPageState()
+        clearMiniProgramPageState(reason: .exit)
 
         if hostControllers.isEmpty {
             navigationController.dismiss(animated: animated, completion: completion)
@@ -825,10 +894,14 @@ public class DMPNavigator: NSObject {
                 && pageRecords.count <= 1
 
             if navigationController.topViewController !== tabBarController {
+                if let tabIndex = navigationController.viewControllers.firstIndex(where: {
+                    $0 === tabBarController
+                }), tabIndex + 1 < navigationController.viewControllers.count {
+                    navigationController.viewControllers[(tabIndex + 1)...]
+                        .reversed()
+                        .forEach { notifyRoutingUnload(for: $0) }
+                }
                 while pageRecords.count > 1 {
-                    if let record = pageRecords.last {
-                        pageLifecycle?.onUnload(webviewId: record.webViewId)
-                    }
                     pageRecords.removeLast()
                 }
                 navigationController.popToViewController(tabBarController, animated: animated)
@@ -838,7 +911,7 @@ public class DMPNavigator: NSObject {
                let previousRecord,
                previousRecord.webViewId != tabBarController.pageRecord(at: targetIndex)?.webViewId
             {
-                pageLifecycle?.onHide(webviewId: previousRecord.webViewId)
+                dispatchPageHide(webViewId: previousRecord.webViewId)
             }
 
             guard let currentRecord = await tabBarController.selectTab(index: targetIndex, query: query) else {
@@ -849,14 +922,16 @@ public class DMPNavigator: NSObject {
             updateRootTabRecord(currentRecord)
 
             if !wasPreviousTabVisible || previousRecord?.webViewId != currentRecord.webViewId {
-                pageLifecycle?.onShow(webviewId: currentRecord.webViewId)
+                dispatchPageShow(webViewId: currentRecord.webViewId)
             }
 
             tabBarContainerController = tabBarController
             return true
         }
 
-        pageRecords.reversed().forEach { pageLifecycle?.onUnload(webviewId: $0.webViewId) }
+        ownedViewControllers(in: navigationController).reversed().forEach {
+            notifyRoutingUnload(for: $0)
+        }
         pageRecords.removeAll()
 
         let tabBarController = DMPTabBarContainerController(
@@ -884,7 +959,7 @@ public class DMPNavigator: NSObject {
         nextViewControllers.append(tabBarController)
         navigationController.setViewControllers(nextViewControllers, animated: animated)
 
-        pageLifecycle?.onShow(webviewId: pageRecord.webViewId)
+        dispatchPageShow(webViewId: pageRecord.webViewId)
         return true
     }
 

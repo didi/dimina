@@ -94,9 +94,21 @@ class MiniApp private constructor() {
      */
     fun openApp(context: Activity, miniProgram: MiniProgram) {
         // Initialize or get JsCore for this MiniProgram
+        val alreadyRunning = isRunning(miniProgram.appId)
         getOrCreateJsCore(miniProgram.appId, context)
 
-        DiminaActivity.launch(context, miniProgram)
+        try {
+            DiminaActivity.launch(context, miniProgram)
+        } catch (error: Exception) {
+            // The runtime is registered before the Activity exists. A start that never happened
+            // would otherwise leave [isRunning] true with no Activity to ever clear it, and every
+            // retry would be rejected by navigateToMiniProgram's "already running" guard.
+            if (!alreadyRunning) {
+                LogUtils.e(tag, "Rolling back runtime for ${miniProgram.appId}: ${error.message}")
+                clear(miniProgram.appId)
+            }
+            throw error
+        }
     }
 
     @Synchronized
@@ -122,6 +134,14 @@ class MiniApp private constructor() {
     fun getJsCore(appId: String, context: Context? = null): JsCore {
         return getOrCreateJsCore(appId, context)
     }
+
+    /**
+     * Look up an already-running JsCore without creating one. A JsCore built without a real
+     * Context never loads service.js (see [getOrCreateJsCore]), so callers that only want to
+     * forward a lifecycle signal - and have no Context to hand over synchronously on the
+     * caller's thread - must use this instead of [getJsCore].
+     */
+    fun peekJsCore(appId: String): JsCore? = jsCoreMap[appId]
 
     fun postUpdateStatus(appId: String, event: String) {
         jsCoreMap[appId]?.postMessage("onUpdateStatusChange", mapOf("event" to event))
@@ -445,6 +465,7 @@ class MiniApp private constructor() {
      *
      * @param appId The ID of the MiniProgram to clear resources for
      */
+    @androidx.annotation.MainThread
     fun clear(appId: String) {
         updateCheckRegistry.reset(appId)
         synchronized(this) {
@@ -460,6 +481,9 @@ class MiniApp private constructor() {
         localNetworkApi.clearApp(appId)
         deviceNetworkApi.clearApp(appId)
         fileApi.clearApp(appId)
+        // 正在后台写盘的 canvas 导出属于这一代 runtime；换代之后它的回调没有接收方，
+        // 已经发布的文件也不会有人来取。
+        com.didi.dimina.api.media.CanvasExportGeneration.invalidate(appId)
 
         // Detach this generation immediately so a rapid reopen creates a fresh runtime, but place
         // native engine destruction behind lifecycle messages already queued by Bridge.destroy().
@@ -477,6 +501,7 @@ class MiniApp private constructor() {
     /**
      * Clears all API resources and callbacks for all MiniPrograms
      */
+    @androidx.annotation.MainThread
     fun clearAll() {
         updateCheckRegistry.resetAll()
         synchronized(this) {
@@ -492,6 +517,7 @@ class MiniApp private constructor() {
         jsCoreMap.clear()
         jsCoresToDestroy.forEach { (appId, jsCore) ->
             LogUtils.d(tag, "Scheduling JsCore destruction for appId: $appId")
+            com.didi.dimina.api.media.CanvasExportGeneration.invalidate(appId)
             jsCore.destroyAfterMessages()
         }
 

@@ -4,6 +4,7 @@ import { AppData, WorkerAppData } from '../Service/DMPSendableObjects';
 
 import { DMPBridgeCallback, DMPBridgeCallbackType, isMainThread } from './DMPTSUtil';
 import { DMPLogger } from '../EventTrack/DMPLogger';
+import { DMPFileUrlConvertor } from '../Bundle/Util/DMPFileUrlConvertor';
 
 
 export abstract class DMPContainerBridgesModule {
@@ -54,6 +55,15 @@ export abstract class DMPContainerBridgesModule {
   }
 
   abstract getExportMethods(): Array<string>;
+
+  protected currentAppId(): string {
+    return this.appData.appId || this.app?.appConfig?.appId || 'default';
+  }
+
+  protected localPathFromVPath(path: string): string {
+    const canvasTempRoot = DMPFileUrlConvertor.canvasTempRoot(this.currentAppId());
+    return DMPFileUrlConvertor.localPathFromVPath(path, canvasTempRoot);
+  }
 
   private invokeCompleteCallback(callback: DMPBridgeCallback, param: DMPMap | undefined | null) {
     DMPLogger.d('invokeCompleteCallback', param?.toStr() ?? '')

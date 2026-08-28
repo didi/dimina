@@ -52,10 +52,10 @@ describe('logic sourcemap', () => {
 			'',
 		].join('\n'))
 
-		await build(outputDir, workDir, false, { sourcemap: true })
+		await build(outputDir, workDir, true, { sourcemap: true })
 
-		const logicPath = path.join(outputDir, 'main/logic.js')
-		const sourcemapPath = path.join(outputDir, 'main/logic.js.map')
+		const logicPath = path.join(outputDir, 'test-app-id/main/logic.js')
+		const sourcemapPath = path.join(outputDir, 'test-app-id/main/logic.js.map')
 
 		expect(fs.existsSync(logicPath)).toBe(true)
 		expect(fs.existsSync(sourcemapPath)).toBe(true)
@@ -64,8 +64,14 @@ describe('logic sourcemap', () => {
 		expect(logicCode).toContain('sourceMappingURL=logic.js.map')
 
 		const sourcemap = JSON.parse(fs.readFileSync(sourcemapPath, 'utf-8'))
-		const sourceIndex = sourcemap.sources.indexOf('/pages/index/index.ts')
-		expect(sourceIndex).toBeGreaterThan(-1)
+		const sourcePath = path.relative(
+			path.dirname(sourcemapPath),
+			path.join(workDir, 'pages/index/index.ts'),
+		).split(path.sep).join('/')
+		const sourceIndex = sourcemap.sources.indexOf(sourcePath)
+		expect(sourceIndex, `sources: ${JSON.stringify(sourcemap.sources)}`).toBeGreaterThan(-1)
+		expect(path.resolve(path.dirname(sourcemapPath), sourcemap.sources[sourceIndex]))
+			.toBe(path.join(workDir, 'pages/index/index.ts'))
 		expect(sourcemap.sourcesContent[sourceIndex]).toContain('import { helper } from "./helper"')
 		expect(sourcemap.sourcesContent[sourceIndex]).toContain('const value: number = 1')
 		expect(sourcemap.sourcesContent[sourceIndex]).toContain('Page<PageData>({')
@@ -81,9 +87,9 @@ describe('logic sourcemap', () => {
 		const importPos = smc.originalPositionFor({ line: importLine, column: 0 })
 		const valuePos = smc.originalPositionFor({ line: valueLine, column: 0 })
 
-		expect(importPos.source).toBe('/pages/index/index.ts')
+		expect(importPos.source).toBe(sourcePath)
 		expect(importPos.line).toBe(1)
-		expect(valuePos.source).toBe('/pages/index/index.ts')
+		expect(valuePos.source).toBe(sourcePath)
 		expect(valuePos.line).toBe(5)
 	})
 })

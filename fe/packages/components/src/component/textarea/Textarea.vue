@@ -311,6 +311,7 @@ watch(
 )
 
 const wrapperRef = ref(null)
+
 const info = useInfo()
 const keyboardAccessoryVisible = ref(false)
 provide('keyboardAccessoryVisible', keyboardAccessoryVisible)
@@ -449,7 +450,7 @@ const wrapperClass = computed(() => {
 </script>
 
 <template>
-	<div ref="wrapperRef" v-bind="$attrs" :class="wrapperClass" role="textbox" data-dd-label-target @input="handleWrapperEvent" @focusin="handleWrapperEvent" @focusout="handleWrapperEvent" @change="handleWrapperEvent">
+	<div ref="wrapperRef" v-bind="$attrs" :class="wrapperClass" role="textbox" @input="handleWrapperEvent" @focusin="handleWrapperEvent" @focusout="handleWrapperEvent" @change="handleWrapperEvent">
 		<textarea
 			:id="id" ref="textareaRef" v-focus class="dd-textarea" :value="iValue" :disabled="disabled"
 			:maxlength="maxlength" :autocomplete="autoFill || undefined"

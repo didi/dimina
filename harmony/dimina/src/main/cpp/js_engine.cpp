@@ -11,7 +11,8 @@
 #include "utils.h"
 #include "types/qjs_extension/settimeout.h"
 
-JSEngine::JSEngine(int idx, std::function<void(JSContext *ctx)> func) : index(idx), core(nullptr), registerFunc(func) {
+JSEngine::JSEngine(int idx, std::function<void(JSContext *ctx)> func, const std::string &debuggerAddress)
+    : registerFunc(func), index(idx), core(nullptr), debuggerAddress(debuggerAddress) {
     if (!core) {
         OHWarn("engine JSEngine() idx: %{public}d", idx);
         core = new JSCore();
@@ -26,7 +27,7 @@ JSEngine::JSEngine(int idx, std::function<void(JSContext *ctx)> func) : index(id
             &tid, &attr,
             [](void *arg) -> void * {
                 auto *engine = static_cast<JSEngine *>(arg);
-                engine->core->startEngine(engine->index, engine->registerFunc);
+                engine->core->startEngine(engine->index, engine->registerFunc, engine->debuggerAddress);
 
                 return nullptr;
             },
@@ -38,10 +39,10 @@ JSEngine::JSEngine(int idx, std::function<void(JSContext *ctx)> func) : index(id
 }
 
 // 实现成员函数
-bool JSEngine::executeJavaScript(const std::string &script) {
+bool JSEngine::executeJavaScript(const std::string &script, const std::string &sourceUrl) {
     {
         std::lock_guard<std::mutex> lock(core->queueMutex);
-        core->jsTaskQueue.push(script);
+        core->jsTaskQueue.push({script, sourceUrl});
     }
 
     if (core->running) {
@@ -55,8 +56,11 @@ bool JSEngine::executeJavaScript(const std::string &script) {
 void JSEngine::destroyEngine() {
     closing = true;
     if (core) {
-        OHWarn("engine uv_async_send destroy_handle");
-        uv_async_send(&core->destroy_handle);
+        core->closing.store(true);
+        if (core->handlesReady.load()) {
+            OHWarn("engine uv_async_send destroy_handle");
+            uv_async_send(&core->destroy_handle);
+        }
     }
 }
 

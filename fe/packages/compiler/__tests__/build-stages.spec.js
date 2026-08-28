@@ -80,7 +80,8 @@ describe('dependency-directed compiler stages', () => {
 		writeFile(`${pagePath}.wxss`, '.page { color: blue; }\n')
 		result = await build(outputDir, tempDir, false, incrementalOptions(result, ['style']))
 		const styleOnlyOutput = readOutput('main/pages_index_index.css')
-		expect(styleOnlyOutput).toContain('blue')
+		// CSS minifiers may normalize the named color to its shorter equivalent.
+		expect(styleOnlyOutput).toMatch(/color:(?:blue|#00f)/)
 		expect(styleOnlyOutput).not.toBe(styleOutput)
 		expect(readOutput('main/pages_index_index.js')).toBe(viewOutput)
 		expect(readOutput('main/logic.js')).toBe(logicOutput)

@@ -25,14 +25,14 @@
     "lint:fix": "oxlint --fix"
   },
   "devDependencies": {
-    "@vitest/coverage-v8": "^4.1.10",
+    "@vitest/coverage-v8": "^4.1.11",
     "archiver": "^8.0.0",
     "concurrently": "^10.0.5",
     "fs-extra": "^11.4.0",
-    "oxlint": "^1.78.0",
+    "oxlint": "^1.80.0",
     "typescript": "^7.0.2",
-    "vite": "^8.2.1",
-    "vitest": "^4.1.10"
+    "vite": "^8.2.2",
+    "vitest": "^4.1.11"
   },
   "volta": {
     "node": "22.22.3"

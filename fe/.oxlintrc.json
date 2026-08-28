@@ -53,7 +53,6 @@
     "**/__snapshots__",
     "**/auto-import?(s).d.ts",
     "**/components.d.ts",
-    "example/**",
     "packages/container/public",
     "packages/container/dist"
   ],

@@ -1,0 +1,8 @@
+{
+  "name": "entry",
+  "version": "1.0.0",
+  "description": "Dimina Flutter example entry module",
+  "dependencies": {
+    "@didi-dimina/dimina": "file:../../../../harmony/dimina"
+  }
+}

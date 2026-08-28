@@ -4,7 +4,10 @@
 // https://github.com/Tencent/weui/blob/master/src/example/button/button_default.html
 
 import { invokeAPIWithCallback, triggerEvent, useInfo } from '@/common/events'
+import { useLabelActivation } from '@/common/labelActivation'
+import { dispatchActivationTap } from '@/common/touchGesturePrimitives'
 import { useHover } from '@/common/useHover'
+import { useTouchEvents } from '@/common/useTouchEvents'
 
 const props = defineProps({
 	/**
@@ -151,18 +154,36 @@ const loadingParsed = computed(() => {
 
 const { isHover, onHoverCancel, onHoverEnd, onHoverStart } = useHover(props)
 const info = useInfo()
+const rootRef = ref(null)
 const handleFormEvent = inject('formEvent', undefined)
-function handleClicked(event) {
-	if (!props.disabled) {
-		if (props.formType) {
-			handleFormEvent?.(event, props.formType)
-		}
-		else {
-			triggerEvent('tap', { event, info })
-			handleOpenType(event)
-		}
+function handleTap({ event }) {
+	if (props.disabled) {
+		return
+	}
+	// form-type 的按钮照常派发自己的 tap，submit / reset 是它之后的另一件事
+	triggerEvent('tap', { event, info })
+	if (props.formType) {
+		handleFormEvent?.(event, props.formType)
+	}
+	else {
+		handleOpenType(event)
 	}
 }
+
+function handleKeyboard() {
+	rootRef.value?.click()
+}
+
+useTouchEvents(info, rootRef, { tapHandler: handleTap })
+// button 与勾选类控件不同：官方在 label 激活时会让 button 派发自己的 tap，
+// 而且这次 tap 会冒泡，祖先也各收到一次；补发的 tap 经由 rootRef 上的手势 owner 回到 handleTap。
+// disabled 时整条通道都不能开：handleTap 自己会 no-op，但事件已经冒泡出去，祖先照样会派发 tap。
+useLabelActivation(rootRef, (event) => {
+	if (props.disabled) {
+		return
+	}
+	dispatchActivationTap(rootRef.value, event)
+})
 
 function invokeOpenTypeAPI(apiName, eventName, event, params = {}) {
 	const preservedEvent = { ...event, currentTarget: event.currentTarget, target: event.target }
@@ -192,7 +213,7 @@ function handleOpenType(event) {
 
 <template>
 	<span
-		:id="id" v-bind="$attrs" class="dd-button" data-dd-label-target role="button" :tabindex="disabled ? -1 : 0"
+		:id="id" ref="rootRef" v-bind="$attrs" class="dd-button" data-dd-label-target role="button" :tabindex="disabled ? -1 : 0"
 		:aria-disabled="disabled" :type="type" :size="size" :loading="loadingParsed"
 		:plain="plainParsed" :disabled="disabledParsed" :class="[
 			`dd-button--${type}`,
@@ -202,8 +223,7 @@ function handleOpenType(event) {
 			loadingParsed && 'dd-button--loading',
 			isHover ? hoverClass : undefined,
 		]"
-		@click="handleClicked"
-		@keydown.enter.prevent="handleClicked" @keydown.space.prevent="handleClicked"
+		@keydown.enter.prevent="handleKeyboard" @keydown.space.prevent="handleKeyboard"
 		@touchstart="onHoverStart" @touchend="onHoverEnd" @touchcancel="onHoverCancel"
 		@mousedown="onHoverStart" @mouseup="onHoverEnd" @mouseleave="onHoverCancel"
 	>
