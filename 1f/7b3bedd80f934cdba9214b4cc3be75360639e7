@@ -1,0 +1,35 @@
+examples/flutter/android/app/build.gradle.kts
+  3f35cd31572e2485 60
+iOS/dimina/DiminaKit/Common/DiminaVersion.swift
+  3f35cd31572e2485 12
+shared/jssdk/config.json
+  3f35cd31572e2485 2-3
+android/gradle.properties
+  3f35cd31572e2485 25
+iOS/dimina.xcodeproj/project.pbxproj
+  3f35cd31572e2485 522,560
+harmony/dimina/BuildProfile.ets
+  3f35cd31572e2485 4
+harmony/dimina/oh-package.json5
+  3f35cd31572e2485 3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "1f7b3bedd80f934cdba9214b4cc3be75360639e7",
+  "prompts": {
+    "3f35cd31572e2485": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a03dce-63e8-71a1-a52a-7aba8fcf94c6",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 26,
+      "total_deletions": 9,
+      "accepted_lines": 167,
+      "overriden_lines": 0
+    }
+  }
+}
