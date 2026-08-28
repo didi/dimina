@@ -1,0 +1,191 @@
+third_party/quickjs/upstream/fuzz/generate_dict.js
+  3f35cd31572e2485 1-24
+third_party/quickjs/upstream/examples/message.json
+  3f35cd31572e2485 1-2
+third_party/quickjs/upstream/doc/quickjs.texi
+  3f35cd31572e2485 1-1069
+third_party/quickjs/upstream/repl.js
+  3f35cd31572e2485 1-1292
+third_party/quickjs/upstream/quickjs-libc.c
+  3f35cd31572e2485 1-4403
+third_party/quickjs/upstream/libunicode.c
+  3f35cd31572e2485 1-2124
+third_party/quickjs-debugger/tests/protocol_test.py
+  3f35cd31572e2485 16,158-164
+third_party/quickjs/upstream/libunicode-table.h
+  3f35cd31572e2485 1-5206
+third_party/quickjs/upstream/tests/test_rw_handler.js
+  3f35cd31572e2485 1-57
+third_party/quickjs/upstream/cutils.h
+  3f35cd31572e2485 1-457
+third_party/quickjs/upstream/examples/fib_module.js
+  3f35cd31572e2485 1-10
+third_party/quickjs/README.dimina.md
+  3f35cd31572e2485 1-15
+third_party/quickjs/upstream/list.h
+  3f35cd31572e2485 1-99
+third_party/quickjs/upstream/libregexp.h
+  3f35cd31572e2485 1-65
+third_party/quickjs/upstream/examples/test_point.js
+  3f35cd31572e2485 1-40
+third_party/quickjs/UPSTREAM_COMMIT
+  3f35cd31572e2485 1
+third_party/quickjs/upstream/tests/test_bigint.js
+  3f35cd31572e2485 1-249
+third_party/quickjs/upstream/quickjs.h
+  3f35cd31572e2485 1-1180
+third_party/quickjs/upstream/tests/test_language.js
+  3f35cd31572e2485 1-703
+third_party/quickjs/upstream/dtoa.h
+  3f35cd31572e2485 1-83
+third_party/quickjs/upstream/tests/test_worker_module.js
+  3f35cd31572e2485 1-32
+third_party/quickjs/upstream/fuzz/fuzz_regexp.c
+  3f35cd31572e2485 1-66
+third_party/quickjs/upstream/fuzz/fuzz_json.c
+  3f35cd31572e2485 1-131
+third_party/quickjs/upstream/libunicode.h
+  3f35cd31572e2485 1-196
+third_party/quickjs/upstream/unicode_gen.c
+  3f35cd31572e2485 1-3779
+.gitattributes
+  3f35cd31572e2485 1-4
+third_party/quickjs/upstream/tests/assert.js
+  3f35cd31572e2485 1-43
+third_party/quickjs/upstream/fuzz/fuzz_common.c
+  3f35cd31572e2485 1-58
+third_party/quickjs/upstream/tests/bjson.c
+  3f35cd31572e2485 1-96
+third_party/quickjs/upstream/tests/test_cyclic_import.js
+  3f35cd31572e2485 1-12
+third_party/quickjs/upstream/quickjs-libc.h
+  3f35cd31572e2485 1-66
+third_party/quickjs/upstream/tests/test_worker.js
+  3f35cd31572e2485 1-62
+third_party/quickjs/upstream/readme-cosmo.txt
+  3f35cd31572e2485 1-21
+third_party/quickjs/upstream/fuzz/fuzz.dict
+  3f35cd31572e2485 1-254
+third_party/quickjs/upstream/fuzz/fuzz_compile.c
+  3f35cd31572e2485 1-93
+third_party/quickjs/upstream/readme.txt
+  3f35cd31572e2485 1
+scripts/update-native-dependencies.sh
+  3f35cd31572e2485 8-12,14-16,20-71,91-112,124,141,145-179,198
+third_party/quickjs/upstream/run-test262.c
+  3f35cd31572e2485 1-2555
+third_party/quickjs/upstream/dtoa.c
+  3f35cd31572e2485 1-1620
+third_party/quickjs/upstream/qjs.c
+  3f35cd31572e2485 1-568
+third_party/quickjs/upstream/tests/fixture_cyclic_import.js
+  3f35cd31572e2485 1-2
+third_party/quickjs/upstream/fuzz/README
+  3f35cd31572e2485 1-27
+cmake/DependencyVersions.cmake
+  3f35cd31572e2485 1,5-6
+third_party/quickjs/upstream/LICENSE
+  3f35cd31572e2485 1-22
+harmony/dimina/src/main/cpp/CMakeLists.txt
+  3f35cd31572e2485 14,71,73-75
+third_party/quickjs/upstream/examples/hello.js
+  3f35cd31572e2485 1
+third_party/quickjs/upstream/examples/hello_module.js
+  3f35cd31572e2485 1-8
+third_party/quickjs/upstream/tests/test_bjson.js
+  3f35cd31572e2485 1-224
+third_party/quickjs/upstream/VERSION
+  3f35cd31572e2485 1
+third_party/quickjs/upstream/tests/test_builtin.js
+  3f35cd31572e2485 1-1193
+third_party/quickjs/upstream/libregexp-opcode.h
+  3f35cd31572e2485 1-73
+third_party/quickjs/upstream/tests/test_loop.js
+  3f35cd31572e2485 1-402
+third_party/quickjs/upstream/tests/microbench.js
+  3f35cd31572e2485 1-1590
+third_party/quickjs/upstream/qjsc.c
+  3f35cd31572e2485 1-876
+android/engine_qjs/src/main/cpp/CMakeLists.txt
+  3f35cd31572e2485 21,23-25,83-87
+third_party/quickjs/upstream/tests/test262.patch
+  3f35cd31572e2485 1-72
+third_party/quickjs/upstream/fuzz/fuzz_module_export.c
+  3f35cd31572e2485 1-105
+third_party/quickjs/upstream/test262o.conf
+  3f35cd31572e2485 1-413
+third_party/quickjs/upstream/Makefile
+  3f35cd31572e2485 1-557
+third_party/quickjs/upstream/quickjs.c
+  3f35cd31572e2485 1-61424
+third_party/quickjs/upstream/tests/test_closure.js
+  3f35cd31572e2485 1-221
+third_party/quickjs/upstream/TODO
+  3f35cd31572e2485 1-66
+third_party/quickjs/upstream/fuzz/fuzz_eval.c
+  3f35cd31572e2485 1-49
+third_party/quickjs/upstream/release.sh
+  3f35cd31572e2485 1-184
+third_party/quickjs/upstream/unicode_download.sh
+  3f35cd31572e2485 1-22
+third_party/quickjs/upstream/.gitignore
+  3f35cd31572e2485 1-31
+third_party/quickjs/upstream/libregexp.c
+  3f35cd31572e2485 1-3448
+third_party/quickjs/upstream/Changelog
+  3f35cd31572e2485 1-224
+third_party/quickjs/upstream/fuzz/fuzz_common.h
+  3f35cd31572e2485 1-22
+third_party/quickjs/upstream/.github/workflows/ci.yml
+  3f35cd31572e2485 1-305
+cmake/DiminaQuickJS.cmake
+  3f35cd31572e2485 1-181
+third_party/quickjs/upstream/unicode_gen_def.h
+  3f35cd31572e2485 1-323
+third_party/quickjs/upstream/examples/point.c
+  3f35cd31572e2485 1-151
+third_party/quickjs-debugger/README.md
+  3f35cd31572e2485 11-12,29-30,33,35-37
+third_party/quickjs/upstream/examples/fib.c
+  3f35cd31572e2485 1-72
+third_party/quickjs/upstream/quickjs-opcode.h
+  3f35cd31572e2485 1-366
+third_party/quickjs/upstream/examples/pi_bigint.js
+  3f35cd31572e2485 1-118
+third_party/quickjs/upstream/cutils.c
+  3f35cd31572e2485 1-641
+third_party/quickjs/upstream/compat/test-closefrom.c
+  3f35cd31572e2485 1-6
+third_party/quickjs/upstream/fuzz/fuzz_regexp_compile.c
+  3f35cd31572e2485 1-177
+third_party/quickjs/upstream/tests/test_std.js
+  3f35cd31572e2485 1-336
+third_party/quickjs/upstream/fuzz/fuzz_bytecode.c
+  3f35cd31572e2485 1-142
+third_party/quickjs/upstream/test262.conf
+  3f35cd31572e2485 1-314
+third_party/quickjs/upstream/quickjs-atom.h
+  3f35cd31572e2485 1-283
+third_party/quickjs/upstream/examples/test_fib.js
+  3f35cd31572e2485 1-6
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "1dcf8057e5cda92e8b62b6594ba55e798c9c4200",
+  "prompts": {
+    "3f35cd31572e2485": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a03dce-63e8-71a1-a52a-7aba8fcf94c6",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 101583,
+      "total_deletions": 183,
+      "accepted_lines": 101679,
+      "overriden_lines": 0
+    }
+  }
+}
