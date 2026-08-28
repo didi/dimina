@@ -1,0 +1,100 @@
+fe/packages/compiler/__tests__/logic-sourcemap.spec.js
+  3f35cd31572e2485 55,57-58,67-74,90,92
+third_party/quickjs-debugger/include/quickjs-debugger.h
+  3f35cd31572e2485 1-107
+harmony/dimina/src/main/ets/DApp/DMPApp.ets
+  3f35cd31572e2485 40,92,289,722,732-735
+harmony/dimina/src/main/ets/Service/DMPService.ets
+  3f35cd31572e2485 9-11,18,20,22-30,42-43,46-48,51,59,61
+harmony/dimina/src/main/cpp/js_core.h
+  3f35cd31572e2485 12,32-37,39-40,54-57,64
+fe/packages/compiler/src/core/logic-compiler.js
+  3f35cd31572e2485 2,18,21,25,96-108
+harmony/dimina/src/main/ets/DApp/config/DMPAppConfig.ets
+  3f35cd31572e2485 49,55-61
+third_party/quickjs-debugger/src/transport-posix.c
+  3f35cd31572e2485 1-224
+harmony/dimina/src/main/cpp/js_thread.cpp
+  3f35cd31572e2485 20-32,406-407,409,427-429,432,437-439,443,449-450,452,482-488,495-496,498,516-518,521,526-528,533,563,571,586-591,594-597,599-607,628,704
+harmony/dimina/src/main/ets/Service/DMPWorkerWrapper.ets
+  3f35cd31572e2485 28-29,34-35,37-38,83-84,88-89,93-94,119-126
+harmony/dimina/src/test/DMPJavaScriptDebuggerConfig.test.ets
+  3f35cd31572e2485 1-35
+docs/JavaScript-Debugging.md
+  3f35cd31572e2485 1-88
+third_party/quickjs-debugger/LICENSE
+  3f35cd31572e2485 1-22
+third_party/quickjs-debugger/tests/debugger_harness.c
+  3f35cd31572e2485 1-47
+third_party/quickjs-debugger/src/quickjs-debugger.c
+  3f35cd31572e2485 1-731
+harmony/dimina/src/test/List.test.ets
+  3f35cd31572e2485 24,50
+harmony/dimina/src/main/cpp/js_core.cpp
+  3f35cd31572e2485 11-17,48,53,63,90-91,128-142,152-175,213,216-220,222,232-238,255-260,270-272,279,283,289,301
+third_party/quickjs-debugger/tests/protocol_test.py
+  3f35cd31572e2485 1-166
+harmony/dimina/src/main/cpp/CMakeLists.txt
+  3f35cd31572e2485 15-26,35-78,106-107,112,115-117,138,149-153,156-162,166-170,184
+harmony/dimina/src/main/cpp/types/libdimina/index.d.ts
+  3f35cd31572e2485 4-5,7,9,11
+harmony/dimina/src/main/ets/Service/DMPJSEngine.ets
+  3f35cd31572e2485 12,14,20,22,28,30,43-44,52
+harmony/dimina/README.md
+  3f35cd31572e2485 142-145
+third_party/quickjs-debugger/README.md
+  3f35cd31572e2485 1-33
+docs/README.md
+  3f35cd31572e2485 17,36
+harmony/dimina/src/main/ets/Service/DMPWorker.ets
+  3f35cd31572e2485 27,87,130,132,146,151,156
+harmony/dimina/src/main/cpp/js_engine.cpp
+  3f35cd31572e2485 14-15,30,42,45,59-63
+harmony/dimina/src/main/ets/Service/DMPJavaScriptSourceURL.ets
+  3f35cd31572e2485 1-24
+fe/packages/compiler/README.md
+  3f35cd31572e2485 74,96-98,101-102
+harmony/dimina/src/main/ets/Service/DMPSendableObjects.ets
+  3f35cd31572e2485 41,43,46,54,56,59,69-70,72-73,78-79
+harmony/dimina/src/main/cpp/js_engine.h
+  3f35cd31572e2485 18,21,43
+harmony/dimina/src/main/ets/Bridges/DMPContainerBridgesModule+Navigator.ets
+  3f35cd31572e2485 11,168-171
+third_party/quickjs-debugger/patches/quickjs.patch
+  3f35cd31572e2485 1-387
+fe/packages/compiler/src/index.js
+  3f35cd31572e2485 128-137,240-245
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "28060da6733aae672a821f40a8e351ef2f252372",
+  "prompts": {
+    "3f35cd31572e2485": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a03dce-63e8-71a1-a52a-7aba8fcf94c6",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 3866,
+      "total_deletions": 180,
+      "accepted_lines": 2386,
+      "overriden_lines": 0
+    },
+    "40d0fb6cb5e1e58c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0416e-f080-7f41-a6c0-9bfe55d28490",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 2,
+      "total_deletions": 2,
+      "accepted_lines": 2140,
+      "overriden_lines": 0
+    }
+  }
+}
