@@ -1,0 +1,25 @@
+tests/native/libuv_lifecycle_test.c
+  3f35cd31572e2485 1-63,66-133,136-202
+scripts/run-libuv-lifecycle-test.sh
+  3f35cd31572e2485 1-139
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "e8ce8d67e98ae841bd9980750b0202c50b30f6a2",
+  "prompts": {
+    "3f35cd31572e2485": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a03dce-63e8-71a1-a52a-7aba8fcf94c6",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 402,
+      "total_deletions": 28,
+      "accepted_lines": 476,
+      "overriden_lines": 4
+    }
+  }
+}
