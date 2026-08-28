@@ -1,0 +1,33 @@
+fe/packages/render/src/core/runtime.js
+  40d0fb6cb5e1e58c 1745-1751
+fe/packages/service/src/api/core/ui/canvas/canvas-node.js
+  40d0fb6cb5e1e58c 947-958,975,979-982,1004-1005,1911-1952,1958
+docs/canvas-architecture.md
+  40d0fb6cb5e1e58c 48
+shared/jssdk/config.json
+  40d0fb6cb5e1e58c 2-3
+fe/packages/service/__tests__/canvas.spec.js
+  40d0fb6cb5e1e58c 537-578
+fe/packages/render/__tests__/mini-game-runtime.spec.js
+  40d0fb6cb5e1e58c 3-4,10,27-32
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "48d1a573b00c19643bb03ced118e1efca17247fa",
+  "prompts": {
+    "40d0fb6cb5e1e58c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0416e-f080-7f41-a6c0-9bfe55d28490",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 123,
+      "total_deletions": 11,
+      "accepted_lines": 220,
+      "overriden_lines": 0
+    }
+  }
+}
