@@ -1,0 +1,28 @@
+fe/packages/compiler/package.json
+  h_26bc2624df64e5 3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "3906d4b2f3ed0968a1bcdae0e84bbe46a3143824",
+  "prompts": {
+    "3f35cd31572e2485": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a03dce-63e8-71a1-a52a-7aba8fcf94c6",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 1,
+      "accepted_lines": 144,
+      "overriden_lines": 0
+    }
+  },
+  "humans": {
+    "h_26bc2624df64e5": {
+      "author": "doslin"
+    }
+  }
+}
