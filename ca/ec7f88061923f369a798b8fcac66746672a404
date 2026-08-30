@@ -1,0 +1,103 @@
+fe/packages/container-sdk/src/index.ts
+  10c0a34f4e797369 18,34
+harmony/dimina/src/main/ets/Service/DMPWorker.ets
+  10c0a34f4e797369 21,133-140
+harmony/dimina/Index.ets
+  10c0a34f4e797369 10-11
+shared/jssdk/config.json
+  10c0a34f4e797369 2-3
+android/README.md
+  10c0a34f4e797369 64-65
+fe/packages/container-sdk/src/config.ts
+  10c0a34f4e797369 9-13,25-42
+fe/packages/container-sdk/src/core/appManager.ts
+  10c0a34f4e797369 150
+fe/packages/container-sdk/src/core/jscore.ts
+  10c0a34f4e797369 63-67
+harmony/dimina/README.md
+  10c0a34f4e797369 34
+harmony/dimina/src/main/ets/Bundle/Util/DMPFilePathResolver.ets
+  10c0a34f4e797369 3,38,41-42,44-45,47
+harmony/dimina/src/main/ets/Bundle/Util/DMPFileUrlConvertor.ets
+  10c0a34f4e797369 3-28,39-41,55-57,66,73,88,92-94
+harmony/dimina/src/main/ets/DApp/DMPApp.ets
+  10c0a34f4e797369 41,46,174
+fe/packages/service/src/api/core/file/index.js
+  10c0a34f4e797369 2,4,658,660-661
+android/dimina/src/main/kotlin/com/didi/dimina/Dimina.kt
+  10c0a34f4e797369 9,57,62,74-82,117
+harmony/dimina/src/main/ets/Render/UrlIntercepter/UrlInterceptor.ets
+  10c0a34f4e797369 8,27
+harmony/dimina/src/main/ets/Service/DMPJSEngine.ets
+  10c0a34f4e797369 44-45,53
+iOS/dimina/DiminaKit/App/DMPAppManager.swift
+  10c0a34f4e797369 96-117
+harmony/dimina/src/main/ets/Bridges/DMPContainerBridgesModule+File.ets
+  10c0a34f4e797369 16,549,862
+android/engine_qjs/src/main/kotlin/com/didi/dimina/engine/qjs/QuickJSEngine.kt
+  10c0a34f4e797369 113
+harmony/dimina/src/main/cpp/js_thread.cpp
+  10c0a34f4e797369 610,612-615
+fe/packages/container-sdk/__tests__/virtual-file-prefix.spec.ts
+  10c0a34f4e797369 1-45
+android/dimina/src/test/java/com/didi/dimina/VirtualFilePrefixConfigTest.kt
+  10c0a34f4e797369 1-46
+docs/API-Reference.md
+  10c0a34f4e797369 176-204
+fe/packages/container-sdk/__tests__/file-system-save-file.spec.ts
+  10c0a34f4e797369 137-157
+fe/packages/container-sdk/README.md
+  10c0a34f4e797369 76
+fe/packages/container-sdk/src/core/webFileSystem.ts
+  10c0a34f4e797369 1-6,18,35-37,40,64,67,81,85,104,111-112,114,134,138
+fe/packages/container-sdk/src/pages/application/application.ts
+  10c0a34f4e797369 4,32-33,71,93
+fe/packages/container-sdk/src/types.ts
+  10c0a34f4e797369 130-133
+android/dimina/src/main/kotlin/com/didi/dimina/common/PathUtils.kt
+  10c0a34f4e797369 17-23,27-46
+harmony/dimina/src/main/ets/Service/DMPWorkerWrapper.ets
+  10c0a34f4e797369 23,126-127
+iOS/dimina/DiminaKit/Service/DMPEngine.swift
+  10c0a34f4e797369 120
+fe/packages/service/src/api/core/file/virtual-file-prefix.js
+  10c0a34f4e797369 1-43
+iOS/dimina/DiminaKit/Utils/DMPFileUtil.swift
+  10c0a34f4e797369 14-62
+iOS/diminaTests/DMPUtilPathTests.swift
+  10c0a34f4e797369 11-26
+fe/packages/service/__tests__/virtual-file-prefix.spec.js
+  10c0a34f4e797369 1-31
+harmony/dimina/src/main/ets/Service/DMPSendableObjects.ets
+  10c0a34f4e797369 71,74,81
+iOS/dimina/DiminaKit/Container/Api/File/FileAPI.swift
+  10c0a34f4e797369 75
+iOS/dimina/DiminaKit/Render/DMPWebViewOptimizer.swift
+  10c0a34f4e797369 198-201
+fe/packages/service/__tests__/file-api.spec.js
+  10c0a34f4e797369 9,28-33
+fe/packages/container-sdk/src/pages/miniApp/miniApp.ts
+  10c0a34f4e797369 9-10,82-83,263,322-325,3464-3467,3472,3491
+harmony/dimina/src/test/DMPFileUrlConvertor.test.ets
+  10c0a34f4e797369 2-6,34-52
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "caec7f88061923f369a798b8fcac66746672a404",
+  "prompts": {
+    "10c0a34f4e797369": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fc587-99e6-7380-a597-4301b7cc2ed1",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 575,
+      "total_deletions": 99,
+      "accepted_lines": 568,
+      "overriden_lines": 0
+    }
+  }
+}
