@@ -163,6 +163,10 @@ export class Page {
 	// 开发者自定义函数
 	#initMembers() {
 		for (const attr in this.__info__) {
+			// The constructor already creates an instance-owned copy of data.
+			if (attr === 'data') {
+				continue
+			}
 			const member = this.__info__[attr]
 			if (isFunction(member)) {
 				this[attr] = member.bind(this)
