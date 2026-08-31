@@ -20,19 +20,22 @@ async function createZip(sourceDir, outputPath) {
 			zlib: { level: 9 }, // Maximum compression
 		})
 		const output = fs.createWriteStream(outputPath)
+		let failed = false
+		const handleError = (error) => {
+			failed = true
+			reject(error)
+		}
 
 		output.on('close', () => {
+			if (failed) {
+				return
+			}
 			console.log(`Successfully created ${outputPath} (${archive.pointer()} bytes)`)
 			resolve()
 		})
 
-		archive.on('error', (err) => {
-			reject(err)
-		})
-
-		output.on('error', (err) => {
-			reject(err)
-		})
+		archive.on('error', handleError)
+		output.on('error', handleError)
 
 		archive.pipe(output)
 		archive.directory(sourceDir, false)

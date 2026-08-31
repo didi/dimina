@@ -26,5 +26,6 @@ test('generate-app fails when an app zip cannot be created', async (t) => {
 
 	assert.notEqual(result.status, 0)
 	assert.match(result.stderr, /Failed to create zip for: wx-test/)
+	assert.doesNotMatch(result.stdout, /Successfully created .*wx-test\.zip/)
 	assert.doesNotMatch(result.stdout, /App generation completed successfully/)
 })
