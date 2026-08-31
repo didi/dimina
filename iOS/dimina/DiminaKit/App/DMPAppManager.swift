@@ -378,9 +378,11 @@ public class DMPAppManager {
             openerNavigator.suspendForMiniProgramNavigation()
 
             let target = appWithConfig(appConfig: targetConfig)
+            // 目标小程序沿用 opener 的 navigationController，方向能力也跟着沿用：宿主是对这条导航栈开的口子，换一个小程序占用它不改变宿主的意图。
             target.getNavigator()?.setup(
                 navigationController: navigationController,
-                preserving: preservedViewControllers
+                preserving: preservedViewControllers,
+                pageOrientationEnabled: openerNavigator.pageOrientationEnabled
             )
 
             let launchConfig = DMPLaunchConfig(

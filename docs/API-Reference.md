@@ -216,6 +216,8 @@ DMPApp.init(context, { virtualFilePrefix: 'host-file://' })
 
 微信小游戏通过 `app.runtimeType = "game"` 进入无 Page/WXML 的 Canvas 运行模式。下表中的小游戏入口、Canvas、触摸和前后台事件由共享 Service/Render 实现，四端容器负责透传运行类型。当前专属能力边界见[微信小游戏运行](./Mini-Game.md)。
 
+原生页面方向能力默认关闭，由宿主显式启用；配置、resize 派发、接入步骤和平台限制见[页面方向与窗口尺寸](./page-orientation.md)。
+
 | 分类          | API 名称                         | Android | iOS | Harmony | Web |
 | ------------- | -------------------------------- | ------- | --- | ------- | --- |
 | 基础          | env                              | ✓       | ✓   | ✓       | ✓   |
@@ -289,6 +291,8 @@ DMPApp.init(context, { virtualFilePrefix: 'host-file://' })
 |               | hideLoading                      | ✓       | ✓   | ✓       | ✓   |
 | 界面 - 导航栏 | setNavigationBarTitle            | ✓       | ✓   | ✓       | ✓   |
 |               | setNavigationBarColor            | ✓       | ✓   | ✓       | ✓   |
+| 界面 - 窗口   | onWindowResize                   | ✓       | ✓   | ✓       | ✓   |
+|               | offWindowResize                  | ✓       | ✓   | ✓       | ✓   |
 | 界面 - 滚动   | pageScrollTo                     | ✓       | ✓   | ✓       | ✓   |
 | 界面 - 菜单   | getMenuButtonBoundingClientRect  | ✓       | ✓   | ✓       | ✓   |
 |               | onMenuButtonBoundingClientRectWeightChange | ✓ | ✓ | ✓ | ✓ |

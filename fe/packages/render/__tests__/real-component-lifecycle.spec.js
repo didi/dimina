@@ -201,11 +201,16 @@ describe('compiled page lifecycle with repeated real components', () => {
 		expect(new Set(mountedComponents.map(instance => instance.__id__)).size).toBe(2)
 		expect(mountedComponents.map(instance => instance.properties.instanceId).sort()).toEqual(['probe-a', 'probe-b'])
 
-		globalThis.DiminaServiceBridge.onMessage({ type: 'pageHide', body: { bridgeId } })
+		// resize 只属于当前显示周期；先结算，再验证真实 render 实例后续的
+		// hide、routeDone 和 detached 生命周期仍按各自 owner 隔离。
+		vi.useFakeTimers()
 		globalThis.DiminaServiceBridge.onMessage({
 			type: 'pageResize',
-			body: { bridgeId, size: { width: 320, height: 640 } },
+			body: { bridgeId, size: { windowWidth: 320, windowHeight: 640 } },
 		})
+		vi.advanceTimersByTime(16)
+		vi.useRealTimers()
+		globalThis.DiminaServiceBridge.onMessage({ type: 'pageHide', body: { bridgeId } })
 		globalThis.DiminaServiceBridge.onMessage({ type: 'pageRouteDone', body: { bridgeId } })
 		globalThis.DiminaServiceBridge.onMessage({ type: 'pageUnload', body: { bridgeId } })
 
@@ -226,11 +231,11 @@ describe('compiled page lifecycle with repeated real components', () => {
 				logs
 					.filter(log => log.scope === 'component' && log.instance === instanceId)
 					.map(log => log.event),
-			).toEqual(['created', 'attached', 'show', 'ready', 'hide', 'resize', 'routeDone', 'detached'])
+			).toEqual(['created', 'attached', 'show', 'ready', 'resize', 'hide', 'routeDone', 'detached'])
 		}
 		expect(
 			logs.filter(log => log.scope === 'page').map(log => log.event),
-		).toEqual(['onLoad', 'onShow', 'onReady', 'onHide', 'onResize', 'onUnload'])
+		).toEqual(['onLoad', 'onShow', 'onReady', 'onResize', 'onHide', 'onUnload'])
 
 		const eventIndex = (scope, event, instance) => logs.findIndex(log => (
 			log.scope === scope && log.event === event && (!instance || log.instance === instance)

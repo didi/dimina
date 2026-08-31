@@ -59,6 +59,20 @@ public class DMPUIManager {
         return displayInfo
     }
 
+    /// The window scene's current interface orientation, as `portrait` / `landscape`.
+    /// This is the single source of truth `getSystemSetting` and `getSystemInfo` both read for `deviceOrientation` — it reflects what is actually on screen, unlike `UIDevice.current.orientation`, which reports the device's raw physical attitude and falls back to `portrait` even when the device is face up/down or the attitude is unknown (a rotation-locked user, or a page pinned away from the device's physical attitude, would otherwise be reported wrong).
+    public func currentDeviceOrientation() -> String {
+        guard let windowScene = DMPUIManager.getCurrentWindow()?.windowScene else {
+            return "portrait"
+        }
+        switch windowScene.interfaceOrientation {
+        case .landscapeLeft, .landscapeRight:
+            return "landscape"
+        default:
+            return "portrait"
+        }
+    }
+
     public func prepareUI() {
         _ = getStatusBarHeight()
         _ = getSafeAreaInsets()

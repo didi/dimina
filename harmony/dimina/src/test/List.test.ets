@@ -11,7 +11,7 @@ import dmpMiniProgramPresentationStackTest from './DMPMiniProgramPresentationSta
 import dmpAppModuleManagerLifecycleTest from './DMPAppModuleManagerLifecycle.test';
 import dmpWorkerFlushBarrierTest from './DMPWorkerFlushBarrier.test';
 import dmpMiniProgramNavigationCallbackTest from './DMPMiniProgramNavigationCallback.test';
-import dmpAppRuntimeLifecycleTest from './DMPAppRuntimeLifecycle.test';
+  import dmpAppRuntimeLifecycleTest from './DMPAppRuntimeLifecycle.test';
 import dmpContainerCallbackContractTest from './DMPContainerCallbackContract.test';
 import dmpWebResourceImageFormatTest from './DMPWebResourceImageFormat.test';
 import dmpNavigatorManagerPageDispatchTest from './DMPNavigatorManagerPageDispatch.test';
@@ -21,7 +21,8 @@ import dmpFileUrlConvertorTest from './DMPFileUrlConvertor.test';
 import dmpCanvasCallbackTest from './DMPCanvasCallback.test';
 import dmpCanvasExportJobRegistryTest from './DMPCanvasExportJobRegistry.test';
 import dmpCanvasExportWriteQueueTest from './DMPCanvasExportWriteQueue.test';
-import dmpJavaScriptDebuggerConfigTest from './DMPJavaScriptDebuggerConfig.test';
+  import dmpJavaScriptDebuggerConfigTest from './DMPJavaScriptDebuggerConfig.test';
+  import pageOrientationGeometryGateTest from './PageOrientationGeometryGate.test';
 
 export default function testsuite() {
   localUnitTest();
@@ -48,4 +49,5 @@ export default function testsuite() {
   dmpCanvasExportJobRegistryTest();
   dmpCanvasExportWriteQueueTest();
   dmpJavaScriptDebuggerConfigTest();
+  pageOrientationGeometryGateTest();
 }

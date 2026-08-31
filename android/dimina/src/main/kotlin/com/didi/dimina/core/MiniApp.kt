@@ -93,12 +93,16 @@ class MiniApp private constructor() {
      * @param miniProgram The MiniProgram to open
      */
     fun openApp(context: Activity, miniProgram: MiniProgram) {
+        openApp(context, miniProgram, null)
+    }
+
+    fun openApp(context: Activity, miniProgram: MiniProgram, pageOrientation: String?) {
         // Initialize or get JsCore for this MiniProgram
         val alreadyRunning = isRunning(miniProgram.appId)
         getOrCreateJsCore(miniProgram.appId, context)
 
         try {
-            DiminaActivity.launch(context, miniProgram)
+            DiminaActivity.launch(context, miniProgram, flag = null, pageOrientation = pageOrientation)
         } catch (error: Exception) {
             // The runtime is registered before the Activity exists. A start that never happened
             // would otherwise leave [isRunning] true with no Activity to ever clear it, and every

@@ -59,18 +59,8 @@ public class SystemAPI: DMPContainerApi {
         // Wi-Fi 开关状态（iOS 无法直接获取）
         let wifiEnabled = false
 
-        // 设备方向
-        let deviceOrientation: String
-        let orientation = UIDevice.current.orientation
-        switch orientation {
-        case .landscapeLeft, .landscapeRight:
-            deviceOrientation = "landscape"
-        case .portrait, .portraitUpsideDown:
-            deviceOrientation = "portrait"
-        default:
-            // 默认为竖屏
-            deviceOrientation = "portrait"
-        }
+        // 设备方向：取界面方向而非 UIDevice.current.orientation 的物理姿态—— 后者在平放或用户锁定旋转时仍会谎报 portrait，与 getSystemInfo 共用 DMPUIManager.currentDeviceOrientation() 这一个来源
+        let deviceOrientation = DMPUIManager.shared.currentDeviceOrientation()
 
         // 填充结果
         result["bluetoothEnabled"] = bluetoothEnabled
@@ -121,8 +111,10 @@ public class SystemAPI: DMPContainerApi {
             "cameraAuthorized": false,
             "locationAuthorized": false,
             "microphoneAuthorized": false,
-            
+
             "theme": UITraitCollection.current.userInterfaceStyle == .dark ? "dark" : "light",
+            // getSystemInfo and getSystemSetting expose the same interface-orientation fact.
+            "deviceOrientation": DMPUIManager.shared.currentDeviceOrientation(),
         ])
         
         // 合并显示信息

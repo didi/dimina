@@ -73,11 +73,18 @@ export struct DMPPage {
     .hideTitleBar(true)
     .expandSafeArea([SafeAreaType.KEYBOARD])
     .onShown(() => {
+      // 共享窗口只有一个，谁的页面被 Navigation 显示出来（包括被上层 push 盖住后又因为上层 pop 重新露出），谁就是当前拥有窗口的 app——单一权威见 DMPAppManager
+      if (this.app) {
+        DMPAppManager.sharedInstance().notifyPageShown(this.app.appIndex, this.webViewId)
+      }
       DMPWindowUtil.setWindowBarDarkMode(getContext(this), this.getPageStyle()?.isStatusBarDarkMode() ?? false)
 
     })
     .onHidden(() => {
-
+      // 按页面身份移除可见记录；重复回调不会留下虚假的可见页。
+      if (this.app) {
+        DMPAppManager.sharedInstance().notifyPageHidden(this.app.appIndex, this.webViewId)
+      }
     })
     .onBackPressed(() => {
       // 如果页面还没有 onready 添加事件拦截
@@ -104,5 +111,4 @@ export struct DMPPage {
     return undefined;
   }
 }
-
 

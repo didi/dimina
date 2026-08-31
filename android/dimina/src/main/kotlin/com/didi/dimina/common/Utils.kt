@@ -108,7 +108,12 @@ object Utils {
             homeButton = pagePrivateConfig.homeButton
                 ?: appWindowConfig.homeButton ?: false,
             usingComponents = pagePrivateConfig.usingComponents ?: emptyMap()
-        )
+        ).apply {
+            pageOrientation = PageOrientation.resolve(
+                pagePrivateConfig.pageOrientation,
+                appWindowConfig.pageOrientation,
+            )
+        }
     }
 
     private const val CHARACTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"

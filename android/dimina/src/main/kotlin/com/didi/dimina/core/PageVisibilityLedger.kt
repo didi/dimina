@@ -22,15 +22,20 @@ internal class PageVisibilityLedger(private val deliver: (PageVisibilityDelivery
     private var ready = false
     private var desiredVisible: Boolean? = null
     private var sentVisible: Boolean? = null
+    private var beforeShow: (() -> Unit)? = null
 
     /**
      * [Bridge.start] seeds the initial intent: an explicit value wins, otherwise an intent
-     * already recorded (e.g. an early [onHide]) is kept, otherwise a page starts out wanting to
-     * be shown.
+     * already recorded (e.g. an early [onHide]) is kept. Callers that own the first pageShow can
+     * keep the intent unset until their geometry gate explicitly allows it; other pages default to
+     * shown.
      */
     @Synchronized
-    fun onStart(explicitVisible: Boolean? = null) {
-        desiredVisible = explicitVisible ?: (desiredVisible ?: true)
+    fun onStart(
+        explicitVisible: Boolean? = null,
+        defaultVisible: Boolean = true,
+    ) {
+        desiredVisible = explicitVisible ?: desiredVisible ?: if (defaultVisible) true else null
         flush()
     }
 
@@ -42,8 +47,24 @@ internal class PageVisibilityLedger(private val deliver: (PageVisibilityDelivery
 
     @Synchronized
     fun onHide() {
+        // Setup queued for the display cycle being hidden must not leak into a later show.
+        beforeShow = null
         desiredVisible = false
         flush()
+    }
+
+    /**
+     * Keep only the latest setup for the current display cycle and run it before its show.
+     * Returns false if that show was already delivered, so the caller can send the setup now.
+     */
+    @Synchronized
+    fun beforeNextShow(action: () -> Unit): Boolean {
+        if (ready && sentVisible == true) {
+            return false
+        }
+        beforeShow = action
+        flush()
+        return true
     }
 
     /** Both resources have now loaded. A no-op past the first call for this generation. */
@@ -59,6 +80,7 @@ internal class PageVisibilityLedger(private val deliver: (PageVisibilityDelivery
         ready = false
         desiredVisible = null
         sentVisible = null
+        beforeShow = null
     }
 
     private fun flush() {
@@ -73,6 +95,10 @@ internal class PageVisibilityLedger(private val deliver: (PageVisibilityDelivery
         }
 
         sentVisible = visible
+        if (visible) {
+            beforeShow?.invoke()
+            beforeShow = null
+        }
         deliver(if (visible) PageVisibilityDelivery.SHOW else PageVisibilityDelivery.HIDE)
     }
 }

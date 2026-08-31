@@ -38,6 +38,11 @@ final class DMPTabBarContainerController: UIViewController {
         tabControllers[selectedIndex]
     }
 
+    // 这个容器（而非某个具体 tab 页）才是被压进导航栈的 topViewController，DMPNavigationController 只转发到 topViewController，因此这里必须自己转发到当前选中 tab，否则 tabBar 页的 pageOrientation 永远不生效
+    override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
+        currentPageController?.supportedInterfaceOrientations ?? .portrait
+    }
+
     init(
         initialPath: String,
         query: [String: Any]?,
@@ -127,6 +132,7 @@ final class DMPTabBarContainerController: UIViewController {
         tabBarView.selectedIndex = index
         attachLoadedTabIfNeeded(index)
         updateVisibleTab()
+        // DMPNavigator 的统一 pageShow scheduler 在登记好 geometry generation 后提交方向，避免这里先发请求、后登记 lifecycle 导致快速 transition 越过账本。
         return record
     }
 
@@ -143,6 +149,10 @@ final class DMPTabBarContainerController: UIViewController {
     /// 需要能定位到后台 tab 的记录
     func pageRecord(webViewId: Int) -> DMPPageRecord? {
         return tabPageRecords.values.first { $0.webViewId == webViewId }
+    }
+
+    func pageController(webViewId: Int) -> DMPPageController? {
+        return tabControllers.values.first { $0.getWebView().getWebViewId() == webViewId }
     }
 
     func setTabBarStyle(

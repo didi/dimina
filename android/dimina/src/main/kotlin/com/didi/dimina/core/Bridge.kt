@@ -49,6 +49,8 @@ class Bridge(
     @Volatile
     private var resourceLoadedForwarded: Boolean = false
     @Volatile
+    private var pageMessagesReady: Boolean = false
+    @Volatile
     private var destroyed: Boolean = false
     @Volatile
     private var resourceLoadId: String? = null
@@ -57,6 +59,9 @@ class Bridge(
             if (delivery == PageVisibilityDelivery.SHOW) "pageShow" else "pageHide",
             mapOf("bridgeId" to id)
         )
+        if (delivery == PageVisibilityDelivery.SHOW) {
+            onPageShownToService?.invoke(this)
+        }
     }
 
     /**
@@ -92,11 +97,17 @@ class Bridge(
     /**
      * Start the bridge by loading resources in both render thread and logic thread.
      */
-    fun start(visible: Boolean? = null) {
+    fun start(
+        visible: Boolean? = null,
+        ownerGatesInitialVisibility: Boolean = false,
+    ) {
         val currentResourceLoadId = synchronized(this) {
             destroyed = false
             resourceLoadId = Utils.uuid()
-            pageVisibilityLedger.onStart(visible)
+            pageVisibilityLedger.onStart(
+                explicitVisible = visible,
+                defaultVisible = !ownerGatesInitialVisibility,
+            )
             resourceLoadId!!
         }
 
@@ -305,6 +316,7 @@ class Bridge(
         }
         options.jscore.postMessage(msg.toString())
         if (msg.optString("type") == "resourceLoaded") {
+            pageMessagesReady = true
             pageVisibilityLedger.onResourceReady()
         }
     }
@@ -317,6 +329,49 @@ class Bridge(
         pageVisibilityLedger.onHide()
     }
 
+    fun pageResize(
+        screenWidth: Int,
+        screenHeight: Int,
+        windowWidth: Int,
+        windowHeight: Int,
+        deviceOrientation: String,
+        originalPageOrientation: String,
+        onDelivered: (() -> Unit)? = null,
+    ): Boolean {
+        val message =
+            JSONObject().apply {
+                put("type", "pageResize")
+                put("body", JSONObject().apply {
+                    put("bridgeId", id)
+                    put("size", JSONObject().apply {
+                        put("screenWidth", screenWidth)
+                        put("screenHeight", screenHeight)
+                        put("windowWidth", windowWidth)
+                        put("windowHeight", windowHeight)
+                    })
+                    put("deviceOrientation", deviceOrientation)
+                    put("pageOrientation", JSONObject().apply {
+                        put("originalPageOrientation", originalPageOrientation)
+                    })
+                })
+            }.toString()
+        if (!pageMessagesReady) {
+            val queued = pageVisibilityLedger.beforeNextShow {
+                options.jscore.postMessage(message)
+                onDelivered?.invoke()
+            }
+            if (queued) {
+                return false
+            }
+        }
+        options.jscore.postMessage(message)
+        onDelivered?.invoke()
+        return true
+    }
+
+    /** Invoked only when the visibility ledger has delivered pageShow to service. */
+    var onPageShownToService: ((Bridge) -> Unit)? = null
+
     fun destroy(
         keepHandler: Boolean = false,
         reason: PageStateTeardown = PageStateTeardown.ROUTING,
@@ -328,6 +383,7 @@ class Bridge(
             serviceResource = false
             renderResource = false
             resourceLoadedForwarded = false
+            pageMessagesReady = false
             resourceLoadId = null
             pageVisibilityLedger.reset()
         }

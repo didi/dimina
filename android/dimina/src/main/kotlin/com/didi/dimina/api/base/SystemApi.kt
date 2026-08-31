@@ -18,7 +18,6 @@ import com.didi.dimina.api.AsyncResult
 import com.didi.dimina.api.BaseApiHandler
 import com.didi.dimina.api.SyncResult
 import com.didi.dimina.common.ApiUtils
-import com.didi.dimina.common.Utils
 import com.didi.dimina.engine.qjs.JSValue
 import com.didi.dimina.ui.container.DiminaActivity
 import org.json.JSONObject
@@ -61,7 +60,11 @@ class SystemApi : BaseApiHandler() {
             }
 
             GET_WINDOW_INFO -> {
-                SyncResult(JSValue.createObject(Utils.getMiniProgramSystemInfo(activity).toString()))
+                SyncResult(
+                    JSValue.createObject(
+                        DiminaActivity.getMiniProgramSystemInfo(activity, appId).toString(),
+                    ),
+                )
             }
 
             GET_SYSTEM_SETTING -> {
@@ -100,19 +103,19 @@ class SystemApi : BaseApiHandler() {
             }
 
             GET_SYSTEM_INFO_SYNC -> {
-                SyncResult(JSValue.createObject(getSystemInfo(activity).toString()))
+                SyncResult(JSValue.createObject(getSystemInfo(activity, appId).toString()))
             }
 
             GET_SYSTEM_INFO_ASYNC -> {
                 // Implementation of system info getter
-                AsyncResult(getSystemInfo(activity).apply {
+                AsyncResult(getSystemInfo(activity, appId).apply {
                     put("errMsg", "$GET_SYSTEM_INFO_ASYNC:ok")
                 })
             }
 
             GET_SYSTEM_INFO -> {
                 // 特殊情况：异步的调用格式，但是是同步返回
-                val result = getSystemInfo(activity)
+                val result = getSystemInfo(activity, appId)
                 ApiUtils.invokeSuccess(params, result, responseCallback)
                 SyncResult(JSValue.createObject(result.toString()))
             }
@@ -121,8 +124,8 @@ class SystemApi : BaseApiHandler() {
         }
     }
 
-    private fun getSystemInfo(currentActivity: Activity): JSONObject {
-        return Utils.getMiniProgramSystemInfo(currentActivity)
+    private fun getSystemInfo(currentActivity: DiminaActivity, appId: String): JSONObject {
+        return DiminaActivity.getMiniProgramSystemInfo(currentActivity, appId)
     }
 
     private fun getBluetoothStatus(activity: Activity): Boolean {

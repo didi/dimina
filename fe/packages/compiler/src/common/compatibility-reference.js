@@ -114,6 +114,8 @@ const supportedWxApis = [
 	"hideLoading",
 	"setNavigationBarTitle",
 	"setNavigationBarColor",
+	"onWindowResize",
+	"offWindowResize",
 	"pageScrollTo",
 	"getMenuButtonBoundingClientRect",
 	"onMenuButtonBoundingClientRectWeightChange",

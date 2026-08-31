@@ -500,13 +500,17 @@ describe('Skyline/exparser lifecycle ordering', () => {
 	it('dispatches page lifetimes in component-tree DFS order and detaches in post-order', () => {
 		const calls = []
 		const bridgeId = 'bridge-tree-order'
+		let pageResizeRes
 		const page = {
 			__id__: 'page',
 			__type__: PageModule.type,
 			initd: true,
 			pageShow: () => calls.push('page:show'),
 			pageHide: () => calls.push('page:hide'),
-			pageResize: () => calls.push('page:resize'),
+			pageResize: (res) => {
+				calls.push('page:resize')
+				pageResizeRes = res
+			},
 			pageUnload: () => calls.push('page:unload'),
 			pageDetached: () => calls.push('page:detached'),
 		}
@@ -532,18 +536,26 @@ describe('Skyline/exparser lifecycle ordering', () => {
 		runtime.instances[bridgeId] = { page, a, b, 'a-child': aChild }
 
 		runtime.pageShow({ bridgeId })
+		// pageResize 只属于当前显示周期；在 hide 前结算，同时守护可见页面的 DFS 调用顺序。
+		vi.useFakeTimers()
+		runtime.pageResize({ bridgeId, size: { windowWidth: 320, windowHeight: 640 } })
+		vi.advanceTimersByTime(16)
+		vi.useRealTimers()
 		runtime.pageHide({ bridgeId })
-		runtime.pageResize({ bridgeId, size: { width: 320 } })
 		runtime.componentRouteDone({ bridgeId })
 		runtime.pageUnload({ bridgeId })
 
 		expect(calls).toEqual([
 			'a:show', 'a-child:show', 'b:show', 'page:show',
-			'a:hide', 'a-child:hide', 'b:hide', 'page:hide',
 			'a:resize', 'a-child:resize', 'b:resize', 'page:resize',
+			'a:hide', 'a-child:hide', 'b:hide', 'page:hide',
 			'a:routeDone', 'a-child:routeDone', 'b:routeDone',
 			'page:unload', 'a-child:detached', 'a:detached', 'b:detached', 'page:detached',
 		])
+
+		// windowWidth 320 <= windowHeight 640 时，缺失的 deviceOrientation 兜底为 portrait。
+		expect(pageResizeRes.size.windowWidth).toBe(320)
+		expect(pageResizeRes.deviceOrientation).toBe('portrait')
 	})
 
 	it('keeps lifecycle state isolated for sibling instances created from the same component module', () => {
@@ -621,8 +633,12 @@ describe('Skyline/exparser lifecycle ordering', () => {
 		runtime.moduleReady({ bridgeId, moduleId: siblingA.__id__ })
 		runtime.moduleReady({ bridgeId, moduleId: siblingB.__id__ })
 		runtime.pageShow({ bridgeId })
+		// resize 只属于当前显示周期；先结算，再验证 sibling 的 hide/routeDone/detached 状态互不串扰。
+		vi.useFakeTimers()
+		runtime.pageResize({ bridgeId, size: { windowWidth: 320, windowHeight: 640 } })
+		vi.advanceTimersByTime(16)
+		vi.useRealTimers()
 		runtime.pageHide({ bridgeId })
-		runtime.pageResize({ bridgeId, size: { width: 320, height: 640 } })
 		runtime.componentRouteDone({ bridgeId })
 		runtime.pageUnload({ bridgeId })
 
@@ -633,12 +649,12 @@ describe('Skyline/exparser lifecycle ordering', () => {
 		// WeChat does not promise an observable order between sibling instances.
 		// Assert each instance and the page boundary independently instead.
 		expect(lifecycleOf('sibling-a')).toEqual([
-			'created', 'attached', 'ready', 'show', 'hide', 'resize', 'routeDone', 'detached',
+			'created', 'attached', 'ready', 'show', 'resize', 'hide', 'routeDone', 'detached',
 		])
 		expect(lifecycleOf('sibling-b')).toEqual([
-			'created', 'attached', 'ready', 'show', 'hide', 'resize', 'routeDone', 'detached',
+			'created', 'attached', 'ready', 'show', 'resize', 'hide', 'routeDone', 'detached',
 		])
-		expect(lifecycleOf('page')).toEqual(['show', 'hide', 'resize', 'unload', 'detached'])
+		expect(lifecycleOf('page')).toEqual(['show', 'resize', 'hide', 'unload', 'detached'])
 		expect(calls).toHaveLength(21)
 
 		for (const event of ['show', 'hide', 'resize']) {

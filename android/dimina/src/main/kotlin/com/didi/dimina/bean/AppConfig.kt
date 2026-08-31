@@ -31,7 +31,10 @@ data class WindowConfig(
     val backgroundColor: String? = null,
     val navigationStyle: String? = null,
     val homeButton: Boolean? = null,
-)
+) {
+    // Keep the published constructor unchanged for precompiled Kotlin hosts.
+    var pageOrientation: String? = null
+}
 
 @Serializable
 data class TabBarConfig(
@@ -89,4 +92,7 @@ data class PageModule(
     val navigationStyle: String? = null,
     val homeButton: Boolean? = null,
     val usingComponents: Map<String, String>? = null
-)
+) {
+    // Keep the published constructor unchanged for precompiled Kotlin hosts.
+    var pageOrientation: String? = null
+}

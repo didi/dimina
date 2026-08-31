@@ -38,11 +38,15 @@ import { DMPAppRuntimeLifecycle } from './utils/DMPAppRuntimeLifecycle'
 import { DMPAppVisibilityLedger } from './utils/DMPAppVisibilityLedger'
 import { CanvasExportJobRegistry } from '../Bridges/CanvasExportJobRegistry'
 import { DMPJavaScriptSourceURL } from '../Service/DMPJavaScriptSourceURL'
+import { DMPPageLifecycle } from '../DPages/DMPPageLifecycle'
+import { DMPPageOrientationCapability } from '../DPages/DMPPageOrientationCapability'
 import { DMPDefaultVirtualFilePrefix, DMPVirtualFileConfig } from '../Bundle/Util/DMPFileUrlConvertor'
 export type DMPBundleUpdateCallback = () => void;
 
 export interface DMPAppInitOptions {
   apiNamespaces?: string[];
+  /** Disabled by default so an SDK upgrade does not change the host window's orientation policy. */
+  pageOrientationEnabled?: boolean;
   virtualFilePrefix?: string;
 }
 
@@ -55,8 +59,10 @@ export class DMPApp {
   private _container: DMPContainer = new DMPContainer(this)
   private static _context: common.UIAbilityContext
   private static _apiNamespaces: string[] = []
+  private static _pageOrientationEnabled: boolean = false
   private _containerBridges: DMPBridges = new DMPBridges()
   private static _entryContext: DMPEntryContext
+  private static _isInitialized: boolean = false
   private _appModuleManagerLifecycle: DMPAppModuleManagerLifecycle
   private _mapManager: DMPMapManager = new DMPMapManager(this)
   private _runtimeGeneration: number = 0
@@ -71,12 +77,48 @@ export class DMPApp {
   private _service: DMPService
   private _engineStatus: StatusMonitor<EngineStatus> = new StatusMonitor()
   private _render: DMPRender = new DMPRender(this)
+  /**
+   * 这个小程序最近一次报给 service 的窗口几何，形如 `宽x高@方向`；空串表示还没报过。
+   * 按小程序存而不按页存：窗口只有一个，页面通道由上报时指名的 bridgeId 决定收件人。
+   */
+  lastReportedGeometry: string = ''
   router: DRouter = DRouter.getInstance();
 
   private static readonly deviceMetricsChangeCallback = (_metrics: DMPMap): void => {
     DMPAppManager.sharedInstance().appPools.forEach((app: DMPApp) => {
       app.container.updateHostEnv()
     })
+  }
+
+  // 窗口尺寸/避让区变化时，按当前拥有共享窗口的 app 的栈顶页上报这次已经生效的几何，再重新解算方向；这是「布局确实变了」的唯一信号，方向类 pageResize 只从这里发出。
+  // 与 deviceMetricsChangeCallback 是同一订阅点的两个独立回调，不把这条逻辑塞进 updateHostEnv（那条按设计要影响 theme 等既有订阅方的所有 app，见 DMPPageLifecycle.applyOrientation）。
+  // appPools 里可能同时驻留多个 app 实例（切回小程序列表又打开另一个，旧的并未退出），但窗口只有一个——只认 DMPAppManager 记录的那个前台 app，不再遍历 appPools 给每个 app 都发一遍，否则后台 app 会替可见 app 抢窗口、隐藏 app 的业务代码也会收到它并不拥有的几何变化
+  private static readonly pageOrientationMetricsChangeCallback = (_metrics: DMPMap): void => {
+    const foregroundApp = DMPAppManager.sharedInstance().getForegroundApp()
+    if (!foregroundApp) {
+      return
+    }
+    const webViewId = foregroundApp.currentWebViewId
+    const navigator = foregroundApp.navigatorManager.findNavigatorByWebViewId(webViewId)
+      ?? foregroundApp.navigatorManager.getCurNavigator()
+    // 押着的 pageShow 先放行：service 只把已经 show 的页面登记成 Page.onResize 的收件人。
+    // 放行了就是一次路由落地，那条上报不比对几何；否则这只是一次窗口事件，几何没动就不该惊动业务代码（同一条订阅上还挂着键盘、状态栏）。
+    const released: boolean =
+      navigator?.getNavigator().pageLifecycle.flushPendingPageShow(webViewId) ?? false
+    if (released) {
+      DMPPageLifecycle.reportRouteGeometry(foregroundApp, webViewId)
+    } else {
+      DMPPageLifecycle.reportGeometryIfChanged(foregroundApp, webViewId)
+    }
+    DMPPageLifecycle.applyOrientation(foregroundApp, webViewId)
+  }
+
+  /**
+   * 拿到窗口归属时把栈顶页的方向重新按给窗口。
+   * 归属转移的判定在 DMPAppManager，方向的解算在 DMPPageLifecycle——两边都已经依赖 DMPApp，从这里转一手就不用互相导入。
+   */
+  applyCurrentPageOrientation(): void {
+    DMPPageLifecycle.applyOrientation(this, this.currentWebViewId)
   }
 
   public get render(): DMPRender {
@@ -167,10 +209,20 @@ export class DMPApp {
     return DMPApp._entryContext.getWindowStage();
   }
 
+  static isPageOrientationEnabled(): boolean {
+    return DMPApp._pageOrientationEnabled
+  }
+
   static init(context: DMPEntryContext, options?: DMPAppInitOptions) {
+    // 同一进程里 WindowStage 可能被销毁后重建；先拆旧账本，确保每个 owner 只有一组 windowStage/metrics 监听，不能让重复 init 线性累积回调。
+    DMPApp.dispose()
     DMPApp._entryContext = context;
     DMPApp._context = DMPApp._entryContext.getContext();
     DMPApp._apiNamespaces = options?.apiNamespaces ?? [];
+    DMPApp._pageOrientationEnabled =
+      DMPPageOrientationCapability.isEnabled(options?.pageOrientationEnabled)
+    // 从这里起 dispose 已有足够的 owner 信息可回收部分初始化留下的订阅。
+    DMPApp._isInitialized = true
     DMPVirtualFileConfig.configure(options?.virtualFilePrefix ?? DMPDefaultVirtualFilePrefix);
     ImageKnife.getInstance()
       .initFileCache(DMPApp._entryContext.getContext())
@@ -184,6 +236,25 @@ export class DMPApp {
       DMPDeviceUtil.prepareSafeAreaAndDisplayWH(DMPApp._entryContext.getContext())
     }
     DMPDeviceUtil.addMetricsChangeListener(DMPApp.deviceMetricsChangeCallback)
+    if (DMPApp._pageOrientationEnabled) {
+      DMPDeviceUtil.addMetricsChangeListener(DMPApp.pageOrientationMetricsChangeCallback)
+    }
+  }
+
+  /** WindowStage owner teardown; safe to call repeatedly. */
+  static dispose(): void {
+    if (!DMPApp._isInitialized) {
+      return
+    }
+    try {
+      DMPApp._entryContext.getWindowStage().off('windowStageEvent', DMPAppLifecycle.onWindowStageEvent)
+    } catch (_) {
+    }
+    DMPDeviceUtil.removeMetricsChangeListener(DMPApp.deviceMetricsChangeCallback)
+    DMPDeviceUtil.removeMetricsChangeListener(DMPApp.pageOrientationMetricsChangeCallback)
+    DMPDeviceUtil.releaseWindowObservation()
+    DMPApp._pageOrientationEnabled = false
+    DMPApp._isInitialized = false
   }
 
   getWebController(webViewId: number): DMPWebViewController {
