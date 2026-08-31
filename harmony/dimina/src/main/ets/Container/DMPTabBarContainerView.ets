@@ -24,7 +24,12 @@ export struct DMPTabBarContainerView {
   @State tabPageRecords: Map<number, DMPPageRecord> = new Map()
 
   aboutToDisappear() {
-    // 容器被销毁时清掉 tab 跟踪标记，避免 reLaunch / 退出后残留导致 currentWebViewId 错指
+    // 容器被销毁时注销本地加载过的 tab 记录：非首个 tab 从 loadTabPageAtIndex 走 registerTabPageRecord 直接进 webViewIdAndPageRecordMaps，从未进入 _stacks/globalPageRecordStack（见 DMPNavigator.createPageRecordForTab 里的注释），redirectTo / reLaunch 清栈时只会弹到进了栈的记录，弹不到它们——不在这里主动注销的话，这些记录会在 webViewIdAndPageRecordMaps 里永久残留
+    this.tabPageRecords.forEach((record) => {
+      this.app?.navigatorManager?.unregisterTabPageRecord(record.webViewId)
+    })
+    this.tabPageRecords.clear()
+    // 避免 reLaunch / 退出后残留导致 currentWebViewId 错指
     this.app?.navigatorManager?.clearCurrentTabWebViewId()
   }
 

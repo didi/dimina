@@ -59,6 +59,35 @@ class MiniProgramActivityRegistryTest {
     }
 
     @Test
+    fun `closeTopPages honors delta and keeps the root registered`() {
+        val registry = MiniProgramActivityRegistry<String>()
+        registry.register("app", "root")
+        registry.register("app", "page-1")
+        registry.register("app", "page-2")
+        registry.register("app", "page-3")
+
+        val closed = mutableListOf<String>()
+        registry.closeTopPages("app", 2, closed::add)
+        registry.closeAll("app", closed::add)
+
+        assertEquals(listOf("page-3", "page-2", "page-1", "root"), closed)
+    }
+
+    @Test
+    fun `closeTopPages clamps an excessive delta without closing the root`() {
+        val registry = MiniProgramActivityRegistry<String>()
+        registry.register("app", "root")
+        registry.register("app", "page")
+
+        val closed = mutableListOf<String>()
+        registry.closeTopPages("app", 99, closed::add)
+        registry.closeTopPages("app", 1, closed::add)
+        registry.closeAll("app", closed::add)
+
+        assertEquals(listOf("page", "root"), closed)
+    }
+
+    @Test
     fun `closeAllExcept closes every other page in top to root order and returns the kept page`() {
         val registry = MiniProgramActivityRegistry<String>()
         registry.register("app-a", "root")

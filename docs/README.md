@@ -18,6 +18,7 @@ Dimina（星河小程序）由 DMCC 编译器、逻辑层与渲染层运行时�
 | 排查 Canvas 节点、绘制顺序、内存限制或导出生命周期 | [Canvas 运行架构](./canvas-architecture.md) | compiler、service / render 与三端 native 导出实现 |
 | 接入内置包或远程更新 | [小程序包更新](./MiniProgram-Update.md) | 对应平台的 Bundle Loader 实现 |
 | 查看 WebSocket API、事件与平台限制 | [WebSocket 能力](./websocket-architecture.md) | 对应平台的 Manager 与校验源码 |
+| 接入横竖屏与窗口 resize | [页面方向与窗口尺寸](./page-orientation.md) | 对应平台的 SDK 接入文档 |
 | 排查点击、长按或 `label` 激活的行为 | [触摸事件与手势](./touch-event-architecture.md) | `components` 的手势与组件源码 |
 | 参与前端框架开发 | [前端工程说明](../fe/README.md) | [贡献指南](../CONTRIBUTING.md) |
 
@@ -32,8 +33,9 @@ Dimina（星河小程序）由 DMCC 编译器、逻辑层与渲染层运行时�
 7. [Canvas 运行架构](./canvas-architecture.md)：legacy / node / 小游戏入口、DOM 归属、操作队列、内存预算与导出生命周期。
 8. [小程序包更新](./MiniProgram-Update.md)：内置包、远程 manifest、校验、安装与 `wx.getUpdateManager()`。
 9. [WebSocket 能力](./websocket-architecture.md)：公开 API、`SocketTask` 方法、事件数据、连接规则与平台限制。
-10. [触摸事件与手势](./touch-event-architecture.md)：手势事件的合成规则、传播与 `catch`、`label` 激活和容器事件归属。
-11. [Harmony JavaScript 断点调试](./JavaScript-Debugging.md)：QuickJS attach、虚拟脚本路径与 source map 配置。
+10. [页面方向与窗口尺寸](./page-orientation.md)：配置、resize 派发、原生宿主接入与平台限制。
+11. [触摸事件与手势](./touch-event-architecture.md)：手势事件的合成规则、传播与 `catch`、`label` 激活和容器事件归属。
+12. [Harmony JavaScript 断点调试](./JavaScript-Debugging.md)：QuickJS attach、虚拟脚本路径与 source map 配置。
 
 ## 平台接入
 

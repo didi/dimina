@@ -31,8 +31,23 @@ const dmpConfig: DMPEntryContext = {
     return windowStage;
   }
 };
-DMPApp.init(dmpConfig, { virtualFilePrefix: 'host-file://' });
+DMPApp.init(dmpConfig, {
+  pageOrientationEnabled: true,
+  virtualFilePrefix: 'host-file://'
+});
 ```
+
+WindowStage 是窗口监听的 owner，宿主需要在同一个 EntryAbility 中同步解除 SDK 监听：
+
+```ts
+onWindowStageDestroy(): void {
+  DMPApp.dispose();
+}
+```
+
+`pageOrientationEnabled` 默认为 `false`。旧宿主仅升级 SDK 而不修改初始化代码时，不注册方向专用监听、不调用窗口方向 API，`pageOrientation` 配置不生效。需要方向能力的宿主必须显式传入 `true`。完整配置、事件语义与平台差异见[页面方向与窗口尺寸](../../docs/page-orientation.md)。
+
+同一进程中 WindowStage 重建时可以再次调用 `DMPApp.init`；SDK 会先拆除旧监听。宿主仍应在 `onWindowStageDestroy` 调用 `DMPApp.dispose`，使迟到的窗口方向结果立即失效，避免旧 WindowStage 残留监听。
 
 ### 步骤 3：配置路由
 
@@ -42,6 +57,7 @@ DMPApp.init(dmpConfig, { virtualFilePrefix: 'host-file://' });
   Navigation(this.pageInfos) {
         .....
   }
+  .mode(NavigationMode.Stack)
   .navDestination(this.routerFactory)
 
   @Builder
@@ -53,6 +69,8 @@ DMPApp.init(dmpConfig, { virtualFilePrefix: 'host-file://' });
     }
   }
 ```
+
+必须使用 `NavigationMode.Stack`。ArkUI 的默认模式是 `Auto`，窗口进入横屏后可能自动切换为 `Split`，使宿主导航页和小程序页并排显示。方向能力由 SDK 控制窗口，但外层 `Navigation` 的显示模式由宿主负责。
 
 ### 步骤 4：引入小程序业务代码
 

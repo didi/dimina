@@ -75,7 +75,7 @@ struct ContentView: View {
         if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
             let window = windowScene.windows.first
         {
-            let navController = UINavigationController()
+            let navController = DMPNavigationController()
 
             // 创建一个新的 ContentView 作为根视图，可以自行替换
             let contentView = ContentView()
@@ -94,8 +94,12 @@ struct ContentView: View {
             appConfig.updateManifestUrl = "https://example.com/jsapp/wx92269e3b2f304afc.json" // 可选：远程更新 manifest
             let app: DMPApp = manager.appWithConfig(appConfig: appConfig)
 
-            // 设置导航
-            app.getNavigator()!.setup(navigationController: navController)
+            // 设置导航。DMPNavigationController 会把方向查询转给当前小程序页。
+            app.getNavigator()!.setup(
+                navigationController: navController,
+                pageOrientationEnabled: true
+            )
+            precondition(app.getNavigator()!.pageOrientationSupport == .supported)
 
             // 启动小程序
             Task { @MainActor in
@@ -116,6 +120,44 @@ try await DMPAppManager.sharedInstance().uninstallMiniProgram(
 ```
 
 并发更新、待更新包清理和各端完整行为见[小程序包更新说明](../docs/MiniProgram-Update.md)。
+
+### 步骤 4：启用页面横竖屏
+
+完整配置、事件语义与平台差异见[页面方向与窗口尺寸](../docs/page-orientation.md)。宿主 Info.plist 必须允许小程序可能请求的三个方向：
+
+```xml
+<key>UISupportedInterfaceOrientations</key>
+<array>
+    <string>UIInterfaceOrientationPortrait</string>
+    <string>UIInterfaceOrientationLandscapeLeft</string>
+    <string>UIInterfaceOrientationLandscapeRight</string>
+</array>
+```
+
+如果宿主必须保留自己的 `UINavigationController` 子类，需要在该子类中把三个方向查询转给 `topViewController`，并声明接入契约：
+
+```swift
+final class HostNavigationController: UINavigationController,
+    DMPPageOrientationForwarding
+{
+    override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
+        topViewController?.supportedInterfaceOrientations ?? super.supportedInterfaceOrientations
+    }
+
+    override var shouldAutorotate: Bool {
+        topViewController?.shouldAutorotate ?? super.shouldAutorotate
+    }
+
+    override var preferredInterfaceOrientationForPresentation: UIInterfaceOrientation {
+        topViewController?.preferredInterfaceOrientationForPresentation
+            ?? super.preferredInterfaceOrientationForPresentation
+    }
+}
+```
+
+旧的 `setup(navigationController:)` 调用保持源码兼容，并默认关闭方向能力；即使传入 `DMPNavigationController`，不显式设置 `pageOrientationEnabled: true` 也不会注册方向监听或改变窗口方向，此时 `pageOrientationSupport` 返回 `.disabled`。显式启用但仍使用普通 `UINavigationController` 时返回 `.unsupportedNavigationController`。
+
+小程序与宿主共享一个 `UIWindowScene`；宿主普通页面应返回自己的方向 mask。单 Scene、退出恢复和旋转锁限制以专题文档为准。
 
 #### 调试模式与 vConsole
 

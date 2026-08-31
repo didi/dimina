@@ -99,7 +99,7 @@ class DiminaActivityBackgroundHookTest {
         assertFalse(onStart.contains(".pageShow("))
 
         val onResume = bodyOf("onResume")
-        assertTrue(onResume.contains(".pageShow("))
+        assertTrue(onResume.contains("notifyPageShowAfterGeometrySettles"))
         assertFalse(onResume.contains(".appShow("))
         assertFalse(onResume.contains("consumePendingAppShowOptions"))
 

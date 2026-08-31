@@ -79,11 +79,12 @@ export default class EntryAbility extends UIAbility {
         return windowStage;
       }
     };
-    DMPApp.init(dmpConfig);
+    DMPApp.init(dmpConfig, { pageOrientationEnabled: true });
   }
 
   onWindowStageDestroy(): void {
-    // Main window is destroyed, release UI related resources
+    // WindowStage owner synchronously releases its listeners; waiting for a final window event would leave callbacks attached when the platform destroys the stage without emitting one.
+    DMPApp.dispose();
     hilog.info(0x0000, 'testTag', '%{public}s', 'Ability onWindowStageDestroy');
   }
 

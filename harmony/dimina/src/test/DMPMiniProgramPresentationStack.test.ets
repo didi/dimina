@@ -27,6 +27,18 @@ export default function dmpMiniProgramPresentationStackTest() {
       expect(stack.pop(1)).assertUndefined()
       expect(stack.openerAppIndex(1)).assertUndefined()
       expect(stack.top()?.appIndex).assertEqual(2)
+      expect(stack.isTop(1)).assertFalse()
+      expect(stack.isTop(2)).assertTrue()
+    })
+
+    it('allowsPageShowOnlyForThePresentedAppWhileTheHostIsVisible', 0, () => {
+      const stack = new DMPMiniProgramPresentationStack()
+
+      stack.ensureRoot(1, 'app-a')
+
+      expect(stack.canDispatchPageShow(1, true)).assertTrue()
+      expect(stack.canDispatchPageShow(1, false)).assertFalse()
+      expect(stack.canDispatchPageShow(2, true)).assertFalse()
     })
 
     it('doesNotInventAnOpenerForTheHostOpenedRoot', 0, () => {

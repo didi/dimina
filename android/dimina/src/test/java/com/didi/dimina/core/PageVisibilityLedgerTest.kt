@@ -30,6 +30,18 @@ class PageVisibilityLedgerTest {
     }
 
     @Test
+    fun `owner-gated start waits for an explicit page show`() {
+        ledger.onStart(defaultVisible = false)
+        ledger.onResourceReady()
+
+        assertEquals(emptyList<PageVisibilityDelivery>(), delivered)
+
+        ledger.onShow()
+
+        assertEquals(listOf(PageVisibilityDelivery.SHOW), delivered)
+    }
+
+    @Test
     fun `an intent recorded before start is not overwritten by the default`() {
         ledger.onHide()
         ledger.onStart()
@@ -84,6 +96,47 @@ class PageVisibilityLedgerTest {
         ledger.onResourceReady()
 
         assertEquals(listOf(PageVisibilityDelivery.SHOW), delivered)
+    }
+
+    @Test
+    fun `geometry queued before readiness is delivered before the deferred show`() {
+        val events = mutableListOf<String>()
+        val ordered = PageVisibilityLedger { events.add(it.name) }
+        ordered.onStart(defaultVisible = false)
+        ordered.beforeNextShow { events.add("GEOMETRY") }
+        ordered.onShow()
+
+        ordered.onResourceReady()
+        ordered.onResourceReady()
+
+        assertEquals(listOf("GEOMETRY", "SHOW"), events)
+    }
+
+    @Test
+    fun `hiding a page invalidates geometry queued for that display cycle`() {
+        val events = mutableListOf<String>()
+        val ordered = PageVisibilityLedger { events.add(it.name) }
+        ordered.onStart(defaultVisible = false)
+        ordered.beforeNextShow { events.add("OLD_GEOMETRY") }
+
+        ordered.onHide()
+        ordered.onResourceReady()
+        ordered.onShow()
+
+        assertEquals(listOf("SHOW"), events)
+    }
+
+    @Test
+    fun `setup falls back to immediate delivery after show was already sent`() {
+        val events = mutableListOf<String>()
+        val ordered = PageVisibilityLedger { events.add(it.name) }
+        ordered.onStart()
+        ordered.onResourceReady()
+
+        val queued = ordered.beforeNextShow { events.add("LATE_GEOMETRY") }
+
+        assertEquals(false, queued)
+        assertEquals(listOf("SHOW"), events)
     }
 
     @Test

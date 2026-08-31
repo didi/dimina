@@ -1,4 +1,5 @@
 import { DMPMap } from '../../Utils/DMPMap';
+import { DMPPageOrientation } from '../../DPages/DMPPageOrientation';
 
 // TabBar item configuration
 export interface DMPTabBarItem {
@@ -134,6 +135,8 @@ export class DMPBundleAppConfigNext {
       pagePrivateConfig['backgroundColor'] || appWindowConfig['backgroundColor'] || '#fff');
     mergedConfig.set('navigationStyle',
       pagePrivateConfig['navigationStyle'] || appWindowConfig['navigationStyle'] || 'default');
+    mergedConfig.set('pageOrientation',
+      DMPPageOrientation.resolveConfig(pagePrivateConfig['pageOrientation'], appWindowConfig['pageOrientation']));
     mergedConfig.set('homeButton',
       pagePrivateConfig['homeButton'] ?? appWindowConfig['homeButton'] ?? false);
     mergedConfig.set('usingComponents', pagePrivateConfig['usingComponents'] || {});

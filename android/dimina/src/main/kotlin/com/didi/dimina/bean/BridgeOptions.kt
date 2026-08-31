@@ -23,7 +23,10 @@ data class MergedPageConfig(
     // 页面配置 homeButton: true 强制显示导航栏返回首页按钮（微信 page.json homeButton 字段）
     val homeButton: Boolean,
     val usingComponents: Map<String, String>
-)
+) {
+    // Keep the published constructor unchanged for precompiled Kotlin hosts.
+    var pageOrientation: String = "portrait"
+}
 
 data class BridgeOptions(
     var pathInfo: PathInfo,

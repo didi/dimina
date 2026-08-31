@@ -1,4 +1,4 @@
-import { isFunction } from '@dimina/common'
+import { callback, isFunction } from '@dimina/common'
 import { emitAppHide, emitAppShow, reportAppError } from './app-events'
 import { invokeSafely } from './safe-callback'
 import { App } from '../instance/app/app'
@@ -8,6 +8,8 @@ import { Page } from '../instance/page/page'
 import { PageModule } from '../instance/page/page-module'
 import loader from './loader'
 import router from './router'
+import hostEnv from './host-env'
+import { windowResizeListenerIds } from './window-resize-listeners'
 
 class Runtime {
 	constructor() {
@@ -19,6 +21,14 @@ class Runtime {
 		this.pageStates = new Map()
 		this.runtimeType = 'miniProgram'
 		this.gameLaunched = false
+		// One geometry baseline for the whole mini-app. Each dispatch channel owns the
+		// payload that qualified for it; a later suppressed report cannot replace it.
+		this.resizeGate = {
+			baseline: { windowWidth: 0, windowHeight: 0, deviceOrientation: '' },
+			timer: null,
+			pendingWindowEvent: null,
+			pendingPageOwners: [],
+		}
 	}
 
 	setRuntimeType(runtimeType) {
@@ -70,6 +80,7 @@ class Runtime {
 				pendingShow: false,
 				ready: false,
 				shown: false,
+				visibilityGeneration: 0,
 			})
 		}
 		return this.pageStates.get(bridgeId)
@@ -446,6 +457,7 @@ class Runtime {
 		}
 		state.shown = true
 		state.pendingShow = false
+		state.visibilityGeneration += 1
 
 		const pageInstances = []
 
@@ -567,6 +579,7 @@ class Runtime {
 			return
 		}
 		state.shown = false
+		state.visibilityGeneration += 1
 		const instances = this.instances[bridgeId]
 		if (!instances) {
 			return
@@ -713,8 +726,78 @@ class Runtime {
 		this.getPageInstance(bridgeId)?.pageTabItemTap(item)
 	}
 
-	pageResize(opts) {
-		const { bridgeId, size } = opts
+	/**
+	 * 一次尺寸变化的判据，两条通道各自独立：
+	 * - 窗口通道（wx.onWindowResize）：这次上报的宽、高、方向相对应用级基线是否变化。
+	 * - 页面通道（Page.onResize）：只要这次上报点到了某一页就派发给它，与几何是否变化无关。
+	 * 何时上报由宿主决定，路由落地时宿主每次都上报落点页。
+	 * 页面配置的方向不是 auto 时两条通道一起被抑制。
+	 * 基线在抑制判断之前更新，被抑制的变化仍然成为下一次比较的基准。
+	 *
+	 * 宿主上报 pageOrientation 即表示把判据交给这里，自己只上报原始事实；不上报则表示宿主已在本地判完（模拟器走这条），这里直接放行页面通道、不触发窗口通道——模拟器的 wx.onWindowResize 监听表在主进程，这里再触发一遍会重复回调，也不动应用级基线。
+	 */
+	resolveResizeDispatch(size, deviceOrientation, pageOrientation) {
+		if (!pageOrientation) {
+			return { fireWindow: false, dispatchPage: true }
+		}
+
+		const gate = this.resizeGate
+		const baseline = gate.baseline
+		const changed = deviceOrientation !== baseline.deviceOrientation
+			|| size.windowWidth !== baseline.windowWidth
+			|| size.windowHeight !== baseline.windowHeight
+
+		baseline.deviceOrientation = deviceOrientation
+		baseline.windowWidth = size.windowWidth
+		baseline.windowHeight = size.windowHeight
+
+		const suppressed = pageOrientation.originalPageOrientation !== 'auto'
+
+		return {
+			fireWindow: changed && !suppressed,
+			dispatchPage: !suppressed,
+		}
+	}
+
+	/**
+	 * 把这次上报的窗口事实写回 hostEnv 快照。
+	 *
+	 * 只对「在 loadResource 里下发过 hostEnv 快照」的宿主有意义——目前是 HarmonyOS （DMPContainer.loadResourceService）、web 容器和 kit 模拟器，它们的 `wx.getWindowInfo` / `wx.getSystemInfoSync` 读的就是这份快照。
+	 * Android 与 iOS 不下发，那两端的 `getWindowInfo` 是同步桥调用、每次读活的窗口，`hostEnv.getSystemInfo()` 返回 null，这里首行即返回，不需要也没有这份缓存。
+	 *
+	 * 存在的理由：固定方向页的两条 resize 通道都被抑制，落地后如果不刷新这份快照，它读到的会一直是上一页的几何且再没有纠正机会。
+	 * 缓存的窗口事实与两条通道是彼此独立的两件事。
+	 */
+	updateWindowFacts(size, deviceOrientation) {
+		const systemInfo = hostEnv.getSystemInfo()
+		if (!systemInfo) {
+			return
+		}
+		// 屏幕尺寸只在宿主这次带了才写：它跟窗口尺寸一起随旋转交换宽高，不刷新的话 getSystemInfoSync().screenWidth 会一直停在旋转前的值。
+		// 没带的宿主保持原样——用 undefined 覆盖掉一个本来正确的值比留着旧值更糟。
+		const screen = {}
+		if (size.screenWidth !== undefined) {
+			screen.screenWidth = size.screenWidth
+		}
+		if (size.screenHeight !== undefined) {
+			screen.screenHeight = size.screenHeight
+		}
+		hostEnv.update({
+			systemInfo: {
+				...systemInfo,
+				...screen,
+				windowWidth: size.windowWidth,
+				windowHeight: size.windowHeight,
+				deviceOrientation,
+			},
+		})
+	}
+
+	/**
+	 * 派发给单个 bridgeId 挂载的页面/组件实例。
+	 * 调用方已经用页面可见 generation 确认这次尺寸事实仍属于当前显示周期；bridgeId 在结算前已经 pageUnload 时静默跳过。
+	 */
+	dispatchPageResize(bridgeId, res) {
 		const instances = this.instances[bridgeId]
 
 		if (!instances) {
@@ -736,12 +819,89 @@ class Runtime {
 					pageInstances.push(instance)
 				}
 				else if (instance.__componentAttached__) {
-					instance.pageResize(size)
+					instance.pageResize(res)
 				}
 			}
 		})
 
-		pageInstances.forEach(instance => instance.pageResize(size))
+		pageInstances.forEach(instance => instance.pageResize(res))
+	}
+
+	/**
+	 * 结算 16ms 合并窗口：窗口通道使用最后一份有资格触发它的报告；页面通道按 owner
+	 * 保存各自最后一份有资格触发的报告。两条通道不能共享一个 lastEvent，否则后到的
+	 * 固定方向页会把本应被抑制的几何嫁接到先前 auto 页取得的触发资格上。
+	 * 页面通道只派发给登记后始终处于同一显示周期的页面；hide/unload 或 hide→show 会推进 generation，让旧页面报告不能在结算时复活。
+	 */
+	settleResize() {
+		const gate = this.resizeGate
+		gate.timer = null
+		const windowEvent = gate.pendingWindowEvent
+		const pageOwners = gate.pendingPageOwners
+		gate.pendingWindowEvent = null
+		gate.pendingPageOwners = []
+
+		if (windowEvent) {
+			windowResizeListenerIds().forEach(evtId => callback.invoke(evtId, windowEvent))
+		}
+
+		pageOwners.forEach(({ bridgeId, visibilityGeneration, event }) => {
+			const state = this.pageStates.get(bridgeId)
+			if (!state?.shown || state.hidden) {
+				return
+			}
+			// visibilityGeneration 为 null 表示登记时这一页还没 show：那是路由落地页自己的那一次上报（宿主先送几何、再送 pageShow），此刻它已经 show 出来，就该收到。
+			if (visibilityGeneration !== null && state.visibilityGeneration !== visibilityGeneration) {
+				return
+			}
+			this.dispatchPageResize(bridgeId, event)
+		})
+	}
+
+	pageResize(opts) {
+		const { bridgeId, size, deviceOrientation, pageOrientation } = opts
+
+		// 这里不按 bridgeId 拦截还没注册实例的上报：应用级基线必须无条件推进，否则宿主早于页面实例创建发来的那次几何变化会永久缺席基线，之后一次真实的几何变化会被误判成"没变过"。
+		// 实例是否存在在结算阶段由 dispatchPageResize 自己判，取不到就静默跳过。
+		// res 对齐微信 Page.onResize / behavior pageLifetimes.resize 的入参形状：{ size, deviceOrientation }。
+		// size 原样透传宿主给的那个对象，字段由宿主决定：文档只保证 windowWidth/windowHeight，四端还会带上整块屏幕的 screenWidth/screenHeight。
+		// deviceOrientation 缺失时按屏幕宽高比兜底，与微信官方文档建议一致。
+		const res = {
+			size,
+			deviceOrientation: deviceOrientation ?? (size.windowWidth > size.windowHeight ? 'landscape' : 'portrait'),
+		}
+
+		// 缓存的窗口事实与两条通道无关：无论这次上报是否派发回调，都要刷新 wx.getWindowInfo / getSystemInfoSync 读到的窗口尺寸，固定方向页那次被抑制的上报也不例外。
+		// 不刷新的话，固定方向页落地后读到的会一直是上一页的几何，而它的两条 resize 通道都被抑制，再也没有纠正它的机会。
+		this.updateWindowFacts(size, res.deviceOrientation)
+
+		const { fireWindow, dispatchPage } = this.resolveResizeDispatch(size, res.deviceOrientation, pageOrientation)
+
+		const gate = this.resizeGate
+		if (fireWindow) {
+			gate.pendingWindowEvent = res
+		}
+		if (dispatchPage) {
+			const pageState = this.pageStates.get(bridgeId)
+			// 收件人在结算时才定，登记时不要求这一页已经 show：模拟器宿主为了让 onShow 同步读到落地页自己的尺寸，会先送几何、再送 pageShow，两条都在同一个 16ms 合并窗内（见 packages/dimina-electron-runtime 的 miniapp-frame applySideEffects）。
+			// 登记时已经 show 的，这份几何就绑在那一次显示周期上，中途 hide 过即作废；登记时还没 show 的记 null，等结算时它 show 出来再派发，没 show 出来就丢弃。
+			const visibilityGeneration = pageState?.shown && !pageState.hidden
+				? pageState.visibilityGeneration
+				: null
+			const pending = gate.pendingPageOwners.find(entry => entry.bridgeId === bridgeId)
+			if (pending) {
+				// 同一合并窗口内 hide→show 后的新报告接管所有权；没有新报告时旧 generation 会在 settleResize 被丢弃，不能把旧页面尺寸派发到新的显示周期。
+				pending.visibilityGeneration = visibilityGeneration
+				pending.event = res
+			}
+			else {
+				gate.pendingPageOwners.push({ bridgeId, visibilityGeneration, event: res })
+			}
+		}
+
+		if (!gate.timer) {
+			gate.timer = setTimeout(() => this.settleResize(), 16)
+		}
 	}
 
 	componentError(opts) {

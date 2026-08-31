@@ -115,6 +115,8 @@ class RouteApi : BaseApiHandler() {
                         root = false,
                         path = url,
                     ),
+                    // navigateTo 每一页都是新的 DiminaActivity，把目标页的方向随 intent 带过去，新 Activity 才不会先按默认方向亮一下再转到目标方向
+                    activity.resolveLaunchPageOrientation(url)
                 )
                 AsyncResult(JSONObject().apply {
                     put("errMsg", "$NAVIGATE_TO:ok")
@@ -143,9 +145,8 @@ class RouteApi : BaseApiHandler() {
             }
 
             NAVIGATE_BACK -> {
-                // Implementation of navigating back
                 activity.runOnUiThread {
-                    activity.onBackPressed()
+                    activity.navigateBack(params.optInt("delta", 1))
                 }
 
                 // Send success response

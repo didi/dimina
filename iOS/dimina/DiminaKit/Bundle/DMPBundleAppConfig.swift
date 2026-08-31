@@ -103,22 +103,26 @@ public class DMPBundleAppConfig {
     func getPageConfig(pagePath: String) -> [String: Any] {
         let pagePrivateConfig = modules[pagePath] as? [String: Any] ?? [:]
         let appWindowConfig = app["window"] as? [String: Any] ?? [:]
-        
+
         var mergedConfig = [String: Any]()
-        mergedConfig["navigationBarTitleText"] = (pagePrivateConfig["navigationBarTitleText"] as? String) ?? 
+        mergedConfig["navigationBarTitleText"] = (pagePrivateConfig["navigationBarTitleText"] as? String) ??
                        (appWindowConfig["navigationBarTitleText"] as? String) ?? ""
-        mergedConfig["navigationBarBackgroundColor"] = (pagePrivateConfig["navigationBarBackgroundColor"] as? String) ?? 
+        mergedConfig["navigationBarBackgroundColor"] = (pagePrivateConfig["navigationBarBackgroundColor"] as? String) ??
                        (appWindowConfig["navigationBarBackgroundColor"] as? String) ?? "#FFFFFF"
-        mergedConfig["navigationBarTextStyle"] = (pagePrivateConfig["navigationBarTextStyle"] as? String) ?? 
+        mergedConfig["navigationBarTextStyle"] = (pagePrivateConfig["navigationBarTextStyle"] as? String) ??
                        (appWindowConfig["navigationBarTextStyle"] as? String) ?? "black"
-        mergedConfig["backgroundColor"] = (pagePrivateConfig["backgroundColor"] as? String) ?? 
+        mergedConfig["backgroundColor"] = (pagePrivateConfig["backgroundColor"] as? String) ??
                        (appWindowConfig["backgroundColor"] as? String) ?? "#FFFFFF"
         mergedConfig["navigationStyle"] = (pagePrivateConfig["navigationStyle"] as? String) ??
                        (appWindowConfig["navigationStyle"] as? String) ?? "default"
         mergedConfig["homeButton"] = (pagePrivateConfig["homeButton"] as? Bool) ??
                        (appWindowConfig["homeButton"] as? Bool) ?? false
+        mergedConfig["pageOrientation"] = DMPPageOrientation.resolve(
+            pageValue: pagePrivateConfig["pageOrientation"],
+            appValue: appWindowConfig["pageOrientation"]
+        ).rawValue
         mergedConfig["usingComponents"] = pagePrivateConfig["usingComponents"] ?? [:]
-        
+
         return mergedConfig
     }
 

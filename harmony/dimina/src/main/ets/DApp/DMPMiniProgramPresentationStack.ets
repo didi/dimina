@@ -31,6 +31,14 @@ export class DMPMiniProgramPresentationStack {
     return this.frames[this.frames.length - 1]
   }
 
+  isTop(appIndex: number): boolean {
+    return this.top()?.appIndex === appIndex
+  }
+
+  canDispatchPageShow(appIndex: number, hostVisible: boolean): boolean {
+    return hostVisible && this.isTop(appIndex)
+  }
+
   /** Register the first host-opened mini program, or validate the current top. */
   ensureRoot(appIndex: number, appId: string): boolean {
     if (this.frames.length === 0) {
