@@ -110,4 +110,16 @@ describe('compatibility diagnostics', () => {
 		expect(warn.mock.calls[0][0]).toContain('<unknown-element>')
 		expect(warn.mock.calls[0][0]).not.toMatch(/<page-meta>|<div>|<span>|<p>|<strong>|<i>|<em>|<b>|<small>|<table>|<tbody>|<tr>|<td>/)
 	})
+
+	it('warns with the correct line number for tags scattered across many lines', () => {
+		const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+		const lines = Array.from({ length: 20 }, (_, i) => `<text>${i}</text>`)
+		lines[0] = '<ad unit-id="first" />'
+		lines[19] = '<ad unit-id="last" />'
+		checkTemplateCompatibility(lines.join('\n'), '/pages/scattered/index.wxml')
+
+		expect(warn).toHaveBeenCalledTimes(2)
+		expect(warn.mock.calls[0][0]).toContain('/pages/scattered/index.wxml:1)')
+		expect(warn.mock.calls[1][0]).toContain('/pages/scattered/index.wxml:20)')
+	})
 })

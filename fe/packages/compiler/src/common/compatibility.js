@@ -211,11 +211,12 @@ function warnUnsupportedComponent(tagName, filePath, line) {
 }
 
 function checkTemplateCompatibility(content, filePath, components = {}) {
+	const newlineOffsets = collectNewlineOffsets(content)
 	let parser
 	parser = new Parser(
 		{
 			onopentag(tagName, attrs) {
-				const line = getLineByIndex(content, parser.startIndex)
+				const line = getLineByIndex(newlineOffsets, parser.startIndex)
 				for (const attributeName of Object.keys(attrs)) {
 					const invalidPrefix = getInvalidAttributePrefix(attributeName)
 					if (invalidPrefix) {
@@ -255,18 +256,39 @@ function checkTemplateCompatibility(content, filePath, components = {}) {
 	parser.end()
 }
 
-function getLineByIndex(content, index) {
+function collectNewlineOffsets(content) {
+	const offsets = []
+	for (let i = 0; i < content.length; i++) {
+		if (content.charCodeAt(i) === 10) {
+			offsets.push(i)
+		}
+	}
+	return offsets
+}
+
+// Binary search over precomputed newline offsets: line = count of newlines
+// strictly before `index`, plus 1. `checkTemplateCompatibility` fires this once
+// per opened tag; a per-call linear rescan from offset 0 (the previous
+// implementation) turned a single template's compatibility check into O(n²) —
+// on taro-ui's shared ~112KB base.wxml (reprocessed per page) that dominated
+// total dmcc compile time (~43% of the view-compile worker's CPU time).
+function getLineByIndex(newlineOffsets, index) {
 	if (typeof index !== 'number' || index < 0) {
 		return null
 	}
 
-	let line = 1
-	for (let i = 0; i < index; i++) {
-		if (content.charCodeAt(i) === 10) {
-			line++
+	let lo = 0
+	let hi = newlineOffsets.length
+	while (lo < hi) {
+		const mid = (lo + hi) >>> 1
+		if (newlineOffsets[mid] < index) {
+			lo = mid + 1
+		}
+		else {
+			hi = mid
 		}
 	}
-	return line
+	return lo + 1
 }
 
 function formatLocation(filePath, line) {

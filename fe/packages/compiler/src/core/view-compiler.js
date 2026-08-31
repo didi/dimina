@@ -116,9 +116,18 @@ function applyCodeReplacements(source, replacements) {
  * @param {string} expression
  * @returns {string} 添加了可选链操作符的表达式字符串
  */
+// addOptionalChaining 是纯函数（输出只由表达式字符串决定），共享模板（如 Taro 的 base.wxml）
+// 被每个页面各 import 一次时，同一批表达式会被重复解析/重写，用字符串 key 缓存结果去重。
+const optionalChainingCache = new Map()
+
 function addOptionalChaining(expression) {
 	if (!expression || typeof expression !== 'string') {
 		return expression
+	}
+
+	const cached = optionalChainingCache.get(expression)
+	if (cached !== undefined) {
+		return cached
 	}
 
 	try {
@@ -157,8 +166,11 @@ function addOptionalChaining(expression) {
 			}
 		})
 
-		return applyCodeReplacements(code, insertions).slice(1, -1)
+		const result = applyCodeReplacements(code, insertions).slice(1, -1)
+		optionalChainingCache.set(expression, result)
+		return result
 	} catch (error) {
+		optionalChainingCache.set(expression, expression)
 		return expression
 	}
 }
@@ -186,6 +198,12 @@ function transformTextInterpolation(text) {
 
 // 页面文件编译内容缓存
 const compileResCache = new Map()
+
+// 共享模板模块（如被多个页面 import 的同一份模板文件）的 render 编译结果缓存。
+// codegen 固定为 mode:'function'（见 getTemplateCompilerOptions），@vue/compiler-core
+// 只在 module 模式下把 scopeId 写进产物，因此 id/scoped 与页面无关、不入缓存 key；
+// scriptModule 决定注入的 require 声明与 _ctx 成员重写，必须入 key。
+const templateRenderCache = new Map()
 
 // wxs 模块注册表，用于记录确定的 wxs 模块
 const wxsModuleRegistry = new Set()
@@ -223,9 +241,11 @@ if (!isMainThread) {
 
 			// Worker 任务完成后清理所有缓存，释放内存
 			compileResCache.clear()
+			templateRenderCache.clear()
 			wxsModuleRegistry.clear()
 			wxsFilePathMap.clear()
 			wxsScannedWorkPath = null
+			optionalChainingCache.clear()
 
 			parentPort.postMessage({
 				success: true,
@@ -236,9 +256,11 @@ if (!isMainThread) {
 		catch (error) {
 			// 错误时也清理缓存
 			compileResCache.clear()
+			templateRenderCache.clear()
 			wxsModuleRegistry.clear()
 			wxsFilePathMap.clear()
 			wxsScannedWorkPath = null
+			optionalChainingCache.clear()
 
 			parentPort.postMessage({
 				success: false,
@@ -403,6 +425,49 @@ function getTemplateCompilerOptions(scopeId) {
 		// component resolution.
 		isCustomElement: tag => !tag.startsWith('dd-'),
 	}
+}
+
+/**
+ * 编译单个模板模块（<template name>）的 render 结果，并跨页面复用。
+ * 被多个页面 import 的同一份模板文件在每个页面里会产出完全相同的
+ * compileTemplate codegen 与 insertWxsToRenderResult 结果，只需计算一次。
+ * moduleId 不入 key：function 模式下 scopeId 不进入产物（见 templateRenderCache 处说明）。
+ */
+function compileTemplateModuleRender(tm, moduleId, scriptModule, scriptRes) {
+	const scriptSig = scriptModule.map(sm => `${sm.path}\u0000${sm.originalName ?? ''}`).join('\u0001')
+	// sourceInfo.content 是 sourceInfo.path 对应文件的原文，在同一个 worker 任务内该文件
+	// 不会被改写（与 compileResCache 直接按 module.path 做键的既有假设一致），path 已经
+	// 唯一决定 content，不必把可能上百 KB 的原文本身也塞进 key（那样会随具名模板数线性放大）。
+	const sourceSig = tm.sourceInfo
+		? `${tm.sourceInfo.path}\u0000${tm.sourceInfo.startLine ?? ''}`
+		: ''
+	const cacheKey = `${tm.path}\u0002${sourceSig}\u0002${scriptSig}\u0002${tm.tpl}`
+	const cached = templateRenderCache.get(cacheKey)
+	if (cached) {
+		// 跳过 insertWxsToRenderResult 时，补上它对 scriptRes 的登记副作用
+		for (const sm of scriptModule) {
+			if (!scriptRes.has(sm.path)) {
+				scriptRes.set(sm.path, sm.code)
+			}
+		}
+		return cached
+	}
+	const compiledTemplate = compileTemplate({
+		source: tm.tpl,
+		filename: tm.path,
+		id: `data-v-${moduleId}`,
+		scoped: true,
+		inMap: enableSourcemap && tm.sourceInfo
+			? createLineSourcemap(tm.tpl, tm.sourceInfo.path, tm.sourceInfo.content, tm.sourceInfo.startLine)
+			: undefined,
+		compilerOptions: getTemplateCompilerOptions(`data-v-${moduleId}`),
+	})
+	const result = {
+		path: tm.path,
+		...insertWxsToRenderResult(compiledTemplate.code, scriptModule, scriptRes, tm.path, compiledTemplate.map),
+	}
+	templateRenderCache.set(cacheKey, result)
+	return result
 }
 
 /**
@@ -580,20 +645,7 @@ function compileModule(module, isComponent, scriptRes, options = {}) {
 
 	const templateResults = []
 	for (const tm of compileInstruction.templateModule) {
-		const compiledTemplate = compileTemplate({
-			source: tm.tpl,
-			filename: tm.path,
-			id: `data-v-${module.id}`,
-			scoped: true,
-			inMap: enableSourcemap && tm.sourceInfo
-				? createLineSourcemap(tm.tpl, tm.sourceInfo.path, tm.sourceInfo.content, tm.sourceInfo.startLine)
-				: undefined,
-			compilerOptions: getTemplateCompilerOptions(`data-v-${module.id}`),
-		})
-		templateResults.push({
-			path: tm.path,
-			...insertWxsToRenderResult(compiledTemplate.code, compileInstruction.scriptModule, scriptRes, tm.path, compiledTemplate.map),
-		})
+		templateResults.push(compileTemplateModuleRender(tm, module.id, compileInstruction.scriptModule, scriptRes))
 	}
 
 	const renderResult = insertWxsToRenderResult(tplCode.code, compileInstruction.scriptModule, scriptRes, module.path, tplCode.map)
@@ -869,20 +921,7 @@ function compileModuleWithAllWxs(module, scriptRes, allScriptModules, sourceMapR
 
 	const templateResults = []
 	for (const tm of mergedInstruction.templateModule) {
-		const compiledTemplate = compileTemplate({
-			source: tm.tpl,
-			filename: tm.path,
-			id: `data-v-${module.id}`,
-			scoped: true,
-			inMap: enableSourcemap && tm.sourceInfo
-				? createLineSourcemap(tm.tpl, tm.sourceInfo.path, tm.sourceInfo.content, tm.sourceInfo.startLine)
-				: undefined,
-			compilerOptions: getTemplateCompilerOptions(`data-v-${module.id}`),
-		})
-		templateResults.push({
-			path: tm.path,
-			...insertWxsToRenderResult(compiledTemplate.code, allScriptModules, scriptRes, tm.path, compiledTemplate.map),
-		})
+		templateResults.push(compileTemplateModuleRender(tm, module.id, allScriptModules, scriptRes))
 	}
 
 	const renderResult = insertWxsToRenderResult(tplCode.code, allScriptModules, scriptRes, module.path, tplCode.map)
@@ -1238,6 +1277,9 @@ function toCompileTemplate(isComponent, path, components, componentPlaceholder, 
 
 function transTagTemplate($, templateModule, path, components, componentPlaceholder, sourceInfo, graphOwnerPath = path) {
 	const templateNodes = $('template[name]')
+	// 同一 sourceInfo.content 会被本循环内每个具名 template 节点各查询一次行号，
+	// 换行位置只需算一次，逐节点二分查找，避免每节点都从头重新扫描全文。
+	const newlineOffsets = sourceInfo ? collectNewlineOffsets(sourceInfo.content) : null
 	templateNodes.each((_, elem) => {
 		const name = $(elem).attr('name')
 		const templateContent = $(elem)
@@ -1256,7 +1298,7 @@ function transTagTemplate($, templateModule, path, components, componentPlacehol
 			sourceInfo: sourceInfo
 				? {
 					...sourceInfo,
-					startLine: getSourceLine(sourceInfo.content, elem.children?.[0]?.startIndex ?? elem.startIndex),
+					startLine: getSourceLine(newlineOffsets, elem.children?.[0]?.startIndex ?? elem.startIndex),
 				}
 				: null,
 		})
@@ -1264,8 +1306,33 @@ function transTagTemplate($, templateModule, path, components, componentPlacehol
 	templateNodes.remove()
 }
 
-function getSourceLine(source, index = 0) {
-	return source.slice(0, Math.max(0, index)).split('\n').length
+function collectNewlineOffsets(content) {
+	const offsets = []
+	for (let i = 0; i < content.length; i++) {
+		if (content.charCodeAt(i) === 10) {
+			offsets.push(i)
+		}
+	}
+	return offsets
+}
+
+function getSourceLine(newlineOffsets, index = 0) {
+	if (!newlineOffsets) {
+		return 1
+	}
+	const target = Math.max(0, index)
+	let lo = 0
+	let hi = newlineOffsets.length
+	while (lo < hi) {
+		const mid = (lo + hi) >>> 1
+		if (newlineOffsets[mid] < target) {
+			lo = mid + 1
+		}
+		else {
+			hi = mid
+		}
+	}
+	return lo + 1
 }
 
 function transAsses($, imageNodes, path, graphOwnerPath = path) {
