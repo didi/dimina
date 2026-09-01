@@ -1,0 +1,18 @@
+iOS/README.md
+  h_26bc2624df64e5 28
+harmony/dimina/README.md
+  h_26bc2624df64e5 15
+android/README.md
+  h_26bc2624df64e5 36,45
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "1cbee1a2165383639b1fae0e552fcddf58275dfd",
+  "prompts": {},
+  "humans": {
+    "h_26bc2624df64e5": {
+      "author": "doslin"
+    }
+  }
+}
