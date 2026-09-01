@@ -1,0 +1,37 @@
+README_EN.md
+  f9579e894d58654c 75
+README.md
+  f9579e894d58654c 75
+fe/README.md
+  f9579e894d58654c 19
+.github/workflows/fe-deploy-pages.yml
+  f9579e894d58654c 38,40-41
+.github/workflows/fe-lint.yml
+  f9579e894d58654c 31,33-34
+.github/ISSUE_TEMPLATE/bug_report.yml
+  f9579e894d58654c 125
+fe/package.json
+  f9579e894d58654c 6,9
+.github/workflows/fe-tests.yml
+  f9579e894d58654c 29,31-32
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "4e2680d8acd885c0030d63b1c5ea3089f417453f",
+  "prompts": {
+    "f9579e894d58654c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a00e8b-2893-7ee3-9177-891a74c099e3",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 15,
+      "total_deletions": 14,
+      "accepted_lines": 15,
+      "overriden_lines": 0
+    }
+  }
+}
