@@ -1,0 +1,27 @@
+fe/packages/components/__tests__/picker-view-layout.spec.js
+  40d0fb6cb5e1e58c 1-122
+fe/packages/components/src/component/picker-view-column/PickerViewColumn.vue
+  40d0fb6cb5e1e58c 14,33-39,42,123,131,145,164
+fe/packages/components/src/component/picker-view/PickerView.vue
+  40d0fb6cb5e1e58c 54,56-60,63,65,111-120
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "9ccabe27c5125ee632bda91db37d88996a5bb38b",
+  "prompts": {
+    "40d0fb6cb5e1e58c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0416e-f080-7f41-a6c0-9bfe55d28490",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 154,
+      "total_deletions": 8,
+      "accepted_lines": 154,
+      "overriden_lines": 0
+    }
+  }
+}
