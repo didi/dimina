@@ -336,9 +336,14 @@ const keyboardAccessoryVisible = ref(false)
 provide('keyboardAccessoryVisible', keyboardAccessoryVisible)
 useKeyboardHeight(info, keyboardAccessoryVisible)
 
+// 输入法组合期间（拼音还没选词）的中间值不是用户输入的结果，和微信一样不派发 bindinput，
+// 等 compositionend 再用最终值补发一次
+let composing = false
+
 function handleKeydown(event) {
 	keyCode.value = event.keyCode
-	if (event.keyCode === 13) {
+	// 组合期间的回车是在选词，不是确认输入；部分浏览器此时 keyCode 仍是 13
+	if (event.keyCode === 13 && !event.isComposing && !composing) {
 		if (!props.confirmHold) {
 			event.target.blur()
 		}
@@ -360,27 +365,27 @@ function handleWrapperEvent(event) {
 	}
 	const value = event.target.value
 	switch (event.type) {
+		case 'compositionstart':
+			composing = true
+			break
+
+		case 'compositionend':
+			composing = false
+			publishInput(event)
+			break
+
 		case 'input':
-			collectFormValue?.(props.name, value)
-			iValue.value = value
-
-			// Emit update:value event for v-model binding with parent component
-			emit('update:value', value)
-
-			triggerEvent('input', {
-				event,
-				info,
-				detail: {
-					value,
-					cursor: event.target.selectionEnd,
-					keyCode: keyCode.value,
-				},
-				success: (data) => {
-					iValue.value = data.value ?? data
-					// Also update the parent when success callback modifies the value
-					emit('update:value', data.value ?? data)
-				},
-			})
+			// isComposing 由浏览器按规范维护：为 false 说明组合已经结束，即使没收到 compositionend 也要解除抑制
+			if (composing && event.isComposing === false) {
+				composing = false
+			}
+			if (composing) {
+				// 组合期间只同步内部值，让 :value 绑定跟上 DOM，不派发给业务层
+				collectFormValue?.(props.name, value)
+				iValue.value = value
+				break
+			}
+			publishInput(event)
 			break
 
 		case 'focusin':
@@ -409,6 +414,8 @@ function handleWrapperEvent(event) {
 			break
 
 		case 'focusout':
+			// 失焦后不可能还在组合，即使输入法没有补发 compositionend 也要解除抑制
+			composing = false
 			keyboardAccessoryVisible.value = false
 			triggerEvent('blur', {
 				event,
@@ -425,12 +432,36 @@ function handleWrapperEvent(event) {
 			break
 	}
 }
+
+function publishInput(event) {
+	const value = event.target.value
+	collectFormValue?.(props.name, value)
+	iValue.value = value
+	// Emit update:value event for v-model binding with parent component
+	emit('update:value', value)
+
+	triggerEvent('input', {
+		event,
+		info,
+		detail: {
+			value,
+			cursor: event.target.selectionEnd,
+			keyCode: keyCode.value,
+		},
+		success: (data) => {
+			iValue.value = data.value ?? data
+			// Also update the parent when success callback modifies the value
+			emit('update:value', data.value ?? data)
+		},
+	})
+}
 </script>
 
 <template>
 	<div
 		ref="wrapperRef" v-bind="$attrs" :class="wrapperClass" role="textbox" data-dd-label-target @input="handleWrapperEvent"
 		@focusin="handleWrapperEvent" @focusout="handleWrapperEvent" @change="handleWrapperEvent"
+		@compositionstart="handleWrapperEvent" @compositionend="handleWrapperEvent"
 	>
 		<input
 			:id="id" ref="inputRef" v-focus class="dd-input" :type="inputType" :inputmode="inputMode"

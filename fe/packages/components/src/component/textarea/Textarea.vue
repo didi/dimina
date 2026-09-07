@@ -317,9 +317,14 @@ const keyboardAccessoryVisible = ref(false)
 provide('keyboardAccessoryVisible', keyboardAccessoryVisible)
 useKeyboardHeight(info, keyboardAccessoryVisible)
 
+// 输入法组合期间（拼音还没选词）的中间值不是用户输入的结果，和微信一样不派发 bindinput，
+// 等 compositionend 再用最终值补发一次
+let composing = false
+
 function handleKeydown(event) {
 	keyCode.value = event.keyCode
-	if (event.keyCode === 13) {
+	// 组合期间的回车是在选词，不是确认输入；部分浏览器此时 keyCode 仍是 13
+	if (event.keyCode === 13 && !event.isComposing && !composing) {
 		if (!props.confirmHold) {
 			event.target.blur()
 		}
@@ -374,27 +379,30 @@ function handleWrapperEvent(event) {
 	const value = event.target.value
 
 	switch (event.type) {
+		case 'compositionstart':
+			composing = true
+			break
+
+		case 'compositionend':
+			composing = false
+			publishInput(event)
+			updateLineInfo(event)
+			break
+
 		case 'input':
-			collectFormValue?.(props.name, value)
-			iValue.value = value
-
-			// same as input
-			emit('update:value', value)
-
-			triggerEvent('input', {
-				event,
-				info,
-				detail: {
-					value,
-					cursor: event.target.selectionEnd,
-					keyCode: keyCode.value,
-				},
-				success: (data) => {
-					iValue.value = data.value ?? data
-
-					emit('update:value', data.value ?? data)
-				},
-			})
+			// isComposing 由浏览器按规范维护：为 false 说明组合已经结束，即使没收到 compositionend 也要解除抑制
+			if (composing && event.isComposing === false) {
+				composing = false
+			}
+			if (composing) {
+				// 组合期间只同步内部值和行高，让 :value 绑定和 auto-height 跟上 DOM，不派发给业务层
+				collectFormValue?.(props.name, value)
+				iValue.value = value
+				updateLineInfo(event)
+				break
+			}
+			// 先派发 input 再算行信息，业务在 bindlinechange 里读到的是本次输入后的文本
+			publishInput(event)
 			updateLineInfo(event)
 			break
 
@@ -424,6 +432,8 @@ function handleWrapperEvent(event) {
 			break
 
 		case 'focusout':
+			// 失焦后不可能还在组合，即使输入法没有补发 compositionend 也要解除抑制
+			composing = false
 			keyboardAccessoryVisible.value = false
 			triggerEvent('blur', {
 				event,
@@ -441,6 +451,28 @@ function handleWrapperEvent(event) {
 	}
 }
 
+function publishInput(event) {
+	const value = event.target.value
+	collectFormValue?.(props.name, value)
+	iValue.value = value
+	emit('update:value', value)
+
+	triggerEvent('input', {
+		event,
+		info,
+		detail: {
+			value,
+			cursor: event.target.selectionEnd,
+			keyCode: keyCode.value,
+		},
+		success: (data) => {
+			iValue.value = data.value ?? data
+
+			emit('update:value', data.value ?? data)
+		},
+	})
+}
+
 const wrapperClass = computed(() => {
 	return {
 		'dd-textarea-wrapper': true,
@@ -450,7 +482,7 @@ const wrapperClass = computed(() => {
 </script>
 
 <template>
-	<div ref="wrapperRef" v-bind="$attrs" :class="wrapperClass" role="textbox" @input="handleWrapperEvent" @focusin="handleWrapperEvent" @focusout="handleWrapperEvent" @change="handleWrapperEvent">
+	<div ref="wrapperRef" v-bind="$attrs" :class="wrapperClass" role="textbox" @input="handleWrapperEvent" @focusin="handleWrapperEvent" @focusout="handleWrapperEvent" @change="handleWrapperEvent" @compositionstart="handleWrapperEvent" @compositionend="handleWrapperEvent">
 		<textarea
 			:id="id" ref="textareaRef" v-focus class="dd-textarea" :value="iValue" :disabled="disabled"
 			:maxlength="maxlength" :autocomplete="autoFill || undefined"
