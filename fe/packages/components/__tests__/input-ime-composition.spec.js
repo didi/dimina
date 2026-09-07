@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 
-import { createApp, h } from 'vue'
+import { createApp, h, nextTick, reactive } from 'vue'
 import Input from '../src/component/input/Input.vue'
 import Textarea from '../src/component/textarea/Textarea.vue'
 
@@ -112,7 +112,7 @@ describe('input 组合输入语义', () => {
 		expect(typeof details[0].cursor).toBe('number')
 	})
 
-	it('Safari 顺序：compositionend 先于最终 input 到达，也不能泄漏拼音中间值', () => {
+	it('Safari 顺序：compositionend 先于最终 input 到达，随后的补发 input 不能重复派发', () => {
 		const el = mountInput()
 
 		dispatchComposition(el, 'compositionstart')
@@ -122,8 +122,22 @@ describe('input 组合输入语义', () => {
 		dispatchInput(el, '你好', { isComposing: false })
 
 		const details = receivedDetails('onInput')
-		expect(details.length).toBeGreaterThanOrEqual(1)
-		expect(details.every(d => d.value === '你好')).toBe(true)
+		expect(details).toHaveLength(1)
+		expect(details[0].value).toBe('你好')
+	})
+
+	it('组合结束后紧接着敲入普通字符，要正常派发不能被去重逻辑吞掉', () => {
+		const el = mountInput()
+
+		dispatchComposition(el, 'compositionstart')
+		dispatchInput(el, 'n', { isComposing: true })
+		dispatchInput(el, 'ni', { isComposing: true })
+		dispatchComposition(el, 'compositionend', '你好', { value: '你好' })
+		dispatchInput(el, '你好', { isComposing: false })
+		dispatchInput(el, '你好a', { isComposing: false })
+
+		const details = receivedDetails('onInput')
+		expect(details.map(d => d.value)).toEqual(['你好', '你好a'])
 	})
 
 	it('组合期间的回车（keyCode 229）不触发 confirm 也不失焦，组合结束后的回车才 confirm', () => {
@@ -209,6 +223,34 @@ describe('input 组合输入语义', () => {
 		const lastCall = collectFormValueMock.mock.calls.at(-1)
 		expect(lastCall[1]).toBe('你好')
 	})
+
+	it('组合提交后没有补发 input（Chrome 顺序），外部把 value 改成别的值后再删回和提交值相同的文本，这次真实编辑必须派发', async () => {
+		const props = reactive({
+			bindinput: 'onInput',
+			bindconfirm: 'onConfirm',
+			bindblur: 'onBlur',
+			value: '',
+		})
+		const { host } = mountComponent(Input, props)
+		const el = host.querySelector('input')
+
+		dispatchComposition(el, 'compositionstart')
+		dispatchInput(el, '你', { isComposing: true })
+		dispatchComposition(el, 'compositionend', '你', { value: '你' })
+
+		// 外部把绑定的 value 改成别的文本（比如父组件重置了表单），和刚才的输入法组合无关
+		props.value = '你a'
+		await nextTick()
+
+		// 用户真实删除一个字符，结果和刚才组合提交的值凑巧相同，不能被当成 compositionend 的重复回声吞掉
+		dispatchKeydown(el, 8)
+		dispatchInput(el, '你', { isComposing: false })
+
+		const details = receivedDetails('onInput')
+		expect(details.map(d => d.value)).toEqual(['你', '你'])
+		const lastCall2 = collectFormValueMock.mock.calls.at(-1)
+		expect(lastCall2[1]).toBe('你')
+	})
 })
 
 describe('textarea 组合输入语义', () => {
@@ -235,6 +277,20 @@ describe('textarea 组合输入语义', () => {
 
 		const details = receivedDetails('onInput')
 		expect(details.map(d => d.value)).toEqual(['你好'])
+	})
+
+	it('Safari 顺序：compositionend 先于最终 input 到达，随后的补发 input 不能重复派发', () => {
+		const el = mountTextarea()
+
+		dispatchComposition(el, 'compositionstart')
+		dispatchInput(el, 'n', { isComposing: true })
+		dispatchInput(el, 'ni', { isComposing: true })
+		dispatchComposition(el, 'compositionend', '你好', { value: '你好' })
+		dispatchInput(el, '你好', { isComposing: false })
+
+		const details = receivedDetails('onInput')
+		expect(details).toHaveLength(1)
+		expect(details[0].value).toBe('你好')
 	})
 
 	it('组合期间的回车不触发 confirm，组合结束后的回车才 confirm', () => {
@@ -282,5 +338,98 @@ describe('textarea 组合输入语义', () => {
 			.map(([message]) => message.body.methodName)
 			.filter(name => name === 'onInput' || name === 'onLinechange')
 		expect(methodNames).toEqual(['onInput', 'onLinechange'])
+	})
+
+	it('组合期间拼音把内容折成多行时，行数变化不能在组合结束前抢先通知，最终只按提交值发一次', async () => {
+		const el = mountTextarea()
+		// 拼音中间态 'nihao' 和提交值 '你好' 在这次输入里都会折成 2 行，挂载时是 1 行
+		const lineCountByValue = { nihao: 2, 你好: 2 }
+		Object.defineProperty(el, 'scrollHeight', {
+			configurable: true,
+			get: () => 20 + ((lineCountByValue[el.value] ?? 1) - 1) * 20,
+		})
+		// 挂载时的行数测量在 nextTick 里完成，等它记下 1 行的基线再开始输入，和真实页面一致
+		await nextTick()
+		window.__message.send.mockClear()
+
+		dispatchComposition(el, 'compositionstart')
+		dispatchInput(el, 'nihao', { isComposing: true })
+
+		// 组合还没结束，业务不该提前看到行数变化
+		expect(receivedDetails('onLinechange')).toEqual([])
+
+		dispatchComposition(el, 'compositionend', '你好', { value: '你好' })
+
+		const methodNames = window.__message.send.mock.calls
+			.map(([message]) => message.body.methodName)
+			.filter(name => name === 'onInput' || name === 'onLinechange')
+		expect(methodNames).toEqual(['onInput', 'onLinechange'])
+		expect(receivedDetails('onInput')).toHaveLength(1)
+		const linechanges = receivedDetails('onLinechange')
+		expect(linechanges).toHaveLength(1)
+		expect(linechanges[0].lineCount).toBe(2)
+	})
+
+	it('拼音中间态折成多行但选词后行数又变回原样时，全程不通知行数变化', async () => {
+		const el = mountTextarea()
+		// 中间态 'nihao' 折成 2 行，但最终提交值 '你' 又回到挂载时的 1 行——业务从未见过行数变化
+		const lineCountByValue = { nihao: 2, 你: 1 }
+		Object.defineProperty(el, 'scrollHeight', {
+			configurable: true,
+			get: () => 20 + ((lineCountByValue[el.value] ?? 1) - 1) * 20,
+		})
+		// 挂载时的行数测量在 nextTick 里完成，等它记下 1 行的基线再开始输入，和真实页面一致
+		await nextTick()
+		window.__message.send.mockClear()
+
+		dispatchComposition(el, 'compositionstart')
+		dispatchInput(el, 'nihao', { isComposing: true })
+		dispatchComposition(el, 'compositionend', '你', { value: '你' })
+
+		expect(receivedDetails('onLinechange')).toEqual([])
+		expect(receivedDetails('onInput')).toHaveLength(1)
+	})
+
+	it('组合期间由 props 变化触发的行数测量不能提前通知业务', async () => {
+		const props = reactive({
+			bindinput: 'onInput',
+			bindconfirm: 'onConfirm',
+			bindblur: 'onBlur',
+			bindlinechange: 'onLinechange',
+			value: '',
+			autoHeight: false,
+		})
+		const { host } = mountComponent(Textarea, props)
+		const el = host.querySelector('textarea')
+		// 拼音中间态 'nihao' 和提交值 '你好' 都折成 2 行，挂载时是 1 行
+		const lineCountByValue = { nihao: 2, 你好: 2 }
+		Object.defineProperty(el, 'scrollHeight', {
+			configurable: true,
+			get: () => 20 + ((lineCountByValue[el.value] ?? 1) - 1) * 20,
+		})
+		// 挂载时的行数测量在 nextTick 里完成，等它记下 1 行的基线再开始输入
+		await nextTick()
+		window.__message.send.mockClear()
+
+		dispatchComposition(el, 'compositionstart')
+		dispatchInput(el, 'nihao', { isComposing: true })
+
+		// 组合还没结束，父组件这时改了别的 prop（比如切换 autoHeight），watch 依赖数组里
+		// 一起带着 props.value 触发重新测量；这次测量不该抢在 compositionend 前通知业务
+		props.autoHeight = true
+		await nextTick()
+		await nextTick()
+
+		expect(receivedDetails('onLinechange')).toEqual([])
+
+		dispatchComposition(el, 'compositionend', '你好', { value: '你好' })
+
+		const methodNames = window.__message.send.mock.calls
+			.map(([message]) => message.body.methodName)
+			.filter(name => name === 'onInput' || name === 'onLinechange')
+		expect(methodNames).toEqual(['onInput', 'onLinechange'])
+		const linechanges = receivedDetails('onLinechange')
+		expect(linechanges).toHaveLength(1)
+		expect(linechanges[0].lineCount).toBe(2)
 	})
 })
