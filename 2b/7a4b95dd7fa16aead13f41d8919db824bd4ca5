@@ -1,0 +1,28 @@
+shared/jssdk/config.json
+  34924b520cbbd6df 2-3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "2b7a4b95dd7fa16aead13f41d8919db824bd4ca5",
+  "prompts": {
+    "34924b520cbbd6df": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07ed9-111c-7563-babd-84fe6ec074d0",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 629,
+      "total_deletions": 578,
+      "accepted_lines": 8290,
+      "overriden_lines": 0
+    }
+  },
+  "humans": {
+    "h_26bc2624df64e5": {
+      "author": "doslin"
+    }
+  }
+}
