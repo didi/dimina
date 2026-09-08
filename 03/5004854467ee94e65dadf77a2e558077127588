@@ -1,0 +1,51 @@
+examples/miniprogram/base/app.json
+  34924b520cbbd6df 21
+examples/miniprogram/base/pages/map/index.wxml
+  34924b520cbbd6df 1-13
+examples/miniprogram/base/pages/map/index.wxss
+  34924b520cbbd6df 1-5
+examples/miniprogram/base/pages/map/index.json
+  34924b520cbbd6df 1-3
+examples/miniprogram/base/pages/index.wxml
+  34924b520cbbd6df 44-46
+examples/miniprogram/base/pages/map/index.js
+  34924b520cbbd6df 1-35
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "035004854467ee94e65dadf77a2e558077127588",
+  "prompts": {
+    "34924b520cbbd6df": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07ed9-111c-7563-babd-84fe6ec074d0",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 6950,
+      "total_deletions": 703,
+      "accepted_lines": 6440,
+      "overriden_lines": 0
+    },
+    "40d0fb6cb5e1e58c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0416e-f080-7f41-a6c0-9bfe55d28490",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 51,
+      "overriden_lines": 0
+    }
+  },
+  "humans": {
+    "h_26bc2624df64e5": {
+      "author": "doslin"
+    }
+  }
+}
