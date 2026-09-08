@@ -1,0 +1,89 @@
+fe/packages/components/map-provider.d.ts
+  34924b520cbbd6df 6-7
+harmony/dimina/src/main/ets/DPages/DMPPageTitle.ets
+  34924b520cbbd6df 60-72,74
+docs/API-Reference.md
+  34924b520cbbd6df 82,113,207-208,221
+harmony/dimina/src/main/ets/HybridContainer/DMPWebComponent.ets
+  34924b520cbbd6df 7,30,79-81,185-186,194,203-204,224,244
+android/map-amap/src/test/kotlin/com/didi/dimina/map/amap/AMapCameraStateTest.kt
+  34924b520cbbd6df 1-21
+harmony/dimina/BuildProfile.ets
+  34924b520cbbd6df 17
+iOS/.gitignore
+  34924b520cbbd6df 67
+android/map-amap/src/main/kotlin/com/didi/dimina/map/amap/AMapProvider.kt
+  34924b520cbbd6df 47,70,74,102-108,178,181,184-196,199-204,257
+iOS/dimina.xcodeproj/project.pbxproj
+  34924b520cbbd6df 16,18-20,23-24,26,43,46,48-49,52-53,55,59,61,69,81,85,89,93,98,122-137,179,244,283,292,299,307,330,364,379,599,606,609-614,624,646,648,651,655,657,660,666,668,671,691,694-695,700,703-704,710,737
+iOS/dimina/DiminaKit/Map/DMPAMapProvider.swift
+  34924b520cbbd6df 29,115,121-132,139-140,201,212-213
+fe/packages/components/src/component/map/providers/native.js
+  34924b520cbbd6df 3,14,27,70,74-79
+harmony/entry/src/main/ets/pages/Index.ets
+  34924b520cbbd6df 185,187
+android/dimina/src/androidTest/java/com/didi/dimina/ui/view/nativecomponent/NativeComponentBackendTest.kt
+  34924b520cbbd6df 169-239
+fe/packages/components/__tests__/map-provider.spec.js
+  34924b520cbbd6df 101-174
+fe/packages/components/__tests__/map-native.spec.js
+  34924b520cbbd6df 34-55
+harmony/dimina/src/main/ets/Map/DMPMapProvider.ets
+  34924b520cbbd6df 54
+android/map-amap/src/main/kotlin/com/didi/dimina/map/amap/AMapCameraState.kt
+  34924b520cbbd6df 1-22
+fe/packages/components/src/component/map/providers/amap.js
+  34924b520cbbd6df 77,80,87,110-112
+docs/README.md
+  34924b520cbbd6df 20-21
+android/map-amap/build.gradle.kts
+  34924b520cbbd6df 18-19
+harmony/build-profile.json5
+  34924b520cbbd6df 30-33
+fe/packages/components/src/common/nativePageBackground.js
+  34924b520cbbd6df 1-98
+android/dimina/src/main/kotlin/com/didi/dimina/ui/view/nativecomponent/WebViewUnderlayBackend.kt
+  34924b520cbbd6df 5,14,25,34-37,97-117,135
+harmony/dimina/src/main/resources/base/media/ic_dmp_home.svg
+  34924b520cbbd6df 1-3
+fe/packages/components/__tests__/native-page-background.spec.js
+  34924b520cbbd6df 1-159
+android/dimina/src/main/kotlin/com/didi/dimina/ui/view/NativeComponentHost.kt
+  34924b520cbbd6df 197-199
+android/dimina/src/main/kotlin/com/didi/dimina/ui/view/nativecomponent/NativeComponentBackend.kt
+  34924b520cbbd6df 16
+harmony/map_amap/src/main/ets/DMPAMapProvider.ets
+  34924b520cbbd6df 39-40,62,66,74-75,102,199,203,205-220,227-230,248,258
+docs/Map-Integration.md
+  h_26bc2624df64e5 1-24,27-71,75-87,89-91,94-112,117-178,180-218,222,229-241
+  34924b520cbbd6df 25-26,72-74,88,92-93,113-116,179,219-221,223-228,242-251
+docs/Native-Component-Backend.md
+  34924b520cbbd6df 1-100
+android/dimina/src/main/kotlin/com/didi/dimina/ui/view/nativecomponent/NativeComponentLayout.kt
+  34924b520cbbd6df 20,39-40
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "103c9d6cacd48411089477974480060bef0f5a65",
+  "prompts": {
+    "34924b520cbbd6df": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07ed9-111c-7563-babd-84fe6ec074d0",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 456,
+      "total_deletions": 216,
+      "accepted_lines": 8201,
+      "overriden_lines": 11
+    }
+  },
+  "humans": {
+    "h_26bc2624df64e5": {
+      "author": "doslin"
+    }
+  }
+}
