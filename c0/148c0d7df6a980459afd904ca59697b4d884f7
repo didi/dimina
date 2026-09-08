@@ -1,0 +1,76 @@
+android/map-amap/src/test/kotlin/com/didi/dimina/map/amap/MarkerMotionTest.kt
+  34924b520cbbd6df 1-30
+harmony/map_amap/src/main/ets/DMPAMapProvider.ets
+  34924b520cbbd6df 1-2,7,28-40,55-63,77-81,100-102,154-160,169-172,203-236,264,272-369,378,387,397,414-415,435,447-489
+fe/packages/container/__tests__/map-location.spec.js
+  34924b520cbbd6df 36
+fe/packages/components/map-provider.d.ts
+  34924b520cbbd6df 13-16,44
+fe/packages/service/src/api/core/map/index.js
+  34924b520cbbd6df 49-54,65-86
+iOS/dimina/DiminaKit/Map/DMPAMapProvider.swift
+  34924b520cbbd6df 30-35,66-68,93-126,147,156-240,244,249,261-262,266,268-269,284-287,332,345-348,365-399
+fe/packages/components/src/component/map/providers/amap.js
+  34924b520cbbd6df 2-3,33,41-45,64-65,106-107,115-171,179,256-259,262,264-265,273-276,287,289-308,318,328,339
+fe/packages/compiler/package.json
+  34924b520cbbd6df 49,53,56-57,61-63
+fe/packages/components/src/component/map/map-session.js
+  34924b520cbbd6df 2,16,18-23,29-33,62-64,66,75-77,79,81,86-90
+fe/packages/components/src/component/map/providers/native.js
+  34924b520cbbd6df 5,97-101
+android/map-amap/src/main/kotlin/com/didi/dimina/map/amap/AMapProvider.kt
+  34924b520cbbd6df 3-8,55-57,67-69,149-153,170-201,209,225-263,271,283,287,343,347
+fe/packages/components/src/component/map/marker-motion.js
+  34924b520cbbd6df 1-34
+fe/packages/container-sdk/package.json
+  34924b520cbbd6df 43-44
+fe/packages/components/package.json
+  34924b520cbbd6df 32
+fe/packages/components/src/component/map/providers/amap-loader.js
+  34924b520cbbd6df 18
+android/map-amap/src/main/kotlin/com/didi/dimina/map/amap/MarkerMotion.kt
+  34924b520cbbd6df 1-38
+fe/packages/components/__tests__/map-provider.spec.js
+  34924b520cbbd6df 26-34,43-48,57,179,221,263-338
+fe/packages/components/src/component/map/map-command.js
+  34924b520cbbd6df 1-81
+fe/packages/components/__tests__/map-command.spec.js
+  34924b520cbbd6df 1-38
+docs/Map-Integration.md
+  34924b520cbbd6df 170,173-174,177-199,203
+fe/packages/container/package.json
+  34924b520cbbd6df 21
+fe/packages/components/__tests__/map-session.spec.js
+  34924b520cbbd6df 85-142
+fe/packages/components/__tests__/map-native.spec.js
+  34924b520cbbd6df 125-137
+fe/package.json
+  34924b520cbbd6df 34
+fe/packages/service/__tests__/map-context.spec.js
+  34924b520cbbd6df 51-76
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "c0148c0d7df6a980459afd904ca59697b4d884f7",
+  "prompts": {
+    "34924b520cbbd6df": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07ed9-111c-7563-babd-84fe6ec074d0",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 1695,
+      "total_deletions": 118,
+      "accepted_lines": 8791,
+      "overriden_lines": 0
+    }
+  },
+  "humans": {
+    "h_26bc2624df64e5": {
+      "author": "doslin"
+    }
+  }
+}
