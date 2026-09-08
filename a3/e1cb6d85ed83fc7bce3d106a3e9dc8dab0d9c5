@@ -1,0 +1,26 @@
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "a3e1cb6d85ed83fc7bce3d106a3e9dc8dab0d9c5",
+  "prompts": {
+    "34924b520cbbd6df": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07ed9-111c-7563-babd-84fe6ec074d0",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 126,
+      "total_deletions": 100,
+      "accepted_lines": 7178,
+      "overriden_lines": 0
+    }
+  },
+  "humans": {
+    "h_26bc2624df64e5": {
+      "author": "doslin"
+    }
+  }
+}
