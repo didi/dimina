@@ -21,12 +21,14 @@ export interface StatusBarRect {
 export interface ShellAdapter {
 	getStatusBarRect?: () => StatusBarRect
 	updateStatusBarColor?: (color: string) => void
+	subscribeStatusBarRectChange?: (listener: () => void) => (() => void) | void
 }
 
-/** resolveShell() 归一化后的形状：两个方法都保证存在（缺省安全实现）。 */
+/** resolveShell() 归一化后的形状：所有方法都保证存在（缺省安全实现）。 */
 export interface ResolvedShell {
 	getStatusBarRect: () => StatusBarRect
 	updateStatusBarColor: (color: string) => void
+	subscribeStatusBarRectChange: (listener: () => void) => (() => void) | void
 }
 
 /** 小程序元信息，由宿主 getAppInfo(appId) 提供。 */
@@ -120,7 +122,7 @@ export type ExtModuleHandler = (payload: {
 export interface CreateContainerOptions {
 	/** 容器根元素，SDK 把应用视图树挂到这里 */
 	mount: HTMLElement
-	/** 宿主 shell 适配器：{ getStatusBarRect, updateStatusBarColor } */
+	/** 宿主 shell 适配器：状态栏几何、变化订阅与前景色联动 */
 	shell?: ShellAdapter
 	/** 小程序资源基路径 */
 	resourceBaseUrl?: string

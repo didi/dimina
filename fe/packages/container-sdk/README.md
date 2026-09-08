@@ -70,6 +70,7 @@ resourceBaseUrl/
 |---|---|
 | `mount` | 必填，容器根元素 |
 | `shell.getStatusBarRect` | 宿主提供状态栏几何（`{top,left,width,height,...}`），用于自定义导航栏 / 胶囊按钮布局对齐 |
+| `shell.subscribeStatusBarRectChange` | 可选的状态栏几何变化订阅。宿主切换机型、方向或安全区后调用传入的 listener，并返回取消订阅函数；SDK 会把最新窗口和状态栏信息同步到小程序逻辑线程 |
 | `shell.updateStatusBarColor` | 状态栏前景色（黑/白）变化通知，供宿主壳联动切换深浅色 |
 | `resourceBaseUrl` | 小程序资源请求基路径，缺省 `/`。经真实 `URL` 解析归一化为绝对 URL（相对路径按 `window.location.origin` 解析），畸形输入同步抛错。宿主部署在非根路径时必须显式传入 |
 | `pageFrameUrl` | 渲染层 iframe 的 URL，缺省基于归一化后的 `resourceBaseUrl` 解析出 `pageFrame.html`；同样经 `URL` 解析，畸形输入同步抛错 |
@@ -109,6 +110,7 @@ const container = createContainer({
 	mount: document.getElementById('root'),
 	shell: {
 		getStatusBarRect: () => hostShell.getStatusBarRect(),
+		subscribeStatusBarRectChange: listener => hostShell.subscribeStatusBarRectChange(listener),
 		updateStatusBarColor: color => hostShell.setStatusBarColor(color),
 	},
 	resourceBaseUrl: '/static/miniapp/',

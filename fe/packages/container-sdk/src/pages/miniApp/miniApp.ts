@@ -286,6 +286,8 @@ export class MiniApp {
 	_wakeLockVisibilityHandler: (() => void) | null
 	_mediaPreviewEl: HTMLElement | null
 	_tempObjectUrls: Set<string>
+	_hostEnvChangeHandler: (() => void) | null
+	_hostEnvChangeUnsubscribe: (() => void) | null
 	/** app.tabBar 配置 */
 	tabBarConfig: TabBarConfig | null
 	/** 与 list 等长，pagePath 数组（已规范化、无前导 /） */
@@ -354,6 +356,8 @@ export class MiniApp {
 		this._wakeLockVisibilityHandler = null
 		this._mediaPreviewEl = null
 		this._tempObjectUrls = new Set()
+		this._hostEnvChangeHandler = null
+		this._hostEnvChangeUnsubscribe = null
 		this.tabBarConfig = null
 		this.tabBarPaths = []
 		this.tabBarEl = null
@@ -902,6 +906,7 @@ export class MiniApp {
 				// 资源加载完成不代表首屏已经挂载；页面与小游戏统一等本轮 domReady。
 				await entryPageBridge.startAndWait(startOptions)
 			}
+			this._bindHostEnvChanges()
 
 			this.safeSyncUrl()
 
@@ -2385,6 +2390,12 @@ export class MiniApp {
 		this._mediaPreviewEl = null
 		for (const url of this._tempObjectUrls) URL.revokeObjectURL(url)
 		this._tempObjectUrls.clear()
+		if (this._hostEnvChangeHandler) {
+			globalThis.removeEventListener?.('resize', this._hostEnvChangeHandler)
+			this._hostEnvChangeHandler = null
+		}
+		this._hostEnvChangeUnsubscribe?.()
+		this._hostEnvChangeUnsubscribe = null
 		if (this._themeMediaQuery?.removeEventListener) {
 			this._themeMediaQuery.removeEventListener('change', this._themeChangeHandler!)
 		}
@@ -2566,6 +2577,24 @@ export class MiniApp {
 			errMsg: 'getSystemInfo:ok',
 		})
 		onComplete?.()
+	}
+
+	_bindHostEnvChanges(): void {
+		if (this._hostEnvChangeHandler || !globalThis.addEventListener) {
+			return
+		}
+
+		this._hostEnvChangeHandler = () => {
+			if (this._destroyed) {
+				return
+			}
+			this.jscore.postMessage({
+				type: 'hostEnvUpdate',
+				body: this.getHostEnvSnapshot(),
+			})
+		}
+		globalThis.addEventListener('resize', this._hostEnvChangeHandler)
+		this._hostEnvChangeUnsubscribe = this.parent?.shell?.subscribeStatusBarRectChange?.(this._hostEnvChangeHandler) ?? null
 	}
 
 	onWindowResize(opts: { success?: CallbackId } = {}): void {

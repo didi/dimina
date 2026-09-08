@@ -22,6 +22,10 @@ function defaultGetStatusBarRect(): StatusBarRect {
 
 function noop() {}
 
+function noopSubscribe(): () => void {
+	return noop
+}
+
 /**
  * Normalize the host-selected virtual file scheme once per container instance.
  * Keeping this value on Application avoids one container changing another through
@@ -49,6 +53,9 @@ export function resolveShell(shell: ShellAdapter = {}): ResolvedShell {
 	return {
 		getStatusBarRect: shell.getStatusBarRect ? shell.getStatusBarRect.bind(shell) : defaultGetStatusBarRect,
 		updateStatusBarColor: shell.updateStatusBarColor ? shell.updateStatusBarColor.bind(shell) : noop,
+		subscribeStatusBarRectChange: shell.subscribeStatusBarRectChange
+			? shell.subscribeStatusBarRectChange.bind(shell)
+			: noopSubscribe,
 	}
 }
 

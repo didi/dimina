@@ -37,6 +37,72 @@ describe('shell status bar adapter', () => {
 		expect(systemInfo.statusBarHeight).toBe(44)
 	}, 10000)
 
+	it('refreshes the service host environment when the DeviceKit viewport changes', async () => {
+		let statusBarRect = { top: 0, left: 0, width: 375, height: 44, right: 375, bottom: 44 }
+		let viewportRect = { top: 0, left: 0, width: 375, height: 812, right: 375, bottom: 812 }
+		const container = createContainer({ mount, shell: { getStatusBarRect: () => statusBarRect } })
+		const miniApp = await container.openApp({ appId: 'wx-shell-resize', path: 'pages/index/index' })
+		const viewport = miniApp.parent!.el.querySelector<HTMLElement>('.dimina-native-webview__root')!
+		vi.spyOn(viewport, 'getBoundingClientRect').mockImplementation(() => viewportRect as DOMRect)
+		const postMessage = vi.spyOn(miniApp.jscore, 'postMessage')
+
+		statusBarRect = { top: 0, left: 0, width: 430, height: 54, right: 430, bottom: 54 }
+		viewportRect = { top: 0, left: 0, width: 430, height: 932, right: 430, bottom: 932 }
+		miniApp._bindHostEnvChanges()
+		globalThis.dispatchEvent(new Event('resize'))
+
+		expect(postMessage).toHaveBeenCalledWith({
+			type: 'hostEnvUpdate',
+			body: {
+				menuRect: expect.objectContaining({ top: 58 }),
+				systemInfo: expect.objectContaining({
+					windowWidth: 430,
+					windowHeight: 932,
+					statusBarHeight: 54,
+				}),
+			},
+		})
+		const hostEnvUpdateCount = postMessage.mock.calls.filter(([message]) => message.type === 'hostEnvUpdate').length
+		expect(hostEnvUpdateCount).toBe(1)
+
+		miniApp.destroy()
+		globalThis.dispatchEvent(new Event('resize'))
+		expect(postMessage.mock.calls.filter(([message]) => message.type === 'hostEnvUpdate')).toHaveLength(hostEnvUpdateCount)
+	}, 10000)
+
+	it('refreshes the service host environment when only the shell status bar geometry changes', async () => {
+		let statusBarRect = { top: 0, left: 0, width: 375, height: 44, right: 375, bottom: 44 }
+		let notifyStatusBarRectChange: (() => void) | undefined
+		const unsubscribe = vi.fn()
+		const shell = {
+			getStatusBarRect: () => statusBarRect,
+			subscribeStatusBarRectChange(listener: () => void) {
+				notifyStatusBarRectChange = listener
+				return unsubscribe
+			},
+		}
+		const container = createContainer({ mount, shell })
+		const miniApp = await container.openApp({ appId: 'wx-shell-status-bar-resize', path: 'pages/index/index' })
+		const postMessage = vi.spyOn(miniApp.jscore, 'postMessage')
+
+		statusBarRect = { top: 0, left: 0, width: 375, height: 50, right: 375, bottom: 50 }
+		notifyStatusBarRectChange?.()
+
+		expect(postMessage).toHaveBeenCalledWith({
+			type: 'hostEnvUpdate',
+			body: {
+				menuRect: expect.objectContaining({ top: 54 }),
+				systemInfo: expect.objectContaining({
+					windowWidth: 375,
+					statusBarHeight: 50,
+				}),
+			},
+		})
+
+		miniApp.destroy()
+		expect(unsubscribe).toHaveBeenCalledTimes(1)
+	}, 10000)
+
 	it('does not throw during app boot when shell.updateStatusBarColor is not provided', async () => {
 		const container = createContainer({ mount })
 
