@@ -10,6 +10,10 @@ const mounts = []
 // 用于断言表单值收集的时序而不只是最终结果
 let collectFormValueMock
 
+// 记录组件向 Form 注册的控件（getName/getValue/reset），用于模拟 Form 的 reset 按钮
+// 直接调用 control.reset() 的场景，不只是丢弃注册回调
+let registeredFormControls
+
 function mountComponent(component, props = {}) {
 	const host = document.createElement('div')
 	document.body.appendChild(host)
@@ -19,7 +23,10 @@ function mountComponent(component, props = {}) {
 			provide('path', 'page-path')
 			provide('page-path', { id: 'module-1' })
 			provide('collectFormValue', (...args) => collectFormValueMock(...args))
-			provide('registerFormControl', () => () => {})
+			provide('registerFormControl', (control) => {
+				registeredFormControls.push(control)
+				return () => {}
+			})
 			return () => h(component, props)
 		},
 	})
@@ -61,6 +68,7 @@ function dispatchKeydown(el, keyCode, { isComposing = false } = {}) {
 
 beforeEach(() => {
 	collectFormValueMock = vi.fn()
+	registeredFormControls = []
 	window.__message = {
 		invoke: vi.fn(),
 		off: vi.fn(),
@@ -241,15 +249,58 @@ describe('input 组合输入语义', () => {
 		// 外部把绑定的 value 改成别的文本（比如父组件重置了表单），和刚才的输入法组合无关
 		props.value = '你a'
 		await nextTick()
+		expect(el.value).toBe('你a')
 
-		// 用户真实删除一个字符，结果和刚才组合提交的值凑巧相同，不能被当成 compositionend 的重复回声吞掉
-		dispatchKeydown(el, 8)
+		// 用户真实删除一个字符，结果和刚才组合提交的值凑巧相同；这次删除不经过 keydown
+		// （比如通过输入法候选栏的删除键或触控栏操作），不能被当成 compositionend 的重复回声吞掉
 		dispatchInput(el, '你', { isComposing: false })
 
 		const details = receivedDetails('onInput')
 		expect(details.map(d => d.value)).toEqual(['你', '你'])
 		const lastCall2 = collectFormValueMock.mock.calls.at(-1)
 		expect(lastCall2[1]).toBe('你')
+	})
+
+	it('组合提交后没有补发 input（Chrome 顺序），Form 的 reset 按钮清空输入框后，不带 keydown 的粘贴出和提交值相同的文本必须派发', async () => {
+		const el = mountInput()
+
+		dispatchComposition(el, 'compositionstart')
+		dispatchInput(el, '你', { isComposing: true })
+		dispatchComposition(el, 'compositionend', '你', { value: '你' })
+
+		// Form 的 reset 按钮直接调用注册的控件，把 DOM 值清空，这和刚才的组合提交无关
+		registeredFormControls.at(-1).reset()
+		await nextTick()
+		expect(el.value).toBe('')
+
+		// 不经过 keydown 的菜单粘贴，凑巧贴出和刚才组合提交值相同的文本
+		dispatchInput(el, '你', { isComposing: false })
+
+		const details = receivedDetails('onInput')
+		expect(details.map(d => d.value)).toEqual(['你', '你'])
+		const lastCall = collectFormValueMock.mock.calls.at(-1)
+		expect(lastCall[1]).toBe('你')
+	})
+
+	it('组合提交后没有补发 input（Chrome 顺序），bindinput 回调把内容清空后，紧跟的一次不带 keydown 的输入（如菜单粘贴）即使和提交值相同也必须派发', async () => {
+		const el = mountInput()
+
+		dispatchComposition(el, 'compositionstart')
+		dispatchInput(el, '你', { isComposing: true })
+		dispatchComposition(el, 'compositionend', '你', { value: '你' })
+
+		// 业务的 bindinput 回调把输入框清空（比如做了校验重置），这和刚才的组合提交无关
+		const success = window.__callback.store.mock.calls.at(-1)[0]
+		success('')
+		await nextTick()
+
+		// 不经过 keydown 的菜单粘贴，凑巧贴出和刚才组合提交值相同的文本
+		dispatchInput(el, '你', { isComposing: false })
+
+		const details = receivedDetails('onInput')
+		expect(details.map(d => d.value)).toEqual(['你', '你'])
+		const lastCall = collectFormValueMock.mock.calls.at(-1)
+		expect(lastCall[1]).toBe('你')
 	})
 })
 
@@ -431,5 +482,77 @@ describe('textarea 组合输入语义', () => {
 		const linechanges = receivedDetails('onLinechange')
 		expect(linechanges).toHaveLength(1)
 		expect(linechanges[0].lineCount).toBe(2)
+	})
+
+	it('组合提交后没有补发 input（Chrome 顺序），外部把 value 改成别的值后再删回和提交值相同的文本，这次真实编辑必须派发', async () => {
+		const props = reactive({
+			bindinput: 'onInput',
+			bindconfirm: 'onConfirm',
+			bindblur: 'onBlur',
+			bindlinechange: 'onLinechange',
+			value: '',
+		})
+		const { host } = mountComponent(Textarea, props)
+		const el = host.querySelector('textarea')
+
+		dispatchComposition(el, 'compositionstart')
+		dispatchInput(el, '你', { isComposing: true })
+		dispatchComposition(el, 'compositionend', '你', { value: '你' })
+
+		// 外部把绑定的 value 改成别的文本（比如父组件重置了表单），和刚才的输入法组合无关
+		props.value = '你a'
+		await nextTick()
+		expect(el.value).toBe('你a')
+
+		// 用户真实删除一个字符，结果和刚才组合提交的值凑巧相同；这次删除不经过 keydown
+		// （比如通过输入法候选栏的删除键或触控栏操作），不能被当成 compositionend 的重复回声吞掉
+		dispatchInput(el, '你', { isComposing: false })
+
+		const details = receivedDetails('onInput')
+		expect(details.map(d => d.value)).toEqual(['你', '你'])
+		const lastCall2 = collectFormValueMock.mock.calls.at(-1)
+		expect(lastCall2[1]).toBe('你')
+	})
+
+	it('组合提交后没有补发 input（Chrome 顺序），Form 的 reset 按钮清空输入框后，不带 keydown 的粘贴出和提交值相同的文本必须派发', async () => {
+		const el = mountTextarea()
+
+		dispatchComposition(el, 'compositionstart')
+		dispatchInput(el, '你', { isComposing: true })
+		dispatchComposition(el, 'compositionend', '你', { value: '你' })
+
+		// Form 的 reset 按钮直接调用注册的控件，把 DOM 值清空，这和刚才的组合提交无关
+		registeredFormControls.at(-1).reset()
+		await nextTick()
+		expect(el.value).toBe('')
+
+		// 不经过 keydown 的菜单粘贴，凑巧贴出和刚才组合提交值相同的文本
+		dispatchInput(el, '你', { isComposing: false })
+
+		const details = receivedDetails('onInput')
+		expect(details.map(d => d.value)).toEqual(['你', '你'])
+		const lastCall = collectFormValueMock.mock.calls.at(-1)
+		expect(lastCall[1]).toBe('你')
+	})
+
+	it('组合提交后没有补发 input（Chrome 顺序），bindinput 回调把内容清空后，紧跟的一次不带 keydown 的输入（如菜单粘贴）即使和提交值相同也必须派发', async () => {
+		const el = mountTextarea()
+
+		dispatchComposition(el, 'compositionstart')
+		dispatchInput(el, '你', { isComposing: true })
+		dispatchComposition(el, 'compositionend', '你', { value: '你' })
+
+		// 业务的 bindinput 回调把输入框清空（比如做了校验重置），这和刚才的组合提交无关
+		const success = window.__callback.store.mock.calls.at(-1)[0]
+		success('')
+		await nextTick()
+
+		// 不经过 keydown 的菜单粘贴，凑巧贴出和刚才组合提交值相同的文本
+		dispatchInput(el, '你', { isComposing: false })
+
+		const details = receivedDetails('onInput')
+		expect(details.map(d => d.value)).toEqual(['你', '你'])
+		const lastCall = collectFormValueMock.mock.calls.at(-1)
+		expect(lastCall[1]).toBe('你')
 	})
 })

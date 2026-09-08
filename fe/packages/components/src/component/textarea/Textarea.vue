@@ -265,7 +265,7 @@ const unregisterFormControl = registerFormControl?.({
 	getName: () => props.name,
 	getValue: () => iValue.value,
 	reset: () => {
-		iValue.value = ''
+		applyExternalValue('')
 		collectFormValue?.(props.name, iValue.value)
 	},
 })
@@ -313,11 +313,19 @@ watch(
 			applySelection()
 		}
 		if (preV !== nV) {
-			iValue.value = nV
-			committedValue = null
+			applyExternalValue(nV)
 		}
 	},
 )
+
+// props 或 bindinput 回调从 DOM 之外改写内部值：DOM 里那次组合提交的文本不再是当前值，
+// 之后到达的同值 input 只能是真实输入（比如菜单粘贴），去重标记随之作废
+function applyExternalValue(nextValue) {
+	if (iValue.value !== nextValue) {
+		committedValue = null
+	}
+	iValue.value = nextValue
+}
 
 const wrapperRef = ref(null)
 
@@ -490,9 +498,9 @@ function publishInput(event) {
 			keyCode: keyCode.value,
 		},
 		success: (data) => {
-			iValue.value = data.value ?? data
-
-			emit('update:value', data.value ?? data)
+			const nextValue = data.value ?? data
+			applyExternalValue(nextValue)
+			emit('update:value', nextValue)
 		},
 	})
 }
