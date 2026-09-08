@@ -1,0 +1,104 @@
+fe/packages/components/src/component/map/providers/amap-loader.js
+  34924b520cbbd6df 1-38
+fe/packages/service/src/api/common/index.js
+  40d0fb6cb5e1e58c 126-127
+fe/packages/components/src/component/map/providers/amap.js
+  34924b520cbbd6df 1-246
+fe/packages/render/src/core/map-context.js
+  40d0fb6cb5e1e58c 1-23
+harmony/map_amap/src/main/module.json5
+  34924b520cbbd6df 1
+fe/packages/components/src/component/map/map-session.js
+  34924b520cbbd6df 1-79
+fe/packages/service/src/api/core/map/index.js
+  34924b520cbbd6df 11-14
+  40d0fb6cb5e1e58c 2,41-44,62,64-68
+fe/packages/components/map-provider.d.ts
+  34924b520cbbd6df 1-42
+harmony/map_amap/hvigorfile.ts
+  34924b520cbbd6df 1-2
+harmony/build-profile.json5
+  34924b520cbbd6df 30
+harmony/map_amap/.gitignore
+  34924b520cbbd6df 1-6
+fe/packages/components/src/component/map/providers/native-layout.js
+  34924b520cbbd6df 1-36
+fe/packages/components/__tests__/map-provider.spec.js
+  34924b520cbbd6df 1-175
+fe/packages/components/src/component/map/providers/registry.js
+  34924b520cbbd6df 1-27
+harmony/map_amap/build-profile.json5
+  34924b520cbbd6df 1
+fe/packages/render/src/core/runtime.js
+  40d0fb6cb5e1e58c 40,2354-2355
+fe/packages/components/__tests__/map-session.spec.js
+  34924b520cbbd6df 1-84
+fe/packages/components/src/component/map/providers/native.js
+  34924b520cbbd6df 1-91
+fe/packages/service/__tests__/map-context.spec.js
+  34924b520cbbd6df 1-50
+fe/packages/components/__tests__/map-native.spec.js
+  34924b520cbbd6df 1-102
+fe/packages/container-sdk/src/types.ts
+  34924b520cbbd6df 220
+harmony/map_amap/oh-package.json5
+  34924b520cbbd6df 1-11
+fe/packages/container-sdk/src/pages/webview/webview.ts
+  34924b520cbbd6df 65
+fe/packages/container/src/mapConfig.js
+  34924b520cbbd6df 1-2,11-12
+  h_26bc2624df64e5 3-10,13-28
+fe/packages/compiler/src/common/compatibility-reference.js
+  34924b520cbbd6df 17,47
+fe/packages/render/__tests__/map-context.spec.js
+  34924b520cbbd6df 1-99
+fe/packages/container/vite.config.mjs
+  34924b520cbbd6df 15,39,42,51,60-61
+fe/packages/container/.env.example
+  h_26bc2624df64e5 1-2,4-8
+  34924b520cbbd6df 3
+android/settings.gradle.kts
+  34924b520cbbd6df 31-33
+fe/packages/components/package.json
+  34924b520cbbd6df 8-9,18-20
+android/map-amap/build.gradle.kts
+  34924b520cbbd6df 1-18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "e8f4eef4b5ec03813d1b11869c7e03ced10d2b0a",
+  "prompts": {
+    "34924b520cbbd6df": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07ed9-111c-7563-babd-84fe6ec074d0",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 34,
+      "total_deletions": 22,
+      "accepted_lines": 6403,
+      "overriden_lines": 0
+    },
+    "40d0fb6cb5e1e58c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0416e-f080-7f41-a6c0-9bfe55d28490",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 51,
+      "overriden_lines": 0
+    }
+  },
+  "humans": {
+    "h_26bc2624df64e5": {
+      "author": "doslin"
+    }
+  }
+}
