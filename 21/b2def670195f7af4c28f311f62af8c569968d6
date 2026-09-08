@@ -1,0 +1,40 @@
+android/dimina/src/main/kotlin/com/didi/dimina/common/Utils.kt
+  34924b520cbbd6df 166-179
+android/dimina/src/test/java/com/didi/dimina/common/StatusBarInsetResolverTest.kt
+  34924b520cbbd6df 1-54
+android/dimina/src/main/kotlin/com/didi/dimina/common/StatusBarInsetResolver.kt
+  34924b520cbbd6df 1-26
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "21b2def670195f7af4c28f311f62af8c569968d6",
+  "prompts": {
+    "34924b520cbbd6df": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07ed9-111c-7563-babd-84fe6ec074d0",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 748,
+      "total_deletions": 25,
+      "accepted_lines": 732,
+      "overriden_lines": 0
+    },
+    "40d0fb6cb5e1e58c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0416e-f080-7f41-a6c0-9bfe55d28490",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 43,
+      "total_deletions": 4,
+      "accepted_lines": 43,
+      "overriden_lines": 0
+    }
+  }
+}
