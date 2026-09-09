@@ -1,0 +1,12 @@
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "8a97e082771aad3cd623355dbdbb97b41474e876",
+  "prompts": {},
+  "humans": {
+    "h_26bc2624df64e5": {
+      "author": "doslin"
+    }
+  }
+}
