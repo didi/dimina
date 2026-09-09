@@ -1,0 +1,36 @@
+harmony/scripts/retained-pages.test.mjs
+  34924b520cbbd6df 13,21,49,127,135,143,200-260
+fe/packages/service/src/core/background-scheduler.js
+  34924b520cbbd6df 1-2,12-16,30,33,46,54-59,61-74,76,78,91-92,95,112-132,134
+fe/packages/service/__tests__/background-worker-tasks.spec.js
+  34924b520cbbd6df 1-38
+fe/packages/service/__tests__/background-lifecycle.spec.js
+  34924b520cbbd6df 33-64
+fe/packages/service/__tests__/background-scheduler.spec.js
+  34924b520cbbd6df 45,53,64-144
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "998ef43084b46120835d0e4032c71f917039cd52",
+  "prompts": {
+    "34924b520cbbd6df": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07ed9-111c-7563-babd-84fe6ec074d0",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 290,
+      "total_deletions": 26,
+      "accepted_lines": 22842,
+      "overriden_lines": 5
+    }
+  },
+  "humans": {
+    "h_26bc2624df64e5": {
+      "author": "doslin"
+    }
+  }
+}
