@@ -1,0 +1,75 @@
+fe/packages/render/__tests__/debug-print.spec.js
+  b45b049c7eeb7896 1-24
+android/README.md
+  b45b049c7eeb7896 76-80
+fe/packages/service/src/core/debug.js
+  b45b049c7eeb7896 1-107
+fe/packages/render/src/index.js
+  b45b049c7eeb7896 23-29,33-34,73,99-106
+fe/packages/container-sdk/__tests__/vconsole-build.spec.ts
+  b45b049c7eeb7896 1-47
+shared/jssdk/config.json
+  b45b049c7eeb7896 2-3
+fe/packages/service/src/api/core/network/request/index.js
+  b45b049c7eeb7896 1,10
+fe/packages/service/src/core/env.js
+  b45b049c7eeb7896 2,18
+fe/packages/container/vite.config.mjs
+  b45b049c7eeb7896 5,62
+  h_26bc2624df64e5 54
+  c929c95c0c1e5d64 55-56
+android/dimina/src/main/kotlin/com/didi/dimina/core/Bridge.kt
+  b45b049c7eeb7896 111
+fe/packages/container-sdk/__tests__/vconsole.spec.ts
+  b45b049c7eeb7896 1-37
+fe/packages/container-sdk/vite.config.mjs
+  b45b049c7eeb7896 4,92,94
+fe/scripts/vconsole-build-warning.mjs
+  b45b049c7eeb7896 1-25
+fe/packages/service/__tests__/debug.spec.js
+  b45b049c7eeb7896 1-76
+fe/packages/container-sdk/src/pages/pageFrame/vconsole.ts
+  b45b049c7eeb7896 8-30,36
+fe/packages/container-sdk/src/pages/pageFrame/pageFrame.ts
+  b45b049c7eeb7896 4
+android/dimina/src/main/kotlin/com/didi/dimina/core/JsCore.kt
+  b45b049c7eeb7896 5,40-42
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "2be387e1fd6943c2645022783df2329091e04c90",
+  "prompts": {
+    "b45b049c7eeb7896": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08b0f-a579-78d2-b53a-727470b0520a",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 1312,
+      "total_deletions": 49,
+      "accepted_lines": 1287,
+      "overriden_lines": 0
+    },
+    "c929c95c0c1e5d64": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08b23-a490-7061-855c-4adc05912067",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 3,
+      "total_deletions": 0,
+      "accepted_lines": 2,
+      "overriden_lines": 1
+    }
+  },
+  "humans": {
+    "h_26bc2624df64e5": {
+      "author": "doslin"
+    }
+  }
+}
