@@ -1,0 +1,32 @@
+fe/packages/service/__tests__/debug.spec.js
+  b45b049c7eeb7896 13,77-84
+fe/packages/container-sdk/__tests__/native-vconsole.spec.ts
+  b45b049c7eeb7896 1-54
+fe/packages/service/src/core/debug.js
+  b45b049c7eeb7896 67-70
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "855015906743843d2e685695a63d96c67db92334",
+  "prompts": {
+    "b45b049c7eeb7896": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08b0f-a579-78d2-b53a-727470b0520a",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 1894,
+      "total_deletions": 18,
+      "accepted_lines": 2791,
+      "overriden_lines": 1
+    }
+  },
+  "humans": {
+    "h_26bc2624df64e5": {
+      "author": "doslin"
+    }
+  }
+}
