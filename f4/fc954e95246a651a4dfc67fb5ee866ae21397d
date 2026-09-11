@@ -1,0 +1,34 @@
+android/README.md
+  b45b049c7eeb7896 74
+android/dimina/src/main/kotlin/com/didi/dimina/Dimina.kt
+  b45b049c7eeb7896 90,94,138
+android/dimina/build.gradle.kts
+  b45b049c7eeb7896 56-62
+android/dimina/src/test/java/com/didi/dimina/DiminaDebugModeTest.kt
+  b45b049c7eeb7896 1-32
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "f4fc954e95246a651a4dfc67fb5ee866ae21397d",
+  "prompts": {
+    "b45b049c7eeb7896": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08b0f-a579-78d2-b53a-727470b0520a",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 47,
+      "total_deletions": 8,
+      "accepted_lines": 2770,
+      "overriden_lines": 0
+    }
+  },
+  "humans": {
+    "h_26bc2624df64e5": {
+      "author": "doslin"
+    }
+  }
+}
