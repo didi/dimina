@@ -1,0 +1,78 @@
+iOS/dimina/DiminaKit/Container/DMPPageController.swift
+  b45b049c7eeb7896 531,880,894,932-935
+android/dimina/src/main/kotlin/com/didi/dimina/common/BundledResourcePolicy.kt
+  b45b049c7eeb7896 14,16
+iOS/dimina/DiminaKit/Navigator/DMPNavigator.swift
+  b45b049c7eeb7896 104
+android/dimina/src/main/kotlin/com/didi/dimina/core/MiniApp.kt
+  b45b049c7eeb7896 139
+iOS/dimina/DiminaKit/Bundle/DMPResourceManager.swift
+  b45b049c7eeb7896 36-37
+iOS/dimina/DiminaKit/App/DMPAppManager.swift
+  b45b049c7eeb7896 400-425
+harmony/dimina/Index.ets
+  b45b049c7eeb7896 14-15
+android/dimina/src/androidTest/java/com/didi/dimina/api/file/LocalPackageTest.kt
+  b45b049c7eeb7896 1-65
+harmony/dimina/src/main/ets/Bundle/Loader/DMPReleaseBundleLoader.ets
+  b45b049c7eeb7896 206-209
+docs/Host-Package-Management.md
+  b45b049c7eeb7896 1-81
+android/dimina/src/main/kotlin/com/didi/dimina/Dimina.kt
+  b45b049c7eeb7896 55,61-63,180-208
+fe/packages/container-sdk/__tests__/native-capsule-back.spec.ts
+  b45b049c7eeb7896 1-47
+harmony/dimina/src/main/ets/Bundle/DMPRemoteUpdateManager.ets
+  b45b049c7eeb7896 35-36,183-186,215-282,293-296,441,456,470,476
+harmony/dimina/src/main/ets/DPages/DMPPageTitle.ets
+  b45b049c7eeb7896 47-48,89,99-101,113-128
+iOS/diminaTests/DMPNavigatorCapsuleTests.swift
+  b45b049c7eeb7896 107-165,2058-2059,2062-2064
+android/dimina/src/main/kotlin/com/didi/dimina/ui/container/DiminaActivity.kt
+  b45b049c7eeb7896 638,1740,1746-1749,1876
+android/dimina/src/test/java/com/didi/dimina/common/BundledResourcePolicyTest.kt
+  b45b049c7eeb7896 8-12
+iOS/dimina/DiminaKit/Bundle/DMPRemoteUpdateManager.swift
+  b45b049c7eeb7896 168-173,204-236,414-415,511
+docs/MiniProgram-Update.md
+  b45b049c7eeb7896 311-314
+harmony/dimina/src/main/ets/DPages/DMPPageContainer.ets
+  b45b049c7eeb7896 182
+iOS/dimina/DiminaKit/App/DMPApp.swift
+  b45b049c7eeb7896 80
+iOS/diminaTests/DMPRemoteUpdateManagerTests.swift
+  b45b049c7eeb7896 2,84-146
+harmony/dimina/src/main/ets/DApp/DMPApp.ets
+  b45b049c7eeb7896 344-347,357,364-365
+harmony/dimina/src/main/ets/DApp/DMPAppManager.ets
+  b45b049c7eeb7896 16,254-294
+android/dimina/src/main/kotlin/com/didi/dimina/core/RemoteUpdateManager.kt
+  b45b049c7eeb7896 130-174
+fe/packages/container-sdk/__tests__/native-local-package.spec.ts
+  b45b049c7eeb7896 1-88
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "ebcf5702c0926cc684f9f765c6fc3772c13b7db4",
+  "prompts": {
+    "b45b049c7eeb7896": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08b0f-a579-78d2-b53a-727470b0520a",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 6398,
+      "total_deletions": 111,
+      "accepted_lines": 11954,
+      "overriden_lines": 13
+    }
+  },
+  "humans": {
+    "h_26bc2624df64e5": {
+      "author": "doslin"
+    }
+  }
+}
