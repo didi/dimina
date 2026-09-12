@@ -29,7 +29,7 @@
     "lint:fix": "oxlint --fix"
   },
   "devDependencies": {
-    "@vitest/coverage-v8": "^4.1.11",
+    "@vitest/coverage-v8": "^5.0.0",
     "archiver": "^8.0.0",
     "concurrently": "^10.0.5",
     "fs-extra": "^11.4.0",
