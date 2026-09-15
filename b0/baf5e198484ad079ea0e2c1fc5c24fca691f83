@@ -1,0 +1,25 @@
+.github/workflows/android-build.yml
+  1734a92ca8fa4eab 74-77
+.github/workflows/android-tests.yml
+  1734a92ca8fa4eab 30-33
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "b0baf5e198484ad079ea0e2c1fc5c24fca691f83",
+  "prompts": {
+    "1734a92ca8fa4eab": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a438-41c3-7ba1-b1a5-fb40f5fdcf6f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 8,
+      "total_deletions": 2,
+      "accepted_lines": 867,
+      "overriden_lines": 0
+    }
+  }
+}
