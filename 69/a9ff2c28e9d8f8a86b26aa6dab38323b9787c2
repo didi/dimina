@@ -1,0 +1,25 @@
+harmony/dimina/oh-package.json5
+  1734a92ca8fa4eab 3
+examples/flutter/android/app/build.gradle.kts
+  1734a92ca8fa4eab 60
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "69a9ff2c28e9d8f8a86b26aa6dab38323b9787c2",
+  "prompts": {
+    "1734a92ca8fa4eab": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a438-41c3-7ba1-b1a5-fb40f5fdcf6f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 795,
+      "total_deletions": 2,
+      "accepted_lines": 861,
+      "overriden_lines": 0
+    }
+  }
+}
