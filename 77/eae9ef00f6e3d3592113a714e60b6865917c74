@@ -1,0 +1,25 @@
+fe/packages/service/src/api/core/network/request/index.js
+  1734a92ca8fa4eab 4-33,40
+harmony/scripts/request-query.test.mjs
+  1734a92ca8fa4eab 1-71
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "77eae9ef00f6e3d3592113a714e60b6865917c74",
+  "prompts": {
+    "1734a92ca8fa4eab": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a438-41c3-7ba1-b1a5-fb40f5fdcf6f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 171,
+      "total_deletions": 4,
+      "accepted_lines": 170,
+      "overriden_lines": 0
+    }
+  }
+}
