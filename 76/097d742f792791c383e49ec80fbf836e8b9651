@@ -1,0 +1,30 @@
+README.md
+  h_26bc2624df64e5 67
+README_EN.md
+  h_26bc2624df64e5 71
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "76097d742f792791c383e49ec80fbf836e8b9651",
+  "prompts": {
+    "1734a92ca8fa4eab": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a438-41c3-7ba1-b1a5-fb40f5fdcf6f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 7270,
+      "total_deletions": 16,
+      "accepted_lines": 8115,
+      "overriden_lines": 0
+    }
+  },
+  "humans": {
+    "h_26bc2624df64e5": {
+      "author": "doslin"
+    }
+  }
+}
