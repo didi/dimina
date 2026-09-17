@@ -1,0 +1,41 @@
+android/dimina/src/main/kotlin/com/didi/dimina/api/ui/InteractionApi.kt
+  d7f619536faaf9ae 75,287-294,296-297,299-301,313-317,359-366
+iOS/diminaTests/LoadingSequenceTests.swift
+  d7f619536faaf9ae 1-102
+android/dimina/src/androidTest/java/com/didi/dimina/api/ui/LoadingSequenceTest.kt
+  d7f619536faaf9ae 1-155
+android/dimina/src/androidTest/AndroidManifest.xml
+  d7f619536faaf9ae 5-6
+harmony/dimina/src/main/ets/Bridges/DMPContainerBridgesModule+Loading.ets
+  d7f619536faaf9ae 14-16,18-21,24-28,30-31,33
+iOS/dimina/DiminaKit/Container/UI/ToastManager.swift
+  d7f619536faaf9ae 36,58-65,78-82,95,98-115
+fe/packages/service/src/api/common/index.js
+  d7f619536faaf9ae 196-197
+iOS/dimina.xcodeproj/project.pbxproj
+  d7f619536faaf9ae 12,50,160,357
+harmony/scripts/loading-sequence.test.mjs
+  d7f619536faaf9ae 1-96
+fe/packages/service/__tests__/api-common.spec.js
+  d7f619536faaf9ae 174-200
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "badce8f9921f4ec8d1c5311d9bdab9c4c07bb9b7",
+  "prompts": {
+    "d7f619536faaf9ae": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ae10-ca4e-7772-83d0-3330b9595a63",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 1695,
+      "total_deletions": 95,
+      "accepted_lines": 5887,
+      "overriden_lines": 0
+    }
+  }
+}
