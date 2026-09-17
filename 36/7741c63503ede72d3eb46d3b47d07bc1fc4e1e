@@ -1,0 +1,25 @@
+android/dimina/src/main/kotlin/com/didi/dimina/ui/container/DiminaActivity.kt
+  d7f619536faaf9ae 2405,2408
+android/dimina/src/androidTest/java/com/didi/dimina/ui/container/LaunchLoadingNameTest.kt
+  d7f619536faaf9ae 1-58
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "367741c63503ede72d3eb46d3b47d07bc1fc4e1e",
+  "prompts": {
+    "d7f619536faaf9ae": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ae10-ca4e-7772-83d0-3330b9595a63",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 259,
+      "total_deletions": 109,
+      "accepted_lines": 5578,
+      "overriden_lines": 0
+    }
+  }
+}
