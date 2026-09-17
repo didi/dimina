@@ -1,0 +1,51 @@
+android/dimina/src/main/kotlin/com/didi/dimina/ui/container/MiniProgramActivityRegistry.kt
+  d7f619536faaf9ae 32-40
+iOS/dimina/DiminaKit/App/DMPAppManager.swift
+  d7f619536faaf9ae 99,599-624,727,733,744-745
+iOS/dimina/DiminaKit/Navigator/DMPNavigator.swift
+  d7f619536faaf9ae 836-846
+harmony/scripts/retained-pages.test.mjs
+  d7f619536faaf9ae 263-318
+android/dimina/src/test/java/com/didi/dimina/ui/container/MiniProgramActivityRegistryTest.kt
+  d7f619536faaf9ae 9-27
+harmony/dimina/src/main/ets/DApp/DMPAppManager.ets
+  d7f619536faaf9ae 55-96
+iOS/dimina/DiminaKit/App/DMPApp.swift
+  d7f619536faaf9ae 37,84
+android/dimina/src/main/kotlin/com/didi/dimina/ui/container/DiminaActivity.kt
+  d7f619536faaf9ae 501-503,506-511,589,596,1362,1401-1404,1429-1432,1632,1647,1667-1671,2565-2568,2572-2577,2645-2646,2670-2688
+android/README.md
+  d7f619536faaf9ae 135-137
+iOS/diminaTests/DMPRetainedMiniProgramTests.swift
+  d7f619536faaf9ae 8,16-20,26-65
+iOS/README.md
+  d7f619536faaf9ae 136-138
+android/dimina/src/main/kotlin/com/didi/dimina/core/MiniApp.kt
+  d7f619536faaf9ae 558-562
+docs/MiniProgram-Retention.md
+  d7f619536faaf9ae 22-44,174-181
+harmony/dimina/src/main/ets/DApp/DMPApp.ets
+  d7f619536faaf9ae 350-352,366,368-371,377-380,445-448
+android/dimina/src/main/kotlin/com/didi/dimina/Dimina.kt
+  d7f619536faaf9ae 188-199
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "facf02b49b0371bc09ffde3771650fb64dbefff5",
+  "prompts": {
+    "d7f619536faaf9ae": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ae10-ca4e-7772-83d0-3330b9595a63",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 4606,
+      "total_deletions": 44,
+      "accepted_lines": 4583,
+      "overriden_lines": 0
+    }
+  }
+}
