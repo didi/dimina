@@ -1,0 +1,62 @@
+iOS/dimina/DiminaKit/App/DMPApp.swift
+  1734a92ca8fa4eab 30-31,54-55,97,101-102,482-506,522-523,622-623
+android/dimina/src/test/java/com/didi/dimina/core/AppVisibilityLedgerTest.kt
+  1734a92ca8fa4eab 13-34
+harmony/scripts/entry-options.test.mjs
+  1734a92ca8fa4eab 1-110
+android/dimina/src/main/kotlin/com/didi/dimina/ui/container/MiniProgramEntryOptions.kt
+  1734a92ca8fa4eab 1-20
+android/dimina/src/main/kotlin/com/didi/dimina/ui/container/DiminaActivity.kt
+  1734a92ca8fa4eab 595-602,2008-2012,2018,2573-2580
+docs/MiniProgram-Retention.md
+  1734a92ca8fa4eab 26-27
+android/dimina/src/main/kotlin/com/didi/dimina/core/AppVisibilityLedger.kt
+  1734a92ca8fa4eab 17-20,22-23,25,52,58,66
+android/dimina/src/test/java/com/didi/dimina/ui/container/DiminaActivityBackgroundHookTest.kt
+  1734a92ca8fa4eab 39,54-66
+fe/packages/service/__tests__/mini-program-enter-options.spec.js
+  1734a92ca8fa4eab 4,13-53
+fe/packages/service/src/core/runtime.js
+  1734a92ca8fa4eab 54,58
+android/dimina/src/main/kotlin/com/didi/dimina/core/JsCore.kt
+  1734a92ca8fa4eab 211-212
+harmony/scripts/retained-pages.test.mjs
+  1734a92ca8fa4eab 150,163
+iOS/diminaTests/DMPNavigatorCapsuleTests.swift
+  1734a92ca8fa4eab 1619-1621,1631-1634,1638-1674
+harmony/dimina/src/main/ets/DApp/utils/DMPAppVisibilityLedger.ets
+  1734a92ca8fa4eab 21-22,73-74
+harmony/dimina/src/main/ets/DApp/DMPAppManager.ets
+  1734a92ca8fa4eab 442,449,537-538
+harmony/dimina/src/main/ets/DApp/DMPApp.ets
+  1734a92ca8fa4eab 29,69-70,303-304,557-558,566,569,584-605,618-624,629,801-802,812
+android/dimina/src/test/java/com/didi/dimina/ui/container/MiniProgramEntryOptionsTest.kt
+  1734a92ca8fa4eab 1-59
+iOS/dimina/DiminaKit/App/DMPAppManager.swift
+  1734a92ca8fa4eab 724
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "3d93a6ef1c3b9c363be33c1d1159df1f79e06387",
+  "prompts": {
+    "1734a92ca8fa4eab": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a438-41c3-7ba1-b1a5-fb40f5fdcf6f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 454,
+      "total_deletions": 31,
+      "accepted_lines": 8401,
+      "overriden_lines": 0
+    }
+  },
+  "humans": {
+    "h_26bc2624df64e5": {
+      "author": "doslin"
+    }
+  }
+}
