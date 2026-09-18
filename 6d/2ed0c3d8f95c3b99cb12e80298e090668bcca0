@@ -1,0 +1,23 @@
+android/gradle/libs.versions.toml
+  9d6cef3404b23aee 2-4,8-11,13-14,16,19-21,23,49
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "6d2ed0c3d8f95c3b99cb12e80298e090668bcca0",
+  "prompts": {
+    "9d6cef3404b23aee": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b3cb-8d65-7431-9a8e-ef43bb1866e5",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 18,
+      "total_deletions": 18,
+      "accepted_lines": 15,
+      "overriden_lines": 0
+    }
+  }
+}
