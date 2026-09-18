@@ -1,0 +1,47 @@
+fe/packages/container/vite.config.mjs
+  69ae651978869d03 52-54
+fe/packages/container-sdk/src/pages/miniApp/miniApp.ts
+  69ae651978869d03 3302
+fe/packages/render/src/core/runtime.js
+  69ae651978869d03 1055
+fe/packages/container-sdk/src/core/appManager.ts
+  69ae651978869d03 167
+fe/packages/components/__tests__/slot-event-owner.spec.js
+  69ae651978869d03 86-97
+fe/packages/components/src/component/map/marker-motion.js
+  69ae651978869d03 15
+fe/packages/components/src/component/map/providers/amap.js
+  69ae651978869d03 340
+fe/packages/container-sdk/vite.config.mjs
+  69ae651978869d03 76-78
+fe/packages/container-sdk/__tests__/vconsole-build.spec.ts
+  69ae651978869d03 7,9,13-30,42,48-56
+fe/packages/components/src/component/map/providers/registry.js
+  69ae651978869d03 11-12
+fe/packages/container-sdk/src/pages/pageFrame/vconsole.ts
+  69ae651978869d03 89-90
+fe/packages/components/src/component/rich-text/richTextSanitizer.js
+  69ae651978869d03 37
+fe/packages/components/src/common/events.js
+  69ae651978869d03 13
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "bc7a9e844387c80de5edd785283f467b6c006273",
+  "prompts": {
+    "69ae651978869d03": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b3a5-f7ed-70e0-aceb-b18b38a2ef0c",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 4472,
+      "total_deletions": 57,
+      "accepted_lines": 4448,
+      "overriden_lines": 0
+    }
+  }
+}
