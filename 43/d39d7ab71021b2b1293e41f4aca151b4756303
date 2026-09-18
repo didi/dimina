@@ -1,0 +1,23 @@
+.github/workflows/ios-tests.yml
+  9d6cef3404b23aee 41-69
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "43d39d7ab71021b2b1293e41f4aca151b4756303",
+  "prompts": {
+    "9d6cef3404b23aee": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b3cb-8d65-7431-9a8e-ef43bb1866e5",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 31,
+      "total_deletions": 50,
+      "accepted_lines": 36,
+      "overriden_lines": 0
+    }
+  }
+}
