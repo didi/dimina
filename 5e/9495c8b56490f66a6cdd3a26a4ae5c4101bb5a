@@ -1,0 +1,25 @@
+fe/packages/container-sdk/vite.config.mjs
+  843ba5c9f638b5fd 4,65
+fe/scripts/vconsole-build-warning.mjs
+  843ba5c9f638b5fd 26-43
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "5e9495c8b56490f66a6cdd3a26a4ae5c4101bb5a",
+  "prompts": {
+    "843ba5c9f638b5fd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b31e-2b43-72e3-8197-4dd256fa3549",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 49,
+      "total_deletions": 31,
+      "accepted_lines": 32,
+      "overriden_lines": 0
+    }
+  }
+}
