@@ -1,0 +1,16 @@
+fe/packages/benchmark/web/index.html
+  h_26bc2624df64e5 1-15,59-65,68-71
+fe/packages/benchmark/package.json
+  h_26bc2624df64e5 1-17,19-24
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "b0203ffc89e97151975904af6e33197610e0f972",
+  "prompts": {},
+  "humans": {
+    "h_26bc2624df64e5": {
+      "author": "doslin"
+    }
+  }
+}
