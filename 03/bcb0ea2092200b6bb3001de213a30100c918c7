@@ -1,0 +1,40 @@
+android/dimina/src/main/kotlin/com/didi/dimina/ui/container/MiniProgramTaskLookup.kt
+  1734a92ca8fa4eab 1-10
+android/dimina/src/androidTest/java/com/didi/dimina/ui/container/MiniProgramTaskIdentityTest.kt
+  1734a92ca8fa4eab 1-33
+android/dimina/src/main/kotlin/com/didi/dimina/ui/container/DiminaActivity.kt
+  1734a92ca8fa4eab 2569-2577,2580,2582,2586-2598,2603-2605,2612,2623-2627,2633,2661-2663
+android/dimina/src/test/java/com/didi/dimina/ui/container/MiniProgramTaskLookupTest.kt
+  1734a92ca8fa4eab 1-39
+android/dimina/src/main/kotlin/com/didi/dimina/ui/container/MiniProgramTaskIdentity.kt
+  1734a92ca8fa4eab 1-21
+android/dimina/src/main/kotlin/com/didi/dimina/ui/container/MiniProgramActivityRegistry.kt
+  1734a92ca8fa4eab 30-32
+docs/MiniProgram-Retention.md
+  h_26bc2624df64e5 182-189
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "03bcb0ea2092200b6bb3001de213a30100c918c7",
+  "prompts": {
+    "1734a92ca8fa4eab": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a438-41c3-7ba1-b1a5-fb40f5fdcf6f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 311,
+      "total_deletions": 47,
+      "accepted_lines": 8159,
+      "overriden_lines": 0
+    }
+  },
+  "humans": {
+    "h_26bc2624df64e5": {
+      "author": "doslin"
+    }
+  }
+}
