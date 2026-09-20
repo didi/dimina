@@ -1,0 +1,27 @@
+harmony/scripts/package-launch.test.mjs
+  69ae651978869d03 1-141
+harmony/dimina/src/main/ets/Bundle/Loader/DMPReleaseBundleLoader.ets
+  69ae651978869d03 54-65,114-115,141,143,147-150,159,170-173,259-262
+harmony/dimina/src/main/ets/DApp/DMPApp.ets
+  69ae651978869d03 75,366-368,370-372,374,376-402,406-409,412-440,442-445,447-452,477-479,486-488
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "cf97acdd3cb4eb1fd8640ca119ad4644563a76d5",
+  "prompts": {
+    "69ae651978869d03": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b3a5-f7ed-70e0-aceb-b18b38a2ef0c",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 710,
+      "total_deletions": 169,
+      "accepted_lines": 8525,
+      "overriden_lines": 0
+    }
+  }
+}
