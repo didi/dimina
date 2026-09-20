@@ -1,0 +1,27 @@
+android/dimina/src/main/kotlin/com/didi/dimina/ui/view/CameraCaptureRequest.kt
+  69ae651978869d03 1-49
+android/dimina/src/main/kotlin/com/didi/dimina/ui/view/MediaPicker.kt
+  69ae651978869d03 3,7,15,21,77-84,86-87,91-92,124-147
+android/dimina/src/test/java/com/didi/dimina/ui/view/CameraCaptureRequestTest.kt
+  69ae651978869d03 1-72
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "68052c061bc172010430d9aab4b8c0cf6e4a67d4",
+  "prompts": {
+    "69ae651978869d03": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b3a5-f7ed-70e0-aceb-b18b38a2ef0c",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 315,
+      "total_deletions": 25,
+      "accepted_lines": 5558,
+      "overriden_lines": 0
+    }
+  }
+}
