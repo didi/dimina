@@ -1,0 +1,31 @@
+fe/packages/compiler/package.json
+  1734a92ca8fa4eab 47-48,53
+fe/packages/container-sdk/package.json
+  1734a92ca8fa4eab 43
+fe/packages/components/package.json
+  1734a92ca8fa4eab 33
+fe/packages/benchmark/package.json
+  1734a92ca8fa4eab 21
+fe/packages/render/package.json
+  1734a92ca8fa4eab 27
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "5fd9718178af4584cadfeacfad72d7da594a666a",
+  "prompts": {
+    "1734a92ca8fa4eab": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a438-41c3-7ba1-b1a5-fb40f5fdcf6f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 7,
+      "total_deletions": 7,
+      "accepted_lines": 8022,
+      "overriden_lines": 0
+    }
+  }
+}
