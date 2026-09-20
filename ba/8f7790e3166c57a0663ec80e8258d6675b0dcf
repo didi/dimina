@@ -1,0 +1,33 @@
+harmony/dimina/src/main/ets/HybridContainer/DMPWebViewController.ets
+  7774db93f44601aa 8-12,33-34,50,89,101,104-147
+harmony/scripts/keyboard-focus.test.mjs
+  7774db93f44601aa 1-92
+harmony/dimina/src/main/ets/DApp/DMPAppManager.ets
+  7774db93f44601aa 572-575
+harmony/dimina/src/main/ets/HybridContainer/DMPWebComponent.ets
+  7774db93f44601aa 17,35,100-108
+harmony/dimina/src/main/ets/HybridContainer/DMPWebViewProxy.ets
+  7774db93f44601aa 41-46
+harmony/dimina/src/main/ets/HybridContainer/DMPKeyboardFocus.ts
+  7774db93f44601aa 1-21
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "ba8f7790e3166c57a0663ec80e8258d6675b0dcf",
+  "prompts": {
+    "7774db93f44601aa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0bdc9-a3f8-7f60-90d3-f7f20ad2e7f4",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 195,
+      "total_deletions": 4,
+      "accepted_lines": 1447,
+      "overriden_lines": 0
+    }
+  }
+}
