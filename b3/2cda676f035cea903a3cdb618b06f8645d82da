@@ -1,0 +1,39 @@
+shared/jssdk/config.json
+  69ae651978869d03 2-3
+fe/packages/components/src/common/touchGestures.js
+  69ae651978869d03 4,54
+fe/packages/components/src/common/useHover.js
+  69ae651978869d03 1-3,16-23,43-46,57-58,66-72,82-102,115-118,124
+fe/packages/components/src/common/touchGesturePrimitives.js
+  69ae651978869d03 1-2
+fe/packages/components/__tests__/hover-scroll.spec.js
+  69ae651978869d03 1-148
+fe/packages/components/src/common/hoverScrollState.js
+  69ae651978869d03 1-32
+fe/packages/components/src/component/button/Button.vue
+  69ae651978869d03 155,227-228
+fe/packages/components/src/component/navigator/Navigator.vue
+  69ae651978869d03 110,197-198
+fe/packages/components/src/component/view/View.vue
+  69ae651978869d03 48,55-56
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "b32cda676f035cea903a3cdb618b06f8645d82da",
+  "prompts": {
+    "69ae651978869d03": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b3a5-f7ed-70e0-aceb-b18b38a2ef0c",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 2712,
+      "total_deletions": 830,
+      "accepted_lines": 8872,
+      "overriden_lines": 0
+    }
+  }
+}
