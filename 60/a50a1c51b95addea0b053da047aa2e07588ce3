@@ -1,0 +1,34 @@
+android/dimina/src/androidTest/java/com/didi/dimina/ui/container/EntryQueryResumeTest.kt
+  1734a92ca8fa4eab 1-131
+docs/MiniProgram-Retention.md
+  h_26bc2624df64e5 49
+android/dimina/src/test/java/com/didi/dimina/core/AppVisibilityLedgerTest.kt
+  1734a92ca8fa4eab 12-52
+android/dimina/src/main/kotlin/com/didi/dimina/core/AppVisibilityLedger.kt
+  1734a92ca8fa4eab 17-21,26-31,57
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "60a50a1c51b95addea0b053da047aa2e07588ce3",
+  "prompts": {
+    "1734a92ca8fa4eab": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a438-41c3-7ba1-b1a5-fb40f5fdcf6f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 381,
+      "total_deletions": 21,
+      "accepted_lines": 8379,
+      "overriden_lines": 0
+    }
+  },
+  "humans": {
+    "h_26bc2624df64e5": {
+      "author": "doslin"
+    }
+  }
+}
