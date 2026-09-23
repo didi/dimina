@@ -1,0 +1,25 @@
+android/dimina/src/androidTest/java/com/didi/dimina/ui/container/MiniProgramRestartTaskTest.kt
+  f75d3a1f79abedb9 1-179
+android/dimina/src/main/kotlin/com/didi/dimina/ui/container/DiminaActivity.kt
+  f75d3a1f79abedb9 2120,2124,2128-2129,2131,2166-2167,2170-2171,2173
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "6abbaac9ce074721d58772cf67c853c3c220ecc5",
+  "prompts": {
+    "f75d3a1f79abedb9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0c86a-a934-7322-83b4-3da3399fc2b0",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 406,
+      "total_deletions": 36,
+      "accepted_lines": 378,
+      "overriden_lines": 0
+    }
+  }
+}
