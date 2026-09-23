@@ -1,0 +1,33 @@
+.github/workflows/release.yml
+  898d9b5efb7acc99 117-135
+iOS/MapAMap/README.md
+  898d9b5efb7acc99 5-8,35-50
+docs/Map-Integration.md
+  898d9b5efb7acc99 80,261
+scripts/publish-ios-amap-repository.sh
+  898d9b5efb7acc99 1-45
+iOS/MapAMap/Repository-README.md
+  898d9b5efb7acc99 1-34
+scripts/package-ios-amap.py
+  898d9b5efb7acc99 21,24-28,94-115,117,125,127
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "2785929b8be4cbf4fee096ff376e14f5fee1bcc2",
+  "prompts": {
+    "898d9b5efb7acc99": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0cc24-3eba-7e83-ae07-a742d3fbb1ed",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 174,
+      "total_deletions": 8,
+      "accepted_lines": 225,
+      "overriden_lines": 0
+    }
+  }
+}
