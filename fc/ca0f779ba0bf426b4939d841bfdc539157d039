@@ -1,0 +1,27 @@
+harmony/map_amap/oh-package.json5
+  898d9b5efb7acc99 3,6-10,12
+android/gradle.properties
+  898d9b5efb7acc99 25
+harmony/dimina/oh-package.json5
+  898d9b5efb7acc99 3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "fcca0f779ba0bf426b4939d841bfdc539157d039",
+  "prompts": {
+    "898d9b5efb7acc99": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0cc24-3eba-7e83-ae07-a742d3fbb1ed",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 61,
+      "total_deletions": 11,
+      "accepted_lines": 61,
+      "overriden_lines": 0
+    }
+  }
+}
