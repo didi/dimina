@@ -1,0 +1,23 @@
+scripts/package-ios-amap.py
+  898d9b5efb7acc99 49,69-86
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "d58593a6b19e47d415006e400c9f654d794d450b",
+  "prompts": {
+    "898d9b5efb7acc99": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0cc24-3eba-7e83-ae07-a742d3fbb1ed",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 23,
+      "total_deletions": 15,
+      "accepted_lines": 132,
+      "overriden_lines": 0
+    }
+  }
+}
