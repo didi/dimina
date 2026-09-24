@@ -1,0 +1,25 @@
+fe/packages/container/tokens.css
+  9d9e620618fddbe6 13,29,42
+fe/packages/container/src/pages/device/device-stage.scss
+  9d9e620618fddbe6 29,51-57,68,70-72,79-80,84,86-87,90-91,96,124,126,144,146,213-215,226,251-257,259,270,281,298-302,311-312,314-315,318-319,437-438,442-449
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "fa34f11e02f480df715d374e11a3f531f63b7a60",
+  "prompts": {
+    "9d9e620618fddbe6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0d2b8-c4d8-7991-8b45-295064481b7a",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 461,
+      "total_deletions": 57,
+      "accepted_lines": 460,
+      "overriden_lines": 0
+    }
+  }
+}
