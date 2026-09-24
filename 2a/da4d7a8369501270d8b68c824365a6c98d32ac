@@ -1,0 +1,31 @@
+iOS/dimina/DiminaKit/App/DMPObjectiveC.swift
+  03b9f46606a800c7 1-143
+iOS/Examples/ObjectiveC/DMPExampleViewController.h
+  03b9f46606a800c7 1-7
+iOS/Examples/ObjectiveC/verify.sh
+  03b9f46606a800c7 1-22
+iOS/README.md
+  03b9f46606a800c7 143-187
+iOS/Examples/ObjectiveC/DMPExampleViewController.m
+  03b9f46606a800c7 1-50
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "2ada4d7a8369501270d8b68c824365a6c98d32ac",
+  "prompts": {
+    "03b9f46606a800c7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0d261-4d3c-79f0-b9c4-c9ae1cb6f139",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 394,
+      "total_deletions": 3,
+      "accepted_lines": 391,
+      "overriden_lines": 0
+    }
+  }
+}
