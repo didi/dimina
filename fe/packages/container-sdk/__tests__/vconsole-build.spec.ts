@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { build, createLogger, createServer } from 'vite'
@@ -56,7 +56,7 @@ it('bundles vConsole in production and initializes it before render', async () =
 	const entry = await buildPageFrame('../container-sdk/vite.config.mjs')
 	// A consumer must be able to read the bundle without mistaking vConsole's
 	// runtime CSS source-map template for the JavaScript file's own source map.
-	const root = await mkdtemp(resolve(tmpdir(), 'dimina-page-frame-'))
+	const root = await realpath(await mkdtemp(resolve(tmpdir(), 'dimina-page-frame-')))
 	const logger = createLogger('silent')
 	const warn = vi.spyOn(logger, 'warn')
 	const server = await createServer({

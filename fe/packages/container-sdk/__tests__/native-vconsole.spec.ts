@@ -29,7 +29,7 @@ for (const [debugBuild, appDebug, enabled] of [[false, false, false], [false, tr
 			'./DMPSendableObjects': { WorkerAppData: class {} },
 			'./DMPJavaScriptSourceURL': { DMPJavaScriptSourceURL: { runtimeEval: () => '/runtime.js' } },
 			'@kit.ArkTS': { util: { TextEncoder: class { encodeInto(value: string) { return new TextEncoder().encode(value) } } }, buffer: { from: (data: ArrayBuffer) => ({ write: (value: string) => new Uint8Array(data).set(new TextEncoder().encode(value)) }) } },
-			'@ohos.web.webview': { default: { WebviewController: class {} } },
+			'@ohos.web.webview': { __esModule: true, default: { WebviewController: class {} } },
 			'../DApp/config/DMPAppConfig': { DMPLaunchType: { DebugUrl: 3 } },
 			'./DMPWebViewProxy': { DMPWebViewProxy: class {} },
 			'./DMPWebViewLifeCycle': { WebViewLifeCycle: class {} },

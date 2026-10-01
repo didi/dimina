@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { Blob } from 'node:buffer'
 import { MiniApp } from '../src/pages/miniApp/miniApp.js'
 
 class FakeWritable {

@@ -51,7 +51,7 @@ function fixture() {
 	const config = { getPrefix: () => 'difile://' }
 	const context = { getUIAbilityContext: () => ({ filesDir: root + '/files', cacheDir: root + '/cache' }) }
 	const { DMPFilePathResolver } = load('Bundle/Util/DMPFilePathResolver.ets', {
-		'@ohos.file.fs': { default: nativeFS }, '../../Utils/DMPContextUtils': { DMPContextUtils: context },
+		'@ohos.file.fs': { __esModule: true, default: nativeFS }, '../../Utils/DMPContextUtils': { DMPContextUtils: context },
 		'./DMPFileUrlConvertor': { DMPVirtualFileConfig: config, DMPFileUrlConvertor: {} },
 	})
 	class Base {
@@ -61,11 +61,12 @@ function fixture() {
 		invokeFailureCallback(callback: any, _data: any, error: string) { callback(new DMPMap({ errMsg: error }), false) }
 	}
 	const { DMPContainerBridgesModuleFile: FileModule } = load('Bridges/DMPContainerBridgesModule+File.ets', {
-		'@ohos.file.fs': { default: nativeFS }, '@ohos.security.cryptoFramework': {},
+		'@ohos.file.fs': { __esModule: true, default: nativeFS }, '@ohos.security.cryptoFramework': {},
 		'@kit.ArkTS': { util: { TextEncoder: class { encodeInto(text: string) { return new TextEncoder().encode(text) } }, TextDecoder: { create: () => ({ decodeToString: (data: Uint8Array) => new TextDecoder().decode(data) }) } } }, '@kit.CoreFileKit': {}, '@kit.PreviewKit': {},
 		'libdimina.so': {}, './DMPContainerBridgesModule': { DMPContainerBridgesModule: Base },
 		'../Utils/DMPMap': { DMPMap }, '../Utils/DMPContextUtils': { DMPContextUtils: context },
 		'../Bundle/Util/DMPUnzipManager': {}, '../Bundle/Util/DMPFilePathResolver': { DMPFilePathResolver },
+		'../Bundle/Util/DMPFileManager': {},
 		'../Bundle/Util/DMPFileUrlConvertor': { DMPVirtualFileConfig: config },
 	})
 	const api = new FileModule({ appId: 'cache-app' })

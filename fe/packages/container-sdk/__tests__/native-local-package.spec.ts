@@ -33,7 +33,7 @@ it('installs local Harmony packages, rolls back failed same-version publication 
 			},
 		}
 		const imports: Record<string, any> = {
-			'@ohos.file.fs': { default: nativeFS }, '@ohos.security.cryptoFramework': {},
+			'@ohos.file.fs': { __esModule: true, default: nativeFS }, '@ohos.security.cryptoFramework': {},
 			'@kit.NetworkKit': {}, '@kit.BasicServicesKit': {}, '../DApp/DMPApp': {},
 			'./Util/DMPFileManager': { DMPFileManager: { sharedInstance: () => fileManager } },
 			'./Util/DMPUnzipManager': { DMPUnzipManager: { unzipFileAtPathAsync: async (zip: string, dest: string) => {
