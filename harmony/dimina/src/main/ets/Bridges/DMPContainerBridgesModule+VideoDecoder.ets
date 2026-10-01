@@ -48,7 +48,7 @@ export class DMPContainerBridgesModuleVideoDecoder extends DMPContainerBridgesMo
           try {
             source = DMPFilePathResolver.resolve(source, this.currentAppId(), root);
           } catch (error) {
-            if (!source.startsWith('/')) { throw error; }
+            if (!source.startsWith('/')) { throw error as Error; }
             source = DMPFilePathResolver.resolve(source.replace(/^\/+/, ''), this.currentAppId(), root);
           }
         }
