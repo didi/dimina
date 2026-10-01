@@ -522,7 +522,8 @@ function publishInput(event) {
 	font-family: inherit;
 	font-size: inherit;
 	color: inherit;
-	height: inherit;
+	// Fill the wrapper's content box; inheriting its fixed height also counts padding.
+	height: 100%;
 	display: block;
 	padding: 0;
 	margin: 0;

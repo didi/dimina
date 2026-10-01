@@ -1,12 +1,13 @@
 import type { Application } from '../application/application.js'
 import type { BridgeOptions, MiniProgramReferrerInfo, PageStackEntry, StorageAdapter } from '../../types.js'
 import type { ApiParams, SocketEventName } from '../../core/webSocketManager.js'
+import type { ReadWebFileOptions } from '../../core/webFileSystem.js'
 import type { AppWindowConfig, MergedPageConfig, PageConfig } from '../../utils/util.js'
 import { LAUNCH_SCREEN_MIN_MS, MODAL_GUARD_MS, WAIT_TRANSITION_TIMEOUT_MS } from '../../constants/animation.js'
 import { Bridge } from '../../core/bridge.js'
 import { JSCore } from '../../core/jscore.js'
 import { WebSocketManager } from '../../core/webSocketManager.js'
-import { readWebFile, saveWebFile } from '../../core/webFileSystem.js'
+import { readWebCompressedFile, readWebFile, readWebFileData, saveWebFile } from '../../core/webFileSystem.js'
 import { DEFAULT_VIRTUAL_FILE_PREFIX, resolveStorageAdapter } from '../../config.js'
 import { mergePageConfig, queryPath, readFile, sleep, uuid } from '../../utils/util.js'
 import { Navigator } from './navigator.js'
@@ -102,6 +103,7 @@ interface TabBarConfig {
 interface AppConfigApp {
 	entryPagePath: string
 	pages: string[]
+	subPackages?: Array<{ root: string }>
 	runtimeType?: 'miniProgram' | 'game'
 	window?: AppWindowConfig
 	tabBar?: TabBarConfig
@@ -191,6 +193,13 @@ interface SetStorageOptions extends StorageKeyOptions {
 interface SaveFileOptions extends ApiCallbackOptions {
 	tempFilePath?: string
 	filePath?: string
+}
+
+interface ReadFileOptions extends ApiCallbackOptions {
+	filePath?: string
+	encoding?: string
+	position?: number
+	length?: number
 }
 
 interface NetworkInformationLike extends EventTarget {
@@ -3500,6 +3509,42 @@ export class MiniApp {
 			onFail?.(result)
 			onComplete?.(result)
 		})
+	}
+
+	private _webFileReadOptions(opts: ReadFileOptions): ReadWebFileOptions {
+		return {
+			...opts,
+			appId: this.appId,
+			filePath: opts.filePath ?? '',
+			resourceBaseUrl: this.getResourceBaseUrl(),
+			virtualFilePrefix: this.appInfo.virtualFilePrefix,
+			subpackageRoots: this.appConfig?.app.subPackages?.map(pkg => pkg.root),
+			temporaryUrls: this._tempObjectUrls,
+		}
+	}
+
+	private _readFileCallbacks(name: string, opts: ApiCallbackOptions, read: Promise<ArrayBuffer | string>): void {
+		const { onSuccess, onFail, onComplete } = this._createApiCallbacks(opts)
+		read.then((data) => {
+			const result = { data, errMsg: `${name}:ok` }
+			onSuccess?.(result)
+			onComplete?.(result)
+		}).catch((error) => {
+			const result = { errMsg: `${name}:fail ${getErrorMessage(error)}` }
+			onFail?.(result)
+			onComplete?.(result)
+		})
+	}
+
+	'FileSystemManager.readFile'(opts: ReadFileOptions = {}): void {
+		this._readFileCallbacks('FileSystemManager.readFile', opts, readWebFileData(this._webFileReadOptions(opts)))
+	}
+
+	'FileSystemManager.readCompressedFile'(opts: ApiCallbackOptions & { filePath?: string, compressionAlgorithm?: string } = {}): void {
+		this._readFileCallbacks('FileSystemManager.readCompressedFile', opts, readWebCompressedFile({
+			...this._webFileReadOptions(opts),
+			compressionAlgorithm: opts.compressionAlgorithm,
+		}))
 	}
 
 	setStorage(opts: SetStorageOptions): void {

@@ -1,0 +1,93 @@
+page {
+  background-color: #f5f5f5;
+}
+
+.page-body {
+  padding: 20rpx;
+}
+
+.section {
+  margin-bottom: 24rpx;
+  padding: 24rpx;
+  background-color: #fff;
+  border-radius: 12rpx;
+}
+
+.section-title, .result-title {
+  margin-bottom: 16rpx;
+  font-size: 32rpx;
+  font-weight: 600;
+  color: #111;
+}
+
+.desc, .result-detail {
+  margin: 12rpx 0;
+  font-size: 26rpx;
+  color: #666;
+  line-height: 1.5;
+}
+
+.btn-row, .input-row {
+  display: flex;
+  align-items: center;
+}
+
+.btn-row button, .input-row .number-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.btn-row button + button {
+  margin-left: 16rpx;
+}
+
+button {
+  margin-top: 16rpx;
+}
+
+.number-input {
+  box-sizing: border-box;
+  width: 100%;
+  height: 80rpx;
+  padding: 16rpx;
+  font-size: 28rpx;
+  color: #333;
+  background-color: #f7f7f7;
+  border-radius: 8rpx;
+}
+
+.operator {
+  margin: 0 16rpx;
+  font-size: 32rpx;
+}
+
+.path, .content-box {
+  margin-top: 16rpx;
+  padding: 16rpx;
+  font-size: 26rpx;
+  color: #333;
+  background-color: #f7f7f7;
+  border-radius: 8rpx;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.path {
+  font-size: 24rpx;
+}
+
+.result {
+  margin-bottom: 24rpx;
+  padding: 24rpx;
+  background-color: #fff;
+  border-left: 8rpx solid #10aeff;
+  border-radius: 12rpx;
+}
+
+.result.success {
+  border-left-color: #09bb07;
+}
+
+.result.error {
+  border-left-color: #f76260;
+}

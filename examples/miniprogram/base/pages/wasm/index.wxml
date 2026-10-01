@@ -1,0 +1,58 @@
+<view class="page-body">
+  <view class="section">
+    <view class="section-title">加载 Wasm 模块</view>
+    <view class="desc">{{capability}}</view>
+    <view class="desc">从小程序包内加载普通或 Brotli 文件。重复加载同一文件会保留当前内存。</view>
+    <view class="btn-row">
+      <button type="primary" disabled="{{!supported || loading}}" bindtap="loadWasm" data-format="wasm">加载 .wasm</button>
+      <button disabled="{{!supported || loading}}" bindtap="loadWasm" data-format="br">加载 .wasm.br</button>
+    </view>
+    <view wx:if="{{source}}" class="path">{{source}}</view>
+    <view wx:if="{{ready}}" class="content-box">{{exportsText}}</view>
+  </view>
+
+  <view class="result {{resultType}}">
+    <view class="result-title">{{resultTitle}}</view>
+    <view class="result-detail">{{resultDetail}}</view>
+  </view>
+
+  <view class="section">
+    <view class="section-title">调用 Wasm 函数</view>
+    <view class="desc">add(a, b) 返回两个 32 位有符号整数之和，溢出时按 i32 回绕。</view>
+    <view class="input-row">
+      <input class="number-input" type="number" value="{{left}}" bindinput="onInput" data-field="left" aria-label="第一个整数" />
+      <view class="operator">+</view>
+      <input class="number-input" type="number" value="{{right}}" bindinput="onInput" data-field="right" aria-label="第二个整数" />
+    </view>
+    <button disabled="{{!ready || loading}}" bindtap="runAddition">计算</button>
+    <view class="content-box">{{additionResult}}</view>
+  </view>
+
+  <view class="section">
+    <view class="section-title">Wasm 调用 JavaScript</view>
+    <view class="desc">实例化时传入 env.double，Wasm 调用该函数后返回结果。</view>
+    <input class="number-input" type="number" value="{{hostValue}}" bindinput="onInput" data-field="hostValue" aria-label="JS 回调的整数参数" />
+    <button disabled="{{!ready || loading}}" bindtap="runHostCallback">调用 JS double</button>
+    <view class="content-box">{{hostResult}}</view>
+  </view>
+
+  <view class="section">
+    <view class="section-title">共享线性内存</view>
+    <view class="desc">Wasm 在字节偏移 0 写入整数；JS 在偏移 4 写入下一个整数，双方读取同一份内存。</view>
+    <input class="number-input" type="number" value="{{memoryValue}}" bindinput="onInput" data-field="memoryValue" aria-label="写入共享内存的整数" />
+    <button disabled="{{!ready || loading}}" bindtap="runMemory">双向读写</button>
+    <view class="content-box">
+      <view>Wasm 写入 → JS 读取：{{memoryFromWasm}}</view>
+      <view>JS 写入 → Wasm 读取：{{memoryFromJS}}</view>
+    </view>
+  </view>
+
+  <view class="section">
+    <view class="section-title">内存扩容</view>
+    <view class="desc">每页 64 KiB，模块最多 4 页。扩容后重新获取 memory.buffer，旧 buffer 会被分离。</view>
+    <view class="desc">当前 {{memoryPages}} 页 · {{memoryKiB}} KiB</view>
+    <button disabled="{{!ready || loading || !canGrow}}" bindtap="growMemory">扩容 1 页</button>
+    <view class="content-box">{{growthResult}}</view>
+  </view>
+
+</view>

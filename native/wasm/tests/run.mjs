@@ -23,6 +23,12 @@ try {
 	const fixtures = `\nglobalThis.__valueFixtureBytes=${JSON.stringify([...readFileSync(resolve(here, 'fixtures/values.wasm'))])};\nglobalThis.__fixtureBytes=${JSON.stringify([...readFileSync(resolve(here, 'fixtures/memory.wasm'))])};\n`
 	run(wrapper + fixtures + readFileSync(resolve(here, 'runtime.js'), 'utf8'), 'runtime')
 	run(wrapper + fixtures + readFileSync(resolve(here, 'transfer.js'), 'utf8'), 'transfer')
+	const hostFixtures = `\nglobalThis.__hostMemoryBytes=${JSON.stringify([...readFileSync(resolve(here, 'fixtures/host-memory.wasm'))])};\nglobalThis.__hostMemoryAuxBytes=${JSON.stringify([...readFileSync(resolve(here, 'fixtures/host-memory-aux.wasm'))])};\n`
+	run(wrapper + hostFixtures + readFileSync(resolve(here, 'host-growth.js'), 'utf8'), 'host-growth')
+	const layout = spawnSync(resolve(buildDirectory, 'wasm_memory_layout'), ['host-memory', 'host-memory-aux', 'private-memory-aux'].map(name => resolve(here, `fixtures/${name}.wasm`)), { encoding: 'utf8' })
+	if (layout.error) throw layout.error
+	if (layout.status !== 0) throw new Error(`memory layout: ${layout.stderr || layout.stdout || layout.signal}`)
+	console.log('WAMR exported and private memory layout: passed')
 	if (libpagPackage) {
 		const wasm = brotliDecompressSync(readFileSync(resolve(libpagPackage, 'lib/libpag.wasm.br')))
 		const uncompressed = readFileSync(resolve(libpagPackage, 'lib/libpag.wasm'))

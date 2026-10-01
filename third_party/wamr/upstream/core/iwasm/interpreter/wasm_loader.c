@@ -6494,6 +6494,16 @@ load_from_sections(WASMModule *module, WASMSection *sections,
     handle_table = wasm_interp_get_handle_table();
 #endif
 
+    /* The host can observe and grow exported memory even without memory.size
+     * or memory.grow instructions. Keep its declared layout and account for
+     * growth through imported function callbacks when preparing functions. */
+    for (i = 0; i < module->export_count; i++) {
+        if (module->exports[i].kind == EXPORT_KIND_MEMORY) {
+            module->possible_memory_grow = true;
+            break;
+        }
+    }
+
     for (i = 0; i < module->function_count; i++) {
         WASMFunction *func = module->functions[i];
         if (!wasm_loader_prepare_bytecode(module, func, i, error_buf,
