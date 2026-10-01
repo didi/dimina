@@ -105,15 +105,22 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.ohpm
-          key: harmony-ohpm-${{ runner.os }}-${{ hashFiles('harmony/oh-package-lock.json5', 'harmony/dimina/oh-package-lock.json5', 'harmony/entry/oh-package-lock.json5') }}
+          key: harmony-ohpm-${{ runner.os }}-${{ hashFiles('harmony/**/oh-package.json5', 'harmony/**/oh-package-lock.json5') }}
           restore-keys: |
             harmony-ohpm-${{ runner.os }}-
 
       - name: Install Harmony dependencies
         working-directory: ./harmony
+        timeout-minutes: 10
         run: |
+          set -euo pipefail
+
           ohpm config set registry https://ohpm.openharmony.cn/ohpm/
-          ohpm install --all
+          ohpm install --all \
+            --retry_times 5 \
+            --retry_interval 10000 \
+            --fetch_timeout 120000 \
+            --max_concurrent 10
 
       - name: Run Harmony local tests
         working-directory: ./harmony
