@@ -5,15 +5,11 @@ on:
     paths:
       - 'fe/**'
       - 'examples/miniprogram/**'
-      - 'harmony/dimina/src/main/ets/**'
-      - 'harmony/scripts/**'
       - '.github/workflows/fe-tests.yml'
   push:
     paths:
       - 'fe/**'
       - 'examples/miniprogram/**'
-      - 'harmony/dimina/src/main/ets/**'
-      - 'harmony/scripts/**'
       - '.github/workflows/fe-tests.yml'
   workflow_dispatch:
 
@@ -66,6 +62,3 @@ jobs:
       - name: Run tests
         working-directory: ./fe
         run: pnpm test
-
-      - name: Run Harmony portable runtime regressions
-        run: node --test harmony/scripts/*.test.mjs

@@ -23,6 +23,34 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  portable-runtime:
+    name: Harmony Portable Runtime Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: fe/.nvmrc
+
+      - name: Setup pnpm
+        uses: pnpm/setup@v2
+        with:
+          version: 12.2.0
+          package-json-file: fe/package.json
+          install: false
+
+      # The regression harness loads esbuild from the compiler package.
+      - name: Install runtime test dependencies
+        working-directory: ./fe
+        run: pnpm --filter @dimina/compiler install
+
+      - name: Run Harmony portable runtime regressions
+        run: node --test harmony/scripts/*.test.mjs
+
   local-test:
     name: Harmony Local Tests (macOS)
     runs-on: macos-15
