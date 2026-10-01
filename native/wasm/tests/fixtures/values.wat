@@ -1,0 +1,10 @@
+(module
+  (import "host" "callback64" (func $callback64 (param i64) (result i64)))
+  (global (export "counter") (mut i32) (i32.const 42))
+  (global (export "fixed") i64 (i64.const -7))
+  (func (export "echo64") (param i64) (result i64) local.get 0)
+  (func (export "host64") (param i64) (result i64) local.get 0 call $callback64)
+  (func (export "half") (param f64) (result f64) local.get 0 f64.const 0.5 f64.mul)
+  (func (export "f32") (param f32) (result f32) local.get 0)
+  (func (export "multi") (result i32 f64) i32.const 7 f64.const 1.25)
+)

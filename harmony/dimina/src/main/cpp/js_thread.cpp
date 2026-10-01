@@ -1,5 +1,6 @@
 #include "js_thread.h"
 #include "js_engine.h"
+#include "video_decoder.h"
 #include "log.h"
 #include "napi/native_api.h"
 #include <future>
@@ -662,6 +663,7 @@ napi_value destroyJsEngine(napi_env env, napi_callback_info info) {
     }
 
     OHWarn("thread destroyJsEngine for appIndex: %{public}d", appIndex);
+    DisposeVideoDecoders(appIndex);
     engine->destroyEngine();
     OHWarn("thread delete engine for appIndex: %{public}d", appIndex);
 

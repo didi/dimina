@@ -1,0 +1,11 @@
+(module
+(import "host" "callback" (func $callback (param i32) (result i32)))
+(memory (export "memory") 1 3)
+(table (export "table") 2 funcref)
+(elem (i32.const 1) $read)
+(func $read (export "read") (param i32) (result i32) local.get 0 i32.load)
+(func (export "write") (param i32 i32) local.get 0 local.get 1 i32.store)
+(func (export "host") (param i32) (result i32) local.get 0 call $callback)
+(func (export "growThenHost") (result i32) i32.const 1 memory.grow drop i32.const 17 call $callback)
+(func (export "trap") unreachable)
+)

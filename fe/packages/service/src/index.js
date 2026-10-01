@@ -1,3 +1,4 @@
+import './core/webassembly'
 import { callback, uuid } from '@dimina/common'
 import { navigateBack, navigateTo, redirectTo, reLaunch, switchTab } from './api/core/route'
 import env from './core/env'

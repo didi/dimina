@@ -326,6 +326,19 @@ class FileApi : BaseApiHandler() {
         return canonical
     }
 
+    // Package files are readable; mutation APIs continue to use sandbox-only resolve().
+    private fun resolveReadable(activity: DiminaActivity, appId: String, path: String): File {
+        if (path.startsWith(PathUtils.VIRTUAL_DOMAIN_URL)) return resolve(activity, appId, path)
+        runCatching { resolve(activity, appId, path) }.getOrNull()?.let { return it }
+        require(path.isNotBlank() && !path.contains("://") && !path.contains('\\') && !path.contains('\u0000')) { "invalid file path" }
+        val relative = path.trimStart('/')
+        require(relative.split('/').none { it == ".." }) { "invalid file path" }
+        val root = File(activity.filesDir, "jsapp/$appId").canonicalFile
+        return listOf(relative, "main/$relative").map { File(root, it).canonicalFile }
+            .firstOrNull { it.path.startsWith(root.path + File.separator) && it.isFile }
+            ?: throw IllegalArgumentException("no such package file $path")
+    }
+
     private fun toUserPath(activity: DiminaActivity, appId: String, file: File): String {
         val rootPath = userRoot(activity, appId).canonicalPath
         val path = file.canonicalPath
@@ -416,7 +429,7 @@ class FileApi : BaseApiHandler() {
     }
 
     private fun readFileSync(activity: DiminaActivity, appId: String, params: JSONObject): Any {
-        val file = resolve(activity, appId, params.optString("filePath"))
+        val file = resolveReadable(activity, appId, params.optString("filePath"))
         val bytes = readBytes(
             file,
             params.optInt("position", 0),
@@ -682,7 +695,7 @@ class FileApi : BaseApiHandler() {
             throw IllegalArgumentException("unsupported compressionAlgorithm $algorithm")
         }
 
-        val file = resolve(activity, appId, params.optString("filePath"))
+        val file = resolveReadable(activity, appId, params.optString("filePath"))
         return try {
             BrotliInputStream(ByteArrayInputStream(readBytes(file))).use { input ->
                 val output = ByteArrayOutputStream()

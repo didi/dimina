@@ -2,9 +2,9 @@ name: iOS Tests
 
 on:
   push:
-    paths: ['iOS/**', 'shared/**', '.github/workflows/ios-tests.yml']
+    paths: ['iOS/**', 'shared/**', 'native/wasm/**', 'third_party/wamr/**', 'Package.swift', 'scripts/package-ios-amap.py', 'scripts/tests/**', '.github/workflows/ios-tests.yml']
   pull_request:
-    paths: ['iOS/**', 'shared/**', '.github/workflows/ios-tests.yml']
+    paths: ['iOS/**', 'shared/**', 'native/wasm/**', 'third_party/wamr/**', 'Package.swift', 'scripts/package-ios-amap.py', 'scripts/tests/**', '.github/workflows/ios-tests.yml']
   workflow_dispatch:
 
 jobs:
@@ -21,6 +21,15 @@ jobs:
         uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: latest-stable
+
+      - name: Check standalone map package sources
+        run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/tests -p 'test_package_ios_amap.py'
+
+      - name: Run native Wasm regressions
+        run: |
+          cmake -S native/wasm/tests -B "$RUNNER_TEMP/dimina-wasm-tests" -DCMAKE_BUILD_TYPE=Release
+          cmake --build "$RUNNER_TEMP/dimina-wasm-tests" --parallel 4
+          node native/wasm/tests/run.mjs "$RUNNER_TEMP/dimina-wasm-tests"
 
       - name: Cache Swift Package Manager dependencies
         uses: actions/cache@v4

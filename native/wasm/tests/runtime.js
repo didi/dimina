@@ -1,0 +1,26 @@
+function assert(value,message){if(!value)throw new Error(message)}
+const wasm=WXWebAssembly;let callbackMemory,oldBuffer;
+const m=new wasm.Module(new Uint8Array(globalThis.__fixtureBytes));
+const a=new wasm.Instance(m,{host:{callback:n=>n+4}});
+const b=new wasm.Instance(m,{host:{callback:n=>n+8}});
+assert(a.exports.host(3)===7,'callback A');assert(b.exports.host(3)===11,'callback B');assert(a.exports.host(3)===7,'callback isolation');
+const memory=a.exports.memory;const buffer=memory.buffer;const view=new Int32Array(buffer);view[0]=1234;assert(a.exports.read(0)===1234,'live JS writes');a.exports.write(4,5678);assert(view[1]===5678,'live wasm writes');
+assert(a.exports.table.get(1)===a.exports.read,'function table identity');assert(a.exports.table.get(1)(4)===5678,'function table call');assert(a.exports.table.get(0)===null,'null table entry');
+assert(memory.grow(1)===1,'grow result');assert(buffer.byteLength===0,'old buffer detached');assert(memory.buffer.byteLength===131072,'new size');assert(new Int32Array(memory.buffer)[1]===5678,'grown memory contents');
+const c=new wasm.Instance(m,{host:{callback:n=>{assert(oldBuffer.byteLength===0,'detach before host callback');return new Int32Array(callbackMemory.buffer)[1]+n}}});callbackMemory=c.exports.memory;oldBuffer=callbackMemory.buffer;new Int32Array(oldBuffer)[1]=77;assert(c.exports.growThenHost()===94,'growth and callback');
+let thrown=false;try{a.exports.trap()}catch(e){thrown=e instanceof wasm.RuntimeError}assert(thrown,'trap RuntimeError');assert(a.exports.host(0)===4,'recover after trap');
+const marker={sentinel:true};const d=new wasm.Instance(m,{host:{callback:()=>{throw marker}}});thrown=false;try{d.exports.host(0)}catch(e){thrown=e===marker}assert(thrown,'original JS exception');
+assert(!wasm.validate(new Uint8Array([1,2,3])),'invalid bytes');
+thrown=false;try{new wasm.Module(new Uint8Array([1,2,3]))}catch(e){thrown=e instanceof wasm.CompileError}assert(thrown,'invalid module CompileError');
+thrown=false;try{new wasm.Instance(m,{host:{}})}catch(e){thrown=e instanceof wasm.LinkError}assert(thrown,'missing import LinkError');
+const previous=memory.buffer;assert(memory.grow(0)===2,'grow zero returns current pages');assert(previous.byteLength===0,'grow zero detaches old buffer');
+const current=memory.buffer;thrown=false;try{memory.grow(2)}catch(e){thrown=e instanceof RangeError}assert(thrown,'grow limit RangeError');assert(current.byteLength===131072,'failed growth preserves buffer');
+thrown=false;try{a.exports.table.get(2)}catch(e){thrown=e instanceof RangeError}assert(thrown,'table bounds');
+const valuesModule=new wasm.Module(new Uint8Array(globalThis.__valueFixtureBytes));
+const values=new wasm.Instance(valuesModule,{host:{callback64:n=>n+2n}}).exports;
+assert(values.echo64(18446744073709551615n)===-1n,'i64 wrapping');assert(values.host64(9007199254740995n)===9007199254740997n,'i64 callback precision');
+assert(values.half(9)===4.5,'f64 value');assert(values.f32(1.25)===1.25,'f32 value');assert(JSON.stringify(values.multi())==='[7,1.25]','multiple results');
+assert(values.counter.value===42,'global read');values.counter.value=81;assert(values.counter.valueOf()===81,'mutable global');assert(values.fixed.value===-7n,'i64 global');
+thrown=false;try{values.fixed.value=5n}catch(e){thrown=e instanceof TypeError}assert(thrown,'immutable global');
+assert(wasm.validate(new ArrayBuffer(0))===false,'empty invalid module');
+globalThis.__teardownBuffers=[a.exports.memory.buffer,b.exports.memory.buffer,c.exports.memory.buffer,d.exports.memory.buffer];

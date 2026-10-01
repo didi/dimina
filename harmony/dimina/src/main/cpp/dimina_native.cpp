@@ -2,6 +2,7 @@
 
 #include "napi/native_api.h"
 #include "js_thread.h"
+#include "video_decoder.h"
 #include "brotli/decode.h"
 
 #include <cstring>
@@ -76,6 +77,7 @@ EXTERN_C_START static napi_value Init(napi_env env, napi_value exports) {
         {"brotliDecompress", nullptr, BrotliDecompress, nullptr, nullptr, nullptr, napi_default, nullptr},
     };
     napi_define_properties(env, exports, sizeof(desc) / sizeof(desc[0]), desc);
+    RegisterVideoDecoder(env, exports);
 
     return exports;
 }

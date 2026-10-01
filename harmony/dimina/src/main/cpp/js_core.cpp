@@ -1,3 +1,4 @@
+#include "dimina_wasm.h"
 //
 // Created on 2024/10/28.
 //
@@ -26,6 +27,7 @@ JSCore::~JSCore() {
     OHWarn("core JSCore::~JSCore()");
     // 清理资源，释放内存
     if (ctx) {
+        dimina_wasm_dispose(ctx);
         JS_FreeContext(ctx);
         ctx = nullptr;
     }
@@ -103,6 +105,7 @@ void *JSCore::startEngine(int index, std::function<void(JSContext *ctx)> registe
     JS_SetMaxStackSize(rt, 128 * 1024 * 1024);
     ctx = JS_NewContext(rt);
 
+    dimina_wasm_install(ctx);
     registerFunc(ctx);
 
     consoleInit(ctx);
@@ -169,6 +172,7 @@ void *JSCore::startEngine(int index, std::function<void(JSContext *ctx)> registe
         // socket and protocol state before freeing the context.
         js_debugger_free(JS_GetRuntime(ctx), js_debugger_info(JS_GetRuntime(ctx)));
 #endif
+        dimina_wasm_dispose(ctx);
         JS_FreeContext(ctx);
         ctx = nullptr;
     }

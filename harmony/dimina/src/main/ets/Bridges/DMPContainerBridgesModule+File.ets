@@ -12,6 +12,7 @@ import { DMPContextUtils } from '../Utils/DMPContextUtils';
 import { DMPApp } from '../DApp/DMPApp';
 import { WorkerAppData } from '../Service/DMPSendableObjects';
 import { DMPUnzipManager } from '../Bundle/Util/DMPUnzipManager';
+import { DMPFileManager } from '../Bundle/Util/DMPFileManager';
 import { DMPFilePathResolver } from '../Bundle/Util/DMPFilePathResolver';
 import { DMPVirtualFileConfig } from '../Bundle/Util/DMPFileUrlConvertor';
 const USER_PREFIX = 'usr';
@@ -455,7 +456,7 @@ export class DMPContainerBridgesModuleFile extends DMPContainerBridgesModule {
     if (algorithm !== 'br') {
       throw new Error(`unsupported compressionAlgorithm ${algorithm}`);
     }
-    const bytes: ArrayBuffer = brotliDecompress(this.readFileBytes(this.resolve(data.getString('filePath') ?? '')));
+    const bytes: ArrayBuffer = brotliDecompress(this.readFileBytes(this.resolveReadable(data.getString('filePath') ?? '')));
     return this.arrayBufferPayload(bytes, bytes.byteLength);
   }
 
@@ -472,7 +473,7 @@ export class DMPContainerBridgesModuleFile extends DMPContainerBridgesModule {
   }
 
   readFileSync(data: DMPMap): string | DMPMap {
-    const path = this.resolve(data.getString('filePath') ?? '');
+    const path = this.resolveReadable(data.getString('filePath') ?? '');
     const stat = fs.statSync(path);
     const position = data.getNumber('position') ?? 0;
     const length = data.getNumber('length') ?? stat.size - position;
@@ -734,6 +735,15 @@ export class DMPContainerBridgesModuleFile extends DMPContainerBridgesModule {
     const index = path.lastIndexOf('/');
     if (index > 0) {
       this.ensureDirectory(path.substring(0, index));
+    }
+  }
+
+  private resolveReadable(path: string): string {
+    if (path.startsWith(DMPVirtualFileConfig.getPrefix())) { return this.resolve(path); }
+    try { return this.resolve(path); } catch (_error) {
+      const version: string = this.appData.jsAppVersion || this.app.bundleManager.bundleLoader.getJsAppVersion();
+      const root: string = DMPFileManager.sharedInstance().getJSAppVersionDir(this.currentAppId(), version);
+      return DMPFilePathResolver.resolve(path.replace(/^\/+/, ''), this.currentAppId(), root);
     }
   }
 

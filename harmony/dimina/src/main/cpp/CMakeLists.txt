@@ -75,10 +75,13 @@ dimina_configure_quickjs(dimina
     ENABLE_DEBUGGER "${DIMINA_ENABLE_QUICKJS_DEBUGGER}"
 )
 dimina_configure_libuv(dimina)
+include("${CMAKE_CURRENT_LIST_DIR}/../../../../../cmake/DiminaWasm.cmake")
+dimina_configure_wasm(dimina)
 
 # Link necessary libraries
 target_link_libraries(dimina PUBLIC libace_napi.z.so libhilog_ndk.z.so)
 target_link_libraries(dimina PUBLIC brotlidec brotlicommon)
+target_link_libraries(dimina PUBLIC native_media_codecbase native_media_core native_media_vdec native_media_avdemuxer native_media_avsource)
 
 # Additional target properties for Release mode
 if(CMAKE_BUILD_TYPE STREQUAL "Release")

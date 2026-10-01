@@ -75,6 +75,11 @@ async function runBuild(targetPath, workPath, useAppIdDir = true, options = {}) 
 								task: (ctx) => {
 									ctx.storeInfo = storeInfo(workPath, { fileTypes, dependencyGraph })
 									ctx.dependencyGraph = new DependencyGraph(ctx.storeInfo.dependencyGraph)
+									ctx.resourceIgnoredPaths = [
+										getTargetPath(),
+										path.resolve(targetPath, useAppIdDir ? getAppId() : '.'),
+										seedPath,
+									].filter(directory => directory && path.resolve(directory) !== path.resolve(getWorkPath()))
 								},
 							},
 							{
@@ -85,14 +90,17 @@ async function runBuild(targetPath, workPath, useAppIdDir = true, options = {}) 
 							},
 							...(shouldPrepareConfig ? [{
 								title: '编译配置信息',
-								task: () => {
-									compileConfig()
+								task: (ctx) => {
+									compileConfig(ctx.dependencyGraph, { ignoredPaths: ctx.resourceIgnoredPaths })
 								},
 							}] : []),
 							...(shouldPrepareNpm ? [{
 								title: '构建 npm 包',
 								task: async (ctx) => {
-									const npmBuilder = new NpmBuilder(getWorkPath(), getTargetPath(), ctx.dependencyGraph)
+									const npmBuilder = new NpmBuilder(getWorkPath(), getTargetPath(), ctx.dependencyGraph, {
+										ignoredPaths: ctx.resourceIgnoredPaths,
+										owner: isMiniGame() ? getAppConfigInfo().entryPagePath : 'app',
+									})
 									await npmBuilder.buildNpmPackages()
 								},
 							}] : []),

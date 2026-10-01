@@ -44,6 +44,11 @@ const serviceToContainer = (t: number, wid: number, msg: string, ab: ArrayBuffer
     if (target === 'container' && type === 'invokeAPI') {
       const methodName: string = body['name'];
       const moduleName = 'DMPContainerBridgesModule';
+      // Worker-owned APIs must participate in capability checks as well as dispatch.
+      if (methodName === 'canIUse' && typeof body['params'] === 'string' &&
+        workerModuleManager.getModuleObjectByMethodNameAndModuleName(body['params'], moduleName)) {
+        return true;
+      }
       let obj = workerModuleManager.getModuleObjectByMethodNameAndModuleName(methodName, moduleName)
       // DMPLogger.d(Tags.JS_ENGINE, `worker methodName: ${methodName}`)
 

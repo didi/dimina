@@ -2,6 +2,38 @@ import XCTest
 @testable import dimina
 
 final class DMPFileSystemCacheTests: XCTestCase {
+    func testReadsPackagedWasmAndBrotliWithoutAllowingWritesOrTraversal() throws {
+        let appId = "wasm-package-test-\(UUID().uuidString)"
+        let env = DMPBridgeEnv(appIndex: 0, appId: appId, webViewId: 0)
+        let root = URL(fileURLWithPath: DMPSandboxManager.appBundlePath(appId))
+        defer { try? FileManager.default.removeItem(at: root) }
+        let directory = root.appendingPathComponent("main/utils")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let wasm = Data([0, 97, 115, 109, 1, 0, 0, 0])
+        let compressed = Data([139, 3, 128, 0, 97, 115, 109, 1, 0, 0, 0, 3])
+        try wasm.write(to: directory.appendingPathComponent("module.wasm"))
+        try compressed.write(to: directory.appendingPathComponent("module.wasm.br"))
+        let api = FileAPI()
+        func read(_ method: DMPBridgeMethodHandler, path: String, ok: Bool = true) -> DMPMap {
+            var output = DMPMap()
+            var outcome: DMPBridgeCallbackType?
+            _ = method(DMPBridgeParam(value: ["filePath": path, "compressionAlgorithm": "br"]), env) { result, type in
+                if type != .complete { output = result; outcome = type }
+            }
+            XCTAssertEqual(outcome, ok ? .success : .fail)
+            return output
+        }
+        for path in ["utils/module.wasm", "/utils/module.wasm"] {
+            let data = read(api.readFile, path: path).get("data") as? [String: Any]
+            XCTAssertEqual(data?["__diminaArrayBufferBase64"] as? String, wasm.base64EncodedString())
+        }
+        let result = read(api.readCompressedFile, path: "/utils/module.wasm.br").get("data") as? [String: Any]
+        XCTAssertEqual(result?["__diminaArrayBufferBase64"] as? String, wasm.base64EncodedString())
+        _ = read(api.readFile, path: "../../outside.wasm", ok: false)
+        _ = read(api.writeFile, path: "/utils/module.wasm", ok: false)
+        XCTAssertEqual(try Data(contentsOf: directory.appendingPathComponent("module.wasm")), wasm)
+    }
+
     func testTwoMegabyteCacheLifecycle() throws {
         let appId = "file-cache-test-\(UUID().uuidString)"
         let env = DMPBridgeEnv(appIndex: 0, appId: appId, webViewId: 0)

@@ -457,6 +457,7 @@ public class DMPApp {
             // 已经发布的文件也不会有人来取。
             ImageAPI.clearApp(self.appId)
             DMPWebSocketManager.shared.disposeOwner(appId: self.appId)
+            VideoDecoderStore.dispose(owner: self.appId)
             let registeredExtModules = self.container?.extModules ?? [:]
             self.container?.resetForReload()
 
@@ -702,6 +703,7 @@ public class DMPApp {
         // this app's sockets/listeners/timers for us, so tear them down
         // explicitly (synchronous + silent, see DMPWebSocketManager.disposeOwner).
         DMPWebSocketManager.shared.disposeOwner(appId: appId)
+        VideoDecoderStore.dispose(owner: appId)
 
         DispatchQueue.global(qos: .utility).async {
             serviceToDestroy?.destroy()

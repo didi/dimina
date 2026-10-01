@@ -1,16 +1,19 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { getStyleExts, getTemplateExts, getViewScriptExts } from '../env.js'
+import { isBinaryRuntimeAsset } from './binary-assets.js'
 
 /**
  * npm 构建工具
  * 用于处理小程序 npm 包的构建和管理
  */
 class NpmBuilder {
-	constructor(workPath, targetPath, dependencyGraph = null) {
+	constructor(workPath, targetPath, dependencyGraph = null, { ignoredPaths = [], owner = 'app' } = {}) {
 		this.workPath = workPath
 		this.targetPath = targetPath
 		this.dependencyGraph = dependencyGraph
+		this.owner = owner
+		this.ignoredRoots = new Set([targetPath, ...ignoredPaths].map(directory => path.resolve(directory)))
 		this.builtPackages = new Set()
 		this.packageDependencies = new Map()
 		this.miniprogramExts = new Set([
@@ -43,7 +46,7 @@ class NpmBuilder {
 		const npmDirs = []
 		
 		const scanDir = (dir, relativePath = '') => {
-			if (!fs.existsSync(dir)) {
+			if (this.ignoredRoots.has(path.resolve(dir)) || !fs.existsSync(dir)) {
 				return
 			}
 
@@ -143,7 +146,7 @@ class NpmBuilder {
 			} else {
 				// 只复制小程序相关文件
 				if (this.isMiniprogramFile(item.name)) {
-					this.dependencyGraph?.addFile('app', sourceItemPath, 'config')
+					this.dependencyGraph?.addFile(this.owner, sourceItemPath, 'config')
 					fs.copyFileSync(sourceItemPath, targetItemPath)
 				}
 			}
@@ -160,7 +163,7 @@ class NpmBuilder {
 		// getStyleExts 已包含 .less/.scss/.sass；NpmBuilder 在主线程中构造，可直接读取 env getter。
 		const ext = path.extname(filename).toLowerCase()
 		
-		return this.miniprogramExts.has(ext) ||
+		return this.miniprogramExts.has(ext) || isBinaryRuntimeAsset(filename) ||
 			   filename === 'package.json' ||
 			   filename === 'README.md' ||
 			   filename.startsWith('.')

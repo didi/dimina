@@ -1,3 +1,4 @@
+#include "dimina_wasm.h"
 #include <jni.h>
 #include <string>
 #include <cstring>
@@ -1119,7 +1120,9 @@ static void register_timer_functions(JSContext *ctx) {
     JS_FreeValue(ctx, global);
 }
 
-// Register DiminaServiceBridge global object and methods
+dimina_wasm_install(instance->ctx);
+
+    // Register DiminaServiceBridge global object and methods
 static void register_dimina_service_bridge(JSContext *ctx, const char* virtualFilePrefix) {
     // Create the DiminaServiceBridge object
     JSValue global = JS_GetGlobalObject(ctx);
@@ -1198,6 +1201,8 @@ Java_com_didi_dimina_engine_qjs_QuickJSEngine_nativeInitialize(
         return JNI_FALSE;
     }
     
+    dimina_wasm_install(instance->ctx);
+
     // Register DiminaServiceBridge global object
     const char* prefix = env->GetStringUTFChars(virtualFilePrefix, nullptr);
     register_dimina_service_bridge(instance->ctx, prefix);
@@ -1487,6 +1492,7 @@ Java_com_didi_dimina_engine_qjs_QuickJSEngine_nativeDestroy(
         JS_RunGC(instance->runtime);
         
         // Free the context first
+        dimina_wasm_dispose(instance->ctx);
         JS_FreeContext(instance->ctx);
         instance->ctx = nullptr;
         
@@ -1499,7 +1505,8 @@ Java_com_didi_dimina_engine_qjs_QuickJSEngine_nativeDestroy(
     } else {
         // Handle partial initialization cases
         if (instance->ctx) {
-            JS_FreeContext(instance->ctx);
+            dimina_wasm_dispose(instance->ctx);
+        JS_FreeContext(instance->ctx);
         }
         
         if (instance->runtime) {

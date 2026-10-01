@@ -1,5 +1,7 @@
 import { invokeAPI } from '@/api/common'
 
+export { createVideoDecoder } from './video-decoder'
+
 export function createVideoContext(videoId, obj) {
 	return new VideoContext({ videoId, obj })
 }

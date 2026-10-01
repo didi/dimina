@@ -6,8 +6,10 @@ import {
 	getPageConfigInfo,
 	getTargetPath,
 	getWorkPath,
+	isMiniGame,
 } from '../env.js'
 import { collectAssets } from '../common/utils.js'
+import { copyBinaryRuntimeAssets } from '../common/binary-assets.js'
 
 /**
  * 处理 tabBar.list 中的 iconPath / selectedIconPath。
@@ -42,8 +44,9 @@ function processTabBarIcons(app) {
  *
  * 编译项目配置文件 app-config.json
  */
-function compileConfig() {
+function compileConfig(dependencyGraph, { ignoredPaths = [] } = {}) {
 	const app = getAppConfigInfo()
+	copyBinaryRuntimeAssets(getWorkPath(), getTargetPath(), app.subPackages, dependencyGraph, { ignoredPaths, owner: isMiniGame() ? app.entryPagePath : 'app' })
 
 	// 把 tabBar 图标复制到产物目录并改写 iconPath
 	processTabBarIcons(app)

@@ -64,6 +64,8 @@ dimina_configure_quickjs(dimina
     ENABLE_DEBUGGER "${DIMINA_ENABLE_QUICKJS_DEBUGGER}"
 )
 dimina_configure_libuv(dimina)
+include("${CMAKE_CURRENT_LIST_DIR}/../../../../../cmake/DiminaWasm.cmake")
+dimina_configure_wasm(dimina)
 
 # Add linker option for 16KB page size compatibility
 # This helps ensure the .so is compatible with systems using 16KB page sizes,

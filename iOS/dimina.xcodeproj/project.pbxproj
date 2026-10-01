@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A35200000000000000000101 /* DiminaWasm in Frameworks */ = {isa = PBXBuildFile; productRef = A35200000000000000000102 /* DiminaWasm */; };
 		345000002609200000000001 /* DMPBundleAppConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 345000002609200000000002 /* DMPBundleAppConfigTests.swift */; };
 		14603AA5921BC560B952F3E9 /* DMPUtilPathTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61DD3E623362F9D7264941CD /* DMPUtilPathTests.swift */; };
 		1A2B3C4D5E6F700000000001 /* Alamofire in Frameworks */ = {isa = PBXBuildFile; productRef = 1A2B3C4D5E6F700000000101 /* Alamofire */; };
@@ -23,6 +24,7 @@
 		9A1D30A12F12000100000001 /* DMPNavigatorCapsuleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1D30A12F12000100000002 /* DMPNavigatorCapsuleTests.swift */; };
 		9E9F7EDCE127D18B2331A8DC /* DMPWebSocketManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23EDE52DA8E2C3DFF607829B /* DMPWebSocketManagerTests.swift */; };
 		A33500000000000000000001 /* DMPFileSystemCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A33500000000000000000002 /* DMPFileSystemCacheTests.swift */; };
+		A35200000000000000000001 /* DMPVideoDecoderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A35200000000000000000002 /* DMPVideoDecoderTests.swift */; };
 		B41C7E52A0D34F0891C6D311 /* DMPServiceRenderOrderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B41C7E52A0D34F0891C6D310 /* DMPServiceRenderOrderTests.swift */; };
 		D3AF9DC58D4F29D8D2A8F71F /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2EAA9C0614F7638987B22EAC /* Foundation.framework */; };
 		E90FD67E791E4377923344EF /* DMPEngineTimerThreadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 898FFD601DB04AFEBBAAAE0A /* DMPEngineTimerThreadTests.swift */; };
@@ -62,6 +64,7 @@
 		898FFD601DB04AFEBBAAAE0A /* DMPEngineTimerThreadTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DMPEngineTimerThreadTests.swift; sourceTree = "<group>"; };
 		9A1D30A12F12000100000002 /* DMPNavigatorCapsuleTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DMPNavigatorCapsuleTests.swift; sourceTree = "<group>"; };
 		A33500000000000000000002 /* DMPFileSystemCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DMPFileSystemCacheTests.swift; sourceTree = "<group>"; };
+		A35200000000000000000002 /* DMPVideoDecoderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DMPVideoDecoderTests.swift; sourceTree = "<group>"; };
 		AE429915A2BA3583BF99A758 /* DiminaKitTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DiminaKitTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		B41C7E52A0D34F0891C6D310 /* DMPServiceRenderOrderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DMPServiceRenderOrderTests.swift; sourceTree = "<group>"; };
 		FAB6B466B43575C7978B1BAD /* DMPWebSocketValidationTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DMPWebSocketValidationTests.swift; sourceTree = "<group>"; };
@@ -83,6 +86,7 @@
 				1A2B3C4D5E6F700000000001 /* Alamofire in Frameworks */,
 				1A2B3C4D5E6F700000000002 /* MMKV in Frameworks */,
 				1A2B3C4D5E6F700000000003 /* ZIPFoundation in Frameworks */,
+				A35200000000000000000101 /* DiminaWasm in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -183,6 +187,7 @@
 				898FFD601DB04AFEBBAAAE0A /* DMPEngineTimerThreadTests.swift */,
 				B41C7E52A0D34F0891C6D310 /* DMPServiceRenderOrderTests.swift */,
 				A33500000000000000000002 /* DMPFileSystemCacheTests.swift */,
+				A35200000000000000000002 /* DMPVideoDecoderTests.swift */,
 			);
 			path = DiminaKitTests;
 			sourceTree = "<group>";
@@ -211,6 +216,7 @@
 				1A2B3C4D5E6F700000000101 /* Alamofire */,
 				1A2B3C4D5E6F700000000102 /* MMKV */,
 				1A2B3C4D5E6F700000000103 /* ZIPFoundation */,
+				A35200000000000000000102 /* DiminaWasm */,
 			);
 			productName = dimina;
 			productReference = 0A6F85D82DAE3D7D0047A006 /* dimina.app */;
@@ -277,6 +283,7 @@
 			mainGroup = 0A6F85CF2DAE3D7D0047A006;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				A35200000000000000000103 /* XCLocalSwiftPackageReference "DiminaWasm" */,
 				1A2B3C4D5E6F700000000201 /* XCRemoteSwiftPackageReference "Alamofire" */,
 				1A2B3C4D5E6F700000000202 /* XCRemoteSwiftPackageReference "MMKV" */,
 				1A2B3C4D5E6F700000000203 /* XCRemoteSwiftPackageReference "ZIPFoundation" */,
@@ -373,6 +380,7 @@
 				E90FD67E791E4377923344EF /* DMPEngineTimerThreadTests.swift in Sources */,
 				B41C7E52A0D34F0891C6D311 /* DMPServiceRenderOrderTests.swift in Sources */,
 				A33500000000000000000001 /* DMPFileSystemCacheTests.swift in Sources */,
+				A35200000000000000000001 /* DMPVideoDecoderTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -743,7 +751,12 @@
 		};
 /* End XCRemoteSwiftPackageReference section */
 
+/* Begin XCLocalSwiftPackageReference section */
+		A35200000000000000000103 /* XCLocalSwiftPackageReference "DiminaWasm" */ = {isa = XCLocalSwiftPackageReference; relativePath = ../third_party/wamr; };
+/* End XCLocalSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
+		A35200000000000000000102 /* DiminaWasm */ = {isa = XCSwiftPackageProductDependency; package = A35200000000000000000103 /* XCLocalSwiftPackageReference "DiminaWasm" */; productName = DiminaWasm; };
 		1A2B3C4D5E6F700000000101 /* Alamofire */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 1A2B3C4D5E6F700000000201 /* XCRemoteSwiftPackageReference "Alamofire" */;

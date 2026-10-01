@@ -16,6 +16,43 @@ import java.util.UUID
 @RunWith(AndroidJUnit4::class)
 class FileSystemCacheTest {
     @Test
+    fun readsPackagedWasmAndBrotliWithoutAllowingWritesOrTraversal() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        lateinit var activity: DiminaActivity
+        instrumentation.runOnMainSync {
+            activity = DiminaActivity()
+            ContextWrapper::class.java.getDeclaredMethod("attachBaseContext", Context::class.java)
+                .apply { isAccessible = true }.invoke(activity, instrumentation.targetContext)
+        }
+        val appId = "wasm-package-test-${UUID.randomUUID()}"
+        val root = java.io.File(activity.filesDir, "jsapp/$appId")
+        val directory = java.io.File(root, "main/utils").apply { mkdirs() }
+        val wasm = byteArrayOf(0, 97, 115, 109, 1, 0, 0, 0)
+        java.io.File(directory, "module.wasm").writeBytes(wasm)
+        java.io.File(directory, "module.wasm.br").writeBytes(byteArrayOf(139.toByte(), 3, 128.toByte(), 0, 97, 115, 109, 1, 0, 0, 0, 3))
+        val api = FileApi()
+        fun call(name: String, path: String, ok: Boolean = true): JSONObject {
+            val params = JSONObject().put("filePath", path).put("compressionAlgorithm", "br")
+            val result = api.handleAction(activity, appId, "FileSystemManager.$name", params) {} as AsyncResult
+            assertEquals(result.value.toString(), ok, result.value.getString("errMsg").endsWith(":ok"))
+            return result.value
+        }
+        try {
+            for (path in listOf("utils/module.wasm", "/utils/module.wasm")) {
+                assertEquals("AGFzbQEAAAA=", call("readFile", path).getJSONObject("data").getString("__diminaArrayBufferBase64"))
+            }
+            assertEquals("AGFzbQEAAAA=", call("readCompressedFile", "/utils/module.wasm.br").getJSONObject("data").getString("__diminaArrayBufferBase64"))
+            call("readFile", "../../outside.wasm", false)
+            call("writeFile", "/utils/module.wasm", false)
+            assertArrayEquals(wasm, java.io.File(directory, "module.wasm").readBytes())
+        } finally {
+            root.deleteRecursively()
+            PathUtils.appUserRoot(activity, appId).deleteRecursively()
+            PathUtils.appTempRoot(activity, appId).deleteRecursively()
+        }
+    }
+
+    @Test
     fun persistsTwoMegabyteCacheAndRejectsInvalidCleanup() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         lateinit var activity: DiminaActivity

@@ -42,10 +42,14 @@ const builtInAPIs = new Set([
 	...fileSystemManagerAPINames.map(name => `FileSystemManager.${name}`),
 ])
 
-// Socket factories live in the service layer, while their actual capability is
+// Native object factories live in the service layer, while their capability is
 // provided by the native object methods. Probe a representative native method
 // so canIUse stays platform-aware (notably, it remains false on Web).
 const nativeBackedFactorySchemas = {
+	createVideoDecoder: 'VideoDecoder.start',
+	VideoDecoder: 'VideoDecoder.start',
+	'VideoDecoder.on': 'VideoDecoder.start',
+	'VideoDecoder.off': 'VideoDecoder.start',
 	createUDPSocket: 'UDPSocket.bind',
 	UDPSocket: 'UDPSocket.bind',
 	createTCPSocket: 'TCPSocket.connect',
@@ -57,6 +61,8 @@ const nativeBackedFactorySchemas = {
  * https://developers.weixin.qq.com/miniprogram/dev/api/base/wx.canIUse.html
  */
 export function canIUse(schema) {
+	if (schema === 'WXWebAssembly') return typeof globalThis.WXWebAssembly?.instantiate === 'function'
+	if (typeof schema === 'string' && schema.startsWith('WXWebAssembly.')) return typeof globalThis.WXWebAssembly?.[schema.slice(14)] === 'function'
 	if (builtInAPIs.has(schema)) {
 		return true
 	}

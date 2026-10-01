@@ -14,3 +14,17 @@ export const dispatchJsTaskPath: (appIndex: number, path: string, sourceURL: str
 export const destroyJsEngine: (appIndex: number) => number;
 
 export const brotliDecompress: (data: ArrayBuffer) => ArrayBuffer;
+
+export interface VideoDecoderFrame {
+  width?: number;
+  height?: number;
+  pts?: number;
+  pkPts?: number;
+  data?: ArrayBuffer;
+  ended?: boolean;
+  error?: string;
+}
+export const videoDecoderOperate: (owner: number, id: string, command: string,
+  source: string, argument: number) => Promise<object>;
+export const videoDecoderGetFrame: (owner: number, id: string) => VideoDecoderFrame;
+export const videoDecoderDispose: (owner: number) => void;

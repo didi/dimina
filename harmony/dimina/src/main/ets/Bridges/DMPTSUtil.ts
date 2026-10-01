@@ -19,6 +19,8 @@ export class DMPTSUtil {
     }
     if (originMethod.startsWith('FileSystemManager.') && obj.dispatchFileSystemManager) {
       result = obj.dispatchFileSystemManager.call(obj, originMethod, params, callback)
+    } else if (originMethod.startsWith('VideoDecoder.') && obj.dispatchVideoDecoder) {
+      result = obj.dispatchVideoDecoder.call(obj, originMethod, params, callback)
     } else if ((originMethod.startsWith('UDPSocket.') || originMethod.startsWith('TCPSocket.') ||
       originMethod.includes('LocalService')) && obj.dispatchLocalNetwork) {
       result = obj.dispatchLocalNetwork.call(obj, originMethod, params, callback)

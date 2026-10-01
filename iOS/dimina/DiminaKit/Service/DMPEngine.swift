@@ -7,6 +7,7 @@
 
 import Foundation
 import JavaScriptCore
+import DiminaWasmBridge
 
 public class DMPEngine: NSObject {
 
@@ -119,6 +120,7 @@ public class DMPEngine: NSObject {
             DMPLogger.debug("JS Error: \(exception.toString() ?? "Unknown error")")
         }
         
+        dimina_wasm_install(context.jsGlobalContextRef)
         context.evaluateScript("DiminaServiceBridge = {};")
         context.evaluateScript("globalThis.__VIRTUAL_FILE_PREFIX__ = '\(DMPFileUtil.virtualFilePrefix)';")
 
@@ -254,6 +256,7 @@ public class DMPEngine: NSObject {
                 guard let self else { return }
                 self.timerManager.clearAllTimers()
                 self.jsContext?.exception = nil
+                if let context = self.jsContext { dimina_wasm_dispose(context.jsGlobalContextRef) }
                 self.jsContext = nil
                 self.setThreadRunning(false)
 

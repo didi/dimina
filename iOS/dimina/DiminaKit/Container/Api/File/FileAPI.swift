@@ -468,6 +468,18 @@ public class FileAPI: DMPContainerApi {
         return standardized
     }
 
+    // Package reads share the confined resource resolver; writes remain sandbox-only.
+    private static func resolveReadable(env: DMPBridgeEnv, path: String) throws -> URL {
+        if path.hasPrefix(VIRTUAL_PREFIX) { return try resolve(env: env, path: path) }
+        if let sandbox = try? resolve(env: env, path: path) { return sandbox }
+        let relative = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard let packaged = DMPFileUtil.appAccessiblePath(from: relative, appId: env.appId),
+              FileManager.default.fileExists(atPath: packaged) else {
+            throw FileError.message("no such package file \(path)")
+        }
+        return URL(fileURLWithPath: packaged)
+    }
+
     private static func prepareDocument(url: URL, fileType: String, env: DMPBridgeEnv) throws -> (url: URL, cleanupURL: URL?) {
         guard !fileType.isEmpty, url.pathExtension.lowercased() != fileType else {
             return (url, nil)
@@ -564,7 +576,7 @@ public class FileAPI: DMPContainerApi {
 
     private static func readFileSync(param: DMPBridgeParam, env: DMPBridgeEnv) throws -> Any {
         let map = param.getMap()
-        let data = try Data(contentsOf: try resolve(env: env, path: map.getString(key: "filePath") ?? ""))
+        let data = try Data(contentsOf: try resolveReadable(env: env, path: map.getString(key: "filePath") ?? ""))
         let position = map.getInt(key: "position") ?? 0
         let length = map.getInt(key: "length") ?? (data.count - position)
         let slice = slice(data, position: position, length: length)
@@ -795,7 +807,7 @@ public class FileAPI: DMPContainerApi {
         if algorithm != "br" {
             throw FileError.message("unsupported compressionAlgorithm \(algorithm)")
         }
-        let data = try Data(contentsOf: resolve(env: env, path: map.getString(key: "filePath") ?? ""))
+        let data = try Data(contentsOf: resolveReadable(env: env, path: map.getString(key: "filePath") ?? ""))
         return bufferPayload(try decompressBrotli(data))
     }
 

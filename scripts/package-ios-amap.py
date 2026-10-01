@@ -84,11 +84,18 @@ def package(version, output, cache):
         (package_root / "Package.swift").write_text(manifest)
         shutil.copytree(ROOT / "iOS/dimina", package_root / "iOS/dimina",
                         ignore=shutil.ignore_patterns(".DS_Store"))
+        # The manifest's native targets and their relative includes must remain
+        # inside the standalone package, along with the upstream license files.
+        for relative in ("third_party/wamr", "native/wasm"):
+            shutil.copytree(ROOT / relative, package_root / relative,
+                            ignore=shutil.ignore_patterns(".DS_Store", ".build", ".swiftpm"))
         shutil.copy(ROOT / "iOS/MapAMap/README.md", package_root / "README.md")
         shutil.copy(ROOT / "LICENSE", package_root / "LICENSE")
         shutil.copy(ROOT / "iOS/MapAMap/vendor.json", package_root / "vendor.json")
         (package_root / "NOTICE").write_text(
-            "Dimina adapter source: Apache-2.0. Bundled AMap SDK binaries and resources:\n"
+            "Dimina adapter source: Apache-2.0. WAMR: Apache-2.0 WITH LLVM-exception;\n"
+            "see third_party/wamr/LICENSE and third_party/wamr/ATTRIBUTIONS.md.\n"
+            "Bundled AMap SDK binaries and resources:\n"
             "Copyright AutoNavi. All Rights Reserved. https://lbs.amap.com/\n"
         )
         shutil.copytree(package_root, destination)

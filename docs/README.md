@@ -16,6 +16,7 @@ Dimina（星河小程序）由 DMCC 编译器、逻辑层与渲染层运行时�
 | 编译和运行微信小游戏 | [微信小游戏运行](./Mini-Game.md) | `game.js`、Canvas 与三端运行类型透传 |
 | 在 Harmony 调试逻辑层 JavaScript | [Harmony JavaScript 断点调试](./JavaScript-Debugging.md) | DMCC source map 与 QuickJS attach |
 | 排查 Canvas 节点、绘制顺序、内存限制或导出生命周期 | [Canvas 运行架构](./canvas-architecture.md) | compiler、service / render 与三端 native 导出实现 |
+| 接入 libpag、加载 Wasm 或逐帧解码视频 | [WXWebAssembly](./WXWebAssembly.md) | [视频解码](./VideoDecoder.md)、包内 Brotli 读取与逻辑层 WebGL Canvas |
 | 接入内置包或远程更新 | [小程序包更新](./MiniProgram-Update.md) | 对应平台的 Bundle Loader 实现 |
 | 接入地图、选择地图服务商及配置 Key | [地图接入](./Map-Integration.md) | provider 接口、平台差异与最小示例 |
 | 扩展 Android 原生组件的承载方式 | [原生组件承载后端](./Native-Component-Backend.md) | 后端工厂、布局/触摸、生命周期与同层限制 |
