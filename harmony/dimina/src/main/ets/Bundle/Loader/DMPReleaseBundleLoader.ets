@@ -35,10 +35,6 @@ export class DMPReleaseBundleLoader implements DMPBundleLoader {
     this.app = app;
   }
 
-  private isDebugMode(): boolean {
-    return this.app.appConfig.isDebugMode || DMPContextUtils.debugMode;
-  }
-
   async install(installConfig: DMPBundleInstallConfig, launchBundleReady: (config: DMPBundleLoadInfo) => void,
     loadComplete?: (config: DMPBundleLoadInfo) => void,
     loadError?: (code: number, errMsg: string) => void): Promise<DMPBundleLoadInfo> {
@@ -111,10 +107,10 @@ export class DMPReleaseBundleLoader implements DMPBundleLoader {
   //加载底包
   async loadLocalPackage(bundleLoadInfo: DMPBundleLoadInfo) {
     try {
-      // 调试模式、宿主升级、无底包都先读取沙箱中已安装的远程版本。
+      // 先读取沙箱中已安装的版本；调试开关不参与发布包的安装和版本决策。
       this.loadCacheConfig(bundleLoadInfo);
-      if (bundleLoadInfo.isAppUpdate() || this.isDebugMode()) {
-        DMPLogger.i(Tags.LOAD_LOCAL_BUNDLE, '应用有更新或处于调试模式');
+      if (bundleLoadInfo.isAppUpdate()) {
+        DMPLogger.i(Tags.LOAD_LOCAL_BUNDLE, '应用有更新');
         //加载本地配置
         this.loadLocalBundleConfig(bundleLoadInfo);
         //安装jsApp本地包
@@ -185,8 +181,7 @@ export class DMPReleaseBundleLoader implements DMPBundleLoader {
     if (bundleLoadInfo.localJSSdkBundleConfig != null) {
       let cacheJSSdkConfig = this.fileManager.loadJSSdkConfig();
       bundleLoadInfo.cacheJSSdkBundleConfig = DMPJSSdkBundleConfig.fromJson(cacheJSSdkConfig);
-      if (this.isDebugMode()
-        || bundleLoadInfo.cacheJSSdkBundleConfig == null
+      if (bundleLoadInfo.cacheJSSdkBundleConfig == null
         || bundleLoadInfo.localJSSdkBundleConfig.versionCode > bundleLoadInfo.cacheJSSdkBundleConfig.versionCode) {
         await this.fileManager.copyJSSDKAndUnZip(`${bundleLoadInfo.localJSSdkBundleConfig.versionCode}`);
         DMPLogger.i(Tags.BUNDLE, '复制jsSdk完成');
@@ -206,8 +201,7 @@ export class DMPReleaseBundleLoader implements DMPBundleLoader {
         DMPRemoteUpdateManager.sharedInstance().getAppVersionInfo(bundleLoadInfo.appId)) {
         return;
       }
-      if (this.isDebugMode()
-        || bundleLoadInfo.cacheJSAppBundleConfig == null
+      if (bundleLoadInfo.cacheJSAppBundleConfig == null
         || bundleLoadInfo.localJSAppBundleConfig.versionCode > bundleLoadInfo.cacheJSAppBundleConfig.versionCode) {
         await this.fileManager.copyJSAppAndUnZip(this.installConfig!.appId,
           `${bundleLoadInfo.localJSAppBundleConfig.versionCode}`);
