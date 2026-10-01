@@ -26,7 +26,7 @@ function safePathSegment(segment: string): string {
 	catch {
 		throw new Error(`invalid file path segment: ${segment}`)
 	}
-	if (!decoded || decoded === '.' || decoded === '..' || /[\\/\0]/.test(decoded)) {
+	if (!decoded || decoded === '.' || decoded === '..' || decoded.includes('\0') || /[\\/]/.test(decoded)) {
 		throw new Error(`invalid file path segment: ${segment}`)
 	}
 	return decoded
@@ -53,7 +53,7 @@ function fileNameFromPath(tempFilePath: string, resourceBaseUrl: string): string
 		const absoluteBaseUrl = new URL(resourceBaseUrl, window.location.origin)
 		const url = new URL(tempFilePath, absoluteBaseUrl)
 		const name = decodeURIComponent(url.pathname.split('/').pop() || '')
-		const sanitized = name.replace(/[\\/\0]/g, '_')
+		const sanitized = name.replace(/[\\/]/g, '_').replaceAll('\0', '_')
 		return sanitized || 'file'
 	}
 	catch {

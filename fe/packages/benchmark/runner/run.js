@@ -111,7 +111,7 @@ async function runCase(page, name) {
 	}
 
 	if (!Array.isArray(report.samples)) {
-		throw new Error(`${name}: benchmark report has no samples`)
+		throw new TypeError(`${name}: benchmark report has no samples`)
 	}
 
 	return report.samples
@@ -140,7 +140,7 @@ async function runColdStart(page, name) {
 
 		const sample = report.samples?.[0]
 		if (!Number.isFinite(sample)) {
-			throw new Error(`${name}: invalid cold-start sample`)
+			throw new TypeError(`${name}: invalid cold-start sample`)
 		}
 
 		if (i >= config.warmup) {
