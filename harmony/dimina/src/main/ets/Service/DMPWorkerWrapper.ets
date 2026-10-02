@@ -157,7 +157,7 @@ export class DMPWorkerWrapper {
     this.w.postMessage(payload);
   }
 
-  private terminateWorker() {
+  private terminateWorker(): void {
     if (this.terminationTimer !== undefined) {
       clearTimeout(this.terminationTimer);
       this.terminationTimer = undefined;
@@ -170,7 +170,9 @@ export class DMPWorkerWrapper {
     this.destroyed = true;
     // Once teardown starts, no Worker ACK can be required to make forward progress.
     this.flushBarrier.markUnavailable();
-    this.terminationTimer = setTimeout(() => this.terminateWorker(), 5000);
+    this.terminationTimer = setTimeout((): void => {
+      this.terminateWorker();
+    }, 5000);
     let payload = new Payload();
     let message: WorkerRequest = new WorkerRequest('destroy', payload);
     try {

@@ -55,13 +55,15 @@ export class DMPRender {
     const script = `(() => { try { if (typeof globalThis.__diminaCanvasSync !== 'function') throw new Error('canvas runtime unavailable'); return JSON.stringify(globalThis.__diminaCanvasSync(${body.toStr()})); } catch (e) { return JSON.stringify({error:String(e)}); } })()`;
     return new Promise<string>((resolve) => {
       let finished = false;
-      const complete = (result: string) => {
+      const complete = (result: string): void => {
         if (finished) return;
         finished = true;
         clearTimeout(timer);
         resolve(result);
       };
-      const timer = setTimeout(() => complete(canvasError('canvas query timed out')), 4500);
+      const timer = setTimeout((): void => {
+        complete(canvasError('canvas query timed out'));
+      }, 4500);
       try {
         // Earlier publish messages arrive through this same Worker FIFO and were
         // submitted to this controller before the query.
