@@ -113,6 +113,9 @@
   <navigator class="intro" url="wasm/index">
     <view class="weui-cell__bd">Wasm</view>
   </navigator>
+  <navigator class="intro" url="libpag/index">
+    <view class="weui-cell__bd">libpag · PAG 动画</view>
+  </navigator>
   <navigator class="intro" url="socket-test/index">
     <view class="weui-cell__bd">WebSocket</view>
   </navigator>

@@ -1,0 +1,7 @@
+{
+  "name": "dimina-base-example",
+  "private": true,
+  "dependencies": {
+    "libpag-miniprogram": "4.5.85"
+  }
+}

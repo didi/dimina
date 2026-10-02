@@ -1,0 +1,24 @@
+<view class="page-body">
+  <view class="section">
+    <view class="section-title">libpag 4.5.85</view>
+    <view class="desc">本地 PAG 动画，验证 Wasm、WebGL 和视频解码。</view>
+    <view class="canvas-box">
+      <canvas id="pag" type="webgl" class="pag-canvas" />
+    </view>
+    <view class="desc">{{assetLabel}} · {{playing ? '播放中' : '已暂停'}} · {{progress}}%</view>
+    <slider min="0" max="100" value="{{progress}}" disabled="{{busy || !ready}}" bindchange="seek" />
+    <view class="btn-row">
+      <button size="mini" disabled="{{busy || !ready}}" bindtap="togglePlayback">{{playing ? '暂停' : '播放'}}</button>
+      <button size="mini" disabled="{{busy || !ready}}" bindtap="rewind">回到开头</button>
+    </view>
+    <button type="primary" loading="{{busy}}" disabled="{{busy || !supported}}" bindtap="validate">重新验证</button>
+  </view>
+  <view class="section">
+    <view class="section-title">{{status}}</view>
+    <view class="desc">{{capability}}</view>
+    <view wx:for="{{results}}" wx:key="name" class="check {{item.state}}">
+      <view class="check-title">{{item.state === 'pass' ? '通过' : item.state === 'skip' ? '跳过' : '失败'}} · {{item.name}}</view>
+      <view class="detail">{{item.detail}}</view>
+    </view>
+  </view>
+</view>

@@ -42,7 +42,8 @@
 		"pages/video/index",
 		"pages/web-view/index",
 		"pages/web-gl/index",
-		"pages/wasm/index"
+		"pages/wasm/index",
+		"pages/libpag/index"
 	],
 	"subPackages": [
     {
