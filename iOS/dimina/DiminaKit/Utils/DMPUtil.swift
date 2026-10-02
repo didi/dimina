@@ -60,7 +60,8 @@ public class DMPUtil {
         var paramsDict: [String: String] = [:]
 
         if parts.count > 1 {
-            let paramStr = parts[1]
+            // 第一个 '?' 分隔页面路径，后续 '?' 属于查询参数值。
+            let paramStr = parts.dropFirst().joined(separator: "?")
             for param in paramStr.components(separatedBy: "&") {
                 // 只按第一个 '=' 切分（对齐 Android Utils.kt split("=", limit=2) /
                 // Harmony DataTransformer.ets indexOf('=')）——value 本身含 '='

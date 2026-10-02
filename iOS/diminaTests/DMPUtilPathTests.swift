@@ -89,6 +89,29 @@ final class DMPUtilPathTests: XCTestCase {
         XCTAssertEqual(result["query"] as? [String: String], ["token": "a=b"])
     }
 
+    func testQueryPath_nestedURLContainingQuestionMarkIsKeptWhole() {
+        let result = DMPUtil.queryPath(path: "/pages/web/index?url=https://a.com/b?c=1")
+
+        XCTAssertEqual(result["pagePath"] as? String, "pages/web/index")
+        XCTAssertEqual(result["query"] as? [String: String], ["url": "https://a.com/b?c=1"])
+    }
+
+    func testQueryPath_multipleAndTrailingQuestionMarksAreKeptWhole() {
+        let result = DMPUtil.queryPath(path: "pages/web/index?url=https://a.com/b??c=1?")
+
+        XCTAssertEqual(result["pagePath"] as? String, "pages/web/index")
+        XCTAssertEqual(result["query"] as? [String: String], ["url": "https://a.com/b??c=1?"])
+    }
+
+    func testQueryPath_parsesOtherParametersAfterNestedURL() {
+        let result = DMPUtil.queryPath(path: "pages/web/index?url=https://a.com/b?c=1&from=share")
+
+        XCTAssertEqual(result["query"] as? [String: String], [
+            "url": "https://a.com/b?c=1",
+            "from": "share",
+        ])
+    }
+
     func testQueryPath_paramWithNoEqualsSignIsDropped() {
         let result = DMPUtil.queryPath(path: "pages/detail/index?flag&id=1")
 
