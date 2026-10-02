@@ -50,18 +50,18 @@
 		"cheerio": "^1.2.0",
 		"chokidar": "^4.0.3",
 		"commander": "^14.0.3",
-		"cssnano": "^9.0.5",
+		"cssnano": "^9.1.2",
 		"esbuild": "^0.28.2",
 		"htmlparser2": "^12.0.0",
 		"less": "^4.9.1",
 		"listr2": "^11.1.0",
-		"magic-string": "^1.4.1",
+		"magic-string": "^1.4.2",
 		"oxc-parser": "^0.151.0",
 		"oxc-walker": "^1.1.1",
 		"postcss": "^8.5.28",
 		"postcss-selector-parser": "^7.1.6",
-		"sass": "^1.104.1",
-		"source-map-js": "^1.2.1"
+		"sass": "^1.105.1",
+		"source-map-js": "^1.2.2"
 	},
 	"publishConfig": {
 		"registry": "https://registry.npmjs.org/",
