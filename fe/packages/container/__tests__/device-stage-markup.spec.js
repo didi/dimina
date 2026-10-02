@@ -30,7 +30,7 @@ describe('device stage markup', () => {
 		expect(markup).toMatch(/一套小程序代码\s*<br>\s*在四个平台真实运行/)
 		expect(markup).toContain('>LIVE DEMO</div>')
 		expect(markup).toMatch(/<li class="is-current">Web<\/li>\s*<li><a href="https:\/\/github\.com\/didi\/dimina\/blob\/HEAD\/android\/README\.md" target="_blank" rel="noreferrer">Android<\/a><\/li>\s*<li><a href="https:\/\/github\.com\/didi\/dimina\/blob\/HEAD\/iOS\/README\.md" target="_blank" rel="noreferrer">iOS<\/a><\/li>\s*<li><a href="https:\/\/github\.com\/didi\/dimina\/blob\/HEAD\/harmony\/dimina\/README\.md" target="_blank" rel="noreferrer">Harmony<\/a><\/li>/)
-		expect(stageStyles).toMatch(/&__device\s*{[^}]*inset-inline-start:\s*50%;/s)
+		expect(markup).toContain('class="device-stage__device"')
 		expect(stageStyles).toMatch(/&-light\s*{[^}]*border:\s*3px solid var\(--color-accent\);/s)
 		expect(stageStyles).not.toMatch(/&-light\s*{[^}]*filter:/s)
 		expect(stageStyles).toContain('transform: rotate(var(--orbit-light-angle));')

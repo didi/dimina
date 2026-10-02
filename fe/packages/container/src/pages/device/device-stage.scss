@@ -22,9 +22,13 @@ body {
 	--bg: var(--color-device-island);
 	position: relative;
 	isolation: isolate;
+	display: grid;
+	grid-template-rows: auto 1fr auto;
+	gap: var(--space-xl);
+	box-sizing: border-box;
 	inline-size: 100%;
-	block-size: 100%;
-	min-block-size: 38.75rem;
+	min-block-size: 100%;
+	padding: var(--space-xl) clamp(var(--space-xl), 4vi, var(--space-4xl));
 	overflow: clip;
 	background: radial-gradient(circle at 50% 48%, #f0f4ff 0, var(--color-paper) 56%);
 	color: var(--color-ink);
@@ -40,10 +44,8 @@ body {
 	}
 
 	&__header {
-		position: absolute;
+		position: relative;
 		z-index: 6;
-		inset-block-start: var(--space-xl);
-		inset-inline: clamp(var(--space-xl), 4vi, var(--space-4xl));
 		block-size: 3.875rem;
 		display: flex;
 		align-items: center;
@@ -179,17 +181,19 @@ body {
 	}
 
 	&__device {
-		position: absolute;
+		position: relative;
 		z-index: 4;
-		inset-block-start: 52%;
-		inset-inline-start: 50%;
-		inline-size: $deviceWidth * 1px;
-		block-size: $deviceHeight * 1px;
-		transform: translate(-50%, -50%);
+		place-self: center;
+		// Reserve the visible footprint so the phone and bars cannot cover each other.
+		inline-size: calc(#{$deviceWidth}px * var(--device-scale));
+		block-size: calc(#{$deviceHeight}px * var(--device-scale));
 
 		#iphone {
+			position: absolute;
+			inset-block-start: 0;
+			inset-inline-start: 0;
 			transform: scale(var(--device-scale));
-			transform-origin: center;
+			transform-origin: top left;
 			box-shadow: var(--shadow-device);
 		}
 	}
@@ -240,10 +244,8 @@ body {
 	}
 
 	&__footer {
-		position: absolute;
+		position: relative;
 		z-index: 6;
-		inset-inline: clamp(var(--space-xl), 4vi, var(--space-4xl));
-		inset-block-end: var(--space-xl);
 		block-size: 3.875rem;
 		display: flex;
 		align-items: center;
@@ -402,7 +404,10 @@ body {
 
 @include mobile-fullscreen-device {
 	.device-stage {
+		display: block;
+		block-size: 100%;
 		min-block-size: 0;
+		padding: 0;
 		background: var(--color-device-island);
 
 		&__rules,
@@ -416,6 +421,7 @@ body {
 		}
 
 		&__device {
+			position: absolute;
 			inset: 0;
 			inline-size: 100%;
 			block-size: 100%;
