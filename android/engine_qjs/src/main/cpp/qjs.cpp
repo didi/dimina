@@ -1120,7 +1120,6 @@ static void register_timer_functions(JSContext *ctx) {
     JS_FreeValue(ctx, global);
 }
 
-dimina_wasm_install(instance->ctx);
 
     // Register DiminaServiceBridge global object and methods
 static void register_dimina_service_bridge(JSContext *ctx, const char* virtualFilePrefix) {
