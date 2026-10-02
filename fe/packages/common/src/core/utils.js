@@ -398,7 +398,7 @@ export function parsePath(currPath, url) {
 	const basePath = currPath.split('/').slice(0, -1).join('/')
 	const parts = url.split('?')
 	const pagePath = parts[0]
-	const paramStr = parts[1]
+	const paramStr = parts.slice(1).join('?')
 	let newUrl = resolvePath(basePath, pagePath)
 	if (paramStr) {
 		newUrl += `?${paramStr}`

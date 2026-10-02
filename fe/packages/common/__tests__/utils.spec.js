@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { camelCaseToUnderscore, get, set, toCamelCase, transformRpx } from '../src/core/utils'
+import { camelCaseToUnderscore, get, parsePath, set, toCamelCase, transformRpx } from '../src/core/utils'
 
 describe('自定义数据转换', () => {
 	it('连字符写法会转换成驼峰写法', () => {
@@ -51,5 +51,12 @@ describe('rpx conversion', () => {
 	it('keeps rpx independent from rem root font size', () => {
 		expect(transformRpx('width:750rpx;margin-left:-7.5rpx;font-size:1rem'))
 			.toBe('width:100vw;margin-left:-1vw;font-size:1rem')
+	})
+})
+
+describe('parsePath', () => {
+	it('keeps a question mark inside the query string', () => {
+		expect(parsePath('pages/index/index', '../web/index?url=https://a.com/b?c=1'))
+			.toBe('pages/web/index?url=https://a.com/b?c=1')
 	})
 })
