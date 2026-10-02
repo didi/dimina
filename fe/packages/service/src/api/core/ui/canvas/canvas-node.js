@@ -1,7 +1,10 @@
 import {
+	arrayBufferToBase64,
+	base64ToArrayBuffer,
 	callback,
 	canvasPixelBudgetError,
 	isFunction,
+	isWebWorker,
 	normalizeCanvasBitmapDimension,
 	uuid,
 } from '@dimina/common'
@@ -9,6 +12,7 @@ import colorNames from 'color-name'
 import hostEnv from '@/core/host-env'
 import message from '@/core/message'
 import router from '@/core/router'
+import { adoptWebCanvas, getTransferredCanvas } from './web-canvas'
 import { createMeasureContext, measureTextWidth, parseFont } from './canvas-style'
 
 export const CANVAS_NODE_TYPE = 'dimina-canvas-node'
@@ -402,6 +406,11 @@ function deserializeCanvasValue(value) {
 	if (typeof value !== 'object') {
 		return value
 	}
+	if (value.__canvasTypedArray && value.base64 !== undefined) {
+		const buffer = base64ToArrayBuffer(value.base64)
+		const Ctor = globalThis[value.__canvasTypedArray]
+		return typeof Ctor === 'function' ? new Ctor(buffer) : new Uint8Array(buffer)
+	}
 	if (value.__canvasTypedArray) {
 		if (value.__canvasTypedArray === 'DataView') {
 			return new DataView(new Uint8Array(value.data || []).buffer)
@@ -505,6 +514,10 @@ function isPlainObject(value) {
 function serializeTypedArray(value) {
 	if (typeof ArrayBuffer === 'undefined' || !ArrayBuffer.isView(value)) {
 		return null
+	}
+	if (globalThis.DiminaServiceBridge?.canvasSyncSupported === true && value.byteLength >= 1024) {
+		const bytes = new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
+		return { __canvasTypedArray: value.constructor.name, base64: arrayBufferToBase64(bytes.slice().buffer) }
 	}
 	if (value instanceof DataView) {
 		return {
@@ -1243,7 +1256,10 @@ class WebGLRenderingContextProxy {
 			method,
 			args: serializeCanvasArgs(args),
 			key,
+			binary: this.canvas.supportsSyncQueries,
 		})
+		if (this.canvas.supportsSyncQueries) this.canvas.flushOperationsSync()
+		if (this.canvas.supportsSyncQueries && !this.queryResults.has(key)) throw new Error(`WebGL query ${method} returned no result`)
 		return this.queryResults.has(key) ? this.queryResults.get(key) : fallback
 	}
 
@@ -1270,11 +1286,24 @@ class WebGLRenderingContextProxy {
 			method,
 			args: serializeCanvasArgs(args),
 			resultId,
+			feedback: this.canvas.supportsSyncQueries ? 'resource' : undefined,
 		})
+		if (this.canvas.supportsSyncQueries) {
+			this.canvas.flushOperationsSync()
+			if (!resource.metadata.created) {
+				this.resources.delete(resultId)
+				return null
+			}
+		}
 		return resource
 	}
 
 	call(method, args) {
+		if (this.canvas.supportsSyncQueries && (method.startsWith('get')
+			&& !['getExtension', 'getSupportedExtensions', 'getContextAttributes', 'getError', 'getUniformLocation', 'getBufferSubData'].includes(method)
+			|| method.startsWith('is') && method !== 'isContextLost')) {
+			return this.requestQuery(method, args)
+		}
 		switch (method) {
 			case 'getParameter':
 				return this.getParameter(args[0])
@@ -1291,6 +1320,10 @@ class WebGLRenderingContextProxy {
 			case 'getAttachedShaders':
 				return args[0]?.metadata?.attachedShaders?.slice() || []
 			case 'getError': {
+				if (this.canvas.supportsSyncQueries) {
+					this.canvas.enqueueOperation({ op: 'contextFeedback', contextId: this.contextId })
+					this.canvas.flushOperationsSync()
+				}
 				const error = this.errors.shift()
 				if (error) {
 					return error
@@ -1376,7 +1409,9 @@ class WebGLRenderingContextProxy {
 			operation.typedArrayUpdateId = this.canvas.registerTypedArrayUpdate(args[2])
 			operation.typedArrayArgIndex = 2
 		}
+		if (operation.typedArrayUpdateId) operation.binary = this.canvas.supportsSyncQueries
 		this.canvas.enqueueOperation(operation)
+		if (operation.typedArrayUpdateId && this.canvas.supportsSyncQueries) this.canvas.flushOperationsSync()
 	}
 
 	updateState(method, args) {
@@ -1487,6 +1522,7 @@ class WebGLRenderingContextProxy {
 	}
 
 	getShaderParameter(shader, pname) {
+		if (this.canvas.supportsSyncQueries) return this.requestQuery('getShaderParameter', [shader, pname])
 		if (!(shader instanceof CanvasResource) || shader.resourceType !== 'shader') {
 			return null
 		}
@@ -1503,6 +1539,7 @@ class WebGLRenderingContextProxy {
 	}
 
 	getProgramParameter(program, pname) {
+		if (this.canvas.supportsSyncQueries) return this.requestQuery('getProgramParameter', [program, pname])
 		if (!(program instanceof CanvasResource) || program.resourceType !== 'program') {
 			return null
 		}
@@ -1667,6 +1704,10 @@ export class CanvasNode {
 		this.activeContextType = contextType
 		this.contexts.set(contextType, context)
 		this.contextsById.set(contextId, context)
+		if (isWebGL && this.supportsSyncQueries) {
+			this.flushOperationsSync()
+			if (context.creationFailed) return null
+		}
 		return context
 	}
 
@@ -1950,6 +1991,29 @@ export class CanvasNode {
 		})
 	}
 
+	get supportsSyncQueries() {
+		return globalThis.DiminaServiceBridge?.canvasSyncSupported === true
+	}
+
+	flushOperationsSync() {
+		if (this.disposed) throw new Error('canvas node is disposed')
+		this.flushScheduled = false
+		const operations = this.compactStateFeedback(this.pendingOperations)
+		this.pendingOperations = []
+		const feedback = message.invoke({
+			type: 'canvasNodeSync',
+			target: 'container',
+			body: { bridgeId: this.bridgeId, params: { nodeId: this.nodeId, operations, feedback: true } },
+		})
+		if (!feedback || feedback.error) {
+			for (const operation of operations) {
+				if (operation.typedArrayUpdateId) this.pendingTypedArrayUpdates.delete(operation.typedArrayUpdateId)
+			}
+			throw new Error(feedback?.error || 'Synchronous canvas query failed')
+		}
+		this.applyFlushFeedback(feedback)
+	}
+
 	flushOperations() {
 		this.flushScheduled = false
 		if (this.pendingOperations.length === 0) {
@@ -2010,6 +2074,7 @@ export function hydrateCanvasNode(node, bridgeId = getCurrentBridgeId()) {
 	if (!node || node.__diminaNodeType !== CANVAS_NODE_TYPE) {
 		return node
 	}
+	if (node.webOffscreen) return getTransferredCanvas(node.nodeId, bridgeId)
 	setWebGLCapabilities(bridgeId, node.webglCapabilities)
 	return new CanvasNode({
 		nodeId: node.nodeId,
@@ -2047,6 +2112,9 @@ export function createOffscreenCanvas(options = {}) {
 	const type = options.type || '2d'
 	const nodeId = makeResourceId('offscreen_canvas')
 	const bridgeId = getCurrentBridgeId()
+	if (isWebWorker && typeof globalThis.OffscreenCanvas === 'function') {
+		return adoptWebCanvas(new globalThis.OffscreenCanvas(width, height), nodeId, bridgeId)
+	}
 	sendCanvasMessage(bridgeId, 'createOffscreenCanvas', {
 		nodeId,
 		width,

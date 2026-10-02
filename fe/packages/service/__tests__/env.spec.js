@@ -40,6 +40,23 @@ describe('env.js API namespace registration', () => {
 		vi.resetModules()
 	})
 
+	it('installs a user agent before mini-program libraries are evaluated', async () => {
+		vi.stubGlobal('navigator', undefined)
+		try {
+			await import('../src/core/env.js')
+			expect(globalThis.navigator.userAgent).toBe('Dimina')
+		} finally { vi.unstubAllGlobals() }
+	})
+
+	it('preserves the browser navigator', async () => {
+		const navigator = { userAgent: 'Existing browser' }
+		vi.stubGlobal('navigator', navigator)
+		try {
+			await import('../src/core/env.js')
+			expect(globalThis.navigator).toBe(navigator)
+		} finally { vi.unstubAllGlobals() }
+	})
+
 	it('should set dd and wx to globalApi', async () => {
 		await import('../src/core/env.js')
 

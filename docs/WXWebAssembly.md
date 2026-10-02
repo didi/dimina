@@ -22,7 +22,7 @@ const pagFile = await PAG.PAGFile.load(data)
 // 创建播放器时还需要可用的 WebGL Canvas；使用完后调用 pagFile.destroy()。
 ```
 
-把同一版本库中的 `libpag.wasm.br` 放在小程序包的 `utils/` 目录，编译器会保留 `.wasm`、`.wasm.br` 和 `.pag` 的相对路径与二进制内容，包含主包、分包和 `miniprogram_npm`；无需依赖静态字符串分析。`locateFile` 返回相对于小程序包的路径；支持前导 `/`，不要使用宿主文件系统的绝对路径。也支持未压缩的 `.wasm` 和当前小程序的 `difile://` 沙箱文件。`.br` 通过 `readCompressedFile({ compressionAlgorithm: 'br' })` 解压，其他文件通过无编码的 `readFile` 读取。HTTP(S) 地址不能直接传给 Wasm API，可先下载到沙箱再加载。
+把同一版本库中的 `libpag.wasm.br` 放在小程序包的 `utils/` 目录，编译器会保留 `.wasm`、`.wasm.br`、`.pag` 和 `.mp4` 的相对路径与二进制内容，包含主包、分包和 `miniprogram_npm`；无需依赖静态字符串分析。`locateFile` 返回相对于小程序包的路径；支持前导 `/`，不要使用宿主文件系统的绝对路径。也支持未压缩的 `.wasm` 和当前小程序的 `difile://` 沙箱文件。`.br` 通过 `readCompressedFile({ compressionAlgorithm: 'br' })` 解压，其他文件通过无编码的 `readFile` 读取。HTTP(S) 地址不能直接传给 Wasm API，可先下载到沙箱再加载。
 
 ## 已实现的执行契约
 
@@ -51,4 +51,16 @@ Wasm 内部的 `memory.grow` 同样会分离旧 buffer，包含增长后立即�
 
 原生回归使用真实 QuickJS、JavaScriptCore 和完整 libpag 4.5.85 包，验证 Service SDK 导入顺序、`PAGInit`、PAG 文件元数据解析、48 MiB 分配触发扩容、JS imports、Table 调用及两个并发逻辑环境的隔离。另有三端包内读取与 Brotli 加载检查。测试入口见 [原生 Wasm 测试说明](../native/wasm/README.md)。
 
-这些结果确认 Wasm 初始化和数据处理链路；完整动画仍依赖逻辑层可用的 WebGL Canvas，包含 BMP 视频序列时还依赖 `wx.createVideoDecoder`。三端实际设备上的 WebGL 绘制、视频纹理上传及播放效果仍需使用业务 PAG 文件验收。
+完整动画依赖逻辑层可用的 WebGL Canvas，含视频序列的 PAG 还依赖 `wx.createVideoDecoder`。Wasm 初始化成功或 `PAGView.flush()` 返回成功，不能单独证明实际绘制正确。当前验收范围如下：
+
+| 平台 | 已验证内容 | 尚未验证或未通过的内容 |
+| --- | --- | --- |
+| Android / iOS | 模拟器中的真实 libpag 4.5.85、红色 PAG 像素、视频 PAG 多时间点绘制及动画推进 | 真机性能、编码和系统版本兼容性 |
+| Harmony | Worker / Render 查询协议、包内读取和解码器控制的宿主回归；原生桥接语法检查 | 无模拟器，尚未验证 ArkWeb 绘制、系统解码和完整 API 20 SDK 构建 |
+| Web | 浏览器中的 `.wasm` / `.wasm.br`、JS imports、内存扩容；真实 libpag 4.5.85 的 PAGInit、48 MiB 分配、红色 PAG 像素、视频 PAG 多进度绘制、seek 与动画推进 | 其他浏览器、显卡和编码组合尚需验证；依赖 OffscreenCanvas / Worker WebGL，视频另需 WebCodecs |
+
+原生 Canvas 桥接同步返回 WebGL 查询、资源创建和像素读取结果，等待只发生在逻辑执行线程。Harmony 的 Worker 和 UI 线程通过异步回包保持可运行，并在超时或页面关闭时返回明确错误。接入时须同时更新原生 SDK、Service 和 Render 产物；上述宿主回归不能替代 Harmony 设备验收。
+
+Web 的 `<canvas type="webgl">` 节点通过 OffscreenCanvas 将绘制权交给逻辑 Worker，WebGL 查询、资源创建和像素读取由浏览器同步执行。通过 `createSelectorQuery().fields({ node: true })` 获取节点；传递在 selector 回调之前完成，同一节点重复查询返回同一对象。页面卸载释放 Worker 的 Canvas 和视频解码资源。`wx.createOffscreenCanvas` 在支持该能力的 Web Worker 中也使用浏览器画布。
+
+含视频的 PAG 使用 WebCodecs 解码 MP4；需要 HTTPS 或 localhost 安全上下文，以及浏览器支持对应编码。`wx.canIUse('createVideoDecoder')` 检查接口是否存在，具体视频的编码支持在 `start()` 时检查。libpag 同步写出的 MP4 保存在当前 Worker 的运行时文件空间，随后异步读取和解码；这些文件随小程序关闭消失，不会持久化到 OPFS。详见[文件系统的 Web 范围](./FileSystemManager.md#web-运行时文件)。

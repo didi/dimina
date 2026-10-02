@@ -53,6 +53,37 @@ public class DMPRender: DMPWebViewDelegate {
         webviewsMap[webViewId]?.executeJavaScript(script, completionHandler: completionHandler)
     }
 
+    // JavaScriptCore runs on the service thread. Keep the main run loop free to
+    // execute the queued drawing commands and return the actual WebGL result.
+    func canvasNodeSync(webViewId: Int, request: DMPMap) -> Any {
+        guard !Thread.isMainThread else { return ["error": "Canvas query requires the service thread"] }
+        let reply = CanvasSyncReply()
+        let semaphore = DispatchSemaphore(value: 0)
+        let json = request.toJsonString()
+        guard let quoted = try? JSONSerialization.data(withJSONObject: json, options: [.fragmentsAllowed]),
+              let argument = String(data: quoted, encoding: .utf8) else {
+            return ["error": "Invalid canvas request"]
+        }
+        DispatchQueue.main.async { [weak self] in
+            guard reply.isActive() else { return }
+            guard let webview = self?.webviewsMap[webViewId] else {
+                reply.set(["error": "Canvas page has been disposed"])
+                semaphore.signal()
+                return
+            }
+            let script = "(function(){try{return __diminaCanvasSync(JSON.parse(\(argument)))}catch(e){return {error:String(e)}}})()"
+            webview.executeJavaScript(script) { value, error in
+                reply.set(value ?? ["error": error?.localizedDescription ?? "Canvas renderer returned no result"])
+                semaphore.signal()
+            }
+        }
+        guard semaphore.wait(timeout: .now() + 5) == .success else {
+            reply.cancel()
+            return ["error": "Canvas query timed out"]
+        }
+        return reply.get()
+    }
+
     // Register JavaScript method to allow Native to listen to JavaScript calls
     public func registerJSHandler(webViewId: Int, handlerName: String, callback: @escaping (Any) -> Void) {
         webviewsMap[webViewId]?.registerJSHandler(handlerName: handlerName, callback: callback)
@@ -135,4 +166,14 @@ public class DMPRender: DMPWebViewDelegate {
             webview?.executeJavaScript("DiminaRenderBridge.onMessage(\(msg))", completionHandler: nil)
         }
     }
+}
+
+private final class CanvasSyncReply: @unchecked Sendable {
+    private let lock = NSLock()
+    private var active = true
+    private var value: Any = ["error": "Canvas renderer returned no result"]
+    func isActive() -> Bool { lock.lock(); defer { lock.unlock() }; return active }
+    func cancel() { lock.lock(); defer { lock.unlock() }; active = false }
+    func set(_ value: Any) { lock.lock(); defer { lock.unlock() }; if active { self.value = value } }
+    func get() -> Any { lock.lock(); defer { lock.unlock() }; return value }
 }

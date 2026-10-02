@@ -1,5 +1,12 @@
 package com.didi.dimina.core
 
+import android.os.Handler
+import android.os.Looper
+import com.didi.dimina.common.JavaScriptUtils
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.atomic.AtomicBoolean
 import com.didi.dimina.Dimina
 import com.didi.dimina.bean.BridgeOptions
 import com.didi.dimina.bean.MergedPageConfig
@@ -155,6 +162,39 @@ class Bridge(
     /**
      * 消息处理
      */
+    // Only the service thread waits; WebView work and its callback run on the UI thread.
+    private fun canvasNodeSync(body: JSONObject): JSValue {
+        fun failure(reason: String) = JSValue.createObject(JSONObject().put("error", reason).toString())
+        if (Looper.myLooper() == Looper.getMainLooper()) return failure("Canvas query requires the service thread")
+        val latch = CountDownLatch(1)
+        val result = AtomicReference<JSONObject>()
+        val active = AtomicBoolean(true)
+        val request = body
+        val call = JavaScriptUtils.invokeWithJson("__diminaCanvasSync", request.toString())
+        Handler(Looper.getMainLooper()).post {
+            if (!active.get()) return@post
+            if (destroyed) {
+                result.set(JSONObject().put("error", "Canvas page has been disposed"))
+                latch.countDown()
+            } else {
+                options.webview.evaluateJavascript("(function(){try{return $call}catch(e){return {error:String(e)}}})()") { value ->
+                    result.set(runCatching { JSONObject(value) }.getOrElse {
+                        JSONObject().put("error", "Canvas renderer returned no result")
+                    })
+                    latch.countDown()
+                }
+            }
+        }
+        val completed = try { latch.await(5, TimeUnit.SECONDS) } catch (_: InterruptedException) {
+            active.set(false)
+            Thread.currentThread().interrupt()
+            return failure("Canvas query interrupted")
+        }
+        active.set(false)
+        if (!completed) return failure("Canvas query timed out")
+        return JSValue.createObject(result.get().toString())
+    }
+
     private fun messageInvoke(source: String, msg: JSONObject): JSValue? {
         if (destroyed) {
             return null
@@ -173,6 +213,11 @@ class Bridge(
 
         val type = msg.getString("type")
         val target = msg.getString("target")
+
+        if (source == "service" && target == "container" && type == "canvasNodeSync") {
+            return canvasNodeSync(body)
+        }
+
         LogUtils.d(tag, "[Container] receive msg from $source: $msg")
 
         // Create transMsg object

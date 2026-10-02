@@ -1,6 +1,7 @@
 package com.didi.dimina.core
 
 import android.os.Handler
+import android.os.HandlerThread
 import android.os.Looper
 import com.didi.dimina.Dimina
 import com.didi.dimina.common.JavaScriptUtils
@@ -19,9 +20,13 @@ import org.json.JSONObject
 class JsCore {
     private val tag = "JsCore"
     private lateinit var jsEngine: QuickJSEngine
+    // Deliver service messages off the UI thread: synchronous WebGL queries need
+    // that thread to remain available while QuickJS evaluates a message.
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val messageThread = HandlerThread("DiminaServiceMessages").apply { start() }
+    private val messageHandler = Handler(messageThread.looper)
     private val runtimeMessageQueue = RuntimeMessageQueue { action ->
-        mainHandler.post(action)
+        messageHandler.post(action)
     }
     private val appVisibilityLedger = AppVisibilityLedger()
     // 记录所有已加载的 JS 文件路径
@@ -241,9 +246,8 @@ class JsCore {
      * Destructive API actions use this instead of a delay so callback ordering is deterministic.
      */
     fun postAfterMessages(action: () -> Unit) {
-        if (!runtimeMessageQueue.post(action)) {
-            action()
-        }
+        val dispatch = { mainHandler.post(action); Unit }
+        if (!runtimeMessageQueue.post(dispatch)) dispatch()
     }
 
     /**
@@ -276,6 +280,7 @@ class JsCore {
     }
 
     private fun destroyEngine() {
+        messageThread.quitSafely()
         appVisibilityLedger.reset()
         if (!::jsEngine.isInitialized) return
         loadedJsPaths.clear()

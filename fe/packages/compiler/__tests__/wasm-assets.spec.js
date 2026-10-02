@@ -40,6 +40,7 @@ describe('Wasm and PAG package resources', () => {
 		write('utils/libpag.wasm', wasm)
 		write('utils/libpag.wasm.br', compressed)
 		write('assets/animation.pag', 'PAG fixture')
+		write('assets/video.mp4', Buffer.from([0, 0, 0, 8, 102, 116, 121, 112]))
 		write('feature/utils/module.wasm.br', compressed)
 		write('node_modules/unused/ignored.wasm', wasm)
 		write('dist/stale.wasm', wasm)
@@ -47,7 +48,7 @@ describe('Wasm and PAG package resources', () => {
 		storeInfo(temporary)
 		const graph = new DependencyGraph()
 		compileConfig(graph)
-		for (const [name, bytes] of [['main/utils/libpag.wasm', wasm], ['main/utils/libpag.wasm.br', compressed], ['main/assets/animation.pag', Buffer.from('PAG fixture')], ['feature/utils/module.wasm.br', compressed]]) {
+		for (const [name, bytes] of [['main/utils/libpag.wasm', wasm], ['main/utils/libpag.wasm.br', compressed], ['main/assets/animation.pag', Buffer.from('PAG fixture')], ['main/assets/video.mp4', Buffer.from([0, 0, 0, 8, 102, 116, 121, 112])], ['feature/utils/module.wasm.br', compressed]]) {
 			expect(fs.readFileSync(path.join(output, name))).toEqual(bytes)
 		}
 		expect(graph.getFileKinds(path.join(temporary, 'utils/libpag.wasm.br'))).toContain('config')

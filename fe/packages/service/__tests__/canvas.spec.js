@@ -62,6 +62,52 @@ describe('canvas api', () => {
 		hostEnv.reset()
 	})
 
+	it('returns real WebGL query results and pixel bytes before returning to Wasm', async () => {
+		globalThis.DiminaServiceBridge.canvasSyncSupported = true
+		const batches = []
+		const previousInvoke = globalThis.DiminaServiceBridge.invoke
+		globalThis.DiminaServiceBridge.invoke = vi.fn(({ body }) => {
+			const feedback = { contexts: {}, typedArrays: [] }
+			batches.push(body.params.operations)
+			for (const op of body.params.operations) {
+				const context = feedback.contexts[op.contextId] ||= {}
+				if (op.feedback === 'resource') context.resources = [{ resourceId: op.resultId, metadata: { created: op.method !== 'getUniformLocation' } }]
+				if (op.op === 'contextQuery') {
+					const value = { getAttribLocation: 7, getProgramParameter: 2, getShaderParameter: false,
+						getActiveUniform: { name: 'color', size: 1, type: 0x8B52 } }[op.method]
+					context.queries = [{ key: op.key, value }]
+				}
+				if (op.typedArrayUpdateId) feedback.typedArrays.push({ id: op.typedArrayUpdateId, value: { __canvasTypedArray: 'Uint8Array', data: [255, 0, 0, 255] } })
+			}
+			return feedback
+		})
+		try {
+			const canvas = createOffscreenCanvas({ type: 'webgl', width: 1, height: 1 })
+			const gl = canvas.getContext('webgl')
+			const program = gl.createProgram()
+			gl.linkProgram(program)
+			expect(gl.getProgramParameter(program, gl.ACTIVE_UNIFORMS)).toBe(2)
+			expect(batches.at(-1).map(op => op.method)).toEqual(['linkProgram', 'getProgramParameter'])
+			expect(gl.getActiveUniform(program, 0)).toEqual({ name: 'color', size: 1, type: gl.FLOAT_VEC4 })
+			expect(gl.getAttribLocation(program, 'position')).toBe(7)
+			expect(gl.getUniformLocation(program, 'missing')).toBeNull()
+			const shader = gl.createShader(gl.VERTEX_SHADER)
+			gl.compileShader(shader)
+			expect(gl.getShaderParameter(shader, gl.COMPILE_STATUS)).toBe(false)
+			const pixels = new Uint8Array(4)
+			gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels)
+			expect([...pixels]).toEqual([255, 0, 0, 255])
+			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 16, 16, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(1024).fill(255))
+			gl.getAttribLocation(program, 'position')
+			expect(batches.at(-1)[0].args.at(-1)).toMatchObject({ __canvasTypedArray: 'Uint8Array', base64: expect.any(String) })
+			canvas.dispose()
+			await Promise.resolve()
+		} finally {
+			delete globalThis.DiminaServiceBridge.canvasSyncSupported
+			globalThis.DiminaServiceBridge.invoke = previousInvoke
+		}
+	})
+
 	it('uses the first createCanvas call as the screen canvas and later calls as offscreen canvases', () => {
 		hostEnv.init({ systemInfo: { windowWidth: 390, windowHeight: 844 } })
 		const screen = createCanvas()

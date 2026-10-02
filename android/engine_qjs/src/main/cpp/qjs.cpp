@@ -1,6 +1,7 @@
 #include "dimina_wasm.h"
 #include <jni.h>
 #include <string>
+#include <vector>
 #include <cstring>
 #include <android/log.h>
 #include <atomic>
@@ -1122,12 +1123,62 @@ static void register_timer_functions(JSContext *ctx) {
 
 
     // Register DiminaServiceBridge global object and methods
+// Binary canvas/video payloads avoid millions of boxed JSON numbers.
+static JSValue js_encode_array_buffer(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
+    if (argc < 1) return JS_ThrowTypeError(ctx, "Expected ArrayBuffer");
+    size_t size = 0;
+    const uint8_t *bytes = JS_GetArrayBuffer(ctx, &size, argv[0]);
+    if (!bytes) return JS_EXCEPTION;
+    static const char alphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string encoded((size + 2) / 3 * 4, '=');
+    for (size_t i = 0, j = 0; i < size; i += 3, j += 4) {
+        uint32_t value = uint32_t(bytes[i]) << 16;
+        if (i + 1 < size) value |= uint32_t(bytes[i + 1]) << 8;
+        if (i + 2 < size) value |= bytes[i + 2];
+        encoded[j] = alphabet[(value >> 18) & 63];
+        encoded[j + 1] = alphabet[(value >> 12) & 63];
+        if (i + 1 < size) encoded[j + 2] = alphabet[(value >> 6) & 63];
+        if (i + 2 < size) encoded[j + 3] = alphabet[value & 63];
+    }
+    return JS_NewStringLen(ctx, encoded.data(), encoded.size());
+}
+
+static JSValue js_decode_array_buffer(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
+    if (argc < 1) return JS_ThrowTypeError(ctx, "Expected base64 string");
+    size_t length = 0;
+    const char *text = JS_ToCStringLen(ctx, &length, argv[0]);
+    if (!text) return JS_EXCEPTION;
+    std::vector<uint8_t> bytes;
+    bytes.reserve(length / 4 * 3);
+    uint32_t value = 0;
+    int bits = 0;
+    for (size_t i = 0; i < length; ++i) {
+        const unsigned char ch = text[i];
+        if (ch == '=' || ch == ' ' || ch == '\r' || ch == '\n' || ch == '\t') continue;
+        const int digit = ch >= 'A' && ch <= 'Z' ? ch - 'A'
+            : ch >= 'a' && ch <= 'z' ? ch - 'a' + 26
+            : ch >= '0' && ch <= '9' ? ch - '0' + 52 : ch == '+' ? 62 : ch == '/' ? 63 : -1;
+        if (digit < 0) {
+            JS_FreeCString(ctx, text);
+            return JS_ThrowTypeError(ctx, "Invalid base64 string");
+        }
+        value = (value << 6) | digit;
+        bits += 6;
+        if (bits >= 8) { bits -= 8; bytes.push_back(uint8_t(value >> bits)); }
+    }
+    JS_FreeCString(ctx, text);
+    return JS_NewArrayBufferCopy(ctx, bytes.data(), bytes.size());
+}
+
 static void register_dimina_service_bridge(JSContext *ctx, const char* virtualFilePrefix) {
     // Create the DiminaServiceBridge object
     JSValue global = JS_GetGlobalObject(ctx);
     JSValue diminaObj = JS_NewObject(ctx);
     
     // Register methods
+    JS_SetPropertyStr(ctx, diminaObj, "canvasSyncSupported", JS_TRUE);
+    JS_SetPropertyStr(ctx, diminaObj, "encodeArrayBuffer", JS_NewCFunction(ctx, js_encode_array_buffer, "encodeArrayBuffer", 1));
+    JS_SetPropertyStr(ctx, diminaObj, "decodeArrayBuffer", JS_NewCFunction(ctx, js_decode_array_buffer, "decodeArrayBuffer", 1));
     JS_SetPropertyStr(ctx, diminaObj, "invoke", 
                       JS_NewCFunction(ctx, js_dimina_invoke, "invoke", 1));
     JS_SetPropertyStr(ctx, diminaObj, "publish", 

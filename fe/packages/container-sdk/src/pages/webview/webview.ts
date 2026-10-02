@@ -71,6 +71,10 @@ export class WebView {
 			this.event.emit('publish', msg)
 		}
 
+		iframeWindow.DiminaRenderBridge.publishTransfer = (msg, transferables) => {
+			this.event.emit('publish', { ...msg, transferables })
+		}
+
 		callback?.()
 	}
 

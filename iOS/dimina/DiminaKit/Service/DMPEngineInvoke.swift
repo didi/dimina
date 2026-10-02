@@ -23,6 +23,12 @@ public class DMPEngineInvoke {
             guard let app = appResolver() else {
                 return JSValue(nullIn: context)
             }
+            if type == "canvasNodeSync", target == "container" {
+                let webViewId = body.get("bridgeId") as? Int ?? 0
+                let value = app.render?.canvasNodeSync(webViewId: webViewId, request: body)
+                    ?? ["error": "Canvas runtime is unavailable"]
+                return DMPBridgeParam.from(rawValue: value).getJSValue(context: context)
+            }
             let result = DMPChannelProxy.messageHandler(
                 type: type,
                 body: body,
@@ -43,6 +49,7 @@ public class DMPEngineInvoke {
         let global = context.globalObject
         let bridge = global?.objectForKeyedSubscript("DiminaServiceBridge")
         
+        bridge?.setObject(true, forKeyedSubscript: "canvasSyncSupported" as NSString)
         bridge?.setObject(invoke, forKeyedSubscript: "invoke" as NSString)
         
         DMPLogger.debug("registerInvoke 完成")

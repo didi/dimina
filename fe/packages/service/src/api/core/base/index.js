@@ -1,3 +1,5 @@
+import { isWebWorker } from '@dimina/common'
+import { supportsWebVideoDecoder } from '@/api/core/media/video/web-video-decoder'
 import { invokeAPI } from '@/api/common'
 import { fileSystemManagerAPINames, VIRTUAL_FILE_PREFIX } from '@/api/core/file'
 import { updateManagerAPINames } from '@/api/core/base/update/api-names'
@@ -44,7 +46,7 @@ const builtInAPIs = new Set([
 
 // Native object factories live in the service layer, while their capability is
 // provided by the native object methods. Probe a representative native method
-// so canIUse stays platform-aware (notably, it remains false on Web).
+// so canIUse stays platform-aware.
 const nativeBackedFactorySchemas = {
 	createVideoDecoder: 'VideoDecoder.start',
 	VideoDecoder: 'VideoDecoder.start',
@@ -63,6 +65,7 @@ const nativeBackedFactorySchemas = {
 export function canIUse(schema) {
 	if (schema === 'WXWebAssembly') return typeof globalThis.WXWebAssembly?.instantiate === 'function'
 	if (typeof schema === 'string' && schema.startsWith('WXWebAssembly.')) return typeof globalThis.WXWebAssembly?.[schema.slice(14)] === 'function'
+	if (isWebWorker && (schema === 'createVideoDecoder' || schema === 'VideoDecoder' || /^VideoDecoder\.(start|seek|stop|remove|getFrameData|on|off)$/.test(schema))) return supportsWebVideoDecoder()
 	if (builtInAPIs.has(schema)) {
 		return true
 	}

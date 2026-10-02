@@ -1,10 +1,9 @@
-import { callback } from '@dimina/common'
+import { arrayBufferToBase64, base64ToArrayBuffer, callback } from '@dimina/common'
 import { invokeAPI } from '@/api/common'
 
-export const ARRAY_BUFFER_BASE64_KEY = '__diminaArrayBufferBase64'
+export { arrayBufferToBase64, base64ToArrayBuffer } from '@dimina/common'
 
-const BASE64_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
-const BASE64_LOOKUP = Object.fromEntries([...BASE64_CHARS].map((char, index) => [char, index]))
+export const ARRAY_BUFFER_BASE64_KEY = '__diminaArrayBufferBase64'
 
 function isArrayBuffer(value) {
 	return Object.prototype.toString.call(value) === '[object ArrayBuffer]'
@@ -23,49 +22,6 @@ export function toArrayBuffer(value) {
 		return copy.buffer
 	}
 	return null
-}
-
-export function arrayBufferToBase64(buffer) {
-	const bytes = new Uint8Array(buffer)
-	let result = ''
-	let index = 0
-	for (; index + 2 < bytes.length; index += 3) {
-		result += BASE64_CHARS[bytes[index] >> 2]
-		result += BASE64_CHARS[((bytes[index] & 3) << 4) | (bytes[index + 1] >> 4)]
-		result += BASE64_CHARS[((bytes[index + 1] & 15) << 2) | (bytes[index + 2] >> 6)]
-		result += BASE64_CHARS[bytes[index + 2] & 63]
-	}
-	if (index < bytes.length) {
-		result += BASE64_CHARS[bytes[index] >> 2]
-		if (index + 1 < bytes.length) {
-			result += BASE64_CHARS[((bytes[index] & 3) << 4) | (bytes[index + 1] >> 4)]
-			result += `${BASE64_CHARS[(bytes[index + 1] & 15) << 2]}=`
-		}
-		else {
-			result += `${BASE64_CHARS[(bytes[index] & 3) << 4]}==`
-		}
-	}
-	return result
-}
-
-export function base64ToArrayBuffer(base64) {
-	const clean = String(base64 || '').replace(/[\r\n\s]/g, '')
-	if (!clean) return new ArrayBuffer(0)
-
-	const padding = clean.endsWith('==') ? 2 : clean.endsWith('=') ? 1 : 0
-	const length = (clean.length * 3 / 4) - padding
-	const bytes = new Uint8Array(length)
-	let byteIndex = 0
-	for (let index = 0; index < clean.length; index += 4) {
-		const first = BASE64_LOOKUP[clean[index]]
-		const second = BASE64_LOOKUP[clean[index + 1]]
-		const third = clean[index + 2] === '=' ? 0 : BASE64_LOOKUP[clean[index + 2]]
-		const fourth = clean[index + 3] === '=' ? 0 : BASE64_LOOKUP[clean[index + 3]]
-		if (byteIndex < length) bytes[byteIndex++] = (first << 2) | (second >> 4)
-		if (byteIndex < length) bytes[byteIndex++] = ((second & 15) << 4) | (third >> 2)
-		if (byteIndex < length) bytes[byteIndex++] = ((third & 3) << 6) | fourth
-	}
-	return bytes.buffer
 }
 
 export function encodeSocketMessage(value) {

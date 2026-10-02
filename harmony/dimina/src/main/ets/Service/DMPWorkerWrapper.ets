@@ -1,16 +1,21 @@
 import { ErrorEvent, MessageEvents, util, worker } from '@kit.ArkTS';
+import { DMPAppManager } from '../DApp/DMPAppManager';
+import { DMPMap } from '../Utils/DMPMap';
 import { DMPApp } from '../DApp/DMPApp';
 import { DMPLogger } from '../EventTrack/DMPLogger';
 import { Tags } from '../EventTrack/Tags';
 import { DMPChannelProxyNext } from './DMPChannelProxyNext';
 import {
   AbPayload,
+  canvasError,
   CallerReturnType,
   EvalPayload,
   initPayload,
   Payload,
   PendingRequest,
   WorkerAppData,
+  WorkerCanvasRequest,
+  WorkerCanvasResult,
   WorkerFlushRequest,
   WorkerFlushResponse,
   WorkerRequest,
@@ -30,6 +35,8 @@ export class DMPWorkerWrapper {
   runtimeSourceURL: string;
   pendingRequests = new Map<string, PendingRequest>();
   private nextFlushRequestId = 0;
+  private destroyed = false;
+  private terminationTimer: number | undefined;
   private flushBarrier = new DMPWorkerFlushBarrier();
 
   constructor(appIndex: number, debuggerAddress: string = '',
@@ -47,6 +54,27 @@ export class DMPWorkerWrapper {
     // 统一的消息监听器
     this.w.onmessage = (e: MessageEvents): void => {
       // DMPLogger.e(Tags.JS_ENGINE, `DMPWorkerWrapper onmessage`);
+
+      const responseType: string | undefined = (e.data as WorkerResponse).type;
+      if (responseType === 'destroyed') {
+        this.terminateWorker();
+        return;
+      }
+      if (this.destroyed) return;
+      const canvasRequest = e.data as WorkerCanvasRequest;
+      if (canvasRequest.type === 'canvasSync') {
+        if (Date.now() >= canvasRequest.deadline) {
+          this.w.postMessage(new WorkerCanvasResult(canvasRequest.requestId, canvasError('canvas query timed out')));
+          return;
+        }
+        const app = DMPAppManager.sharedInstance().getApp(this.appIndex);
+        const reply = app ? app.render.canvasNodeSync(DMPMap.createFromObject(JSON.parse(canvasRequest.body))) :
+          Promise.resolve(canvasError('app destroyed'));
+        reply.then((result: string) => {
+          if (!this.destroyed) this.w.postMessage(new WorkerCanvasResult(canvasRequest.requestId, result));
+        });
+        return;
+      }
 
       const flushResponse = e.data as WorkerFlushResponse;
       if (flushResponse.type === 'flush') {
@@ -129,19 +157,30 @@ export class DMPWorkerWrapper {
     this.w.postMessage(payload);
   }
 
+  private terminateWorker() {
+    if (this.terminationTimer !== undefined) {
+      clearTimeout(this.terminationTimer);
+      this.terminationTimer = undefined;
+    }
+    this.w.terminate();
+  }
+
   async destroy() {
+    if (this.destroyed) return;
+    this.destroyed = true;
     // Once teardown starts, no Worker ACK can be required to make forward progress.
     this.flushBarrier.markUnavailable();
+    this.terminationTimer = setTimeout(() => this.terminateWorker(), 5000);
     let payload = new Payload();
     let message: WorkerRequest = new WorkerRequest('destroy', payload);
     try {
       this.w.postMessageWithSharedSendable(message);
     } catch (error) {
       DMPLogger.e(Tags.JS_ENGINE, `worker destroy post failed ${(error as Error).message}`);
+      this.terminateWorker();
     }
 
     DMPLogger.e(Tags.JS_ENGINE, `worker ${this.appIndex} destroy/terminate`);
-    this.w.terminate();
   }
 
   async updateWorkerAppData(appData: WorkerAppData) {

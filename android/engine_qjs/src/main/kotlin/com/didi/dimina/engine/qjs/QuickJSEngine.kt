@@ -372,7 +372,7 @@ class QuickJSEngine {
 
     @Suppress("unused")
     fun invokeFromJS(msg: JSONObject) : JSValue? {
-        Log.d(tag, "Received invoke from JavaScript: $msg")
+        if (msg.optString("type") != "canvasNodeSync") Log.d(tag, "Received invoke from JavaScript: $msg")
         val body = msg.getJSONObject("body")
         val id = body.optString("bridgeId")
         return invokeCallbacks[id]?.invoke(msg)

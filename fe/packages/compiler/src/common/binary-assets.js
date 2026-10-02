@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 export function isBinaryRuntimeAsset(filename) {
-	return /\.(?:wasm(?:\.br)?|pag)$/i.test(filename)
+	return /\.(?:wasm(?:\.br)?|pag|mp4)$/i.test(filename)
 }
 
 // Runtime loaders can construct paths dynamically, so preserve package-relative names.

@@ -7,10 +7,14 @@ import { DMPJSEngine } from './DMPJSEngine';
 import { DMPMap } from '../Utils/DMPMap';
 import {
   AbPayload,
+  canvasError,
   CallerReturnType,
   EvalPayload,
   initPayload,
   WorkerAppData,
+  WorkerDestroyedResponse,
+  WorkerCanvasRequest,
+  WorkerCanvasResult,
   WorkerFlushRequest,
   WorkerFlushResponse,
   WorkerRequest,
@@ -28,6 +32,8 @@ let appIndex = -1;
 let runtimeSourceURL = '/__dimina__/unknown/runtime/eval.js';
 let jsEngine: DMPJSEngine = new DMPJSEngine()
 let workerModuleManager: DMPWorkerModuleManager;
+let canvasRequestId = 0;
+const canvasReplies = new Map<number, (value: string) => void>();
 
 // t: type invoke / publish
 // wid: webviewId
@@ -41,15 +47,33 @@ const serviceToContainer = (t: number, wid: number, msg: string, ab: ArrayBuffer
     const target: string = data['target'];
     const body: object = data['body'];
 
+    if (target === 'container' && type === 'canvasNodeSync') {
+      // QuickJS waits on its native thread. Return a Promise so the ArkTS Worker
+      // remains able to process the render reply and ordinary API callbacks.
+      const requestId = ++canvasRequestId;
+      return new Promise<string>((resolve) => {
+        const timer = setTimeout(() => {
+          canvasReplies.delete(requestId);
+          resolve(canvasError('canvas query timed out'));
+        }, 5000);
+        canvasReplies.set(requestId, (value: string) => { clearTimeout(timer); resolve(value); });
+        try { workerPort.postMessage(new WorkerCanvasRequest(requestId, JSON.stringify(body))); }
+        catch (error) {
+          canvasReplies.get(requestId)?.(canvasError((error as Error).message));
+          canvasReplies.delete(requestId);
+        }
+      });
+    }
+
     if (target === 'container' && type === 'invokeAPI') {
       const methodName: string = body['name'];
       const moduleName = 'DMPContainerBridgesModule';
       // Worker-owned APIs must participate in capability checks as well as dispatch.
       if (methodName === 'canIUse' && typeof body['params'] === 'string' &&
-        workerModuleManager.getModuleObjectByMethodNameAndModuleName(body['params'], moduleName)) {
+        workerModuleManager?.getModuleObjectByMethodNameAndModuleName(body['params'], moduleName)) {
         return true;
       }
-      let obj = workerModuleManager.getModuleObjectByMethodNameAndModuleName(methodName, moduleName)
+      let obj = workerModuleManager?.getModuleObjectByMethodNameAndModuleName(methodName, moduleName)
       // DMPLogger.d(Tags.JS_ENGINE, `worker methodName: ${methodName}`)
 
       if (obj) {
@@ -128,6 +152,12 @@ workerPort.onmessage = async (e: MessageEvents) => {
   // DMPLogger.e(Tags.JS_ENGINE, `worker onmessage ${request.command}`);
   try {
     switch (request.command) {
+      case 'canvasSyncResult': {
+        const reply = e.data as WorkerCanvasResult;
+        canvasReplies.get(reply.requestId)?.(reply.result);
+        canvasReplies.delete(reply.requestId);
+        break;
+      }
       case 'init': {
         DMPLogger.d(Tags.LAUNCH, `Worker线程启动 appIndex 初始值: ${appIndex}`);
         // 记录当前是哪个 app 下
@@ -177,8 +207,11 @@ workerPort.onmessage = async (e: MessageEvents) => {
       }
         break;
       case 'destroy': {
+        canvasReplies.forEach((resolve: (value: string) => void) => resolve(canvasError('service destroyed')));
+        canvasReplies.clear();
         workerModuleManager?.dispose();
         jsEngine.destroy();
+        workerPort.postMessage(new WorkerDestroyedResponse());
       }
         break;
       case 'updateWorkerAppData': {

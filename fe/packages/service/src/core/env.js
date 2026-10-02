@@ -46,6 +46,9 @@ class Env {
 		globalThis.global = {}
 		// Some mini-program libraries assign to window inside strict CommonJS modules.
 		if (typeof globalThis.window === 'undefined') globalThis.window = globalThis
+		if (typeof globalThis.navigator === 'undefined') {
+			globalThis.navigator = { userAgent: 'Dimina' }
+		}
 
 		/**
 		 * https://developers.weixin.qq.com/miniprogram/dev/framework/app-service/app.html

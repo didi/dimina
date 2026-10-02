@@ -10,6 +10,7 @@
 #include <unistd.h>   // 包含 close 函数
 #include <map>
 #include <memory>
+#include <vector>
 
 // 使用 map 存储多个 JSEngine 实例
 std::map<int, JSEngine *> engineMap;
@@ -72,120 +73,127 @@ void initBridges(JSContext *ctx, const char* virtualFilePrefix);
 void registerInvoke(JSContext *ctx);
 void registerPublish(JSContext *ctx);
 
+// Cross-thread replies contain only bytes. QuickJS values must be created on
+// the owning JS thread, never on the ArkTS Worker handling a TSFN callback.
+struct BridgeReply { std::string json; std::string error; };
+using BridgePromise = std::shared_ptr<std::promise<BridgeReply>>;
 struct OnMessageData {
-    napi_async_work asyncWork = nullptr;
-    napi_ref callbackRef = nullptr;
-    int type = 1; // 1 = invoke, 2 = publish , 3 = 日志打印
+    int type = 1;
     int webViewId = 0;
-    int appIndex = 0; // 添加 appIndex 字段
-    std::promise<JSValue> promise;
+    int appIndex = 0;
+    BridgePromise promise = std::make_shared<std::promise<BridgeReply>>();
     std::string str;
 };
 
-// 定义一个回调函数 onMessageCb，参数包括环境env，回调函数js_cb，上下文context，数据data
-static void onMessageCb(napi_env env, napi_value js_cb, void *context, void *data) {
-    //    OHLog("onMessageCb begin isMainThread: %{public}d", isMainThread());
-
-    napi_handle_scope scope;
-    napi_open_handle_scope(env, &scope);
-
-    auto *asyncContext = static_cast<OnMessageData *>(data);
-    const char *str = asyncContext->str.c_str();
-    int appIndex = asyncContext->appIndex; // 添加 appIndex 到 OnMessageData 结构
-
-    napi_status status;
-    napi_value s;
-    napi_value arrayBuffer;
-
-    if (asyncContext->type == 1) {
-        status = napi_create_string_utf8(env, str, NAPI_AUTO_LENGTH, &s);
-        status = napi_get_undefined(env, &arrayBuffer);
-    } else {
-        status = napi_get_undefined(env, &s);
-        void *dataPtr;
-        status = napi_create_arraybuffer(env, strlen(str), &dataPtr, &arrayBuffer);
-        memcpy(dataPtr, str, strlen(str));
-    }
-
-    napi_value type, webViewId;
-    napi_create_int32(env, asyncContext->type, &type);
-    napi_create_int32(env, asyncContext->webViewId, &webViewId);
-
-    napi_value args[4] = {type, webViewId, s, arrayBuffer};
-
-    napi_value undefined;
-    napi_value result;
-    status = napi_get_undefined(env, &undefined);
-
-    //    OHLog("napi_call_function before type: %{public}d webViewId: %{public}d", asyncContext->type,
-    //    asyncContext->webViewId); OHLog("napi_call_function before len: %{public}zu", strlen(str));
-    OHLog("napi_call_function before str: %{public}s", str);
-
-    status = napi_call_function(env, undefined, js_cb, 4, args, &result);
-
-    //     OHLog("napi_call_function after");
-
-    if (status == napi_pending_exception) {
-        // 异常发生，获取并清除异常
+static BridgeReply serializeReply(napi_env env, napi_value value) {
+    BridgeReply reply;
+    napi_valuetype type;
+    if (napi_typeof(env, value, &type) != napi_ok) return {"", "invalid bridge result"};
+    if (type == napi_undefined) return reply;
+    napi_value global, json, stringify, encoded;
+    if (napi_get_global(env, &global) != napi_ok ||
+        napi_get_named_property(env, global, "JSON", &json) != napi_ok ||
+        napi_get_named_property(env, json, "stringify", &stringify) != napi_ok ||
+        napi_call_function(env, json, stringify, 1, &value, &encoded) != napi_ok ||
+        !getStringArgument(env, encoded, reply.json)) {
         napi_value exception;
         napi_get_and_clear_last_exception(env, &exception);
-
-        // 创建一个 napi_value 用于属性名 "message"
-        napi_value message_key;
-        napi_create_string_utf8(env, "message", NAPI_AUTO_LENGTH, &message_key);
-
-        // 获取异常对象的 message 属性
-        napi_value message;
-        napi_get_property(env, exception, message_key, &message);
-
-        // 获取 message 属性的字符串表示并记录
-        char buffer[512];
-        size_t buffer_size;
-        napi_get_value_string_utf8(env, message, buffer, sizeof(buffer), &buffer_size);
-        OHError("JavaScript Exception: %{public}s", buffer);
-
-        // 创建一个 napi_value 用于属性名 "stack"
-        napi_value stack_key;
-        napi_create_string_utf8(env, "stack", NAPI_AUTO_LENGTH, &stack_key);
-
-        // 获取异常对象的 stack 属性
-        napi_value stack;
-        napi_get_property(env, exception, stack_key, &stack);
-
-        // 获取 stack 属性的字符串表示并记录
-        char stack_buffer[2048]; // 可能需要更大的缓冲区取决于堆栈的大小
-        size_t stack_buffer_size;
-        napi_get_value_string_utf8(env, stack, stack_buffer, sizeof(stack_buffer), &stack_buffer_size);
-        OHError("JavaScript Exception Stack Trace: %{public}s", stack_buffer);
+        reply.error = "cannot serialize bridge result";
     }
+    return reply;
+}
 
-    JSValue jsValueResult = JS_EXCEPTION;
-    if (status != napi_ok) {
-        OHError("onMessage napi_call_function error: print value:");
-        //         printJsValue(gCtx, v, 0);
+// Promise continuations own a shared reply without retaining a JSContext or
+// engine. A late completion after shutdown/timeout cannot touch freed QuickJS.
+static napi_value resolveBridgePromise(napi_env env, napi_callback_info info) {
+    size_t argc = 1; napi_value args[1]; void *data = nullptr;
+    napi_get_cb_info(env, info, &argc, args, nullptr, &data);
+    auto promise = static_cast<BridgePromise *>(data);
+    BridgeReply reply;
+    if (argc != 1 || !getStringArgument(env, args[0], reply.json))
+        reply.error = "invalid asynchronous canvas reply";
+    (*promise)->set_value(std::move(reply));
+    napi_value result; napi_get_undefined(env, &result); return result;
+}
+static napi_value rejectBridgePromise(napi_env env, napi_callback_info info) {
+    size_t argc = 0; void *data = nullptr;
+    napi_get_cb_info(env, info, &argc, nullptr, nullptr, &data);
+    (*static_cast<BridgePromise *>(data))->set_value({"", "canvas bridge rejected"});
+    napi_value result; napi_get_undefined(env, &result); return result;
+}
+static void finalizeBridgePromise(napi_env, void *data, void *) {
+    delete static_cast<BridgePromise *>(data);
+}
+static bool attachBridgePromise(napi_env env, napi_value result, BridgePromise promise) {
+    napi_value then, callbacks[2], ignored;
+    napi_callback functions[2] = {resolveBridgePromise, rejectBridgePromise};
+    if (napi_get_named_property(env, result, "then", &then) != napi_ok) return false;
+    for (int i = 0; i < 2; ++i) {
+        auto holder = std::make_unique<BridgePromise>(promise);
+        if (napi_create_function(env, "canvasReply", NAPI_AUTO_LENGTH, functions[i], holder.get(), &callbacks[i]) != napi_ok)
+            return false;
+        if (napi_wrap(env, callbacks[i], holder.get(), finalizeBridgePromise, nullptr, nullptr) != napi_ok)
+            return false;
+        holder.release();
+    }
+    return napi_call_function(env, result, then, 2, callbacks, &ignored) == napi_ok;
+}
 
-        napi_value err;
-        napi_status exception_status = napi_get_and_clear_last_exception(env, &err);
-        if (exception_status == napi_ok) {
-            OHError("onMessage napi_call_function exception clear");
+static void onMessageCb(napi_env env, napi_value js_cb, void *, void *data) {
+    std::unique_ptr<OnMessageData> message(static_cast<OnMessageData *>(data));
+    if (!message) return;
+    if (!env || !js_cb) {
+        message->promise->set_value({"", "bridge is shutting down"});
+        return;
+    }
+    napi_handle_scope scope;
+    if (napi_open_handle_scope(env, &scope) != napi_ok) {
+        message->promise->set_value({"", "cannot open bridge scope"}); return;
+    }
+    napi_value args[4], undefined, result;
+    if (napi_create_int32(env, message->type, &args[0]) != napi_ok ||
+        napi_create_int32(env, message->webViewId, &args[1]) != napi_ok ||
+        napi_get_undefined(env, &undefined) != napi_ok) {
+        message->promise->set_value({"", "cannot allocate bridge arguments"});
+        napi_close_handle_scope(env, scope); return;
+    }
+    args[2] = undefined; args[3] = undefined;
+    if (message->type == 1) {
+        if (napi_create_string_utf8(env, message->str.data(), message->str.size(), &args[2]) != napi_ok) {
+            message->promise->set_value({"", "cannot allocate bridge message"});
+            napi_close_handle_scope(env, scope); return;
         }
     } else {
-        JSEngine *engine = getEngine(appIndex);
-        if (engine) {
-            JSValue jsResult = ConvertNapiValueToJsValue(env, engine->getContext(), result);
-            jsValueResult = jsResult;
+        void *bytes = nullptr;
+        if (napi_create_arraybuffer(env, message->str.size(), &bytes, &args[3]) != napi_ok) {
+            message->promise->set_value({"", "cannot allocate bridge message"});
+            napi_close_handle_scope(env, scope); return;
         }
-        //        JS_FreeValue(gCtx, jsResult);
-        OHLog("onMessageCb end");
+        memcpy(bytes, message->str.data(), message->str.size());
     }
-    asyncContext->promise.set_value(jsValueResult);
-    delete asyncContext;
+    const auto status = napi_call_function(env, undefined, js_cb, 4, args, &result);
+    bool deferred = false;
+    BridgeReply reply;
+    if (status == napi_ok) {
+        bool isPromise = false;
+        napi_is_promise(env, result, &isPromise);
+        if (message->type == 1 && isPromise) {
+            deferred = attachBridgePromise(env, result, message->promise);
+            if (!deferred) reply.error = "cannot attach canvas reply";
+        } else if (message->type == 1) reply = serializeReply(env, result);
+    } else reply.error = "container handler failed";
+    if (!deferred) {
+        napi_value exception;
+        napi_get_and_clear_last_exception(env, &exception);
+        message->promise->set_value(std::move(reply));
+    }
     napi_close_handle_scope(env, scope);
 }
 
 
 static JSValue invoke(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
     OHLog("invoke begin isMainThread: %{public}d", isMainThread());
+    if (argc < 1) return JS_ThrowTypeError(ctx, "invoke expects a message");
 
     // 获取当前引擎实例的 appIndex
     JSEngine *currentEngine = nullptr;
@@ -233,11 +241,9 @@ static JSValue invoke(JSContext *ctx, JSValueConst this_val, int argc, JSValueCo
             return throwNativeError(ctx, "invoke: bridge is not available");
         }
 
-        // future 必须在投递之前取。投递之后 ArkTS 线程随时可能跑完 onMessageCb，
-        // 那里 set_value 完就 delete asyncContext，promise 析构会把共享状态的引用
-        // 计数减到 0 并释放掉；等这条线程再回来取 future，拿到的就是已释放的内存，
-        // 后面 future.get() 收尾时解引用它必然崩。
-        std::future<JSValue> future = asyncContext->promise.get_future();
+        // Capture the future before posting: the Worker may delete this packet
+        // immediately. Promise continuations keep only the shared reply alive.
+        std::future<BridgeReply> future = asyncContext->promise->get_future();
 
         if (napi_acquire_threadsafe_function(tsfn) != napi_ok) {
             // acquire 都没成功就不要再往下调用了，句柄可能已经在关闭。
@@ -247,6 +253,7 @@ static JSValue invoke(JSContext *ctx, JSValueConst this_val, int argc, JSValueCo
         napi_threadsafe_function_call_mode call_mode = blocking ? napi_tsfn_blocking : napi_tsfn_nonblocking;
 
         napi_status status = napi_call_threadsafe_function(tsfn, asyncContext.get(), call_mode);
+        napi_release_threadsafe_function(tsfn, napi_tsfn_release);
         if (status != napi_ok) {
             // 只有返回 napi_ok 才代表 packet 已入队、所有权移交给 onMessageCb；
             // 其余返回码（队列满、正在关闭）都没入队，unique_ptr 会把它收掉。
@@ -255,13 +262,11 @@ static JSValue invoke(JSContext *ctx, JSValueConst this_val, int argc, JSValueCo
         }
         asyncContext.release();
 
-        JSValue value = future.get();
-        if (JS_IsException(value)) {
-            OHError("invoke error");
-            return throwNativeError(ctx, "invoke: container handler failed");
-        }
-        OHLog("invoke end");
-        return value;
+        if (future.wait_for(std::chrono::seconds(6)) != std::future_status::ready)
+            return throwNativeError(ctx, "invoke: bridge reply timed out");
+        BridgeReply reply = future.get();
+        if (!reply.error.empty()) return throwNativeError(ctx, reply.error.c_str());
+        return reply.json.empty() ? JS_UNDEFINED : JS_ParseJSON(ctx, reply.json.data(), reply.json.size(), "<bridge-reply>");
     } catch (const std::exception &e) {
         OHError("[dimina][service] invoke error: %{public}s", e.what());
         return throwNativeError(ctx, e.what());
@@ -319,6 +324,7 @@ JSValue sendLogToContainer(JSContext *ctx, JSValueConst this_val, int argc, JSVa
         }
         napi_threadsafe_function_call_mode call_mode = napi_tsfn_nonblocking;
         napi_status status = napi_call_threadsafe_function(tsfn, asyncContext.get(), call_mode);
+        napi_release_threadsafe_function(tsfn, napi_tsfn_release);
         if (status != napi_ok) {
             // 同 invoke：非 napi_ok 表示没入队，所有权还在这边，unique_ptr 会收掉。
             OHError("napi_call_threadsafe_function error");
@@ -349,8 +355,8 @@ static JSValue publish(JSContext *ctx, JSValueConst this_val, int argc, JSValueC
         return JS_UNDEFINED;
     }
 
-    if (argc < 1) {
-        return JS_ThrowTypeError(ctx, "publish expects at least one argument");
+    if (argc < 2) {
+        return JS_ThrowTypeError(ctx, "publish expects a webViewId and message");
     }
 
     int32_t webViewId;
@@ -388,6 +394,7 @@ static JSValue publish(JSContext *ctx, JSValueConst this_val, int argc, JSValueC
         napi_threadsafe_function_call_mode call_mode = blocking ? napi_tsfn_blocking : napi_tsfn_nonblocking;
 
         napi_status status = napi_call_threadsafe_function(tsfn, asyncContext.get(), call_mode);
+        napi_release_threadsafe_function(tsfn, napi_tsfn_release);
         if (status != napi_ok) {
             // 同 invoke：非 napi_ok 表示没入队，所有权还在这边，unique_ptr 会收掉。
             OHError("napi_call_threadsafe_function error");
@@ -684,8 +691,65 @@ napi_value destroyJsEngine(napi_env env, napi_callback_info info) {
 }
 
 
+static JSValue js_encode_array_buffer(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
+    if (argc < 1) return JS_ThrowTypeError(ctx, "Expected ArrayBuffer");
+    size_t size = 0;
+    const uint8_t *bytes = JS_GetArrayBuffer(ctx, &size, argv[0]);
+    if (!bytes) return JS_EXCEPTION;
+    try {
+        static const char alphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        std::string encoded((size + 2) / 3 * 4, '=');
+        for (size_t i = 0, j = 0; i < size; i += 3, j += 4) {
+            uint32_t value = uint32_t(bytes[i]) << 16;
+            if (i + 1 < size) value |= uint32_t(bytes[i + 1]) << 8;
+            if (i + 2 < size) value |= bytes[i + 2];
+            encoded[j] = alphabet[(value >> 18) & 63];
+            encoded[j + 1] = alphabet[(value >> 12) & 63];
+            if (i + 1 < size) encoded[j + 2] = alphabet[(value >> 6) & 63];
+            if (i + 2 < size) encoded[j + 3] = alphabet[value & 63];
+        }
+        return JS_NewStringLen(ctx, encoded.data(), encoded.size());
+    } catch (const std::exception &error) { return throwNativeError(ctx, error.what()); }
+}
+
+static JSValue js_decode_array_buffer(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
+    if (argc < 1) return JS_ThrowTypeError(ctx, "Expected base64 string");
+    size_t length = 0;
+    const char *text = JS_ToCStringLen(ctx, &length, argv[0]);
+    if (!text) return JS_EXCEPTION;
+    try {
+        std::vector<uint8_t> bytes;
+        bytes.reserve(length / 4 * 3);
+        uint32_t value = 0;
+        int bits = 0;
+        for (size_t i = 0; i < length; ++i) {
+            const unsigned char ch = text[i];
+            if (ch == '=' || ch == ' ' || ch == '\r' || ch == '\n' || ch == '\t') continue;
+            const int digit = ch >= 'A' && ch <= 'Z' ? ch - 'A'
+                : ch >= 'a' && ch <= 'z' ? ch - 'a' + 26
+                : ch >= '0' && ch <= '9' ? ch - '0' + 52 : ch == '+' ? 62 : ch == '/' ? 63 : -1;
+            if (digit < 0) {
+                JS_FreeCString(ctx, text);
+                return JS_ThrowTypeError(ctx, "Invalid base64 string");
+            }
+            value = (value << 6) | digit;
+            bits += 6;
+            if (bits >= 8) { bits -= 8; bytes.push_back(uint8_t(value >> bits)); }
+        }
+        JS_FreeCString(ctx, text);
+        return JS_NewArrayBufferCopy(ctx, bytes.data(), bytes.size());
+    } catch (const std::exception &error) {
+        JS_FreeCString(ctx, text);
+        return throwNativeError(ctx, error.what());
+    }
+}
+
+
 void initBridges(JSContext *ctx, const char* virtualFilePrefix) {
     JSValue diminaServiceBridge = JS_NewObject(ctx);
+    JS_SetPropertyStr(ctx, diminaServiceBridge, "canvasSyncSupported", JS_TRUE);
+    JS_SetPropertyStr(ctx, diminaServiceBridge, "encodeArrayBuffer", JS_NewCFunction(ctx, js_encode_array_buffer, "encodeArrayBuffer", 1));
+    JS_SetPropertyStr(ctx, diminaServiceBridge, "decodeArrayBuffer", JS_NewCFunction(ctx, js_decode_array_buffer, "decodeArrayBuffer", 1));
     JSValue global = JS_GetGlobalObject(ctx);
     JS_SetPropertyStr(ctx, global, "DiminaServiceBridge", diminaServiceBridge);
 

@@ -154,3 +154,29 @@ export interface PendingRequest {
   resolve: (value: WorkerMessageType) => void;
   reject: (reason?: string) => void;
 }
+
+// Plain structured-clone messages; Canvas feedback can contain large binary payloads.
+export class WorkerCanvasRequest {
+  type: string = 'canvasSync';
+  deadline: number = Date.now() + 5000;
+  requestId: number;
+  body: string;
+  constructor(requestId: number, body: string) { this.requestId = requestId; this.body = body; }
+}
+export class WorkerCanvasResult {
+  command: string = 'canvasSyncResult';
+  requestId: number;
+  result: string;
+  constructor(requestId: number, result: string) { this.requestId = requestId; this.result = result; }
+}
+
+export class WorkerDestroyedResponse {
+  type: string = 'destroyed';
+}
+class WorkerCanvasError {
+  error: string;
+  constructor(message: string) { this.error = message; }
+}
+export function canvasError(message: string): string {
+  return JSON.stringify(new WorkerCanvasError(message));
+}

@@ -59,3 +59,5 @@ export {
 	transformRpx,
 	uuid,
 } from './core/utils'
+
+export { arrayBufferToBase64, base64ToArrayBuffer } from './core/binary'

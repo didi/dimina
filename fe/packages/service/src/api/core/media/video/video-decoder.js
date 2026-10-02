@@ -1,9 +1,10 @@
-import { uuid } from '@dimina/common'
+import { WebVideoDecoder } from './web-video-decoder'
+import { isWebWorker, uuid } from '@dimina/common'
 import { invokeAPI } from '@/api/common'
 import { base64ToArrayBuffer } from '@/api/core/network/socket/shared'
 
 export function createVideoDecoder() {
-	return new VideoDecoder()
+	return isWebWorker ? new WebVideoDecoder() : new VideoDecoder()
 }
 
 // The native backends prefetch a bounded number of frames. getFrameData must

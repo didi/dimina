@@ -248,7 +248,9 @@ export class JSCore {
 			}
 			return
 		}
-		this.worker.postMessage(msg)
+		const { transferables, ...envelope } = msg
+		if (transferables?.length) this.worker.postMessage(envelope, transferables)
+		else this.worker.postMessage(envelope)
 	}
 
 	/**

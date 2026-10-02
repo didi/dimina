@@ -18,7 +18,7 @@ public class BaseAPI: DMPContainerApi {
     // Check if API, component, or parameter is available
     @BridgeMethod(CAN_I_USE)
     var canIUse: DMPBridgeMethodHandler = { param, env, callback in
-        guard let schema = param.getMap().get("schema") as? String else {
+        guard let schema = (param.getValue() as? String) ?? (param.getMap().get("schema") as? String) else {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "canIUse:fail missing parameter schema")
             return DMPSyncResult(false)
         }

@@ -15,6 +15,7 @@ class Render {
 		this.message = message
 		window.__message = message
 		window.__callback = callback
+		window.__diminaCanvasSync = request => runtime.canvasNodeFlush({ ...request, synchronous: true })
 
 		this.init()
 	}

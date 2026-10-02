@@ -67,7 +67,7 @@ try {
                 globalThis.DiminaServiceBridge={invoke:()=>undefined,publish:()=>{},sendMessage:()=>{}};`
 			const sdk = readFileSync(serviceBundle, 'utf8')
 			const importCheck = `if(!wx.canIUse('WXWebAssembly'))throw new Error('Service startup did not install WXWebAssembly');`
-			run(prelude + sdk + importCheck + environment + `modDefine('utils/libpag',function(require,module,exports){${library}\n});globalThis.exports=modRequire('utils/libpag');if(typeof exports.PAGInit!=='function')throw new Error(globalThis.__testFailure||'Missing libpag module exports');` + verification, 'service-libpag-import')
+			run(prelude + sdk + importCheck + environment.replace("globalThis.navigator={userAgent:'Dimina'};", '') + `modDefine('utils/libpag',function(require,module,exports){${library}\n});globalThis.exports=modRequire('utils/libpag');if(typeof exports.PAGInit!=='function')throw new Error(globalThis.__testFailure||'Missing libpag module exports');` + verification, 'service-libpag-import')
 		} else run(wrapper + environment + library + verification, 'libpag-4.5.85')
 	}
 } finally { rmSync(temporary, { recursive: true, force: true }) }

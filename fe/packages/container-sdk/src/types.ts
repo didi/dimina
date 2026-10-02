@@ -212,6 +212,7 @@ export interface BridgeMessage {
 	type: string
 	body: Record<string, unknown>
 	target?: 'service' | 'render' | 'container'
+	transferables?: Transferable[]
 }
 
 /**
@@ -223,6 +224,7 @@ export interface DiminaRenderBridge {
 	mapRenderer?: 'web'
 	invoke: ((msg: BridgeMessage) => void) | null
 	publish: ((msg: BridgeMessage) => void) | null
+	publishTransfer?: (msg: BridgeMessage, transferables: Transferable[]) => void
 	onMessage: (msg: BridgeMessage) => void
 }
 

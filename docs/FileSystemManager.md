@@ -78,3 +78,9 @@ fs.readFile({
 - 递归 `stat` 的路径键、数字 `mode` 如上。
 
 Dimina 尚未配置 SDK 文件配额；完整的编码、读取范围参数及错误文案兼容不在本次范围内。
+
+## Web 运行时文件
+
+Web 的包内文件和 OPFS 持久化文件通过异步 `readFile` / `readCompressedFile` 读取。为了支持 libpag 同步生成 MP4，逻辑 Worker 另提供 `USER_DATA_PATH` 下的运行时文件：`accessSync`、`mkdirSync`、`writeFileSync`、`readFileSync`、`readdirSync` 和 `unlinkSync`。异步 `readFile` 也能读取这些文件。同步接口只访问当前 Worker 创建的运行时文件，不能同步读取包内资源或已有 OPFS 文件。
+
+运行时文件按小程序 Worker 隔离，总量最多 128 MiB，支持 ArrayBuffer、TypedArray 和 UTF-8 文本，像素及文件读取返回独立缓冲区。它们不写入 OPFS，关闭或重启小程序后消失；应主动 `unlinkSync` 删除不再使用的文件。原生文件的持久化语义不受此 Web 运行时范围影响。

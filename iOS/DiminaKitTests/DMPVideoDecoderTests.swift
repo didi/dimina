@@ -4,6 +4,19 @@ import XCTest
 @testable import dimina
 
 final class DMPVideoDecoderTests: XCTestCase {
+    func testCanIUseAcceptsThePublicStringArgument() {
+        _ = VideoDecoderAPI()
+        let api = BaseAPI()
+        let env = DMPBridgeEnv(appIndex: 0, appId: "capability-test", webViewId: 0)
+        let values: [Any] = ["VideoDecoder.start", ["schema": "VideoDecoder.start"]]
+        for value in values {
+            let result = api.canIUse(DMPBridgeParam(value: value), env, nil) as? DMPSyncResult
+            XCTAssertEqual(result?.value as? Bool, true)
+        }
+        let missing = api.canIUse(DMPBridgeParam(value: "unknownAPI"), env, nil) as? DMPSyncResult
+        XCTAssertEqual(missing?.value as? Bool, false)
+    }
+
     func testH264RGBAFramesSeekEndAndRemove() throws {
         let owner = "video-decoder-test-\(UUID().uuidString)"
         let directory = DMPSandboxManager.appTmpResourceDirectoryPath(appId: owner)

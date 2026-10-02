@@ -1,4 +1,4 @@
-import { CANVAS_ACTIVE_PROP, CANVAS_CONTRACT_CHANGE_EVENT, CANVAS_NODE_PROP, CANVAS_OWNER_PROP, canvasPixelBudgetError, deepEqual, getDataAttributes, normalizePropertyValues as normalizeMiniProgramPropertyValues, set, uuid } from '@dimina/common'
+import { arrayBufferToBase64, base64ToArrayBuffer, CANVAS_ACTIVE_PROP, CANVAS_CONTRACT_CHANGE_EVENT, CANVAS_NODE_PROP, CANVAS_OWNER_PROP, canvasPixelBudgetError, deepEqual, getDataAttributes, normalizePropertyValues as normalizeMiniProgramPropertyValues, set, uuid } from '@dimina/common'
 import { Components, deepToRaw } from '@dimina/components'
 import {
 	createApp,
@@ -445,7 +445,7 @@ function collectNumericConstants(value) {
 	return constants
 }
 
-function serializeCanvasResult(value, resolveResourceId) {
+function serializeCanvasResult(value, resolveResourceId, compact = false) {
 	if (value === null || value === undefined || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
 		return value
 	}
@@ -454,13 +454,17 @@ function serializeCanvasResult(value, resolveResourceId) {
 		return { __canvasResourceId: resourceId }
 	}
 	if (ArrayBuffer.isView(value)) {
+		if (compact && value.byteLength >= 1024) {
+			const bytes = new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
+			return { __canvasTypedArray: value.constructor.name, base64: arrayBufferToBase64(bytes.slice().buffer) }
+		}
 		return {
 			__canvasTypedArray: value.constructor.name,
 			data: Array.from(value),
 		}
 	}
 	if (Array.isArray(value)) {
-		return value.map(item => serializeCanvasResult(item, resolveResourceId))
+		return value.map(item => serializeCanvasResult(item, resolveResourceId, compact))
 	}
 	if (typeof value === 'object') {
 		const result = {}
@@ -471,7 +475,7 @@ function serializeCanvasResult(value, resolveResourceId) {
 			}
 		}
 		for (const key of keys) {
-			const serialized = serializeCanvasResult(value[key], resolveResourceId)
+			const serialized = serializeCanvasResult(value[key], resolveResourceId, compact)
 			if (serialized !== undefined) {
 				result[key] = serialized
 			}
@@ -1595,7 +1599,7 @@ class Runtime {
 		})
 	}
 
-	registerCanvasNode(canvas, type = canvas.getAttribute?.('type') || '2d') {
+	registerCanvasNode(canvas, type = canvas.getAttribute?.('type') || '2d', bridgeId) {
 		const nodeId = this.getCanvasNodeId(canvas)
 		const isNewNode = !this.canvasNodes.has(nodeId)
 		const rect = canvas.getBoundingClientRect?.()
@@ -1616,9 +1620,22 @@ class Runtime {
 				canvas,
 				contexts: new Map(),
 				resourceIds: new Set(),
+				bridgeId,
 			})
 		}
+		const node = this.canvasNodes.get(nodeId)
+		if (isNewNode && bridgeId && /^(webgl2?|experimental-webgl)$/.test(type)
+			&& window.DiminaRenderBridge?.publishTransfer && canvas.transferControlToOffscreen) {
+			const offscreen = canvas.transferControlToOffscreen()
+			// This message and the selector callback share the same Worker FIFO.
+			window.DiminaRenderBridge.publishTransfer({
+				type: 'canvasTransfer', target: 'service',
+				body: { bridgeId, nodeId, canvas: offscreen },
+			}, [offscreen])
+			node.transferred = true
+		}
 		return {
+			webOffscreen: node.transferred === true,
 			__diminaNodeType: CANVAS_NODE_TYPE,
 			nodeId,
 			type,
@@ -1784,6 +1801,7 @@ class Runtime {
 	disposeCanvasNode(nodeId, bridgeId) {
 		const node = this.canvasNodes.get(nodeId)
 		if (!node || (node.bridgeId && bridgeId && node.bridgeId !== bridgeId)) return
+		if (node.transferred) message.send({ type: 'canvasTransferredDispose', target: 'service', body: { bridgeId: node.bridgeId, nodeId } })
 		node.cleanup?.()
 		for (const resourceId of node.resourceIds || []) {
 			const resource = this.canvasResources.get(resourceId)
@@ -1827,6 +1845,12 @@ class Runtime {
 			return this.canvasNodes.get(value.__canvasNodeId)?.canvas
 		}
 
+		if (value.__canvasTypedArray && value.base64 !== undefined) {
+			const buffer = base64ToArrayBuffer(value.base64)
+			if (value.__canvasTypedArray === 'DataView') return new DataView(buffer)
+			const Ctor = TYPED_ARRAY_CTORS[value.__canvasTypedArray]
+			if (Ctor) return new Ctor(buffer)
+		}
 		if (value.__canvasTypedArray) {
 			const Ctor = TYPED_ARRAY_CTORS[value.__canvasTypedArray]
 			if (Ctor) {
@@ -2012,6 +2036,9 @@ class Runtime {
 				const feedback = {
 					contextId: operation.contextId,
 				}
+				if (operation.feedback === 'resource') {
+					feedback.resource = { resourceId: operation.resultId, metadata: { created: Boolean(this.getCanvasResource(operation.resultId)) } }
+				}
 				if (operation.feedback === 'shader') {
 					const shader = args[0]
 					let metadata = { compileStatus: false, infoLog: '' }
@@ -2051,7 +2078,7 @@ class Runtime {
 				if (operation.typedArrayUpdateId && Number.isInteger(operation.typedArrayArgIndex)) {
 					feedback.typedArray = {
 						id: operation.typedArrayUpdateId,
-						value: serializeCanvasResult(args[operation.typedArrayArgIndex]),
+						value: serializeCanvasResult(args[operation.typedArrayArgIndex], undefined, operation.binary),
 					}
 				}
 				if (operation.feedback === 'stateSnapshot') {
@@ -2084,7 +2111,7 @@ class Runtime {
 					contextId: operation.contextId,
 					query: {
 						key: operation.key,
-						value: serializeCanvasResult(value, item => this.getCanvasResourceId(item)),
+						value: serializeCanvasResult(value, item => this.getCanvasResourceId(item), operation.binary),
 					},
 				}
 			}
@@ -2187,9 +2214,10 @@ class Runtime {
 		}
 	}
 
-	canvasNodeFlush({ bridgeId, params }) {
+	canvasNodeFlush({ bridgeId, params, synchronous = false }) {
 		const node = this.canvasNodes.get(params.nodeId)
 		if (!node) {
+			if (synchronous) return { error: 'canvas node not found' }
 			console.warn('[system]', '[render]', `canvas node ${params.nodeId} not found`)
 			for (const operation of params.operations || []) {
 				this.triggerCallback(bridgeId, operation.callback,
@@ -2264,6 +2292,7 @@ class Runtime {
 				feedback.contexts[contextId].errors = errors
 			}
 		}
+		if (synchronous) return feedback
 		this.triggerCallback(bridgeId, params.feedback, feedback)
 	}
 
@@ -2307,14 +2336,14 @@ class Runtime {
 				if (single) {
 					// 排除任何带有 data-dd-cloned 属性的父元素的子元素
 					const targetElement = el.querySelector(selectors)
-					return targetElement ? await this.parseElement(targetElement, fields) : null
+					return targetElement ? await this.parseElement(targetElement, fields, bridgeId) : null
 				}
 				else {
 					// 排除带有 data-dd-cloned 属性的元素
 					const targetElements = el.querySelectorAll(selectors)
 					const results = []
 					for (const el of targetElements) {
-						const result = await this.parseElement(el, fields)
+						const result = await this.parseElement(el, fields, bridgeId)
 						results.push(result)
 					}
 					return results
@@ -2395,7 +2424,7 @@ class Runtime {
 	/**
 	 * https://developers.weixin.qq.com/miniprogram/dev/api/wxml/NodesRef.fields.html
 	 */
-	async parseElement(targetElement, fields) {
+	async parseElement(targetElement, fields, bridgeId) {
 		// 确保元素已准备好（有尺寸）
 		await this.ensureElementReady(targetElement)
 
@@ -2467,7 +2496,7 @@ class Runtime {
 		if (fields.node) {
 			const canvas = resolveCanvasNodeElement(targetElement)
 			data.node = canvas
-				? this.registerCanvasNode(canvas)
+				? this.registerCanvasNode(canvas, canvas.getAttribute?.('type') || '2d', bridgeId)
 				: null
 		}
 		// TODO: 支持获取 VideoContext、CanvasContext、LivePlayerContext、EditorContext和 MapContext

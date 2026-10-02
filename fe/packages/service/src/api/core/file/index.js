@@ -1,7 +1,10 @@
+import { isWebWorker } from '@dimina/common'
+import { createRuntimeFiles } from './web-runtime-files'
 import { invokeAPI } from '@/api/common'
 import { resolveVirtualFilePrefix } from './virtual-file-prefix.js'
 
 export const VIRTUAL_FILE_PREFIX = resolveVirtualFilePrefix()
+const runtimeFiles = isWebWorker ? createRuntimeFiles(`${VIRTUAL_FILE_PREFIX}usr`) : null
 
 /**
  * 新开页面打开文档
@@ -290,6 +293,7 @@ class FileSystemManager {
 	 * https://developers.weixin.qq.com/miniprogram/dev/api/file/FileSystemManager.accessSync.html
 	 */
 	accessSync(path) {
+		if (runtimeFiles) return runtimeFiles.access(path)
 		return invokeAPI('FileSystemManager.accessSync', path)
 	}
 
@@ -402,6 +406,7 @@ class FileSystemManager {
 	 * https://developers.weixin.qq.com/miniprogram/dev/api/file/FileSystemManager.mkdirSync.html
 	 */
 	mkdirSync(dirPath, recursive) {
+		if (runtimeFiles) return runtimeFiles.mkdir(dirPath, recursive)
 		return invokeAPI('FileSystemManager.mkdirSync', { dirPath, recursive })
 	}
 
@@ -470,6 +475,7 @@ class FileSystemManager {
 	 * https://developers.weixin.qq.com/miniprogram/dev/api/file/FileSystemManager.readdirSync.html
 	 */
 	readdirSync(dirPath) {
+		if (runtimeFiles) return runtimeFiles.readdir(dirPath)
 		return invokeAPI('FileSystemManager.readdirSync', dirPath)
 	}
 
@@ -478,6 +484,11 @@ class FileSystemManager {
 	 * https://developers.weixin.qq.com/miniprogram/dev/api/file/FileSystemManager.readFile.html
 	 */
 	readFile(opts) {
+		if (runtimeFiles && opts?.filePath?.startsWith(`${VIRTUAL_FILE_PREFIX}usr/`) && runtimeFiles.has(opts.filePath)) {
+			const operation = Promise.resolve().then(() => ({ data: runtimeFiles.read(opts.filePath, opts.encoding, opts.position, opts.length), errMsg: 'readFile:ok' }))
+			operation.then(result => { opts.success?.(result); opts.complete?.(result) }, error => { const result = { errMsg: `readFile:fail ${error.message}` }; opts.fail?.(result); opts.complete?.(result) })
+			return operation
+		}
 		return invokeFileAPI('FileSystemManager.readFile', opts, { transform: normalizeReadFileResult })
 	}
 
@@ -486,6 +497,7 @@ class FileSystemManager {
 	 * https://developers.weixin.qq.com/miniprogram/dev/api/file/FileSystemManager.readFileSync.html
 	 */
 	readFileSync(filePath, encoding, position, length) {
+		if (runtimeFiles) return runtimeFiles.read(filePath, encoding, position, length)
 		return decodeArrayBufferPayload(invokeAPI('FileSystemManager.readFileSync', { filePath, encoding, position, length }))
 	}
 
@@ -598,6 +610,7 @@ class FileSystemManager {
 	 * https://developers.weixin.qq.com/miniprogram/dev/api/file/FileSystemManager.unlinkSync.html
 	 */
 	unlinkSync(filePath) {
+		if (runtimeFiles) return runtimeFiles.unlink(filePath)
 		return invokeAPI('FileSystemManager.unlinkSync', filePath)
 	}
 
@@ -638,6 +651,7 @@ class FileSystemManager {
 	 * https://developers.weixin.qq.com/miniprogram/dev/api/file/FileSystemManager.writeFileSync.html
 	 */
 	writeFileSync(filePath, data, encoding) {
+		if (runtimeFiles) return runtimeFiles.write(filePath, data, encoding)
 		return invokeAPI('FileSystemManager.writeFileSync', normalizeWriteOptions({ filePath, data, encoding }))
 	}
 }

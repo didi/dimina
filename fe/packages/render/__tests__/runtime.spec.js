@@ -42,6 +42,57 @@ describe('runtime template components', () => {
 		delete window.__callback
 	})
 
+	it('transfers WebGL ownership once before returning the selector descriptor', () => {
+		vi.spyOn(runtime, 'getCanvasCapabilities').mockReturnValue({})
+		const offscreen = {}
+		const canvas = document.createElement('canvas')
+		canvas.setAttribute('type', 'webgl')
+		canvas.transferControlToOffscreen = vi.fn(() => offscreen)
+		const publishTransfer = vi.fn()
+		window.DiminaRenderBridge = { publishTransfer, publish: vi.fn() }
+		const first = runtime.registerCanvasNode(canvas, 'webgl', 'web-page')
+		expect(first.webOffscreen).toBe(true)
+		expect(publishTransfer).toHaveBeenCalledWith({ type: 'canvasTransfer', target: 'service', body: { bridgeId: 'web-page', nodeId: first.nodeId, canvas: offscreen } }, [offscreen])
+		expect(runtime.registerCanvasNode(canvas, 'webgl', 'web-page').nodeId).toBe(first.nodeId)
+		expect(publishTransfer).toHaveBeenCalledTimes(1)
+		runtime.disposeCanvasNode(first.nodeId, 'web-page')
+		const native = document.createElement('canvas')
+		delete window.DiminaRenderBridge.publishTransfer
+		expect(runtime.registerCanvasNode(native, 'webgl', 'native-page').webOffscreen).toBe(false)
+		runtime.disposeCanvasNode(native.__diminaCanvasNodeId, 'native-page')
+	})
+
+	it('replays synchronous WebGL queries in order and returns feedback without a callback', () => {
+		const node = { canvas: {}, resources: new Set() }
+		const order = []
+		const activeUniform = Object.create({ name: 'color', size: 1, type: 0x8B52 })
+		const context = {
+			NO_ERROR: 0,
+			linkProgram: () => order.push('link'),
+			getActiveUniform: () => { order.push('query'); return activeUniform },
+			getUniformLocation: () => null,
+			getError: () => 0,
+		}
+		runtime.canvasNodes.set('sync-node', node)
+		runtime.canvasResources.set('sync-context', context)
+		const callback = vi.spyOn(runtime, 'triggerCallback')
+		const result = runtime.canvasNodeFlush({ synchronous: true, bridgeId: 'sync-page', params: {
+			nodeId: 'sync-node', feedback: true, operations: [
+				{ op: 'contextCall', contextId: 'sync-context', method: 'linkProgram', args: [null] },
+				{ op: 'contextQuery', contextId: 'sync-context', method: 'getActiveUniform', args: [null, 0], key: 'uniform' },
+				{ op: 'contextCall', contextId: 'sync-context', method: 'getUniformLocation', args: [null, 'missing'], resultId: 'missing-location', feedback: 'resource' },
+			],
+		} })
+		expect(order).toEqual(['link', 'query'])
+		expect(result.contexts['sync-context'].queries).toEqual([{ key: 'uniform', value: { name: 'color', size: 1, type: 0x8B52 } }])
+		expect(result.contexts['sync-context'].resources).toEqual([{ resourceId: 'missing-location', metadata: { created: false } }])
+		expect(callback).not.toHaveBeenCalled()
+		expect(runtime.canvasNodeFlush({ synchronous: true, params: { nodeId: 'gone' } })).toEqual({ error: 'canvas node not found' })
+		expect(runtime.resolveCanvasArg({ __canvasTypedArray: 'Uint8Array', base64: 'AH//' })).toEqual(new Uint8Array([0, 127, 255]))
+		runtime.canvasNodes.delete('sync-node')
+		runtime.canvasResources.delete('sync-context')
+	})
+
 	it('acknowledges page attachment before page ready', async () => {
 		const loader = (await import('../src/core/loader.js')).default
 		const message = (await import('../src/core/message.js')).default

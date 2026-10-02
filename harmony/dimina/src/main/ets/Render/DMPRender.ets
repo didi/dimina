@@ -1,3 +1,4 @@
+import { canvasError } from '../Service/DMPSendableObjects';
 import { DMPApp } from '../DApp/DMPApp';
 import { DMPWebViewController } from '../HybridContainer/DMPWebViewController';
 import { AsyncCallback } from '@kit.BasicServicesKit';
@@ -43,6 +44,45 @@ export class DMPRender {
         DMPLogger.e('', `run JavaScript exception: ` + JSON.stringify(error))
       }
     }
+  }
+
+  public canvasNodeSync(body: DMPMap): Promise<string> {
+    const webViewId: number = body.get('bridgeId');
+    const controller = this.controllerMap.get(webViewId);
+    if (!controller?.isControllerAttached) {
+      return Promise.resolve(canvasError('canvas page is unavailable'));
+    }
+    const script = `(() => { try { if (typeof globalThis.__diminaCanvasSync !== 'function') throw new Error('canvas runtime unavailable'); return JSON.stringify(globalThis.__diminaCanvasSync(${body.toStr()})); } catch (e) { return JSON.stringify({error:String(e)}); } })()`;
+    return new Promise<string>((resolve) => {
+      let finished = false;
+      const complete = (result: string) => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(timer);
+        resolve(result);
+      };
+      const timer = setTimeout(() => complete(canvasError('canvas query timed out')), 4500);
+      try {
+        // Earlier publish messages arrive through this same Worker FIFO and were
+        // submitted to this controller before the query.
+        controller.runJavaScript(script, (error, result) => {
+          if (error) complete(canvasError(error.message));
+          else if (this.controllerMap.get(webViewId) !== controller || !controller.isControllerAttached)
+            complete(canvasError('canvas page was closed'));
+          else {
+            try {
+              // ArkWeb versions may quote a returned JS string in JSON. Accept
+              // either wire form, but never silently turn null into feedback.
+              const parsed: Object | string | null = JSON.parse(result);
+              const json = typeof parsed === 'string' ? parsed : result;
+              const feedback: Object | null = JSON.parse(json);
+              if (!feedback || typeof feedback !== 'object') throw new Error('invalid canvas feedback');
+              complete(json);
+            } catch (error) { complete(canvasError((error as Error).message)); }
+          }
+        });
+      } catch (error) { complete(canvasError((error as Error).message)); }
+    });
   }
 
   getController(webViewId: number): DMPWebViewController {
