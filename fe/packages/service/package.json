@@ -24,6 +24,6 @@
 		"@dimina/common": "workspace:^",
 		"color-name": "^2.1.1",
 		"mitt": "^3.0.1",
-		"mp4box": "2.3.0"
+		"mp4box": "2.4.1"
 	}
 }
