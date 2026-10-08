@@ -1574,15 +1574,26 @@ class WebGLRenderingContextProxy {
 			return this.extensions.get(name)
 		}
 		const extensionId = makeResourceId('webgl_extension')
-		const descriptor = this.capabilities?.extensions?.[name] || {}
-		const extension = new WebGLExtensionProxy(this, name, extensionId, descriptor)
-		this.extensions.set(name, extension)
+		const key = this.canvas.supportsSyncQueries ? extensionId : undefined
 		this.canvas.enqueueOperation({
 			op: 'getExtension',
 			contextId: this.contextId,
 			extensionId,
 			name,
+			key,
 		})
+		let descriptor = this.capabilities?.extensions?.[name] || {}
+		if (key) {
+			// Game startup can request extensions before the capability broadcast reaches Service.
+			// Read this context's real extension and constants before returning it to the engine.
+			this.canvas.flushOperationsSync()
+			if (!this.queryResults.has(key)) throw new Error(`WebGL extension ${name} returned no result`)
+			descriptor = this.queryResults.get(key)
+			this.queryResults.delete(key)
+			if (!descriptor?.supported) return null
+		}
+		const extension = new WebGLExtensionProxy(this, name, extensionId, descriptor)
+		this.extensions.set(name, extension)
 		return extension
 	}
 }

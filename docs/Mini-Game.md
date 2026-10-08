@@ -38,6 +38,10 @@ Android、iOS 和 HarmonyOS 同样在解析 `app-config.json` 后读取 `app.run
 - 支持小游戏 `wx.onShow` / `offShow`、`wx.onHide` / `offHide`，并复用现有错误事件、系统信息、网络、存储等共享 `wx` API。
 - `GameGlobal` 与小游戏全局 `global` 在执行 `game.js` 前建立。
 
+原生 WebGL 的上下文创建、着色器与程序查询、属性位置、扩展常量和像素读取通过同步 Canvas 桥接返回宿主结果。`getExtension()` 在返回前取得当前上下文的扩展常量，不依赖异步能力广播，因此游戏入口首次执行时也可直接使用扩展枚举。
+
+1.7.6 的原生 Canvas 桥接尚未提供同步 WebGL 查询，依赖这些返回值初始化的游戏可能黑屏（#358）。接入修复时需要同时更新原生 SDK 和内置 JSSDK 的 Service/Render；只重新编译游戏包不能补齐宿主桥接能力。
+
 同一个容器替换或重启小游戏 runtime 时，会在执行新的 `game.js` 前销毁旧 runtime 的 Canvas owner。旧上屏 canvas、事件监听、RAF、context、图片和 WebGL capability 都会释放；新 runtime 的第一次 `wx.createCanvas()` 再创建唯一的上屏 canvas。`resourceLoaded` 只更新当前 runtime 的能力信息，不会销毁刚由 `game.js` 创建的节点。页面卸载与显式退出走同一套 owner 清理，因此旧 runtime 的迟到 callback 或资源不能进入新 runtime。
 
 Canvas 节点、状态、位图限制和 native 导出生命周期见 [Canvas 运行架构](./canvas-architecture.md)。

@@ -108,6 +108,82 @@ describe('canvas api', () => {
 		}
 	})
 
+	it('returns actual native extension constants on the first game canvas before capability broadcasts', async () => {
+		router.setInitId('native_extension_cold')
+		const previousInvoke = globalThis.DiminaServiceBridge.invoke
+		const batches = []
+		const capabilities = {
+			supported: true,
+			constants: {},
+			parameters: {},
+			supportedExtensions: ['OES_texture_half_float', 'ANGLE_instanced_arrays', 'WEBGL_draw_buffers'],
+			extensions: {
+				OES_texture_half_float: { constants: {} },
+				ANGLE_instanced_arrays: { constants: {} },
+				WEBGL_draw_buffers: { constants: {} },
+			},
+		}
+		globalThis.DiminaServiceBridge.canvasSyncSupported = true
+		globalThis.DiminaServiceBridge.invoke = vi.fn(({ body }) => {
+			const feedback = { contexts: {}, typedArrays: [] }
+			batches.push(body.params.operations)
+			for (const operation of body.params.operations) {
+				const context = feedback.contexts[operation.contextId] ||= {}
+				if (operation.op === 'getContext') Object.assign(context, { success: true, capabilities })
+				if (operation.op === 'getExtension') {
+					context.queries = [{
+						key: operation.key,
+						value: {
+							supported: operation.name !== 'WEBGL_draw_buffers',
+							constants: operation.name === 'OES_texture_half_float'
+								? { HALF_FLOAT_OES: 0x8D61 }
+								: { VERTEX_ATTRIB_ARRAY_DIVISOR_ANGLE: 0x88FE },
+						},
+					}]
+				}
+			}
+			return feedback
+		})
+		const canvas = createCanvas({ width: 32, height: 32 })
+		try {
+			const gl = canvas.getContext('webgl')
+			const halfFloat = gl.getExtension('oes_texture_half_float')
+			expect(halfFloat.HALF_FLOAT_OES).toBe(0x8D61)
+			const extensionBatch = batches.at(-1)
+			expect(extensionBatch).toMatchObject([{ op: 'getExtension', name: 'OES_texture_half_float', key: expect.any(String) }])
+			const batchCount = batches.length
+			expect(gl.getExtension('OES_texture_half_float')).toBe(halfFloat)
+			expect(batches).toHaveLength(batchCount)
+
+			// The native service cannot deliver this broadcast until the game module returns.
+			globalThis.DiminaServiceBridge.onMessage({
+				type: 'canvasCapabilities',
+				body: {
+					bridgeId: 'native_extension_cold',
+					capabilities: {
+						webgl: {
+							...capabilities,
+							extensions: { OES_texture_half_float: { constants: { HALF_FLOAT_OES: 0x8D61 } } },
+						},
+					},
+				},
+			})
+			expect(halfFloat.HALF_FLOAT_OES).toBe(0x8D61)
+			const instancing = gl.getExtension('ANGLE_instanced_arrays')
+			expect(instancing.VERTEX_ATTRIB_ARRAY_DIVISOR_ANGLE).toBe(0x88FE)
+			instancing.vertexAttribDivisorANGLE(2, 1)
+			expect(gl.getExtension('WEBGL_draw_buffers')).toBeNull()
+			expect(batches.at(-1).map(operation => operation.op)).toEqual(['extensionCall', 'getExtension'])
+			expect(gl.getExtension('not_supported')).toBeNull()
+		}
+		finally {
+			canvas.dispose()
+			await Promise.resolve()
+			delete globalThis.DiminaServiceBridge.canvasSyncSupported
+			globalThis.DiminaServiceBridge.invoke = previousInvoke
+		}
+	})
+
 	it('uses the first createCanvas call as the screen canvas and later calls as offscreen canvases', () => {
 		hostEnv.init({ systemInfo: { windowWidth: 390, windowHeight: 844 } })
 		const screen = createCanvas()

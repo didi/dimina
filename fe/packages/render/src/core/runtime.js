@@ -2127,6 +2127,18 @@ class Runtime {
 					console.warn('[system]', '[render]', `Canvas extension ${operation.name} failed: ${error}`)
 				}
 				this.setCanvasResource(operation.extensionId, extension, node)
+				if (operation.key) {
+					return {
+						contextId: operation.contextId,
+						query: {
+							key: operation.key,
+							value: {
+								supported: Boolean(extension),
+								constants: extension ? collectNumericConstants(extension) : {},
+							},
+						},
+					}
+				}
 				break
 			}
 			case 'extensionCall': {
