@@ -1,5 +1,24 @@
 # Changelog
 
+## [v1.7.7] 2026-10-08
+
+### 新增
+
+- 逻辑层新增 `WXWebAssembly`，通过 WAMR 解释器执行 Wasm，支持函数 imports、导出调用、Memory / Table / Global 和内存扩容，可加载包内 `.wasm` / `.wasm.br` 并接入 `libpag-miniprogram@4.5.85`。
+- 新增 `wx.createVideoDecoder()`，通过系统 AVSource / AVDemuxer / AVCodec 提供逐帧 RGBA 输出、seek、停止、移除和事件订阅，不输出音轨。
+- Canvas 桥接新增同步 WebGL 查询、资源创建和像素读取协议；仅逻辑执行线程等待结果，Worker 与 UI 线程通过异步回包保持可运行，超时或页面关闭时返回明确错误。
+
+### 修复
+
+- 修复调试模式下重复启动或宿主升级时，内置底包和 JSSDK 可能覆盖已安装较新版本的问题；调试开关不再参与发布包安装与版本决策（#353）。
+- 修复共享路径解析截断 query 中嵌套 URL 和后续问号的问题（#354）。
+
+### 兼容性
+
+- 与 Android、iOS SDK 统一版本号，核心 SDK 和高德地图扩展模块 `@didi-dimina/map-amap` 同步升级到 1.7.7。
+- JSSDK 升级到 1.0.51，编译器升级到 1.2.2；新增能力需同时更新原生 SDK、Service 和 Render 产物。
+- Wasm 覆盖 libpag 所需能力，暂不支持完整 WebAssembly JavaScript 标准、SIMD、线程或 WASI。已有查询协议、包内读取和解码器控制的宿主回归，尚未完成完整 API 20 SDK 构建及 ArkWeb、系统解码设备验收。
+
 ## [v1.7.6] 2026-09-24
 
 ### 兼容性

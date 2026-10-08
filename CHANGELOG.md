@@ -1,5 +1,27 @@
 # Changelog
 
+## [v1.7.7] 2026-10-08
+
+### 新增
+
+- 原生三端的逻辑层新增 `WXWebAssembly`，通过 WAMR 解释器执行 Wasm，支持函数 imports、导出调用和内存扩容；Web 使用浏览器的 WebAssembly。编译器保留 `.wasm`、`.wasm.br`、`.pag` 和 `.mp4` 二进制资源，支持 `libpag-miniprogram@4.5.85` 接入。
+- 新增 `wx.createVideoDecoder()`，支持视频逐帧 RGBA 输出、seek、停止、移除和事件订阅；原生三端使用系统解码器，Web 使用 MP4Box 与 WebCodecs，不输出音轨。
+- 原生 Canvas 桥接支持同步返回 WebGL 查询、资源创建和像素读取结果；Web 的 WebGL Canvas 通过 OffscreenCanvas 交给逻辑 Worker 绘制，并同步执行浏览器 WebGL 调用。
+- 新增 libpag 示例，覆盖静态 PAG、视频 PAG 和动画播放。
+
+### 修复
+
+- 修复 HarmonyOS 调试模式下重复启动或宿主升级时，内置底包和 JSSDK 可能覆盖已安装较新版本的问题；调试开关不再参与发布包安装与版本决策（#353）。
+- 修复页面 query 含嵌套 URL 或多个问号时被截断的问题，共享路径解析与 iOS 原生路径解析均保留首个问号之后的完整 query（#354）。
+- 修复原生小游戏首次启动时 WebGL 扩展常量缺失导致纹理上传失败的问题；扩展查询同步返回当前上下文的真实常量，并补齐小游戏 WebGL 初始化与绘制桥接回归（#358）。
+
+### 兼容性
+
+- Android、iOS 和 HarmonyOS SDK 版本统一升级到 1.7.7，高德地图可选适配器与核心 SDK 使用相同版本。
+- 编译器升级到 1.2.2，JSSDK 升级到 1.0.51；新增 Wasm、视频解码和同步 WebGL 能力需同时更新原生 SDK、Service 和 Render 产物。
+- iOS 的 `WXWebAssembly` 要求 iOS 17.4 及以上版本，其他 SDK 功能的最低系统版本不变。原生 Wasm 覆盖 libpag 所需能力，暂不支持完整 WebAssembly JavaScript 标准、SIMD、线程或 WASI。
+- Web 的 WebGL 依赖 OffscreenCanvas / Worker WebGL，视频解码另需安全上下文与 WebCodecs，并取决于浏览器编码支持。Android、iOS 已有模拟器绘制回归；HarmonyOS 尚未完成完整 API 20 SDK 构建及 ArkWeb、系统解码设备验收，三端真机效果与性能仍需验证。
+
 ## [v1.7.6] 2026-09-24
 
 ### 新增
