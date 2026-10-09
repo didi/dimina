@@ -71,7 +71,7 @@ public class DMPRender: DMPWebViewDelegate {
                 semaphore.signal()
                 return
             }
-            let script = "(function(){try{return __diminaCanvasSync(JSON.parse(\(argument)))}catch(e){return {error:String(e)}}})()"
+            let script = "(function(){try{DiminaRenderBridge.__diminaFlushMessages?.();return __diminaCanvasSync(JSON.parse(\(argument)))}catch(e){return {error:String(e)}}})()"
             webview.executeJavaScript(script) { value, error in
                 reply.set(value ?? ["error": error?.localizedDescription ?? "Canvas renderer returned no result"])
                 semaphore.signal()

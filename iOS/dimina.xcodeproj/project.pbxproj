@@ -16,6 +16,7 @@
 		1AE8A186852DBE677D065599 /* DMPWebSocketTestDoubles.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A624932ADE9898E587249FA /* DMPWebSocketTestDoubles.swift */; };
 		44A000002609090000000001 /* DMPRetainedMiniProgramTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44A000002609090000000002 /* DMPRetainedMiniProgramTests.swift */; };
 		44A000002609170000000001 /* LoadingSequenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44A000002609170000000002 /* LoadingSequenceTests.swift */; };
+		A35800000000000000000001 /* WebGLBridgeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A35800000000000000000002 /* WebGLBridgeTests.swift */; };
 		4AAB204EFEBA61F955A67553 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 69C73737CB86CC434E8DE5B7 /* Foundation.framework */; };
 		4F8C9A102F23000100000001 /* DMPWebResourceLoaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F8C9A102F23000100000002 /* DMPWebResourceLoaderTests.swift */; };
 		7500C22DE15B570EC7A4FD2B /* DMPWebSocketValidationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAB6B466B43575C7978B1BAD /* DMPWebSocketValidationTests.swift */; };
@@ -55,6 +56,7 @@
 		3A624932ADE9898E587249FA /* DMPWebSocketTestDoubles.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DMPWebSocketTestDoubles.swift; sourceTree = "<group>"; };
 		44A000002609090000000002 /* DMPRetainedMiniProgramTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DMPRetainedMiniProgramTests.swift; sourceTree = "<group>"; };
 		44A000002609170000000002 /* LoadingSequenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoadingSequenceTests.swift; sourceTree = "<group>"; };
+		A35800000000000000000002 /* WebGLBridgeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebGLBridgeTests.swift; sourceTree = "<group>"; };
 		4F8C9A102F23000100000002 /* DMPWebResourceLoaderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DMPWebResourceLoaderTests.swift; sourceTree = "<group>"; };
 		5D995E363EB06797E5E3DB0D /* diminaTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = diminaTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		61DD3E623362F9D7264941CD /* DMPUtilPathTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DMPUtilPathTests.swift; sourceTree = "<group>"; };
@@ -165,6 +167,7 @@
 				9A1D30A12F12000100000002 /* DMPNavigatorCapsuleTests.swift */,
 				44A000002609090000000002 /* DMPRetainedMiniProgramTests.swift */,
 				44A000002609170000000002 /* LoadingSequenceTests.swift */,
+				A35800000000000000000002 /* WebGLBridgeTests.swift */,
 				61DD3E623362F9D7264941CD /* DMPUtilPathTests.swift */,
 			);
 			path = diminaTests;
@@ -366,6 +369,7 @@
 				9A1D30A12F12000100000001 /* DMPNavigatorCapsuleTests.swift in Sources */,
 				44A000002609090000000001 /* DMPRetainedMiniProgramTests.swift in Sources */,
 				44A000002609170000000001 /* LoadingSequenceTests.swift in Sources */,
+				A35800000000000000000001 /* WebGLBridgeTests.swift in Sources */,
 				14603AA5921BC560B952F3E9 /* DMPUtilPathTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

@@ -36,6 +36,23 @@ function createHostGL(canvas, attributes, type) {
 	}))
 	let currentProgram
 	let currentBuffer
+	let currentVertexArray = { elementBuffer: null }
+	let viewport = new Int32Array([0, 0, canvas.width, canvas.height])
+	const vertexArrays = new Set()
+	const vao = {
+		createVertexArrayOES() {
+			if (gl.failVertexArrayCreation) return null
+			const value = { elementBuffer: null }
+			vertexArrays.add(value)
+			return value
+		},
+		bindVertexArrayOES(value) { currentVertexArray = value || { elementBuffer: null } },
+		isVertexArrayOES(value) {
+			if (value && !('elementBuffer' in value)) throw new TypeError('Expected a WebGLVertexArrayObjectOES')
+			return vertexArrays.has(value)
+		},
+		deleteVertexArrayOES(value) { vertexArrays.delete(value) },
+	}
 	let color = new Uint8Array(4)
 	const gl = {
 		canvas, commands,
@@ -44,18 +61,23 @@ function createHostGL(canvas, attributes, type) {
 		LINK_STATUS: 0x8B82, VALIDATE_STATUS: 0x8B83, ACTIVE_UNIFORMS: 0x8B86,
 		FLOAT_VEC4: 0x8B52, ARRAY_BUFFER: 0x8892, STATIC_DRAW: 0x88E4,
 		FLOAT: 0x1406, TRIANGLES: 4, RGBA: 0x1908, UNSIGNED_BYTE: 0x1401,
-		getContextAttributes: () => ({ alpha: true, preserveDrawingBuffer: false, ...attributes }),
-		getSupportedExtensions: () => [
-			'EXT_texture_filter_anisotropic', 'WEBGL_compressed_texture_astc', 'advertised-unavailable',
+		VIEWPORT: 0x0BA2, ELEMENT_ARRAY_BUFFER: 0x8893, ELEMENT_ARRAY_BUFFER_BINDING: 0x8895,
+		SYNC_GPU_COMMANDS_COMPLETE: 0x9117, TIMEOUT_EXPIRED: 0x911B,
+		getContextAttributes: () => gl.lost ? null : ({ alpha: true, preserveDrawingBuffer: false, ...attributes }),
+		getSupportedExtensions: () => gl.lost ? null : [
+			'EXT_texture_filter_anisotropic', 'WEBGL_compressed_texture_astc', 'OES_vertex_array_object', 'advertised-unavailable',
 			...(type === 'webgl' ? ['OES_texture_half_float'] : []),
 		],
 		getExtension: name => name === 'EXT_texture_filter_anisotropic'
 			? anisotropic
 			: name === 'WEBGL_compressed_texture_astc' ? astc
-				: name === 'OES_texture_half_float' && type === 'webgl' ? halfFloat : null,
-		getParameter: () => null,
+				: name === 'OES_vertex_array_object' ? vao
+					: name === 'OES_texture_half_float' && type === 'webgl' ? halfFloat : null,
+		getParameter: pname => pname === gl.VIEWPORT ? viewport.slice()
+			: pname === gl.ELEMENT_ARRAY_BUFFER_BINDING ? currentVertexArray.elementBuffer : null,
+		viewport(x, y, width, height) { if (width >= 0 && height >= 0) viewport = new Int32Array([x, y, width, height]) },
 		getShaderPrecisionFormat: () => ({ rangeMin: 127, rangeMax: 127, precision: 23 }),
-		isContextLost: () => false,
+		isContextLost: () => Boolean(gl.lost),
 		getError: () => 0,
 		createShader(type) { const shader = { type }; commands.push(['createShader', shader]); return shader },
 		shaderSource(shader, source) { shader.source = source; commands.push(['shaderSource', shader]) },
@@ -75,12 +97,24 @@ function createHostGL(canvas, attributes, type) {
 		compressedTexImage2D(...args) { commands.push(['compressedTexImage2D', ...args]) },
 		texParameterf(...args) { commands.push(['texParameterf', ...args]) },
 		createBuffer: () => ({}),
-		bindBuffer(_target, buffer) { currentBuffer = buffer },
+		bindBuffer(target, buffer) {
+			if (target === gl.ELEMENT_ARRAY_BUFFER) currentVertexArray.elementBuffer = buffer
+			else currentBuffer = buffer
+		},
 		bufferData(_target, values, usage) { currentBuffer.vertices = values; commands.push(['bufferData', values, usage]) },
 		vertexAttribPointer(...args) { commands.push(['vertexAttribPointer', ...args]) },
 		enableVertexAttribArray(location) { commands.push(['enableVertexAttribArray', location]) },
 		drawArrays(...args) { commands.push(['drawArrays', currentProgram, currentBuffer, ...args]) },
 		readPixels(_x, _y, _width, _height, _format, _type, pixels) { pixels.set(color); commands.push(['readPixels']) },
+	}
+	if (type === 'webgl2') {
+		gl.fenceSync = () => ({})
+		gl.clientWaitSync = () => gl.TIMEOUT_EXPIRED
+		gl.texStorage2D = () => {}
+		gl.getBufferSubData = (_target, _offset, data, destinationOffset = 0, length = 0) => {
+			const bytes = new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+			bytes.fill(42, destinationOffset, length ? destinationOffset + length : bytes.length)
+		}
 	}
 	return gl
 }
@@ -245,5 +279,98 @@ describe('native mini game WebGL bridge', () => {
 		const host = contexts.find(context => context.canvas.hasAttribute('data-dimina-game-canvas'))
 		expect(host.commands.find(command => command[0] === 'compressedTexImage2D'))
 			.toEqual(['compressedTexImage2D', gl.TEXTURE_2D, 0, 0x93B4, 6, 6, 0, pixels])
+	})
+
+	it('returns extension query values and advertises only host methods', () => {
+		const gl = canvasApi.createCanvas().getContext('webgl')
+		const astc = gl.getExtension('WEBGL_compressed_texture_astc')
+		expect(astc.getSupportedProfiles()).toEqual(['ldr'])
+		expect(astc.unsupportedMethod).toBeUndefined()
+		expect(gl.texStorage2D).toBeUndefined()
+		expect(typeof canvasApi.createOffscreenCanvas({ type: 'webgl2' }).getContext('webgl2').texStorage2D).toBe('function')
+	})
+
+	it('queries actual VAO bindings and preserves parameter types and rejected state changes', () => {
+		const gl = canvasApi.createCanvas().getContext('webgl')
+		const vao = gl.getExtension('OES_vertex_array_object')
+		const first = vao.createVertexArrayOES()
+		vao.bindVertexArrayOES(first)
+		const buffer = gl.createBuffer()
+		gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, buffer)
+		expect(gl.getParameter(gl.ELEMENT_ARRAY_BUFFER_BINDING)).toBe(buffer)
+		vao.bindVertexArrayOES(vao.createVertexArrayOES())
+		expect(gl.getParameter(gl.ELEMENT_ARRAY_BUFFER_BINDING)).toBeNull()
+		vao.bindVertexArrayOES(first)
+		expect(gl.getParameter(gl.ELEMENT_ARRAY_BUFFER_BINDING)).toBe(buffer)
+		gl.viewport(1, 2, 3, 4)
+		expect(gl.getParameter(gl.VIEWPORT)).toEqual(new Int32Array([1, 2, 3, 4]))
+		gl.viewport(0, 0, -1, 2)
+		expect(gl.getParameter(gl.VIEWPORT)).toEqual(new Int32Array([1, 2, 3, 4]))
+	})
+
+	it('uses host extension resource creation and predicates', () => {
+		const gl = canvasApi.createCanvas().getContext('webgl')
+		const vao = gl.getExtension('OES_vertex_array_object')
+		expect(() => vao.isVertexArrayOES(gl.createBuffer())).toThrow(TypeError)
+		const vertexArray = vao.createVertexArrayOES()
+		expect(vao.isVertexArrayOES(vertexArray)).toBe(true)
+		vao.deleteVertexArrayOES(vertexArray)
+		expect(vao.isVertexArrayOES(vertexArray)).toBe(false)
+		contexts.find(context => context.canvas.hasAttribute('data-dimina-game-canvas')).failVertexArrayCreation = true
+		expect(vao.createVertexArrayOES()).toBeNull()
+	})
+
+	it('returns clientWaitSync status from the host', () => {
+		const gl = canvasApi.createCanvas().getContext('webgl2')
+		const sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0)
+		expect(gl.clientWaitSync(sync, 0, 0)).toBe(gl.TIMEOUT_EXPIRED)
+	})
+
+	it.each([8, 2048])('writes getBufferSubData into a %i byte DataView without changing surrounding bytes', (length) => {
+		const gl = canvasApi.createCanvas().getContext('webgl2')
+		const bytes = new Uint8Array(length + 4).fill(7)
+		const view = new DataView(bytes.buffer, 2, length)
+		gl.getBufferSubData(gl.ARRAY_BUFFER, 0, view, 1, length - 2)
+		expect([...bytes.slice(0, 3)]).toEqual([7, 7, 7])
+		expect([...bytes.slice(3, length + 1)]).toEqual(Array.from({ length: length - 2 }, () => 42))
+		expect([...bytes.slice(length + 1)]).toEqual([7, 7, 7])
+	})
+
+	it('forwards context loss and restoration and refreshes the context before handlers run', () => {
+		const canvas = canvasApi.createCanvas()
+		const gl = canvas.getContext('webgl')
+		const host = contexts.find(context => context.canvas.hasAttribute('data-dimina-game-canvas'))
+		const previousExtension = gl.getExtension('OES_vertex_array_object')
+		const lost = vi.fn(event => {
+			expect(event.target).toBe(canvas)
+			expect(gl.isContextLost()).toBe(true)
+			expect(gl.getContextAttributes()).toBeNull()
+			expect(gl.getSupportedExtensions()).toBeNull()
+			expect(gl.getExtension('OES_vertex_array_object')).toBeNull()
+			event.preventDefault()
+		})
+		const restored = vi.fn(() => {
+			expect(gl.isContextLost()).toBe(false)
+			expect(gl.getExtension('OES_vertex_array_object')).not.toBe(previousExtension)
+		})
+		canvas.addEventListener('webglcontextlost', lost)
+		canvas.onwebglcontextrestored = restored
+		host.lost = true
+		// Queries must see loss even before the asynchronous event arrives.
+		expect(gl.isContextLost()).toBe(true)
+		const event = new Event('webglcontextlost', { cancelable: true })
+		host.canvas.dispatchEvent(event)
+		expect(event.defaultPrevented).toBe(true)
+		drainService()
+		expect(lost).toHaveBeenCalledOnce()
+		host.lost = false
+		host.canvas.dispatchEvent(new Event('webglcontextrestored'))
+		drainService()
+		expect(restored).toHaveBeenCalledOnce()
+		canvasApi.disposeCanvasNodes(bridgeId)
+		drainRender()
+		host.canvas.dispatchEvent(new Event('webglcontextlost', { cancelable: true }))
+		drainService()
+		expect(lost).toHaveBeenCalledOnce()
 	})
 })

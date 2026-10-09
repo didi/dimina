@@ -446,6 +446,22 @@ function collectNumericConstants(value) {
 	return constants
 }
 
+function collectCallableMethods(value) {
+	const methods = new Set()
+	for (let current = value; current && current !== Object.prototype; current = Object.getPrototypeOf(current)) {
+		for (const name of Object.getOwnPropertyNames(current)) {
+			if (name === 'constructor') continue
+			try {
+				if (typeof value[name] === 'function') methods.add(name)
+			}
+			catch {
+				// Some host properties cannot be read on this WebKit version.
+			}
+		}
+	}
+	return [...methods]
+}
+
 function serializeCanvasResult(value, resolveResourceId, compact = false) {
 	if (value === null || value === undefined || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
 		return value
@@ -461,7 +477,7 @@ function serializeCanvasResult(value, resolveResourceId, compact = false) {
 		}
 		return {
 			__canvasTypedArray: value.constructor.name,
-			data: Array.from(value),
+			data: Array.from(value instanceof DataView ? new Uint8Array(value.buffer, value.byteOffset, value.byteLength) : value),
 		}
 	}
 	if (Array.isArray(value)) {
@@ -539,6 +555,7 @@ function describeWebGLContext(context, includeExtensionConstants = true) {
 			const extension = context.getExtension(name)
 			extensions[name] = {
 				constants: extension ? collectNumericConstants(extension) : {},
+				methods: extension ? collectCallableMethods(extension) : [],
 			}
 		}
 		catch {
@@ -577,6 +594,7 @@ function describeWebGLContext(context, includeExtensionConstants = true) {
 	return {
 		supported: true,
 		constants,
+		methods: collectCallableMethods(context),
 		parameters,
 		contextAttributes,
 		supportedExtensions,
@@ -1618,6 +1636,7 @@ class Runtime {
 
 		if (isNewNode) {
 			this.canvasNodes.set(nodeId, {
+				nodeId,
 				canvas,
 				contexts: new Map(),
 				resourceIds: new Set(),
@@ -1659,6 +1678,7 @@ class Runtime {
 		canvas.width = width
 		canvas.height = height
 		this.canvasNodes.set(nodeId, {
+			nodeId,
 			canvas,
 			type,
 			contexts: new Map(),
@@ -1777,6 +1797,7 @@ class Runtime {
 
 		document.body.append(canvas)
 		this.canvasNodes.set(nodeId, {
+			nodeId,
 			canvas,
 			type,
 			contexts: new Map(),
@@ -1804,6 +1825,7 @@ class Runtime {
 		if (!node || (node.bridgeId && bridgeId && node.bridgeId !== bridgeId)) return
 		if (node.transferred) message.send({ type: 'canvasTransferredDispose', target: 'service', body: { bridgeId: node.bridgeId, nodeId } })
 		node.cleanup?.()
+		node.contextEventCleanup?.()
 		for (const resourceId of node.resourceIds || []) {
 			const resource = this.canvasResources.get(resourceId)
 			if (resource && (typeof resource === 'object' || typeof resource === 'function')) {
@@ -1823,6 +1845,32 @@ class Runtime {
 
 	disposeCanvasNodes({ bridgeId, params }) {
 		for (const nodeId of new Set(params.nodeIds || [])) this.disposeCanvasNode(nodeId, bridgeId)
+	}
+
+	observeWebGLContextEvents(node) {
+		if (node.contextEventCleanup) return
+		const forward = (event) => {
+			// Service runs in another JS environment and cannot cancel this DOM event
+			// before dispatch finishes. Keep native recovery enabled for its handlers.
+			if (event.type === 'webglcontextlost') event.preventDefault()
+			const contexts = {}
+			for (const [contextId, context] of node.contexts) {
+				contexts[contextId] = {
+					contextLost: event.type === 'webglcontextlost',
+					...(event.type === 'webglcontextrestored' ? { capabilities: describeWebGLContext(context, false) } : {}),
+				}
+			}
+			message.send({
+				type: 'canvasContextEvent', target: 'service',
+				body: { bridgeId: node.bridgeId, nodeId: node.nodeId, type: event.type, statusMessage: event.statusMessage || '', contexts },
+			})
+		}
+		node.canvas.addEventListener('webglcontextlost', forward)
+		node.canvas.addEventListener('webglcontextrestored', forward)
+		node.contextEventCleanup = () => {
+			node.canvas.removeEventListener('webglcontextlost', forward)
+			node.canvas.removeEventListener('webglcontextrestored', forward)
+		}
 	}
 
 	resolveCanvasArg(value, context) {
@@ -1947,6 +1995,7 @@ class Runtime {
 				const isWebGL = operation.contextType === 'webgl'
 					|| operation.contextType === 'experimental-webgl'
 					|| operation.contextType === 'webgl2'
+				if (context && isWebGL) this.observeWebGLContextEvents(node)
 				return {
 					contextId: operation.contextId,
 					context: context
@@ -2102,10 +2151,12 @@ class Runtime {
 					break
 				}
 				let value = null
+				let queryError
 				try {
 					value = method.apply(context, (operation.args || []).map(arg => this.resolveCanvasArg(arg)))
 				}
 				catch (error) {
+					queryError = { name: error.name, message: error.message }
 					console.warn('[system]', '[render]', `Canvas context query ${operation.method} failed: ${error}`)
 				}
 				return {
@@ -2113,6 +2164,7 @@ class Runtime {
 					query: {
 						key: operation.key,
 						value: serializeCanvasResult(value, item => this.getCanvasResourceId(item), operation.binary),
+						error: queryError,
 					},
 				}
 			}
@@ -2136,6 +2188,7 @@ class Runtime {
 							value: {
 								supported: Boolean(extension),
 								constants: extension ? collectNumericConstants(extension) : {},
+								methods: extension ? collectCallableMethods(extension) : [],
 							},
 						},
 					}
@@ -2145,16 +2198,29 @@ class Runtime {
 			case 'extensionCall': {
 				const extension = this.getCanvasResource(operation.extensionId)
 				const method = extension?.[operation.method]
+				let result = null
+				let queryError
 				if (typeof method === 'function') {
 					try {
-						const result = method.apply(extension, (operation.args || []).map(arg => this.resolveCanvasArg(arg)))
+						result = method.apply(extension, (operation.args || []).map(arg => this.resolveCanvasArg(arg)))
 						this.setCanvasResource(operation.resultId, result, node)
 					}
 					catch (error) {
+						queryError = { name: error.name, message: error.message }
 						console.warn('[system]', '[render]', `Canvas extension call ${operation.method} failed: ${error}`)
 					}
 				}
-				break
+				return {
+					contextId: operation.contextId,
+					...(operation.key ? { query: {
+						key: operation.key,
+						value: serializeCanvasResult(result, item => this.getCanvasResourceId(item), operation.binary),
+						error: queryError,
+					} } : {}),
+					...(operation.feedback === 'resource' ? { resource: {
+						resourceId: operation.resultId, metadata: { created: Boolean(result) },
+					} } : {}),
+				}
 			}
 			case 'resourceCall': {
 				const resource = this.getCanvasResource(operation.resourceId)

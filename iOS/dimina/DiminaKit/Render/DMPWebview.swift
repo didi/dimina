@@ -207,6 +207,14 @@ public class DMPWebview: NSObject, WKNavigationDelegate, WKScriptMessageHandler,
                 }, 0);
             }
 
+            // A native synchronous canvas query is a barrier after older
+            // publications. The Render module has installed its listeners by
+            // then, even if the bootstrap timer has not run yet.
+            bridge.__diminaFlushMessages = function() {
+                handlerReady = !!handler;
+                flushQueue();
+            };
+
             Object.defineProperty(bridge, 'onMessage', {
                 configurable: true,
                 enumerable: true,

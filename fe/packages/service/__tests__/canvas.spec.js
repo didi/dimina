@@ -130,6 +130,9 @@ describe('canvas api', () => {
 			for (const operation of body.params.operations) {
 				const context = feedback.contexts[operation.contextId] ||= {}
 				if (operation.op === 'getContext') Object.assign(context, { success: true, capabilities })
+				if (operation.op === 'contextQuery' && operation.method === 'isContextLost') {
+					context.queries = [{ key: operation.key, value: false }]
+				}
 				if (operation.op === 'getExtension') {
 					context.queries = [{
 						key: operation.key,
@@ -153,7 +156,8 @@ describe('canvas api', () => {
 			expect(extensionBatch).toMatchObject([{ op: 'getExtension', name: 'OES_texture_half_float', key: expect.any(String) }])
 			const batchCount = batches.length
 			expect(gl.getExtension('OES_texture_half_float')).toBe(halfFloat)
-			expect(batches).toHaveLength(batchCount)
+			expect(batches).toHaveLength(batchCount + 1)
+			expect(batches.at(-1)).toMatchObject([{ op: 'contextQuery', method: 'isContextLost' }])
 
 			// The native service cannot deliver this broadcast until the game module returns.
 			globalThis.DiminaServiceBridge.onMessage({
@@ -173,7 +177,8 @@ describe('canvas api', () => {
 			expect(instancing.VERTEX_ATTRIB_ARRAY_DIVISOR_ANGLE).toBe(0x88FE)
 			instancing.vertexAttribDivisorANGLE(2, 1)
 			expect(gl.getExtension('WEBGL_draw_buffers')).toBeNull()
-			expect(batches.at(-1).map(operation => operation.op)).toEqual(['extensionCall', 'getExtension'])
+			expect(batches.at(-2).map(operation => operation.op)).toEqual(['extensionCall', 'contextQuery'])
+			expect(batches.at(-1).map(operation => operation.op)).toEqual(['getExtension'])
 			expect(gl.getExtension('not_supported')).toBeNull()
 		}
 		finally {
@@ -919,7 +924,7 @@ describe('canvas api', () => {
 
 		gl.viewport(1, 2, 30, 40)
 		gl.enable(gl.BLEND)
-		expect(gl.getParameter(gl.VIEWPORT)).toEqual([1, 2, 30, 40])
+		expect(gl.getParameter(gl.VIEWPORT)).toEqual(new Int32Array([1, 2, 30, 40]))
 		expect(gl.isEnabled(gl.BLEND)).toBe(true)
 
 		const extension = gl.getExtension('angle_instanced_arrays')

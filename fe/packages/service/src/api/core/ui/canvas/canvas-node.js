@@ -443,6 +443,12 @@ message.on('pageUnload', ({ bridgeId }) => {
 	disposeCanvasNodes(bridgeId)
 })
 
+message.on('canvasContextEvent', (event) => {
+	for (const canvas of canvasNodesByBridge.get(event.bridgeId) || []) {
+		if (canvas.nodeId === event.nodeId && !canvas.disposed) canvas.handleContextEvent(event)
+	}
+})
+
 let canvasResourceSerial = 1
 let canvasRafSerial = 1
 
@@ -1028,6 +1034,7 @@ class WebGLExtensionProxy {
 		this.name = name
 		this.__canvasResourceId = extensionId
 		this.constants = descriptor.constants || {}
+		this.methods = descriptor.methods
 
 		return new Proxy(this, {
 			get(target, prop) {
@@ -1038,7 +1045,7 @@ class WebGLExtensionProxy {
 				if (Object.prototype.hasOwnProperty.call(target.constants, prop)) {
 					return target.constants[prop]
 				}
-				if (typeof prop === 'symbol') {
+				if (typeof prop === 'symbol' || (target.methods && !target.methods.includes(prop))) {
 					return undefined
 				}
 				return (...args) => target.call(prop, args)
@@ -1047,6 +1054,9 @@ class WebGLExtensionProxy {
 	}
 
 	call(method, args) {
+		const synchronous = this.context.canvas.supportsSyncQueries
+		const query = method.startsWith('get') || method.startsWith('is')
+		const key = query ? `${this.__canvasResourceId}:${this.context.queryKey(method, args)}` : undefined
 		let result
 		let resultId
 		if (method.startsWith('create')) {
@@ -1057,9 +1067,6 @@ class WebGLExtensionProxy {
 		else if (method.startsWith('delete') && args[0]?.markDeleted) {
 			args[0].markDeleted()
 		}
-		else if (method.startsWith('is') && args[0] instanceof CanvasResource) {
-			return !args[0].deleted
-		}
 
 		this.context.canvas.enqueueOperation({
 			op: 'extensionCall',
@@ -1068,7 +1075,26 @@ class WebGLExtensionProxy {
 			method,
 			args: serializeCanvasArgs(args),
 			resultId,
+			key,
+			binary: synchronous,
+			feedback: resultId && synchronous ? 'resource' : undefined,
 		})
+		if (synchronous && (query || resultId)) {
+			this.context.canvas.flushOperationsSync()
+			if (query) {
+				return this.context.readQueryResult(key, method)
+			}
+			if (!result.metadata.created) {
+				this.context.resources.delete(resultId)
+				return null
+			}
+		}
+		if (query) {
+			if (this.context.queryResults.has(key)) return this.context.queryResults.get(key)
+			if (method.startsWith('is')) return args[0] instanceof CanvasResource
+				&& args[0].resourceType === `${this.name}:create${method.slice(2)}` && !args[0].deleted
+			return null
+		}
 		return result
 	}
 }
@@ -1090,6 +1116,7 @@ class WebGLRenderingContextProxy {
 		this.enabledCapabilities = new Set()
 		this.errors = []
 		this.queryResults = new Map()
+		this.queryErrors = new Map()
 		this.contextLost = false
 		this.creationFailed = false
 		this.hasActualCapabilities = false
@@ -1117,7 +1144,7 @@ class WebGLRenderingContextProxy {
 				if (prop === 'drawingBufferHeight') {
 					return target.canvas.height
 				}
-				if (typeof prop === 'symbol') {
+				if (typeof prop === 'symbol' || (target.capabilities?.methods && !target.capabilities.methods.includes(prop))) {
 					return undefined
 				}
 				return (...args) => target.call(prop, args)
@@ -1137,8 +1164,8 @@ class WebGLRenderingContextProxy {
 
 	initializeState() {
 		const { width, height } = this.canvas
-		this.state.set(WEBGL_CONSTANTS.VIEWPORT, [0, 0, width, height])
-		this.state.set(WEBGL_CONSTANTS.SCISSOR_BOX, [0, 0, width, height])
+		this.state.set(WEBGL_CONSTANTS.VIEWPORT, new Int32Array([0, 0, width, height]))
+		this.state.set(WEBGL_CONSTANTS.SCISSOR_BOX, new Int32Array([0, 0, width, height]))
 		this.state.set(WEBGL_CONSTANTS.COLOR_CLEAR_VALUE, new Float32Array([0, 0, 0, 0]))
 		this.state.set(WEBGL_CONSTANTS.COLOR_WRITEMASK, [true, true, true, true])
 		this.state.set(WEBGL_CONSTANTS.DEPTH_CLEAR_VALUE, 1)
@@ -1217,7 +1244,8 @@ class WebGLRenderingContextProxy {
 			this.resources.get(update.resourceId)?.updateMetadata(deserializeCanvasValue(update.metadata))
 		}
 		for (const query of feedback.queries || []) {
-			this.queryResults.set(query.key, this.deserializeFeedbackValue(query.value))
+			if (query.error) this.queryErrors.set(query.key, query.error)
+			else this.queryResults.set(query.key, this.deserializeFeedbackValue(query.value))
 		}
 	}
 
@@ -1259,8 +1287,22 @@ class WebGLRenderingContextProxy {
 			binary: this.canvas.supportsSyncQueries,
 		})
 		if (this.canvas.supportsSyncQueries) this.canvas.flushOperationsSync()
+		return this.readQueryResult(key, method, fallback)
+	}
+
+	readQueryResult(key, method, fallback = null) {
+		const error = this.queryErrors.get(key)
+		if (error) {
+			this.queryErrors.delete(key)
+			this.queryResults.delete(key)
+			const exception = error.name === 'TypeError' ? new TypeError(error.message) : new Error(error.message)
+			exception.name = error.name || 'Error'
+			throw exception
+		}
 		if (this.canvas.supportsSyncQueries && !this.queryResults.has(key)) throw new Error(`WebGL query ${method} returned no result`)
-		return this.queryResults.has(key) ? this.queryResults.get(key) : fallback
+		const value = this.queryResults.has(key) ? this.queryResults.get(key) : fallback
+		if (this.canvas.supportsSyncQueries) this.queryResults.delete(key)
+		return value
 	}
 
 	createResource(method, args, resourceType) {
@@ -1300,7 +1342,7 @@ class WebGLRenderingContextProxy {
 
 	call(method, args) {
 		if (this.canvas.supportsSyncQueries && (method.startsWith('get')
-			&& !['getExtension', 'getSupportedExtensions', 'getContextAttributes', 'getError', 'getUniformLocation', 'getBufferSubData'].includes(method)
+			&& !['getExtension', 'getContextAttributes', 'getError', 'getUniformLocation', 'getBufferSubData'].includes(method)
 			|| method.startsWith('is') && method !== 'isContextLost')) {
 			return this.requestQuery(method, args)
 		}
@@ -1335,6 +1377,10 @@ class WebGLRenderingContextProxy {
 				return WEBGL_CONSTANTS.NO_ERROR
 			}
 			case 'isContextLost':
+				if (this.canvas.supportsSyncQueries) {
+					this.contextLost = this.requestQuery(method, args)
+					return this.contextLost
+				}
 				this.canvas.enqueueOperation({
 					op: 'contextFeedback',
 					contextId: this.contextId,
@@ -1345,13 +1391,15 @@ class WebGLRenderingContextProxy {
 			case 'checkFramebufferStatus':
 				return this.requestQuery(method, args, WEBGL_CONSTANTS.FRAMEBUFFER_COMPLETE)
 			case 'getContextAttributes':
+				if (this.canvas.supportsSyncQueries) return this.requestQuery(method, args)
+				if (this.contextLost) return null
 				return {
 					...(this.hasActualCapabilities && this.capabilities?.contextAttributes
 						? this.capabilities.contextAttributes
 						: this.requestedAttributes),
 				}
 			case 'getSupportedExtensions':
-				return (this.capabilities?.supportedExtensions || []).slice()
+				return this.contextLost ? null : (this.capabilities?.supportedExtensions || []).slice()
 			case 'getExtension':
 				return this.getExtension(args[0])
 			case 'getShaderPrecisionFormat':
@@ -1365,6 +1413,7 @@ class WebGLRenderingContextProxy {
 			case 'getUniform':
 			case 'getVertexAttrib':
 			case 'getVertexAttribOffset':
+			case 'clientWaitSync':
 				return this.requestQuery(method, args)
 			default:
 				break
@@ -1417,10 +1466,10 @@ class WebGLRenderingContextProxy {
 	updateState(method, args) {
 		switch (method) {
 			case 'viewport':
-				this.state.set(WEBGL_CONSTANTS.VIEWPORT, args.slice(0, 4))
+				this.state.set(WEBGL_CONSTANTS.VIEWPORT, new Int32Array(args.slice(0, 4)))
 				break
 			case 'scissor':
-				this.state.set(WEBGL_CONSTANTS.SCISSOR_BOX, args.slice(0, 4))
+				this.state.set(WEBGL_CONSTANTS.SCISSOR_BOX, new Int32Array(args.slice(0, 4)))
 				break
 			case 'clearColor':
 				this.state.set(WEBGL_CONSTANTS.COLOR_CLEAR_VALUE, new Float32Array(args.slice(0, 4)))
@@ -1507,6 +1556,7 @@ class WebGLRenderingContextProxy {
 	}
 
 	getParameter(pname) {
+		if (this.canvas.supportsSyncQueries) return this.requestQuery('getParameter', [pname])
 		if (this.state.has(pname)) {
 			const value = this.state.get(pname)
 			if (ArrayBuffer.isView(value)) {
@@ -1558,12 +1608,15 @@ class WebGLRenderingContextProxy {
 	}
 
 	getShaderPrecisionFormat(shaderType, precisionType) {
+		if (this.canvas.supportsSyncQueries) return this.requestQuery('getShaderPrecisionFormat', [shaderType, precisionType])
 		const key = `${shaderType}:${precisionType}`
 		const value = this.capabilities?.shaderPrecisionFormats?.[key]
 		return value ? { ...value } : this.requestQuery('getShaderPrecisionFormat', [shaderType, precisionType])
 	}
 
 	getExtension(requestedName) {
+		if (this.canvas.supportsSyncQueries) this.contextLost = this.requestQuery('isContextLost', [])
+		if (this.contextLost) return null
 		const requested = String(requestedName || '')
 		const supported = this.capabilities?.supportedExtensions || []
 		const name = supported.find(item => item.toLowerCase() === requested.toLowerCase())
@@ -1767,6 +1820,24 @@ export class CanvasNode {
 		})
 	}
 
+	handleContextEvent(event) {
+		for (const [contextId, feedback] of Object.entries(event.contexts || {})) {
+			const context = this.contextsById.get(contextId)
+			if (!context) continue
+			context.queryResults.clear()
+			context.queryErrors.clear()
+			if (event.type === 'webglcontextrestored') {
+				context.extensions.clear()
+				context.state.clear()
+				context.enabledCapabilities.clear()
+				context.errors.length = 0
+				context.initializeState()
+			}
+			context.applyFeedback(feedback)
+		}
+		this.dispatchEvent({ type: event.type, statusMessage: event.statusMessage })
+	}
+
 	handleContextCreationFailure(contextId, contextType, statusMessage) {
 		const context = this.contextsById.get(contextId)
 		if (this.contexts.get(contextType) === context) {
@@ -1792,7 +1863,12 @@ export class CanvasNode {
 			if (target && ArrayBuffer.isView(target)) {
 				const data = deserializeCanvasValue(update.value)
 				if (ArrayBuffer.isView(data)) {
-					target.set(data.subarray(0, target.length))
+					if (target instanceof DataView || data instanceof DataView) {
+						const destination = new Uint8Array(target.buffer, target.byteOffset, target.byteLength)
+						const source = new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+						destination.set(source.subarray(0, destination.byteLength))
+					}
+					else target.set(data.subarray(0, target.length))
 				}
 				else if (Array.isArray(data)) {
 					target.set(data.slice(0, target.length))

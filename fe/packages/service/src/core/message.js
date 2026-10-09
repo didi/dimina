@@ -9,7 +9,7 @@ import { decodeDataFunctions, encodeDataFunctions } from './data-function'
 const controlMessages = new Set([
 	'appHide', 'appShow', 'stackHide', 'stackShow', 'pageHide', 'pageShow', 'pageUnload',
 	'mU', 'flushCallbacks', 'hostEnvUpdate', 'loadResource', 'resourceLoaded',
-	'pageAttached', 'pageReady', 'mC', 'mA', 'mR', 'canvasCapabilities', 'canvasTransfer', 'canvasTransferredDispose', 'resourceLoadFailed',
+	'pageAttached', 'pageReady', 'mC', 'mA', 'mR', 'canvasCapabilities', 'canvasContextEvent', 'canvasTransfer', 'canvasTransferredDispose', 'resourceLoadFailed',
 ])
 
 class Message {
