@@ -27,13 +27,32 @@ struct LoadingSequenceTests {
     private func contains(_ view: UIView, title: String) -> Bool {
         (view as? UILabel)?.text == title || view.subviews.contains { contains($0, title: title) }
     }
-    private func settleAnimations() async throws {
-        try await Task.sleep(nanoseconds: 450_000_000)
+    private func settleAnimations(expectingHidden: Bool = false) async throws {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(10))
+        while true {
+            // Commit queued UIKit animations before checking their actual state.
+            CATransaction.flush()
+            let visible = windows()
+            let animating = visible.contains { !($0.layer.animationKeys() ?? []).isEmpty }
+            if !animating && (!expectingHidden || visible.isEmpty) {
+                await drainMainQueue() // Deliver any interrupted animation's completion.
+                return
+            }
+            try #require(clock.now < deadline, "Toast windows did not settle: \(visible)")
+            // Yield for UIKit; elapsed time alone never satisfies this wait.
+            try await clock.sleep(for: .milliseconds(10))
+        }
     }
 
-    @Test func secondLoadingSurvivesFirstHideAnimationAndCanBeHidden() async throws {
+    @Test(arguments: [Float(1), Float(0.25)])
+    func secondLoadingSurvivesFirstHideAnimationAndCanBeHidden(animationSpeed: Float) async throws {
         call("showLoading", title: "First")
         await drainMainQueue()
+        let firstWindow = try #require(windows().first { contains($0, title: "First") })
+        // Exercise slower animation completion without blocking the main thread.
+        firstWindow.layer.speed = animationSpeed
+        defer { firstWindow.layer.speed = 1 }
         try await settleAnimations()
         #expect(windows().contains { contains($0, title: "First") })
         call("hideLoading")
@@ -53,7 +72,7 @@ struct LoadingSequenceTests {
         }
         call("hideLoading")
         await drainMainQueue()
-        try await settleAnimations()
+        try await settleAnimations(expectingHidden: true)
         #expect(windows().isEmpty)
     }
 
@@ -61,7 +80,7 @@ struct LoadingSequenceTests {
         call("showLoading"); call("hideLoading")
         call("showLoading"); call("hideLoading")
         await drainMainQueue()
-        try await settleAnimations()
+        try await settleAnimations(expectingHidden: true)
         #expect(windows().isEmpty)
         call("showLoading", title: "Fresh")
         await drainMainQueue()
@@ -69,7 +88,7 @@ struct LoadingSequenceTests {
         #expect(windows().filter { contains($0, title: "Fresh") }.count == 1)
         call("hideLoading")
         await drainMainQueue()
-        try await settleAnimations()
+        try await settleAnimations(expectingHidden: true)
         #expect(windows().isEmpty)
     }
 
@@ -82,7 +101,7 @@ struct LoadingSequenceTests {
         #expect(windows().filter { contains($0, title: "Persistent") && $0.alpha == 1 }.count == 1)
         call("hideLoading")
         await drainMainQueue()
-        try await settleAnimations()
+        try await settleAnimations(expectingHidden: true)
         #expect(windows().isEmpty)
     }
 
@@ -96,7 +115,7 @@ struct LoadingSequenceTests {
         #expect(windows().contains { contains($0, title: "New") })
         call("hideLoading"); call("hideLoading")
         await drainMainQueue()
-        try await settleAnimations()
+        try await settleAnimations(expectingHidden: true)
         #expect(windows().isEmpty)
     }
 }
