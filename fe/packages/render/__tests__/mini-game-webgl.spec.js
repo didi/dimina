@@ -28,6 +28,12 @@ function createHostGL(canvas, attributes, type) {
 	const commands = []
 	const halfFloat = Object.create({ get HALF_FLOAT_OES() { return 0x8D61 } })
 	const anisotropic = Object.create({ get TEXTURE_MAX_ANISOTROPY_EXT() { return 0x84FE } })
+	const astc = Object.create(Object.defineProperties({}, {
+		COMPRESSED_RGBA_ASTC_6x6_KHR: { value: 0x93B4 },
+		COMPRESSED_RGBA_ASTC_10x10_KHR: { value: 0x93BB },
+		COMPRESSED_SRGB8_ALPHA8_ASTC_12x12_KHR: { value: 0x93DD },
+		getSupportedProfiles: { value: () => ['ldr'] },
+	}))
 	let currentProgram
 	let currentBuffer
 	let color = new Uint8Array(4)
@@ -40,12 +46,13 @@ function createHostGL(canvas, attributes, type) {
 		FLOAT: 0x1406, TRIANGLES: 4, RGBA: 0x1908, UNSIGNED_BYTE: 0x1401,
 		getContextAttributes: () => ({ alpha: true, preserveDrawingBuffer: false, ...attributes }),
 		getSupportedExtensions: () => [
-			'EXT_texture_filter_anisotropic', 'advertised-unavailable',
+			'EXT_texture_filter_anisotropic', 'WEBGL_compressed_texture_astc', 'advertised-unavailable',
 			...(type === 'webgl' ? ['OES_texture_half_float'] : []),
 		],
 		getExtension: name => name === 'EXT_texture_filter_anisotropic'
 			? anisotropic
-			: name === 'OES_texture_half_float' && type === 'webgl' ? halfFloat : null,
+			: name === 'WEBGL_compressed_texture_astc' ? astc
+				: name === 'OES_texture_half_float' && type === 'webgl' ? halfFloat : null,
 		getParameter: () => null,
 		getShaderPrecisionFormat: () => ({ rangeMin: 127, rangeMax: 127, precision: 23 }),
 		isContextLost: () => false,
@@ -65,6 +72,7 @@ function createHostGL(canvas, attributes, type) {
 		useProgram(program) { currentProgram = program; commands.push(['useProgram', program]) },
 		uniform4fv(location, values) { commands.push(['uniform4fv', location, values]); color = Uint8Array.from(values, channel => Math.round(channel * 255)) },
 		texImage2D(...args) { commands.push(['texImage2D', ...args]) },
+		compressedTexImage2D(...args) { commands.push(['compressedTexImage2D', ...args]) },
 		texParameterf(...args) { commands.push(['texParameterf', ...args]) },
 		createBuffer: () => ({}),
 		bindBuffer(_target, buffer) { currentBuffer = buffer },
@@ -201,5 +209,41 @@ describe('native mini game WebGL bridge', () => {
 		await Promise.resolve()
 		drainRender()
 		drainService()
+	})
+
+	it.each([
+		['webgl', true], ['webgl2', true], ['webgl', false], ['webgl2', false],
+	])('preserves mixed-case ASTC enums for %s with synchronous queries %s', async (type, synchronous) => {
+		globalThis.DiminaServiceBridge.canvasSyncSupported = synchronous
+		if (!synchronous) {
+			// The asynchronous path gets extension constants from capability snapshots.
+			runtime.publishCanvasCapabilities(bridgeId)
+			drainService()
+		}
+		const canvas = canvasApi.createCanvas()
+		const gl = canvas.getContext(type)
+		const extension = gl.getExtension('WEBGL_compressed_texture_astc')
+		expect(extension.COMPRESSED_RGBA_ASTC_6x6_KHR).toBe(0x93B4)
+		expect(extension.COMPRESSED_RGBA_ASTC_10x10_KHR).toBe(0x93BB)
+		expect(extension.COMPRESSED_SRGB8_ALPHA8_ASTC_12x12_KHR).toBe(0x93DD)
+		expect(typeof extension.getSupportedProfiles).toBe('function')
+		expect(extension.constants).not.toHaveProperty('getSupportedProfiles')
+		if (synchronous) expect(canvas.webglCapabilities).toBeNull()
+		const capabilities = synchronous
+			? toService.find(message => message.type === 'canvasCapabilities').body.capabilities
+			: canvas.webglCapabilities
+		expect(capabilities[type].extensions.WEBGL_compressed_texture_astc.constants).toEqual({
+			COMPRESSED_RGBA_ASTC_6x6_KHR: 0x93B4,
+			COMPRESSED_RGBA_ASTC_10x10_KHR: 0x93BB,
+			COMPRESSED_SRGB8_ALPHA8_ASTC_12x12_KHR: 0x93DD,
+		})
+		const pixels = new Uint8Array(16)
+		gl.compressedTexImage2D(gl.TEXTURE_2D, 0, extension.COMPRESSED_RGBA_ASTC_6x6_KHR, 6, 6, 0, pixels)
+		await Promise.resolve()
+		drainRender()
+		drainService()
+		const host = contexts.find(context => context.canvas.hasAttribute('data-dimina-game-canvas'))
+		expect(host.commands.find(command => command[0] === 'compressedTexImage2D'))
+			.toEqual(['compressedTexImage2D', gl.TEXTURE_2D, 0, 0x93B4, 6, 6, 0, pixels])
 	})
 })

@@ -428,7 +428,8 @@ function collectNumericConstants(value) {
 	const visited = new Set()
 	for (let current = value; current && current !== Object.prototype; current = Object.getPrototypeOf(current)) {
 		for (const name of Object.getOwnPropertyNames(current)) {
-			if (visited.has(name) || !/^[A-Z][A-Z0-9_]*$/.test(name)) {
+			// WebGL enums can contain lowercase characters, e.g. ASTC's 6x6 formats.
+			if (visited.has(name) || !/^[A-Z][A-Za-z0-9_]*$/.test(name)) {
 				continue
 			}
 			visited.add(name)
