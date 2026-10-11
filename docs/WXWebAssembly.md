@@ -61,6 +61,8 @@ Wasm 内部的 `memory.grow` 同样会分离旧 buffer，包含增长后立即�
 
 原生 Canvas 桥接同步返回 WebGL 查询、资源创建和像素读取结果，等待只发生在逻辑执行线程。Harmony 的 Worker 和 UI 线程通过异步回包保持可运行，并在超时或页面关闭时返回明确错误。接入时须同时更新原生 SDK、Service 和 Render 产物；上述宿主回归不能替代 Harmony 设备验收。
 
+播放器连续读取常用 WebGL 状态时，Service 将查询合并为一次真实 Render 读回；修改状态、调用扩展、调整画布尺寸或进入下一轮任务后，旧读回结果失效。此优化减少原生线程间同步往返，不使用预设状态替代实际 WebGL 结果。Wasm 仍由解释器执行，实际帧率需要用目标设备和业务素材测量；可在持续播放时读取 `PAGView.getDebugData()` 的 `FPS` 与 `flushTime`，首秒和首次资源加载期间的数据不代表稳定播放性能。
+
 Web 的 `<canvas type="webgl">` 节点通过 OffscreenCanvas 将绘制权交给逻辑 Worker，WebGL 查询、资源创建和像素读取由浏览器同步执行。通过 `createSelectorQuery().fields({ node: true })` 获取节点；传递在 selector 回调之前完成，同一节点重复查询返回同一对象。页面卸载释放 Worker 的 Canvas 和视频解码资源。`wx.createOffscreenCanvas` 在支持该能力的 Web Worker 中也使用浏览器画布。
 
 含视频的 PAG 使用 WebCodecs 解码 MP4；需要 HTTPS 或 localhost 安全上下文，以及浏览器支持对应编码。`wx.canIUse('createVideoDecoder')` 检查接口是否存在，具体视频的编码支持在 `start()` 时检查。libpag 同步写出的 MP4 保存在当前 Worker 的运行时文件空间，随后异步读取和解码；这些文件随小程序关闭消失，不会持久化到 OPFS。详见[文件系统的 Web 范围](./FileSystemManager.md#web-运行时文件)。

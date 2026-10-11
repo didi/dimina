@@ -25,6 +25,10 @@ export class DMPJSEngine {
     }
   }
 
+  postMessage(message: object) {
+    if (this.isRun) diminaNative.dispatchMessage(this.appIndex, message);
+  }
+
   evalJSPath(path: string, sourceURL: string) {
     if (this.isRun) {
       diminaNative.dispatchJsTaskPath(this.appIndex, path, sourceURL)
@@ -39,7 +43,7 @@ export class DMPJSEngine {
   }
 
   initWithWorker(appIndex: number,
-    serviceToContainer: (t: number, id: number, d: string, a: ArrayBuffer) => number | string | boolean | object,
+    serviceToContainer: (t: number, id: number, d: string | object, a: ArrayBuffer) => number | string | boolean | object,
     isDebugMode: boolean,
     debuggerAddress: string,
     virtualFilePrefix: string) {
@@ -47,7 +51,7 @@ export class DMPJSEngine {
 
     this.isRun = true;
 
-    diminaNative.StartJsEngine(this.appIndex, (t: number, id: number, data: string, ab: ArrayBuffer) => {
+    diminaNative.StartJsEngine(this.appIndex, (t: number, id: number, data: string | object, ab: ArrayBuffer) => {
       // DMPLogger.d(Tags.JS_ENGINE, `StartJsEngine, ${t}, ${id}, ${data}`)
       return serviceToContainer(t, id, data, ab);
     }, isDebugMode, debuggerAddress, virtualFilePrefix)

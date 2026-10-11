@@ -386,6 +386,7 @@ class MiniApp private constructor() {
         context: DiminaActivity,
         apiName: String,
         params: JSONObject,
+        structuredResponseCallback: ((JSONObject) -> Unit)? = null,
         responseCallback: (String) -> Unit,
     ): JSValue? {
 
@@ -393,8 +394,13 @@ class MiniApp private constructor() {
         var afterComplete: (() -> Unit)? = null
         var completeCarriesResult = false
         var callbackResult: JSONObject? = null
+        fun deliverFileCallback(key: String, value: JSONObject?) {
+            val callbackId = params.optString(key)
+            if (callbackId.isNotEmpty()) structuredResponseCallback?.invoke(ApiUtils.createCallbackMessage(callbackId, value))
+        }
+        val structuredFile = apiName.startsWith("FileSystemManager.") && structuredResponseCallback != null
         try {
-            LogUtils.d(tag, "Invoking API: $apiName with params: $params")
+            LogUtils.d(tag, "Invoking API: $apiName")
 
             // Invoke the API
             val result = apiRegistry.invoke(context, appId, apiName, params, responseCallback)
@@ -405,7 +411,9 @@ class MiniApp private constructor() {
                 callbackResult = result.value
                 val errorMsg = result.value.optString("errMsg", "")
                 if (errorMsg.isNotEmpty()) {
-                    if (errorMsg.endsWith(":ok")) {
+                    if (structuredFile) {
+                        deliverFileCallback(if (errorMsg.endsWith(":ok")) "success" else "fail", result.value)
+                    } else if (errorMsg.endsWith(":ok")) {
                         ApiUtils.invokeSuccess(params, result.value, responseCallback)
                     } else {
                         // API not found or invocation failed
@@ -425,14 +433,16 @@ class MiniApp private constructor() {
                     put("errMsg", "$apiName:fail ${e.message}")
                 }
                 callbackResult = failureResult
-                ApiUtils.invokeFail(params, failureResult, responseCallback)
+                if (structuredFile) deliverFileCallback("fail", failureResult)
+                else ApiUtils.invokeFail(params, failureResult, responseCallback)
             } else {
                 // JNI 会把 ERROR 类型转换为 JS_ThrowInternalError，保持同步 API 的抛错语义。
                 return JSValue.createError("$apiName:fail ${e.message ?: "operation failed"}")
             }
         } finally {
             if (isAsyncMethod) {
-                ApiUtils.invokeComplete(
+                if (structuredFile) deliverFileCallback("complete", callbackResult.takeIf { completeCarriesResult })
+                else ApiUtils.invokeComplete(
                     params,
                     responseCallback,
                     callbackResult.takeIf { completeCarriesResult },

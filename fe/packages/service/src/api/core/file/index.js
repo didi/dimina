@@ -1,4 +1,4 @@
-import { isWebWorker } from '@dimina/common'
+import { arrayBufferToBase64, base64ToArrayBuffer, isWebWorker } from '@dimina/common'
 import { createRuntimeFiles } from './web-runtime-files'
 import { invokeAPI } from '@/api/common'
 import { resolveVirtualFilePrefix } from './virtual-file-prefix.js'
@@ -18,15 +18,6 @@ const ARRAY_BUFFER_BASE64_KEY = '__diminaArrayBufferBase64'
 const FILE_DATA_BASE64_KEY = '__diminaFileDataBase64'
 const FILE_DATA_TYPE_KEY = '__diminaFileDataType'
 
-const BASE64_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
-const BASE64_LOOKUP = (() => {
-	const lookup = {}
-	for (let i = 0; i < BASE64_CHARS.length; i++) {
-		lookup[BASE64_CHARS[i]] = i
-	}
-	return lookup
-})()
-
 function isArrayBuffer(value) {
 	return Object.prototype.toString.call(value) === '[object ArrayBuffer]'
 }
@@ -45,61 +36,12 @@ function toArrayBuffer(value) {
 	return null
 }
 
-function arrayBufferToBase64(buffer) {
-	const bytes = new Uint8Array(buffer)
-	let result = ''
-	let i = 0
-	for (; i + 2 < bytes.length; i += 3) {
-		result += BASE64_CHARS[bytes[i] >> 2]
-		result += BASE64_CHARS[((bytes[i] & 3) << 4) | (bytes[i + 1] >> 4)]
-		result += BASE64_CHARS[((bytes[i + 1] & 15) << 2) | (bytes[i + 2] >> 6)]
-		result += BASE64_CHARS[bytes[i + 2] & 63]
-	}
-	if (i < bytes.length) {
-		result += BASE64_CHARS[bytes[i] >> 2]
-		if (i + 1 < bytes.length) {
-			result += BASE64_CHARS[((bytes[i] & 3) << 4) | (bytes[i + 1] >> 4)]
-			result += BASE64_CHARS[(bytes[i + 1] & 15) << 2]
-			result += '='
-		}
-		else {
-			result += BASE64_CHARS[(bytes[i] & 3) << 4]
-			result += '=='
-		}
-	}
-	return result
-}
-
-function base64ToArrayBuffer(base64) {
-	const clean = String(base64 || '').replace(/[\r\n\s]/g, '')
-	if (!clean) {
-		return new ArrayBuffer(0)
-	}
-
-	const padding = clean.endsWith('==') ? 2 : clean.endsWith('=') ? 1 : 0
-	const length = (clean.length * 3 / 4) - padding
-	const bytes = new Uint8Array(length)
-	let byteIndex = 0
-
-	for (let i = 0; i < clean.length; i += 4) {
-		const c1 = BASE64_LOOKUP[clean[i]]
-		const c2 = BASE64_LOOKUP[clean[i + 1]]
-		const c3 = clean[i + 2] === '=' ? 0 : BASE64_LOOKUP[clean[i + 2]]
-		const c4 = clean[i + 3] === '=' ? 0 : BASE64_LOOKUP[clean[i + 3]]
-
-		if (byteIndex < length) bytes[byteIndex++] = (c1 << 2) | (c2 >> 4)
-		if (byteIndex < length) bytes[byteIndex++] = ((c2 & 15) << 4) | (c3 >> 2)
-		if (byteIndex < length) bytes[byteIndex++] = ((c3 & 3) << 6) | c4
-	}
-
-	return bytes.buffer
-}
-
 function encodeFileData(data) {
 	const buffer = toArrayBuffer(data)
 	if (!buffer) {
 		return data
 	}
+	if (!isWebWorker && globalThis.DiminaServiceBridge?.fileBinarySupported) return buffer
 	return {
 		[FILE_DATA_TYPE_KEY]: 'base64',
 		[FILE_DATA_BASE64_KEY]: arrayBufferToBase64(buffer),
@@ -161,11 +103,13 @@ function normalizeReadZipEntryResult(res) {
 }
 
 function fillReadArrayBuffer(res, arrayBuffer, offset = 0) {
-	if (!res || typeof res !== 'object' || !arrayBuffer || res[ARRAY_BUFFER_BASE64_KEY] === undefined) {
+	if (!res || typeof res !== 'object' || !arrayBuffer) {
 		return res
 	}
-
-	const data = new Uint8Array(base64ToArrayBuffer(res[ARRAY_BUFFER_BASE64_KEY]))
+	const buffer = isArrayBuffer(res.arrayBuffer) ? res.arrayBuffer
+		: res[ARRAY_BUFFER_BASE64_KEY] !== undefined ? base64ToArrayBuffer(res[ARRAY_BUFFER_BASE64_KEY]) : null
+	if (!buffer) return res
+	const data = new Uint8Array(buffer)
 	new Uint8Array(arrayBuffer).set(data, offset)
 	const { [ARRAY_BUFFER_BASE64_KEY]: _, ...rest } = res
 	return {

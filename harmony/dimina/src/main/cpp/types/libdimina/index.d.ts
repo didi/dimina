@@ -1,6 +1,6 @@
 // Dimina Native
 export const StartJsEngine: (appIndex: number,
-  f: (t: number, w: number, d: string, a: ArrayBuffer) => number | string | boolean | object,
+  f: (t: number, w: number, d: string | object, a: ArrayBuffer) => number | string | boolean | object,
   isDebugMode: boolean,
   debuggerAddress: string,
   virtualFilePrefix: string) => number;
@@ -8,6 +8,7 @@ export const StartJsEngine: (appIndex: number,
 export const dispatchJsTask: (appIndex: number, script: string, sourceURL: string) => void;
 
 export const dispatchJsTaskAb: (appIndex: number, ab: ArrayBuffer, sourceURL: string) => void;
+export const dispatchMessage: (appIndex: number, message: object) => void;
 
 export const dispatchJsTaskPath: (appIndex: number, path: string, sourceURL: string) => void;
 

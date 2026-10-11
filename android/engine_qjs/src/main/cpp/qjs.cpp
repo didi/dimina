@@ -16,6 +16,8 @@
 #include "cutils.h"
 #include "libregexp.h"
 #include "libunicode.h"
+#include "../../../../../native/bridge/quickjs_value.hpp"
+#include "../../../../../native/bridge/jni_value.hpp"
 
 // Define log tag for Android logging
 #define LOG_TAG "QuickJSEngine(cpp)"
@@ -661,6 +663,16 @@ static JSValue convertJavaJSValueToQuickJS(JNIEnv* env, JSContext* ctx, jobject 
 
         if (stringValue) env->ReleaseStringUTFChars(jStringValue, stringValue);
         if (jStringValue) env->DeleteLocalRef(jStringValue);
+    } else if (typeNameString == "NATIVE") {
+        try {
+            auto field = env->GetFieldID(jsValueClass, "objectValue", "Ljava/lang/Object;");
+            jobject value = env->GetObjectField(resultObj, field);
+            result = dimina::bridge::toJS(ctx, dimina::bridge::fromJava(env, value));
+            env->DeleteLocalRef(value);
+        } catch (const std::exception &error) {
+            cleanup();
+            return throwJavaExceptionOrInternalError(ctx, env, error.what());
+        }
     } else if (typeNameString == "ERROR") {
         jfieldID errorField = env->GetFieldID(jsValueClass, "errorMessage", "Ljava/lang/String;");
         if (env->ExceptionCheck() || !errorField) {
@@ -712,6 +724,30 @@ static JSValue js_dimina_invoke(JSContext *ctx, JSValueConst this_val, int argc,
         return JS_ThrowInternalError(ctx, "Failed to get JNI environment");
     }
     JNIEnv* env = envGuard.get();
+
+    // File payloads bypass JSON so ArrayBuffers never become strings or empty
+    // objects. Other APIs keep their existing serialization contract.
+    try {
+        JSValueGuard body(ctx, JS_GetPropertyStr(ctx, argv[0], "body"));
+        if (body.isException()) return JS_EXCEPTION;
+        JSValueGuard name(ctx, JS_IsObject(body.get()) ? JS_GetPropertyStr(ctx, body.get(), "name") : JS_UNDEFINED);
+        if (name.isException()) return JS_EXCEPTION;
+        if (JS_IsString(name.get())) {
+            auto method = dimina::bridge::readString(ctx, name.get());
+            if (method.compare(0, 18, u"FileSystemManager.") == 0) {
+                dimina::bridge::LocalFrame frame(env);
+                jobject message = dimina::bridge::toJava(env, dimina::bridge::fromJS(ctx, argv[0]));
+                jclass cls = env->GetObjectClass(instance->engineObj);
+                auto invoke = env->GetMethodID(cls, "invokeFromJS", "(Lorg/json/JSONObject;)Lcom/didi/dimina/engine/qjs/JSValue;");
+                jobject result = env->CallObjectMethod(instance->engineObj, invoke, message);
+                if (env->ExceptionCheck()) return throwJavaExceptionOrInternalError(ctx, env, "file invoke failed");
+                return convertJavaJSValueToQuickJS(env, ctx, result);
+            }
+        }
+    } catch (const std::exception &error) {
+        return throwJavaExceptionOrInternalError(ctx, env, error.what());
+    }
+    if (JS_HasException(ctx)) return JS_EXCEPTION;
 
     // Stringify the input object
     JSValueGuard jsonStr(ctx, jsonStringify(ctx, argv[0]));
@@ -1177,6 +1213,7 @@ static void register_dimina_service_bridge(JSContext *ctx, const char* virtualFi
     
     // Register methods
     JS_SetPropertyStr(ctx, diminaObj, "canvasSyncSupported", JS_TRUE);
+    JS_SetPropertyStr(ctx, diminaObj, "fileBinarySupported", JS_TRUE);
     JS_SetPropertyStr(ctx, diminaObj, "encodeArrayBuffer", JS_NewCFunction(ctx, js_encode_array_buffer, "encodeArrayBuffer", 1));
     JS_SetPropertyStr(ctx, diminaObj, "decodeArrayBuffer", JS_NewCFunction(ctx, js_decode_array_buffer, "decodeArrayBuffer", 1));
     JS_SetPropertyStr(ctx, diminaObj, "invoke", 
@@ -1359,6 +1396,28 @@ Java_com_didi_dimina_engine_qjs_QuickJSEngine_nativeEvaluateFromFile(
 }
 
 // Evaluate JavaScript code and return JSValue
+extern "C" JNIEXPORT jobject JNICALL
+Java_com_didi_dimina_engine_qjs_QuickJSEngine_nativeMessage(JNIEnv *env, jobject, jobject message, jint instanceId) {
+    EngineInstance *instance = getEngineInstance(instanceId);
+    if (!instance || !instance->ctx) return createJSError(env, "Engine not initialized");
+    JSContext *ctx = instance->ctx;
+    try {
+        auto packet = dimina::bridge::fromJava(env, message);
+        JSValueGuard result(ctx, dimina::bridge::deliverMessage(ctx, packet));
+        if (result.isException()) {
+            JSValueGuard exception(ctx, JS_GetException(ctx));
+            return createJSError(env, getDetailedJSError(ctx, exception.get()).c_str());
+        }
+        runJavaScriptEventLoop(ctx);
+        jclass cls = env->FindClass("com/didi/dimina/engine/qjs/JSValue");
+        return env->CallStaticObjectMethod(cls, env->GetStaticMethodID(cls, "createUndefined", "()Lcom/didi/dimina/engine/qjs/JSValue;"));
+    } catch (const std::exception &error) {
+        if (env->ExceptionCheck()) env->ExceptionClear();
+        if (JS_HasException(ctx)) JS_FreeValue(ctx, JS_GetException(ctx));
+        return createJSError(env, error.what());
+    }
+}
+
 extern "C" JNIEXPORT jobject JNICALL
 Java_com_didi_dimina_engine_qjs_QuickJSEngine_nativeEvaluate(
         JNIEnv* env,

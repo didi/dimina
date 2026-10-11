@@ -1,4 +1,5 @@
 import XCTest
+import JavaScriptCore
 @testable import dimina
 
 final class DMPFileSystemCacheTests: XCTestCase {
@@ -24,11 +25,9 @@ final class DMPFileSystemCacheTests: XCTestCase {
             return output
         }
         for path in ["utils/module.wasm", "/utils/module.wasm"] {
-            let data = read(api.readFile, path: path).get("data") as? [String: Any]
-            XCTAssertEqual(data?["__diminaArrayBufferBase64"] as? String, wasm.base64EncodedString())
+            XCTAssertEqual(read(api.readFile, path: path).get("data") as? Data, wasm)
         }
-        let result = read(api.readCompressedFile, path: "/utils/module.wasm.br").get("data") as? [String: Any]
-        XCTAssertEqual(result?["__diminaArrayBufferBase64"] as? String, wasm.base64EncodedString())
+        XCTAssertEqual(read(api.readCompressedFile, path: "/utils/module.wasm.br").get("data") as? Data, wasm)
         _ = read(api.readFile, path: "../../outside.wasm", ok: false)
         _ = read(api.writeFile, path: "/utils/module.wasm", ok: false)
         XCTAssertEqual(try Data(contentsOf: directory.appendingPathComponent("module.wasm")), wasm)
@@ -90,5 +89,67 @@ final class DMPFileSystemCacheTests: XCTestCase {
         _ = call(api.unlink, ["filePath": base + "/renamed.json"])
         _ = call(api.rmdir, ["dirPath": base, "recursive": true])
         _ = call(api.access, ["path": file], ok: false)
+    }
+
+    @MainActor
+    func testLargeBinaryFilesCrossTheRealServiceBridgeWithoutSerialization() async throws {
+        let appId = "binary-files-\(UUID().uuidString)"
+        let app = DMPApp(appConfig: DMPAppConfig(appName: "binary", appId: appId), appIndex: 0)
+        app.container = DMPContainer(app: app)
+        let api = FileAPI(app: app)
+        let service = DMPService(app: app)
+        app.service = service
+        defer {
+            service.destroy()
+            FileAPI.clearOpenFiles(appId: appId)
+            try? FileManager.default.removeItem(atPath: DMPSandboxManager.appStoreResourceDirectoryPath(appId: appId))
+        }
+        let engine = service.getEngine()
+        // A native function delivery must work even if JSON serialization is disabled.
+        let setup = await engine.evaluateScript("""
+            var events = [];
+            DiminaServiceBridge.onMessage = function(msg) {
+                var bytes = new Uint8Array(msg.body.args.data);
+                events.push([msg.body.id, bytes.length, bytes[0], bytes[bytes.length - 1]]);
+            };
+            JSON.stringify = function() { throw new Error('file bridge must not stringify'); };
+            function file(name, params) {
+                return DiminaServiceBridge.invoke({ type: 'invokeAPI', target: 'container',
+                    body: { name: 'FileSystemManager.' + name, bridgeId: 0, params: params } });
+            }
+            var payload = new Uint8Array(8 * 1024 * 1024);
+            payload.fill(173); payload[0] = 0; payload[payload.length - 1] = 255;
+            var path = __VIRTUAL_FILE_PREFIX__ + 'usr/asset.bin';
+            file('writeFileSync', {filePath: path, data: payload.buffer});
+            var bytes = new Uint8Array(file('readFileSync', {filePath: path}));
+            bytes.length === payload.length && bytes[0] === 0 && bytes[bytes.length - 1] === 255;
+            """)
+        XCTAssertEqual(setup?.toBool(), true)
+        XCTAssertNotNil(api)
+        _ = await engine.evaluateScript("file('readFile', {filePath: path, success:'success', complete:'complete'});")
+        let result = await engine.evaluateScript("events.length === 2 && events[0][0] === 'success' && events[1][0] === 'complete' && events.every(e => e[1] === payload.length && e[2] === 0 && e[3] === 255)")
+        XCTAssertEqual(result?.toBool(), true)
+        let descriptor = await engine.evaluateScript("""
+            var fd = file('openSync', {filePath:path, flag:'r+'});
+            var part = file('readSync', {fd:fd, position:payload.length-2, length:10});
+            file('writeSync', {fd:fd, position:1, arrayBuffer:new Uint8Array([7,8]).buffer});
+            file('closeSync', {fd:fd});
+            var updated = new Uint8Array(file('readFileSync', {filePath:path, position:0, length:4}));
+            part.bytesRead === 2 && part.arrayBuffer instanceof ArrayBuffer &&
+                new Uint8Array(part.arrayBuffer)[1] === 255 && updated[1] === 7 && updated[2] === 8;
+            """)
+        XCTAssertEqual(descriptor?.toBool(), true)
+    }
+
+    func testBinaryBridgeOwnsBuffersAndPreservesEmptyNestedData() throws {
+        let context = try XCTUnwrap(JSContext())
+        var data = Data([0, 128, 255])
+        context.setObject(DMPBinaryBridge.encode(["entries": ["a.bin": ["data": data]], "empty": Data(), "__proto__": "own property"], in: context),
+                          forKeyedSubscript: "packet" as NSString)
+        data[1] = 1
+        XCTAssertTrue(context.evaluateScript("packet.empty instanceof ArrayBuffer && packet.empty.byteLength === 0 && new Uint8Array(packet.entries['a.bin'].data)[1] === 128")!.toBool())
+        XCTAssertEqual(DMPBinaryBridge.decodeBuffer(context.evaluateScript("packet.entries['a.bin'].data")), Data([0, 128, 255]))
+        XCTAssertEqual(DMPBinaryBridge.decodeBuffer(context.evaluateScript("packet.empty")), Data())
+        XCTAssertTrue(context.evaluateScript("Object.getPrototypeOf(packet) === Object.prototype && packet.__proto__ === 'own property'")!.toBool())
     }
 }

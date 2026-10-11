@@ -36,6 +36,10 @@ object ApiUtils {
      * @return The formatted response string
      */
     fun createCallbackResponse(callbackId: String, result: JSONObject? = null): String {
+        return createCallbackMessage(callbackId, result).toString()
+    }
+
+    fun createCallbackMessage(callbackId: String, result: JSONObject? = null): JSONObject {
         val response = JSONObject().apply {
             put("type", "triggerCallback")
             put("body", JSONObject().apply {
@@ -45,7 +49,7 @@ object ApiUtils {
                 }
             })
         }
-        return response.toString()
+        return response
     }
 
     fun invokeSuccess(params: JSONObject, resultData: JSONObject, responseCallback: (String) -> Unit) {

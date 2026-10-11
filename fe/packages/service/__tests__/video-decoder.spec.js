@@ -39,6 +39,42 @@ describe('VideoDecoder native adapter', () => {
 		expect(decoder.getFrameData()).toBeNull()
 	})
 
+	it('uses native owned frame bytes without a Worker/base64 round trip and suppresses reads after stop or removal', async () => {
+		const previousRead = globalThis.DiminaServiceBridge.getVideoDecoderFrame
+		const read = vi.fn()
+		globalThis.DiminaServiceBridge.getVideoDecoderFrame = read
+		try {
+			const decoder = createVideoDecoder()
+			vi.mocked(invokeAPI).mockResolvedValue({ width: 1, height: 1 })
+			await decoder.start({ source: 'video.mp4' })
+			vi.mocked(invokeAPI).mockClear()
+			const bytes = Uint8Array.of(1, 2, 3, 255).buffer
+			read.mockReturnValueOnce({ width: 1, height: 1, pts: 0, data: bytes })
+			const frame = decoder.getFrameData()
+			expect(invokeAPI).not.toHaveBeenCalled()
+			expect(frame.data).toBe(bytes)
+			expect(read).toHaveBeenCalledWith(decoder.videoDecoderId)
+			read.mockReturnValueOnce({ ended: true })
+			const ended = vi.fn()
+			decoder.on('ended', ended)
+			expect(decoder.getFrameData()).toBeNull()
+			expect(ended).toHaveBeenCalledTimes(1)
+			read.mockReturnValueOnce({ error: 'codec failed' })
+			expect(() => decoder.getFrameData()).toThrow('codec failed')
+			await decoder.stop()
+			read.mockClear()
+			expect(decoder.getFrameData()).toBeNull()
+			expect(read).not.toHaveBeenCalled()
+			await decoder.remove()
+			expect(decoder.getFrameData()).toBeNull()
+			expect(read).not.toHaveBeenCalled()
+		}
+		finally {
+			if (previousRead === undefined) delete globalThis.DiminaServiceBridge.getVideoDecoderFrame
+			else globalThis.DiminaServiceBridge.getVideoDecoderFrame = previousRead
+		}
+	})
+
 	it('emits ended once after consuming the final frame and permits seeking from ended', async () => {
 		const decoder = createVideoDecoder()
 		const ended = vi.fn()

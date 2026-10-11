@@ -72,6 +72,7 @@ EXTERN_C_START static napi_value Init(napi_env env, napi_value exports) {
         {"StartJsEngine", nullptr, StartJsEngine, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"dispatchJsTask", nullptr, dispatchJsTask, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"dispatchJsTaskAb", nullptr, dispatchJsTaskAb, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"dispatchMessage", nullptr, dispatchMessage, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"dispatchJsTaskPath", nullptr, dispatchJsTaskPath, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"destroyJsEngine", nullptr, destroyJsEngine, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"brotliDecompress", nullptr, BrotliDecompress, nullptr, nullptr, nullptr, napi_default, nullptr},

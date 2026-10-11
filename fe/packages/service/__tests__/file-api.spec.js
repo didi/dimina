@@ -15,6 +15,67 @@ function bytes(buffer) {
 describe('file api service adapter', () => {
 	beforeEach(() => {
 		vi.mocked(invokeAPI).mockReset()
+		delete globalThis.DiminaServiceBridge.fileBinarySupported
+		delete globalThis.DiminaServiceBridge.encodeArrayBuffer
+	})
+
+	it('passes large buffers directly when the native file bridge supports binary data', () => {
+		globalThis.DiminaServiceBridge.fileBinarySupported = true
+		const encode = vi.fn(() => { throw new Error('binary files must bypass Base64') })
+		globalThis.DiminaServiceBridge.encodeArrayBuffer = encode
+		const buffer = new Uint8Array(8 * 1024 * 1024).fill(173).buffer
+		const fsm = getFileSystemManager()
+		fsm.writeFileSync('difile://usr/asset.bin', buffer)
+		fsm.appendFile({ filePath: 'difile://usr/asset.bin', data: buffer })
+		fsm.writeSync({ fd: 'fd-1', arrayBuffer: buffer, offset: 2, length: 5 })
+		expect(invokeAPI.mock.calls[0][1].data).toBe(buffer)
+		expect(invokeAPI.mock.calls[1][1].data).toBe(buffer)
+		expect(invokeAPI.mock.calls[2][1].arrayBuffer).toBe(buffer)
+		expect(encode).not.toHaveBeenCalled()
+	})
+
+	it('preserves a typed view byte range for direct writes', () => {
+		globalThis.DiminaServiceBridge.fileBinarySupported = true
+		const data = new Uint8Array([9, 104, 105, 8])
+		getFileSystemManager().writeFileSync('difile://usr/a.bin', new DataView(data.buffer, 1, 2))
+		expect(bytes(invokeAPI.mock.calls[0][1].data)).toEqual([104, 105])
+	})
+
+	it('uses native Base64 codecs with older bridges', () => {
+		const data = new Uint8Array([104, 105]).buffer
+		globalThis.DiminaServiceBridge.encodeArrayBuffer = vi.fn(() => 'aGk=')
+		getFileSystemManager().writeFileSync('difile://usr/a.bin', data)
+		expect(globalThis.DiminaServiceBridge.encodeArrayBuffer).toHaveBeenCalledWith(data)
+		expect(invokeAPI.mock.calls[0][1].data.__diminaFileDataBase64).toBe('aGk=')
+	})
+
+	it('retains direct buffers for sync, promise, zip, success and complete reads', async () => {
+		const fsm = getFileSystemManager()
+		const data = new Uint8Array([0, 255, 1]).buffer
+		invokeAPI.mockReturnValueOnce(data)
+		expect(fsm.readFileSync('difile://usr/a.bin')).toBe(data)
+		invokeAPI.mockResolvedValueOnce({ data })
+		expect((await fsm.readFile({ filePath: 'difile://usr/a.bin' })).data).toBe(data)
+		invokeAPI.mockResolvedValueOnce({ entries: { 'a.bin': { data } } })
+		expect((await fsm.readZipEntry({ filePath: 'difile://usr/a.zip' })).entries['a.bin'].data).toBe(data)
+		const success = vi.fn(), complete = vi.fn()
+		fsm.readCompressedFile({ filePath: 'difile://usr/a.br', success, complete })
+		const options = invokeAPI.mock.calls.at(-1)[1]
+		options.success({ data }); options.complete({ data })
+		expect(success.mock.calls[0][0].data).toBe(data)
+		expect(complete.mock.calls[0][0].data).toBe(data)
+	})
+
+	it('copies direct descriptor reads at the requested offset including an empty EOF', () => {
+		const target = new ArrayBuffer(5)
+		invokeAPI.mockReturnValueOnce({ bytesRead: 2, arrayBuffer: new Uint8Array([0, 255]).buffer })
+		const result = getFileSystemManager().readSync({ fd: 'fd-1', arrayBuffer: target, offset: 2, length: 2 })
+		expect(result.arrayBuffer).toBe(target)
+		expect(result.bytesRead).toBe(2)
+		expect(bytes(target)).toEqual([0, 0, 0, 255, 0])
+		invokeAPI.mockReturnValueOnce({ bytesRead: 0, arrayBuffer: new ArrayBuffer(0) })
+		expect(getFileSystemManager().readSync({ fd: 'fd-1', arrayBuffer: target }).arrayBuffer).toBe(target)
+		expect(bytes(target)).toEqual([0, 0, 0, 255, 0])
 	})
 
 	it('exposes wx.env.USER_DATA_PATH as the user file root', () => {

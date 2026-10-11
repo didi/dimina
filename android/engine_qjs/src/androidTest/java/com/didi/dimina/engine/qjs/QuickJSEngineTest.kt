@@ -9,6 +9,7 @@ import org.junit.runner.RunWith
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
+import org.json.JSONObject
 
 /**
  * Instrumented tests for QuickJSEngine with libuv event loop
@@ -125,6 +126,45 @@ import java.util.concurrent.atomic.AtomicReference
  */
 @RunWith(AndroidJUnit4::class)
 class QuickJSEngineTest {
+
+    @Test
+    fun largeBinaryFileMessagesBypassJsonAndPreserveCallbackOrder() {
+        assertTrue(jsEngine.initialize())
+        val expected = ByteArray(8 * 1024 * 1024) { 173.toByte() }.apply {
+            this[0] = 0; this[lastIndex] = 255.toByte()
+        }
+        jsEngine.setInvokeCallback("file") { message ->
+            val params = message.getJSONObject("body").getJSONObject("params")
+            assertArrayEquals(expected, params.get("data") as ByteArray)
+            JSValue.createNative(JSONObject().put("data", expected).put("empty", ByteArray(0)))
+        }
+        val result = jsEngine.evaluate("""
+            JSON.stringify = function() { throw new Error('binary bridge must not stringify'); };
+            var payload = new Uint8Array(8 * 1024 * 1024);
+            payload.fill(173); payload[0] = 0; payload[payload.length - 1] = 255;
+            var result = DiminaServiceBridge.invoke({type:'invokeAPI', target:'container', body:{
+                bridgeId:'file', name:'FileSystemManager.writeFileSync', params:{data:payload.buffer}
+            }});
+            result.data instanceof ArrayBuffer && result.data.byteLength === payload.length &&
+                new Uint8Array(result.data)[0] === 0 && new Uint8Array(result.data)[payload.length-1] === 255 &&
+                result.empty instanceof ArrayBuffer && result.empty.byteLength === 0;
+        """.trimIndent())
+        assertEquals(result.toString(), JSValue.Type.BOOLEAN, result.type)
+        assertTrue(result.booleanValue)
+        jsEngine.evaluate("""
+            var events=[];
+            DiminaServiceBridge.onMessage=function(message) {
+                var bytes=new Uint8Array(message.body.args.data);
+                events.push(message.body.id + ':' + bytes.length + ':' + bytes[bytes.length-1]);
+            };
+        """.trimIndent())
+        for (id in listOf("success", "complete")) {
+            val message = JSONObject().put("type", "triggerCallback").put("body",
+                JSONObject().put("id", id).put("args", JSONObject().put("data", expected)))
+            assertEquals(JSValue.Type.UNDEFINED, jsEngine.sendMessage(message).type)
+        }
+        assertTrue(jsEngine.evaluate("events.join(',') === 'success:8388608:255,complete:8388608:255'").booleanValue)
+    }
     
     private lateinit var jsEngine: QuickJSEngine
     

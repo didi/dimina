@@ -15,10 +15,20 @@ public class DMPEngineInvoke {
         appResolver: @escaping () -> DMPApp? = { nil }
     ) {
         let invoke: @convention(block) (JSValue) -> JSValue? = { d in
-            let msg = d.toDictionary()
-            let type = msg!["type"] as! String
-            let body = DMPMap.fromDict(dict:  msg!["body"] as! [String : Any])
-            let target = msg!["target"] as! String
+            let type = d.forProperty("type").toString() ?? ""
+            let target = d.forProperty("target").toString() ?? ""
+            let rawBody = d.forProperty("body")!
+            let body: DMPMap
+            if type == "invokeAPI", target == "container",
+               let name = rawBody.forProperty("name")?.toString(), name.hasPrefix("FileSystemManager.") {
+                body = DMPMap([
+                    "name": name,
+                    "bridgeId": rawBody.forProperty("bridgeId")?.toObject() ?? 0,
+                    "params": DMPBinaryBridge.decodeFileParams(rawBody.forProperty("params"))
+                ])
+            } else {
+                body = DMPMap(rawBody.toDictionary() ?? [:])
+            }
 
             guard let app = appResolver() else {
                 return JSValue(nullIn: context)
@@ -50,6 +60,7 @@ public class DMPEngineInvoke {
         let bridge = global?.objectForKeyedSubscript("DiminaServiceBridge")
         
         bridge?.setObject(true, forKeyedSubscript: "canvasSyncSupported" as NSString)
+        bridge?.setObject(true, forKeyedSubscript: "fileBinarySupported" as NSString)
         bridge?.setObject(invoke, forKeyedSubscript: "invoke" as NSString)
         
         DMPLogger.debug("registerInvoke 完成")

@@ -76,6 +76,23 @@ const WEBGL_DEFAULT_CONTEXT_ATTRIBUTES = {
 	desynchronized: false,
 }
 
+// PAG/Skia saves these states together before drawing. Read the real renderer
+// values in one bridge call rather than blocking every thread once per enum.
+const WEBGL_SNAPSHOT_PARAMETERS = [
+	0x84E0, // ACTIVE_TEXTURE
+	0x8894, 0x8895, // ARRAY_BUFFER_BINDING, ELEMENT_ARRAY_BUFFER_BINDING
+	0x8B8D, 0x8CA6, 0x8CA7, // CURRENT_PROGRAM, FRAMEBUFFER_BINDING, RENDERBUFFER_BINDING
+	0x8069, 0x8514, // TEXTURE_BINDING_2D, TEXTURE_BINDING_CUBE_MAP
+	0x0BA2, 0x0C10, // VIEWPORT, SCISSOR_BOX
+	0x0C22, 0x0C23, // COLOR_CLEAR_VALUE, COLOR_WRITEMASK
+	0x8005, 0x80C8, 0x80C9, 0x80CA, 0x80CB, 0x8009, 0x883D, // blend state
+	0x0B72, 0x0B73, 0x0B74, 0x0B45, 0x0B46, // depth and face state
+	0x0D05, 0x0CF5, // PACK_ALIGNMENT, UNPACK_ALIGNMENT
+]
+const WEBGL_SNAPSHOT_ENABLED = [
+	0x0BE2, 0x0B44, 0x0B71, 0x0BD0, 0x0C11, 0x0B90, 0x8037, 0x809E, 0x80A0,
+]
+
 const webglCapabilitiesByBridge = new Map()
 const canvasNodesByBridge = new Map()
 let miniGameScreenCanvas = null
@@ -1117,6 +1134,7 @@ class WebGLRenderingContextProxy {
 		this.errors = []
 		this.queryResults = new Map()
 		this.queryErrors = new Map()
+		this.stateSnapshot = null
 		this.contextLost = false
 		this.creationFailed = false
 		this.hasActualCapabilities = false
@@ -1236,6 +1254,7 @@ class WebGLRenderingContextProxy {
 		}
 		if (typeof feedback.contextLost === 'boolean') {
 			this.contextLost = feedback.contextLost
+			if (this.contextLost) this.invalidateStateSnapshot()
 		}
 		for (const error of feedback.errors || []) {
 			this.queueError(error)
@@ -1274,6 +1293,52 @@ class WebGLRenderingContextProxy {
 
 	queryKey(method, args) {
 		return `${method}:${JSON.stringify(serializeCanvasArgs(args))}`
+	}
+
+	invalidateStateSnapshot() {
+		this.stateSnapshot = null
+	}
+
+	requestStateQuery(method, pname) {
+		const enums = method === 'getParameter' ? WEBGL_SNAPSHOT_PARAMETERS : WEBGL_SNAPSHOT_ENABLED
+		if (!enums.includes(pname)) return this.requestQuery(method, [pname])
+		const key = this.queryKey(method, [pname])
+		if (!this.stateSnapshot?.has(key)) {
+			const queries = [
+				...WEBGL_SNAPSHOT_PARAMETERS.map(value => ['getParameter', value]),
+				...WEBGL_SNAPSHOT_ENABLED.map(value => ['isEnabled', value]),
+			]
+			for (const [queryMethod, value] of queries) {
+				this.canvas.enqueueOperation({
+					op: 'contextQuery', contextId: this.contextId, method: queryMethod,
+					args: [value], key: this.queryKey(queryMethod, [value]), binary: true,
+				})
+			}
+			this.canvas.flushOperationsSync()
+			const snapshot = new Map()
+			// A failed query is never replaced with an optimistic default. Consume
+			// only successful results; the requested error follows the usual path.
+			for (const [queryMethod, value] of queries) {
+				const queryKey = this.queryKey(queryMethod, [value])
+				if (!this.queryErrors.has(queryKey) && this.queryResults.has(queryKey)) {
+					snapshot.set(queryKey, this.queryResults.get(queryKey))
+					this.queryResults.delete(queryKey)
+				}
+				else if (queryKey !== key) {
+					this.queryErrors.delete(queryKey)
+					this.queryResults.delete(queryKey)
+				}
+			}
+			this.stateSnapshot = snapshot
+			// Context loss can happen independently of service commands. Never
+			// carry a snapshot into another microtask or animation frame.
+			scheduleMicrotask(() => {
+				if (this.stateSnapshot === snapshot) this.invalidateStateSnapshot()
+			})
+		}
+		if (!this.stateSnapshot.has(key)) return this.readQueryResult(key, method)
+		const value = this.stateSnapshot.get(key)
+		return ArrayBuffer.isView(value) || Array.isArray(value) ? value.slice() : value
 	}
 
 	requestQuery(method, args, fallback = null) {
@@ -1342,8 +1407,8 @@ class WebGLRenderingContextProxy {
 
 	call(method, args) {
 		if (this.canvas.supportsSyncQueries && (method.startsWith('get')
-			&& !['getExtension', 'getContextAttributes', 'getError', 'getUniformLocation', 'getBufferSubData'].includes(method)
-			|| method.startsWith('is') && method !== 'isContextLost')) {
+			&& !['getParameter', 'getExtension', 'getContextAttributes', 'getError', 'getUniformLocation', 'getBufferSubData'].includes(method)
+			|| method.startsWith('is') && !['isContextLost', 'isEnabled'].includes(method))) {
 			return this.requestQuery(method, args)
 		}
 		switch (method) {
@@ -1379,6 +1444,7 @@ class WebGLRenderingContextProxy {
 			case 'isContextLost':
 				if (this.canvas.supportsSyncQueries) {
 					this.contextLost = this.requestQuery(method, args)
+					if (this.contextLost) this.invalidateStateSnapshot()
 					return this.contextLost
 				}
 				this.canvas.enqueueOperation({
@@ -1387,6 +1453,7 @@ class WebGLRenderingContextProxy {
 				})
 				return this.contextLost
 			case 'isEnabled':
+				if (this.canvas.supportsSyncQueries) return this.requestStateQuery(method, args[0])
 				return this.enabledCapabilities.has(args[0])
 			case 'checkFramebufferStatus':
 				return this.requestQuery(method, args, WEBGL_CONSTANTS.FRAMEBUFFER_COMPLETE)
@@ -1556,7 +1623,7 @@ class WebGLRenderingContextProxy {
 	}
 
 	getParameter(pname) {
-		if (this.canvas.supportsSyncQueries) return this.requestQuery('getParameter', [pname])
+		if (this.canvas.supportsSyncQueries) return this.requestStateQuery('getParameter', pname)
 		if (this.state.has(pname)) {
 			const value = this.state.get(pname)
 			if (ArrayBuffer.isView(value)) {
@@ -2028,6 +2095,13 @@ export class CanvasNode {
 
 	enqueueOperation(operation) {
 		if (this.disposed) throw new Error('canvas node is disposed')
+		if (!['contextQuery', 'contextFeedback'].includes(operation.op)) {
+			for (const [contextId, context] of this.contextsById) {
+				if (context instanceof WebGLRenderingContextProxy && (!operation.contextId || operation.contextId === contextId)) {
+					context.invalidateStateSnapshot()
+				}
+			}
+		}
 		this.pendingOperations.push(operation)
 		if (this.flushScheduled) {
 			return

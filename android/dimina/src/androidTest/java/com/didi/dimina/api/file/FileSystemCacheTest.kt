@@ -5,6 +5,7 @@ import android.content.ContextWrapper
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.didi.dimina.api.AsyncResult
+import com.didi.dimina.api.SyncResult
 import com.didi.dimina.common.PathUtils
 import com.didi.dimina.ui.container.DiminaActivity
 import org.json.JSONObject
@@ -15,6 +16,45 @@ import java.util.UUID
 
 @RunWith(AndroidJUnit4::class)
 class FileSystemCacheTest {
+    @Test
+    fun binaryFileApisPreserveLargePayloadAndDescriptorRanges() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        lateinit var activity: DiminaActivity
+        instrumentation.runOnMainSync {
+            activity = DiminaActivity()
+            ContextWrapper::class.java.getDeclaredMethod("attachBaseContext", Context::class.java)
+                .apply { isAccessible = true }.invoke(activity, instrumentation.targetContext)
+        }
+        val appId = "binary-file-test-${UUID.randomUUID()}"
+        val api = FileApi()
+        fun args(vararg pairs: Pair<String, Any>) = JSONObject().apply { pairs.forEach { put(it.first, it.second) } }
+        fun sync(name: String, params: JSONObject) =
+            (api.handleAction(activity, appId, "FileSystemManager.$name", params) {} as SyncResult).value
+        val path = "${PathUtils.VIRTUAL_DOMAIN_URL}usr/asset.bin"
+        val bytes = ByteArray(8 * 1024 * 1024) { 173.toByte() }.apply { this[0] = 0; this[lastIndex] = 255.toByte() }
+        try {
+            sync("writeFileSync", args("filePath" to path, "data" to bytes))
+            assertArrayEquals(bytes, sync("readFileSync", args("filePath" to path)).objectValue as ByteArray)
+            val async = api.handleAction(activity, appId, "FileSystemManager.readFile", args("filePath" to path)) {} as AsyncResult
+            assertArrayEquals(bytes, async.value.get("data") as ByteArray)
+            val fd = sync("openSync", args("filePath" to path, "flag" to "r+")).stringValue!!
+            try {
+                val part = sync("readSync", args("fd" to fd, "position" to bytes.size - 2, "length" to 10)).objectValue as JSONObject
+                assertEquals(2, part.getInt("bytesRead"))
+                assertArrayEquals(byteArrayOf(173.toByte(), 255.toByte()), part.get("arrayBuffer") as ByteArray)
+                val eof = sync("readSync", args("fd" to fd, "position" to bytes.size, "length" to 1)).objectValue as JSONObject
+                assertEquals(0, eof.getInt("bytesRead"))
+                assertArrayEquals(ByteArray(0), eof.get("arrayBuffer") as ByteArray)
+                sync("writeSync", args("fd" to fd, "position" to 1, "arrayBuffer" to byteArrayOf(9, 7, 8, 9), "offset" to 1, "length" to 2))
+            } finally { sync("closeSync", args("fd" to fd)) }
+            assertArrayEquals(byteArrayOf(0, 7, 8, 173.toByte()),
+                sync("readFileSync", args("filePath" to path, "position" to 0, "length" to 4)).objectValue as ByteArray)
+        } finally {
+            PathUtils.appUserRoot(activity, appId).deleteRecursively()
+            PathUtils.appTempRoot(activity, appId).deleteRecursively()
+        }
+    }
+
     @Test
     fun readsPackagedWasmAndBrotliWithoutAllowingWritesOrTraversal() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
@@ -39,9 +79,9 @@ class FileSystemCacheTest {
         }
         try {
             for (path in listOf("utils/module.wasm", "/utils/module.wasm")) {
-                assertEquals("AGFzbQEAAAA=", call("readFile", path).getJSONObject("data").getString("__diminaArrayBufferBase64"))
+                assertArrayEquals(wasm, call("readFile", path).get("data") as ByteArray)
             }
-            assertEquals("AGFzbQEAAAA=", call("readCompressedFile", "/utils/module.wasm.br").getJSONObject("data").getString("__diminaArrayBufferBase64"))
+            assertArrayEquals(wasm, call("readCompressedFile", "/utils/module.wasm.br").get("data") as ByteArray)
             call("readFile", "../../outside.wasm", false)
             call("writeFile", "/utils/module.wasm", false)
             assertArrayEquals(wasm, java.io.File(directory, "module.wasm").readBytes())

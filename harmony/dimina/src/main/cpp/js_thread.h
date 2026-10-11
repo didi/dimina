@@ -23,6 +23,7 @@ using OwnedCStr = std::unique_ptr<char, FreeDeleter>;
 extern napi_value StartJsEngine(napi_env env, napi_callback_info info);
 extern napi_value dispatchJsTask(napi_env env, napi_callback_info info);
 extern napi_value dispatchJsTaskAb(napi_env env, napi_callback_info info);
+extern napi_value dispatchMessage(napi_env env, napi_callback_info info);
 extern napi_value dispatchJsTaskPath(napi_env env, napi_callback_info info);
 extern napi_value destroyJsEngine(napi_env env, napi_callback_info info);
 

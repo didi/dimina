@@ -33,7 +33,7 @@ class Message {
 	handleMsg(msg) {
 		try {
 			const decodedMsg = decodeDataFunctions(msg)
-			console.log('[service] receive msg: ', isWebWorker ? decodedMsg : JSON.stringify(decodedMsg))
+			console.log('[service] receive msg: ', decodedMsg.type)
 			const { type, body } = decodedMsg
 			const deliver = () => {
 				try { this.event.emit(type, body) }

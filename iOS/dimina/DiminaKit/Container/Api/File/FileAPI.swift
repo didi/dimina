@@ -76,7 +76,6 @@ public class FileAPI: DMPContainerApi {
     private static var VIRTUAL_PREFIX: String { DMPFileUtil.virtualFilePrefix }
     private static let USER_PREFIX = "usr"
     private static let TEMP_PREFIX = "tmp"
-    private static let ARRAY_BUFFER_BASE64_KEY = "__diminaArrayBufferBase64"
     private static let FILE_DATA_BASE64_KEY = "__diminaFileDataBase64"
     private static let FILE_DATA_TYPE_KEY = "__diminaFileDataType"
     private static let DOCUMENT_TYPES: Set<String> = ["doc", "docx", "xls", "xlsx", "ppt", "pptx", "pdf"]
@@ -507,6 +506,7 @@ public class FileAPI: DMPContainerApi {
 
     private static func bytes(param: DMPBridgeParam, key: String = "data") -> Data {
         let map = param.getMap()
+        if let data = map.get(key) as? Data { return data }
         if let encoded = map.get(key) as? [String: Any],
            encoded[FILE_DATA_TYPE_KEY] as? String == "base64",
            let base64 = encoded[FILE_DATA_BASE64_KEY] as? String,
@@ -522,8 +522,8 @@ public class FileAPI: DMPContainerApi {
         return Data()
     }
 
-    private static func bufferPayload(_ data: Data) -> [String: Any] {
-        [ARRAY_BUFFER_BASE64_KEY: data.base64EncodedString()]
+    private static func bufferPayload(_ data: Data) -> Data {
+        data
     }
 
     private static func userPath(env: DMPBridgeEnv, url: URL) -> String {
@@ -683,7 +683,7 @@ public class FileAPI: DMPContainerApi {
         if let position = map.getInt(key: "position") { try file.handle.seek(toOffset: UInt64(position)) }
         let length = map.getInt(key: "length") ?? map.getInt(key: "arrayBufferLength") ?? Int.max
         let data = try file.handle.read(upToCount: length) ?? Data()
-        return ["bytesRead": data.count, ARRAY_BUFFER_BASE64_KEY: data.base64EncodedString()]
+        return ["bytesRead": data.count, "arrayBuffer": data]
     }
 
     private static func writeSync(param: DMPBridgeParam, appId: String) throws -> [String: Any] {
@@ -801,7 +801,7 @@ public class FileAPI: DMPContainerApi {
         return ["entries": entries]
     }
 
-    private static func readCompressedFileSync(param: DMPBridgeParam, env: DMPBridgeEnv) throws -> [String: Any] {
+    private static func readCompressedFileSync(param: DMPBridgeParam, env: DMPBridgeEnv) throws -> Data {
         let map = param.getMap()
         let algorithm = (map.getString(key: "compressionAlgorithm") ?? "").lowercased()
         if algorithm != "br" {

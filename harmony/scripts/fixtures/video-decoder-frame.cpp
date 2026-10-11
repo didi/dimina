@@ -1,0 +1,109 @@
+#include "video_decoder_frame.h"
+#include <iostream>
+#include <cstring>
+#include <stdexcept>
+#include "registration.h"
+
+static bool removed = false;
+VideoDecoderFrame ReadVideoDecoderFrame(int owner, const std::string &id) {
+    if (id == "codec-error") throw std::runtime_error("codec failed");
+    if (removed || id != "decoder") return {};
+    return {1, 1, owner * 1000, {uint8_t(owner), 0, 0, 255}, false, ""};
+}
+
+int main() {
+    JSRuntime *runtime = JS_NewRuntime();
+    JSContext *ctx = JS_NewContext(runtime);
+    int result = 0;
+    {
+        // A large real RGBA payload must remain owned after the decoder packet
+        // and its source storage are released, with no base64 representation.
+        std::vector<uint8_t> pixels(720 * 1080 * 4);
+        for (size_t i = 0; i < pixels.size(); ++i) pixels[i] = uint8_t(i % 251);
+        VideoDecoderFrame frame {720, 1080, 125000, std::move(pixels), false, ""};
+        JSValue value = VideoDecoderFrameToJS(ctx, frame);
+        frame = {};
+        JSValue global = JS_GetGlobalObject(ctx);
+        JS_SetPropertyStr(ctx, global, "frame", value);
+        JS_FreeValue(ctx, global);
+        auto engine = createEngine(7);
+        engine->callback(ctx);
+        delete engine;
+        const char *script = R"JS(
+            if (!(frame.data instanceof ArrayBuffer) || frame.data.byteLength !== 3110400)
+                throw Error('missing owned RGBA buffer');
+            if (frame.width !== 720 || frame.height !== 1080 || frame.pts !== 125000 || frame.pkPts !== frame.pts)
+                throw Error('frame metadata changed');
+            const bytes = new Uint8Array(frame.data);
+            for (let i = 0; i < bytes.length; i++) {
+                if (bytes[i] !== i % 251) throw Error('frame bytes changed: ' + i);
+            }
+            bytes[0] = 99;
+            const nativeFrame = readFrame('decoder', 8);
+            if (nativeFrame.pts !== 7000 || new Uint8Array(nativeFrame.data)[0] !== 7)
+                throw Error('caller changed decoder ownership');
+            if (readFrame('missing').data !== undefined) throw Error('unknown decoder returned bytes');
+            let invalid = false, failed = false;
+            try { readFrame(7); } catch (error) { invalid = error instanceof TypeError; }
+            try { readFrame('codec-error'); } catch (error) { failed = /codec failed/.test(error.message); }
+            if (!invalid || !failed) throw Error('native reader swallowed an error');
+        )JS";
+        value = JS_Eval(ctx, script, std::strlen(script), "<video-frame>", JS_EVAL_TYPE_GLOBAL);
+        if (JS_IsException(value)) result = 1;
+        JS_FreeValue(ctx, value);
+
+        for (const auto &packet : {
+            VideoDecoderFrame{0, 0, 0, {}, false, ""},
+            VideoDecoderFrame{0, 0, 0, {}, true, ""},
+            VideoDecoderFrame{0, 0, 0, {}, false, "codec failed"}}) {
+            value = VideoDecoderFrameToJS(ctx, packet);
+            if (JS_IsException(value)) result = 1;
+            JSValue data = JS_GetPropertyStr(ctx, value, "data");
+            if (!JS_IsUndefined(data)) result = 1;
+            JS_FreeValue(ctx, data);
+            if (packet.error.empty()) {
+                JSValue ended = JS_GetPropertyStr(ctx, value, "ended");
+                if (JS_ToBool(ctx, ended) != packet.ended) result = 1;
+                JS_FreeValue(ctx, ended);
+            } else {
+                JSValue error = JS_GetPropertyStr(ctx, value, "error");
+                const char *message = JS_ToCString(ctx, error);
+                if (!message || packet.error != message) result = 1;
+                if (message) JS_FreeCString(ctx, message);
+                JS_FreeValue(ctx, error);
+            }
+            JS_FreeValue(ctx, value);
+        }
+        JSContext *other = JS_NewContext(runtime);
+        engine = createEngine(8);
+        engine->callback(other);
+        delete engine;
+        const char *scope = "if (new Uint8Array(readFrame('decoder').data)[0] !== 8) throw Error('app scope mixed');";
+        value = JS_Eval(other, scope, std::strlen(scope), "<other-app>", JS_EVAL_TYPE_GLOBAL);
+        if (JS_IsException(value)) result = 1;
+        JS_FreeValue(other, value);
+        JS_FreeContext(other);
+        removed = true;
+        const char *teardown = "if (readFrame('decoder').data !== undefined) throw Error('removed decoder returned bytes');";
+        value = JS_Eval(ctx, teardown, std::strlen(teardown), "<teardown>", JS_EVAL_TYPE_GLOBAL);
+        if (JS_IsException(value)) result = 1;
+        JS_FreeValue(ctx, value);
+        JS_SetMemoryLimit(runtime, 4 * 1024 * 1024);
+        VideoDecoderFrame large {720, 1080, 0, std::vector<uint8_t>(720 * 1080 * 4), false, ""};
+        value = VideoDecoderFrameToJS(ctx, large);
+        if (!JS_IsException(value)) result = 1;
+        JS_FreeValue(ctx, value);
+        if (JS_HasException(ctx)) JS_FreeValue(ctx, JS_GetException(ctx));
+        JS_SetMemoryLimit(runtime, SIZE_MAX);
+        if (JS_HasException(ctx)) {
+            JSValue error = JS_GetException(ctx);
+            const char *message = JS_ToCString(ctx, error);
+            std::cerr << (message ? message : "QuickJS frame failure") << '\n';
+            JS_FreeCString(ctx, message);
+            JS_FreeValue(ctx, error);
+        }
+    }
+    JS_FreeContext(ctx);
+    JS_FreeRuntime(runtime);
+    return result;
+}

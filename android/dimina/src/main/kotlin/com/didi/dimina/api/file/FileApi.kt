@@ -84,7 +84,6 @@ class FileApi : BaseApiHandler() {
         const val PREFIX = "FileSystemManager."
         const val USER_PREFIX = "usr"
         const val TEMP_PREFIX = "tmp"
-        const val ARRAY_BUFFER_BASE64_KEY = "__diminaArrayBufferBase64"
         const val FILE_DATA_BASE64_KEY = "__diminaFileDataBase64"
         const val FILE_DATA_TYPE_KEY = "__diminaFileDataType"
 
@@ -187,9 +186,9 @@ class FileApi : BaseApiHandler() {
                 "open" -> asyncOkOrFail(apiName) { JSONObject().put("fd", openSync(activity, appId, params)) }
                 "openSync" -> SyncResult(JSValue.createString(openSync(activity, appId, params)))
                 "read" -> asyncOkOrFail(apiName) { readSync(appId, params) }
-                "readSync" -> SyncResult(JSValue.createObject(readSync(appId, params).toString()))
+                "readSync" -> SyncResult(JSValue.createNative(readSync(appId, params)))
                 "readCompressedFile" -> asyncOkOrFail(apiName) { JSONObject().put("data", readCompressedFileSync(activity, appId, params)) }
-                "readCompressedFileSync" -> SyncResult(JSValue.createObject(readCompressedFileSync(activity, appId, params).toString()))
+                "readCompressedFileSync" -> SyncResult(JSValue.createNative(readCompressedFileSync(activity, appId, params)))
                 "readdir" -> asyncOkOrFail(apiName) { JSONObject().put("files", readdirSync(activity, appId, pathParam(params))) }
                 "readdirSync" -> SyncResult(JSValue.createObject(readdirSync(activity, appId, stringParam(params, "dirPath")).toString()))
                 "readFile" -> asyncOkOrFail(apiName) { JSONObject().put("data", readFileSync(activity, appId, params)) }
@@ -289,6 +288,7 @@ class FileApi : BaseApiHandler() {
 
     private fun toSyncValue(value: Any): APIResult =
         when (value) {
+            is ByteArray -> SyncResult(JSValue.createNative(value))
             is JSONObject -> SyncResult(JSValue.createObject(value.toString()))
             is JSONArray -> SyncResult(JSValue.createObject(value.toString()))
             is String -> SyncResult(JSValue.createString(value))
@@ -361,6 +361,7 @@ class FileApi : BaseApiHandler() {
 
     private fun dataBytes(params: JSONObject, key: String = "data", encoding: String? = null): ByteArray {
         val value = params.opt(key)
+        if (value is ByteArray) return value
         if (value is JSONObject && value.optString(FILE_DATA_TYPE_KEY) == "base64") {
             return Base64.decode(value.optString(FILE_DATA_BASE64_KEY), Base64.DEFAULT)
         }
@@ -372,8 +373,7 @@ class FileApi : BaseApiHandler() {
         }
     }
 
-    private fun bufferPayload(bytes: ByteArray): JSONObject =
-        JSONObject().put(ARRAY_BUFFER_BASE64_KEY, Base64.encodeToString(bytes, Base64.NO_WRAP))
+    private fun bufferPayload(bytes: ByteArray): ByteArray = bytes
 
     private fun readBytes(file: File, position: Int = 0, length: Int? = null): ByteArray {
         if (!file.exists()) throw IllegalArgumentException("no such file or directory, open ${file.path}")
@@ -589,7 +589,7 @@ class FileApi : BaseApiHandler() {
         val count = file.read(bytes).coerceAtLeast(0)
         return JSONObject()
             .put("bytesRead", count)
-            .put(ARRAY_BUFFER_BASE64_KEY, Base64.encodeToString(bytes.copyOf(count), Base64.NO_WRAP))
+            .put("arrayBuffer", bytes.copyOf(count))
     }
 
     private fun writeSync(appId: String, params: JSONObject): JSONObject {
@@ -689,7 +689,7 @@ class FileApi : BaseApiHandler() {
         return bytes.copyOfRange(start, end)
     }
 
-    private fun readCompressedFileSync(activity: DiminaActivity, appId: String, params: JSONObject): JSONObject {
+    private fun readCompressedFileSync(activity: DiminaActivity, appId: String, params: JSONObject): ByteArray {
         val algorithm = params.optString("compressionAlgorithm", "").lowercase()
         if (algorithm != "br") {
             throw IllegalArgumentException("unsupported compressionAlgorithm $algorithm")

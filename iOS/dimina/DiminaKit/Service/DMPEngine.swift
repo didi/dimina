@@ -177,6 +177,24 @@ public class DMPEngine: NSObject {
         }
     }
 
+    private func deliverMessage(_ data: [String: Any]) -> JSValue? {
+        guard let context = jsContext else { return nil }
+        let bridge = context.globalObject.forProperty("DiminaServiceBridge")!
+        return bridge.invokeMethod("onMessage", withArguments: [DMPBinaryBridge.encode(data, in: context)])
+    }
+
+    func enqueueMessage(_ data: [String: Any]) {
+        performOnJSThread { [weak self] in _ = self?.deliverMessage(data) }
+    }
+
+    func sendMessage(_ data: [String: Any]) async -> JSValue? {
+        await withCheckedContinuation { continuation in
+            performOnJSThread { [weak self] in
+                continuation.resume(returning: self?.deliverMessage(data))
+            }
+        }
+    }
+
     /// Enqueue a native completion behind all previously submitted JavaScript
     /// turns without evaluating another user-controlled script.
     func enqueueBarrier(_ completion: @escaping () -> Void) {

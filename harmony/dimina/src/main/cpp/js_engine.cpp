@@ -52,6 +52,16 @@ bool JSEngine::executeJavaScript(const std::string &script, const std::string &s
 }
 
 
+void JSEngine::executeMessage(dimina::bridge::Value message) {
+    if (!core || closing) return;
+    auto packet = std::make_shared<dimina::bridge::Value>(std::move(message));
+    {
+        std::lock_guard<std::mutex> lock(core->queueMutex);
+        core->jsTaskQueue.push({"", "", std::move(packet)});
+    }
+    if (core->running) uv_async_send(&core->eval_handle);
+}
+
 // 停止引擎
 void JSEngine::destroyEngine() {
     closing = true;

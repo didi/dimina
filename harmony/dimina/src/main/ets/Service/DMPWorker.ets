@@ -37,12 +37,12 @@ const canvasReplies = new Map<number, (value: string) => void>();
 
 // t: type invoke / publish
 // wid: webviewId
-const serviceToContainer = (t: number, wid: number, msg: string, ab: ArrayBuffer): CallerReturnType => {
+const serviceToContainer = (t: number, wid: number, msg: string | object, ab: ArrayBuffer): CallerReturnType => {
   // 如果可以在 worker 解决的，就不传递到 main thread
   let result: CallerReturnType;
 
-  if (t === 1) {
-    const data: object = JSON.parse(msg);
+  if (t === 1 || t === 4) {
+    const data: object = typeof msg === 'string' ? JSON.parse(msg) : msg;
     const type: string = data['type'];
     const target: string = data['target'];
     const body: object = data['body'];
@@ -114,7 +114,8 @@ const serviceToContainer = (t: number, wid: number, msg: string, ab: ArrayBuffer
             })
             // worker 内部闭环 js 调用
             // DMPLogger.d(Tags.JS_ENGINE, `worker before evalJS: ${methodName} ${msg.toStr()}`)
-            jsEngine.evalJS(`DiminaServiceBridge.onMessage(${msg.toStr()})`, runtimeSourceURL)
+            if (methodName.startsWith('FileSystemManager.')) jsEngine.postMessage(msg.toObject<object>());
+            else jsEngine.evalJS(`DiminaServiceBridge.onMessage(${msg.toStr()})`, runtimeSourceURL)
           }
         }
 

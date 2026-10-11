@@ -77,9 +77,7 @@ public class DMPService {
     }
 
     public func postMessage(data: DMPMap) async {
-        let dataString = data.toJsonString()
-        let script: String = "DiminaServiceBridge.onMessage(\(dataString))"
-        await self.evaluateScript(script)
+        _ = await engine.sendMessage(data.toDictionary())
     }
     
     public func loadSubPackage(pagePath: String) async {
@@ -103,10 +101,7 @@ public class DMPService {
 
     @discardableResult
     func fromContainerMessage(data: DMPMap) async -> JSValue? {
-        DMPLogger.debug("DMPService: fromContainer data: \(data.toJsonString())")
-
-        let script: String = "DiminaServiceBridge.onMessage(\(data.toJsonString()))"
-        return await self.evaluateScript(script)
+        return await engine.sendMessage(data.toDictionary())
     }
     
     /// 容器 -> service 的消息投递。必须严格按调用顺序送到 JS，一次 API 调用的
@@ -118,8 +113,7 @@ public class DMPService {
     /// 那一步完全看线程调度，两条消息因此可能反过来。改成直接排进引擎的串行队列，
     /// 投递顺序就等于调用顺序。
     func fromContainer(data: DMPMap) {
-        DMPLogger.debug("DMPService: fromContainer data: \(data.toJsonString())")
-        engine.enqueueScript("DiminaServiceBridge.onMessage(\(data.toJsonString()))")
+        engine.enqueueMessage(data.toDictionary())
     }
 
     /// Wait until every previously enqueued container message has completed

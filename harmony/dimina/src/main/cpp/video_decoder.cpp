@@ -405,6 +405,20 @@ napi_value Dispose(napi_env env, napi_callback_info info) {
 }
 } // namespace
 
+VideoDecoderFrame ReadVideoDecoderFrame(int owner, const std::string &id) {
+    std::shared_ptr<Decoder> decoder;
+    {
+        std::lock_guard<std::mutex> guard(storeMutex);
+        auto found = store.find({owner, id});
+        if (found != store.end()) decoder = found->second;
+    }
+    Frame frame {};
+    bool ended = false;
+    std::string error;
+    if (decoder) decoder->Next(frame, ended, error);
+    return {frame.width, frame.height, frame.pts, std::move(frame.pixels), ended, error};
+}
+
 void DisposeVideoDecoders(int owner) {
     std::vector<std::shared_ptr<Decoder>> owned;
     {

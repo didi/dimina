@@ -11,6 +11,8 @@
 #include <map>
 #include <memory>
 #include <vector>
+#include "../../../../../native/bridge/quickjs_value.hpp"
+#include "../../../../../native/bridge/napi_value.hpp"
 
 // 使用 map 存储多个 JSEngine 实例
 std::map<int, JSEngine *> engineMap;
@@ -69,13 +71,18 @@ void discardPendingException(JSContext *ctx) {
     }
 }
 
-void initBridges(JSContext *ctx, const char* virtualFilePrefix);
+void initBridges(JSContext *ctx, const char* virtualFilePrefix, int owner);
 void registerInvoke(JSContext *ctx);
 void registerPublish(JSContext *ctx);
 
 // Cross-thread replies contain only bytes. QuickJS values must be created on
 // the owning JS thread, never on the ArkTS Worker handling a TSFN callback.
-struct BridgeReply { std::string json; std::string error; };
+struct BridgeReply {
+    std::string json;
+    std::string error;
+    dimina::bridge::Value value;
+    bool structured = false;
+};
 using BridgePromise = std::shared_ptr<std::promise<BridgeReply>>;
 struct OnMessageData {
     int type = 1;
@@ -83,6 +90,7 @@ struct OnMessageData {
     int appIndex = 0;
     BridgePromise promise = std::make_shared<std::promise<BridgeReply>>();
     std::string str;
+    dimina::bridge::Value value;
 };
 
 static BridgeReply serializeReply(napi_env env, napi_value value) {
@@ -158,7 +166,13 @@ static void onMessageCb(napi_env env, napi_value js_cb, void *, void *data) {
         napi_close_handle_scope(env, scope); return;
     }
     args[2] = undefined; args[3] = undefined;
-    if (message->type == 1) {
+    if (message->type == 4) {
+        try { args[2] = dimina::bridge::toNAPI(env, message->value); }
+        catch (const std::exception &error) {
+            message->promise->set_value({"", error.what()});
+            napi_close_handle_scope(env, scope); return;
+        }
+    } else if (message->type == 1) {
         if (napi_create_string_utf8(env, message->str.data(), message->str.size(), &args[2]) != napi_ok) {
             message->promise->set_value({"", "cannot allocate bridge message"});
             napi_close_handle_scope(env, scope); return;
@@ -180,6 +194,9 @@ static void onMessageCb(napi_env env, napi_value js_cb, void *, void *data) {
         if (message->type == 1 && isPromise) {
             deferred = attachBridgePromise(env, result, message->promise);
             if (!deferred) reply.error = "cannot attach canvas reply";
+        } else if (message->type == 4) {
+            try { reply.value = dimina::bridge::fromNAPI(env, result); reply.structured = true; }
+            catch (const std::exception &error) { reply.error = error.what(); }
         } else if (message->type == 1) reply = serializeReply(env, result);
     } else reply.error = "container handler failed";
     if (!deferred) {
@@ -220,8 +237,14 @@ static JSValue invoke(JSContext *ctx, JSValueConst this_val, int argc, JSValueCo
         // JSValueToString 只读传入值、不接管它，所以这里不需要先加一次引用——加了也没人还，
         // 那个对象就再也释放不掉。argv 的引用由调用方持有，整个调用期间都有效。
         // 它返回的是 strdup 出来的缓冲区，交给作用域对象保证任何出口都会还。
-        OwnedCStr str(JSValueToString(ctx, argv[0]));
-        if (!str) {
+        dimina::bridge::OwnedJSValue body(ctx, JS_GetPropertyStr(ctx, argv[0], "body"));
+        if (JS_IsException(body.value)) return JS_EXCEPTION;
+        dimina::bridge::OwnedJSValue name(ctx, JS_IsObject(body.value) ? JS_GetPropertyStr(ctx, body.value, "name") : JS_UNDEFINED);
+        if (JS_IsException(name.value)) return JS_EXCEPTION;
+        const bool fileMessage = JS_IsString(name.value) &&
+            dimina::bridge::readString(ctx, name.value).compare(0, 18, u"FileSystemManager.") == 0;
+        OwnedCStr str(fileMessage ? nullptr : JSValueToString(ctx, argv[0]));
+        if (!fileMessage && !str) {
             // 转不出字符串就没有可投递的内容。这里不挡住的话，下面拿 NULL 去构造
             // std::string 是未定义行为。
             OHError("invoke JSValueToString failed");
@@ -230,9 +253,10 @@ static JSValue invoke(JSContext *ctx, JSValueConst this_val, int argc, JSValueCo
         // packet 在成功投递之前都归这边所有，用 unique_ptr 持有，任何提前返回或抛异常
         // 都不会漏；投递成功后再 release，把所有权交给 onMessageCb。
         std::unique_ptr<OnMessageData> asyncContext(new OnMessageData());
-        asyncContext->str = str.get();
+        if (fileMessage) asyncContext->value = dimina::bridge::fromJS(ctx, argv[0]);
+        else asyncContext->str = str.get();
         asyncContext->appIndex = currentEngine->getAppIndex(); // 设置 appIndex
-        asyncContext->type = 1;
+        asyncContext->type = fileMessage ? 4 : 1;
         const bool blocking = true;
 
         napi_threadsafe_function tsfn = getTsfn(currentEngine->getAppIndex());
@@ -266,6 +290,7 @@ static JSValue invoke(JSContext *ctx, JSValueConst this_val, int argc, JSValueCo
             return throwNativeError(ctx, "invoke: bridge reply timed out");
         BridgeReply reply = future.get();
         if (!reply.error.empty()) return throwNativeError(ctx, reply.error.c_str());
+        if (reply.structured) return dimina::bridge::toJS(ctx, reply.value);
         return reply.json.empty() ? JS_UNDEFINED : JS_ParseJSON(ctx, reply.json.data(), reply.json.size(), "<bridge-reply>");
     } catch (const std::exception &e) {
         OHError("[dimina][service] invoke error: %{public}s", e.what());
@@ -453,6 +478,19 @@ napi_value dispatchJsTask(napi_env env, napi_callback_info info) {
     return nullptr;
 }
 
+napi_value dispatchMessage(napi_env env, napi_callback_info info) {
+    size_t argc = 2; napi_value args[2]; int appIndex;
+    if (napi_get_cb_info(env, info, &argc, args, nullptr, nullptr) != napi_ok || argc < 2 ||
+        napi_get_value_int32(env, args[0], &appIndex) != napi_ok) {
+        napi_throw_error(env, nullptr, "invalid message arguments"); return nullptr;
+    }
+    JSEngine *engine = getEngine(appIndex);
+    if (!engine || engine->closing) return nullptr;
+    try { engine->executeMessage(dimina::bridge::fromNAPI(env, args[1])); }
+    catch (const std::exception &error) { napi_throw_error(env, nullptr, error.what()); }
+    return nullptr;
+}
+
 napi_value dispatchJsTaskAb(napi_env env, napi_callback_info info) {
     size_t requireArgc = 3;
     napi_value args[3] = {nullptr};
@@ -581,8 +619,8 @@ napi_value dispatchJsTaskPath(napi_env env, napi_callback_info info) {
     return nullptr;
 }
 
-void registerFunc(JSContext *ctx, const std::string &virtualFilePrefix) {
-    initBridges(ctx, virtualFilePrefix.c_str());
+void registerFunc(JSContext *ctx, const std::string &virtualFilePrefix, int owner) {
+    initBridges(ctx, virtualFilePrefix.c_str(), owner);
     registerInvoke(ctx);
     registerPublish(ctx);
 }
@@ -642,8 +680,8 @@ napi_value StartJsEngine(napi_env env, napi_callback_info info) {
     auto timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
     PFLog("[launch-container][%{public}lld]JS引擎启动 appIndex: %{public}d", timestamp, appIndex);
 
-    JSEngine *newEngine = new JSEngine(appIndex, [virtualFilePrefix](JSContext *ctx) {
-        registerFunc(ctx, virtualFilePrefix);
+    JSEngine *newEngine = new JSEngine(appIndex, [virtualFilePrefix, appIndex](JSContext *ctx) {
+        registerFunc(ctx, virtualFilePrefix, appIndex);
     }, debuggerAddress);
     engineMap[appIndex] = newEngine;
     OHLog("engine 地址: %{public}p for appIndex: %{public}d", (void *)newEngine, appIndex);
@@ -745,11 +783,13 @@ static JSValue js_decode_array_buffer(JSContext *ctx, JSValueConst, int argc, JS
 }
 
 
-void initBridges(JSContext *ctx, const char* virtualFilePrefix) {
+void initBridges(JSContext *ctx, const char* virtualFilePrefix, int owner) {
     JSValue diminaServiceBridge = JS_NewObject(ctx);
     JS_SetPropertyStr(ctx, diminaServiceBridge, "canvasSyncSupported", JS_TRUE);
+    JS_SetPropertyStr(ctx, diminaServiceBridge, "fileBinarySupported", JS_TRUE);
     JS_SetPropertyStr(ctx, diminaServiceBridge, "encodeArrayBuffer", JS_NewCFunction(ctx, js_encode_array_buffer, "encodeArrayBuffer", 1));
     JS_SetPropertyStr(ctx, diminaServiceBridge, "decodeArrayBuffer", JS_NewCFunction(ctx, js_decode_array_buffer, "decodeArrayBuffer", 1));
+    JS_SetPropertyStr(ctx, diminaServiceBridge, "getVideoDecoderFrame", CreateVideoDecoderFrameReader(ctx, owner));
     JSValue global = JS_GetGlobalObject(ctx);
     JS_SetPropertyStr(ctx, global, "DiminaServiceBridge", diminaServiceBridge);
 

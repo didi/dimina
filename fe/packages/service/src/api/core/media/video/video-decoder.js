@@ -81,7 +81,10 @@ class VideoDecoder {
 
 	getFrameData() {
 		if (this.removed || !this.running || this.pendingControls) return null
-		const result = invokeAPI('VideoDecoder.getFrameData', { decoderId: this.videoDecoderId }, 'container', false)
+		const readNativeFrame = globalThis.DiminaServiceBridge?.getVideoDecoderFrame
+		const result = typeof readNativeFrame === 'function'
+			? readNativeFrame(this.videoDecoderId)
+			: invokeAPI('VideoDecoder.getFrameData', { decoderId: this.videoDecoderId }, 'container', false)
 		if (result?.error) throw new Error(`VideoDecoder.getFrameData: ${result.error}`)
 		if (result?.data) {
 			const encoded = result.data.__diminaArrayBufferBase64

@@ -16,7 +16,6 @@ import { DMPFileManager } from '../Bundle/Util/DMPFileManager';
 import { DMPFilePathResolver } from '../Bundle/Util/DMPFilePathResolver';
 import { DMPVirtualFileConfig } from '../Bundle/Util/DMPFileUrlConvertor';
 const USER_PREFIX = 'usr';
-const ARRAY_BUFFER_BASE64_KEY = '__diminaArrayBufferBase64';
 const FILE_DATA_BASE64_KEY = '__diminaFileDataBase64';
 const FILE_DATA_TYPE_KEY = '__diminaFileDataType';
 const BASE64_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
@@ -442,7 +441,7 @@ export class DMPContainerBridgesModuleFile extends DMPContainerBridgesModule {
     const position = data.getNumber('position') ?? 0;
     const buffer = new ArrayBuffer(length);
     const bytesRead = fs.readSync(opened.file.fd, buffer, { offset: position, length });
-    const result = this.arrayBufferPayload(buffer, bytesRead);
+    const result = this.resultMap('arrayBuffer', this.arrayBufferPayload(buffer, bytesRead));
     result.set('bytesRead', bytesRead);
     return result;
   }
@@ -451,7 +450,7 @@ export class DMPContainerBridgesModuleFile extends DMPContainerBridgesModule {
     this.callAsync('FileSystemManager.readCompressedFile', callback, () => this.resultMap('data', this.readCompressedFileSync(data)));
   }
 
-  readCompressedFileSync(data: DMPMap): DMPMap {
+  readCompressedFileSync(data: DMPMap): ArrayBuffer {
     const algorithm = (data.getString('compressionAlgorithm') ?? '').toLowerCase();
     if (algorithm !== 'br') {
       throw new Error(`unsupported compressionAlgorithm ${algorithm}`);
@@ -472,7 +471,7 @@ export class DMPContainerBridgesModuleFile extends DMPContainerBridgesModule {
     this.callAsync('FileSystemManager.readFile', callback, () => this.resultMap('data', this.readFileSync(data)));
   }
 
-  readFileSync(data: DMPMap): string | DMPMap {
+  readFileSync(data: DMPMap): string | ArrayBuffer {
     const path = this.resolveReadable(data.getString('filePath') ?? '');
     const stat = fs.statSync(path);
     const position = data.getNumber('position') ?? 0;
@@ -711,10 +710,8 @@ export class DMPContainerBridgesModuleFile extends DMPContainerBridgesModule {
     return result;
   }
 
-  private arrayBufferPayload(buffer: ArrayBuffer, length: number): DMPMap {
-    const result = new DMPMap();
-    result.set(ARRAY_BUFFER_BASE64_KEY, this.arrayBufferToBase64(buffer, length));
-    return result;
+  private arrayBufferPayload(buffer: ArrayBuffer, length: number): ArrayBuffer {
+    return length === buffer.byteLength ? buffer : buffer.slice(0, length);
   }
 
   private userRoot(): string {
@@ -806,6 +803,7 @@ export class DMPContainerBridgesModuleFile extends DMPContainerBridgesModule {
 
   private dataBytes(data: DMPMap, key: string = 'data'): ArrayBuffer {
     const value: Object | string | number | boolean | undefined = data.get(key);
+    if (value instanceof ArrayBuffer) return value;
     if (value instanceof Object) {
       const encoded = DMPMap.createFromObject(value as Object);
       if (encoded.getString(FILE_DATA_TYPE_KEY) === 'base64') {

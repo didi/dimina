@@ -218,7 +218,7 @@ class Bridge(
             return canvasNodeSync(body)
         }
 
-        LogUtils.d(tag, "[Container] receive msg from $source: $msg")
+        LogUtils.d(tag, "[Container] receive msg from $source: $type")
 
         // Create transMsg object
         val transMsg = JSONObject().apply {
@@ -418,7 +418,7 @@ class Bridge(
                 else -> JSONObject()
             }
 
-            LogUtils.d(tag, "API invocation: $apiName with params: $params")
+            LogUtils.d(tag, "API invocation: $apiName")
 
             // Use MiniApp to handle API invocation
             return parent.runWithBridgeContext(this) {
@@ -426,7 +426,8 @@ class Bridge(
                     appId = options.appId,
                     context = parent,
                     apiName = apiName,
-                    params = params
+                    params = params,
+                    structuredResponseCallback = { response -> options.jscore.postMessage(response) }
                 ) { response ->
                     // Send response back to JavaScript
                     options.jscore.postMessage(response)

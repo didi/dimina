@@ -31,9 +31,11 @@ test('reads package Wasm and Brotli for the active app version and confines writ
     const fileAdapter = {
       accessSync: fs.existsSync, mkdirSync: (path, recursive) => fs.mkdirSync(path, { recursive }),
       statSync: fs.statSync, lstatSync: fs.lstatSync,
-      OpenMode: { READ_ONLY: 'r', READ_WRITE: 'r+' },
-      openSync: (path, mode) => ({ fd: fs.openSync(path, mode) }),
+      OpenMode: { READ_ONLY: 0, READ_WRITE: 1, CREATE: 2 },
+      openSync: (path, mode) => ({ fd: fs.openSync(path, mode & 2 ? 'w+' : mode & 1 ? 'r+' : 'r') }),
       readSync: (fd, bytes, options) => fs.readSync(fd, new Uint8Array(bytes), 0, options.length, options.offset),
+      writeSync: (fd, bytes, options) => fs.writeSync(fd, new Uint8Array(bytes), 0, options.length, options.offset),
+      truncateSync: fs.truncateSync,
       closeSync: value => fs.closeSync(value.fd),
     }
     const virtual = {
@@ -67,10 +69,20 @@ test('reads package Wasm and Brotli for the active app version and confines writ
       }) } },
     })
     const bridge = new DMPContainerBridgesModuleFile({ appId: 'owner', jsAppVersion: 'v1' })
+    const large = new Uint8Array(8 * 1024 * 1024).fill(173)
+    large[0] = 0; large[large.length - 1] = 255
+    const filePath = 'difile://usr/large.bin'
+    bridge.writeFileSync(new DMPMap({ filePath, data: large.buffer }))
+    assert.deepEqual(Buffer.from(bridge.readFileSync(new DMPMap({ filePath }))), Buffer.from(large))
+    const fd = bridge.openSync(new DMPMap({ filePath, flag: 'r' }))
+    const part = bridge.readSync(new DMPMap({ fd, position: large.length - 2, length: 10 }))
+    assert.equal(part.get('bytesRead'), 2)
+    assert.deepEqual(new Uint8Array(part.get('arrayBuffer')), Uint8Array.of(173, 255))
+    bridge.closeSync(new DMPMap({ fd }))
     const compressed = bridge.readCompressedFileSync(new DMPMap({ filePath: '/utils/module.wasm.br', compressionAlgorithm: 'br' }))
-    assert.equal(compressed.get('__diminaArrayBufferBase64'), binary.toString('base64'))
+    assert.deepEqual(Buffer.from(compressed), binary)
     for (const path of ['utils/module.wasm', '/utils/module.wasm']) {
-      assert.equal(bridge.readFileSync(new DMPMap({ filePath: path })).get('__diminaArrayBufferBase64'), binary.toString('base64'))
+      assert.deepEqual(Buffer.from(bridge.readFileSync(new DMPMap({ filePath: path }))), binary)
     }
     assert.throws(() => bridge.readFileSync(new DMPMap({ filePath: '../other/module.wasm' })), /invalid file path/)
     assert.throws(() => bridge.writeFileSync(new DMPMap({ filePath: '/utils/module.wasm', data: 'changed' })), /permission denied/)

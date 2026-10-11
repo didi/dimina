@@ -14,6 +14,8 @@
 #include <queue>
 #include <string>
 #include <uv.h>
+#include <memory>
+#include "../../../../../native/bridge/bridge_value.hpp"
 
 // 为 C 文件提供的 API
 #ifdef __cplusplus
@@ -32,6 +34,7 @@ public:
     struct JavaScriptTask {
         std::string code;
         std::string sourceUrl;
+        std::shared_ptr<dimina::bridge::Value> message;
     };
 
     bool executeJavaScript(const std::string &code, const std::string &sourceUrl);

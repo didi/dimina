@@ -212,6 +212,22 @@ class JsCore {
         }
     }
 
+    fun postMessage(msg: JSONObject) {
+        if (!isInitialized()) {
+            LogUtils.e(tag, "Cannot post message: Engine not initialized")
+            return
+        }
+        val accepted = runtimeMessageQueue.post {
+            // Immediate teardown may close the engine independently of this queued action.
+            if (isInitialized()) {
+                jsEngine.sendMessage(msg)
+            }
+        }
+        if (!accepted) {
+            LogUtils.d(tag, "Dropping message after runtime teardown was scheduled")
+        }
+    }
+
     @Synchronized
     fun appShow(options: JSONObject? = null, newEntry: Boolean = options != null) {
         dispatchAppVisibility(appVisibilityLedger.onShow(options, newEntry))

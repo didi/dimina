@@ -8,7 +8,8 @@ class JSValue private constructor(
     val stringValue: String? = null,
     val numberValue: Double = 0.0,
     val booleanValue: Boolean = false,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val objectValue: Any? = null,
 ) {
     enum class Type {
         STRING,
@@ -17,7 +18,8 @@ class JSValue private constructor(
         NULL,
         UNDEFINED,
         OBJECT,
-        ERROR
+        ERROR,
+        NATIVE
     }
 
     companion object {
@@ -52,6 +54,9 @@ class JSValue private constructor(
         }
 
         @JvmStatic
+        fun createNative(value: Any): JSValue = JSValue(Type.NATIVE, objectValue = value)
+
+        @JvmStatic
         fun createError(message: String): JSValue {
             return JSValue(Type.ERROR, errorMessage = message)
         }
@@ -66,6 +71,7 @@ class JSValue private constructor(
             Type.UNDEFINED -> "undefined"
             Type.OBJECT -> stringValue ?: "[object Object]"
             Type.ERROR -> "Error: $errorMessage"
+            Type.NATIVE -> "[native value]"
         }
     }
 }

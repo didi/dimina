@@ -203,6 +203,23 @@ class QuickJSEngine {
         return task.await() ?: JSValue.createError("Evaluation timed out")
     }
 
+    /** Calls onMessage on the same queue as scripts, retaining binary payloads. */
+    fun sendMessage(message: JSONObject): JSValue {
+        if (!isRunning) return JSValue.createError("Engine not initialized")
+        val task = object : JSTask<JSValue>() {
+            override fun execute(engine: QuickJSEngine) {
+                try {
+                    complete(engine.nativeMessage(message))
+                } catch (e: Exception) {
+                    Log.e(tag, "Error delivering message", e)
+                    complete(JSValue.createError("Error: ${e.message}"))
+                }
+            }
+        }
+        taskQueue.offer(task)
+        return task.await() ?: JSValue.createError("Message delivery timed out")
+    }
+
     /**
      * Evaluate JavaScript code from a file path and return the result
      * @param filePath The path to the JavaScript file to evaluate
@@ -335,6 +352,7 @@ class QuickJSEngine {
      */
     private external fun nativeInitialize(instanceId: Int, virtualFilePrefix: String): Boolean
     private external fun nativeEvaluate(script: String, instanceId: Int = this.instanceId): JSValue
+    private external fun nativeMessage(message: JSONObject, instanceId: Int = this.instanceId): JSValue
     private external fun nativeEvaluateFromFile(filePath: String, instanceId: Int = this.instanceId): JSValue
     private external fun nativeRunEventLoop(instanceId: Int = this.instanceId)
     private external fun nativeStopEventLoop(instanceId: Int = this.instanceId)
@@ -372,7 +390,7 @@ class QuickJSEngine {
 
     @Suppress("unused")
     fun invokeFromJS(msg: JSONObject) : JSValue? {
-        if (msg.optString("type") != "canvasNodeSync") Log.d(tag, "Received invoke from JavaScript: $msg")
+        if (msg.optString("type") != "canvasNodeSync") Log.d(tag, "Received invoke from JavaScript: ${msg.optString("type")}")
         val body = msg.getJSONObject("body")
         val id = body.optString("bridgeId")
         return invokeCallbacks[id]?.invoke(msg)

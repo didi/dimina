@@ -12,7 +12,7 @@ class DMPChannelProxy {
         type: String, body: DMPMap,
         target: String, app: DMPApp
     ) -> Any {
-        DMPLogger.debug("🔴 messageHandler:type=\(type) target=\(target) body=\(body.toJsonString())")
+        DMPLogger.debug("🔴 messageHandler:type=\(type) target=\(target)")
 
         let webViewId: Int = body.get("bridgeId") as? Int ?? 0
         let webview = app.render?.getWebView(byId: webViewId)
@@ -111,7 +111,7 @@ class DMPChannelProxy {
     }
 
     static func containerToService(msg: DMPMap, app: DMPApp?) {
-        DMPLogger.debug("🔴 DMPChannelProxy.containerToService: \(msg.toJsonString()) \(app)")
+        DMPLogger.debug("🔴 DMPChannelProxy.containerToService: \(msg.getString(key: "type") ?? "")")
         app?.service?.fromContainer(data: msg)
     }
 

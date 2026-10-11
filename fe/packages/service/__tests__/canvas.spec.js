@@ -108,6 +108,82 @@ describe('canvas api', () => {
 		}
 	})
 
+	it('batches PAG state reads once, invalidates on mutations, and never carries a snapshot into another frame', async () => {
+		globalThis.DiminaServiceBridge.canvasSyncSupported = true
+		const previousInvoke = globalThis.DiminaServiceBridge.invoke
+		const batches = []
+		let viewport = [0, 0, 64, 32]
+		let blend = false
+		let lost = false
+		globalThis.DiminaServiceBridge.invoke = vi.fn(({ body }) => {
+			batches.push(body.params.operations)
+			const feedback = { contexts: {}, typedArrays: [] }
+			for (const op of body.params.operations) {
+				const context = feedback.contexts[op.contextId] ||= {}
+				if (op.method === 'viewport' && op.args.every(value => value >= 0)) viewport = op.args.slice()
+				if (op.op === 'getContext') Object.assign(context, { success: true, capabilities: { supportedExtensions: ['WEBGL_lose_context'] } })
+				if (op.method === 'enable' && op.args[0] === 0x0BE2) blend = true
+				if (op.op === 'setCanvasProperty') viewport = [0, 0, op.value, 32]
+				if (op.op === 'getExtension') {
+					;(context.queries ||= []).push({ key: op.key, value: { supported: true, constants: {}, methods: ['loseContext', 'restoreContext'] } })
+				}
+				if (op.op === 'extensionCall') lost = op.method === 'loseContext'
+				if (op.op === 'contextQuery') {
+					const value = op.method === 'isContextLost' ? lost : lost ? null : op.method === 'isEnabled' ? blend
+						: op.args[0] === 0x0BA2 ? { __canvasTypedArray: 'Int32Array', data: viewport.slice() }
+							: op.args[0] === 0x0D33 ? 8192 : null
+					;(context.queries ||= []).push({ key: op.key, value })
+				}
+			}
+			return feedback
+		})
+		const canvas = createOffscreenCanvas({ type: 'webgl', width: 64, height: 32 })
+		try {
+			const gl = canvas.getContext('webgl')
+			const initial = batches.length
+			const first = gl.getParameter(gl.VIEWPORT)
+			expect(first).toEqual(new Int32Array([0, 0, 64, 32]))
+			first[2] = 999
+			gl.getParameter(gl.CURRENT_PROGRAM)
+			gl.getParameter(gl.ARRAY_BUFFER_BINDING)
+			gl.getParameter(gl.ELEMENT_ARRAY_BUFFER_BINDING)
+			gl.getParameter(gl.FRAMEBUFFER_BINDING)
+			gl.getParameter(gl.TEXTURE_BINDING_2D)
+			gl.getParameter(gl.ACTIVE_TEXTURE)
+			expect(gl.isEnabled(gl.BLEND)).toBe(false)
+			expect(gl.getParameter(gl.VIEWPORT)[2]).toBe(64)
+			expect(batches.length - initial).toBe(1)
+			gl.viewport(1, 2, 30, 40)
+			expect(gl.getParameter(gl.VIEWPORT)).toEqual(new Int32Array([1, 2, 30, 40]))
+			expect(batches.length - initial).toBe(2)
+			gl.viewport(0, 0, -1, 40)
+			// A rejected renderer mutation must not become an optimistic answer.
+			expect(gl.getParameter(gl.VIEWPORT)).toEqual(new Int32Array([1, 2, 30, 40]))
+			gl.enable(gl.BLEND)
+			expect(gl.isEnabled(gl.BLEND)).toBe(true)
+			canvas.width = 80
+			expect(gl.getParameter(gl.VIEWPORT)).toEqual(new Int32Array([0, 0, 80, 32]))
+			// Enums outside the batch still use the exact ordinary query path.
+			expect(gl.getParameter(gl.MAX_TEXTURE_SIZE)).toBe(8192)
+			expect(batches.at(-1).filter(op => op.op === 'contextQuery')).toHaveLength(1)
+			const extension = gl.getExtension('WEBGL_lose_context')
+			expect(gl.getParameter(gl.VIEWPORT)).not.toBeNull()
+			extension.loseContext()
+			expect(gl.getParameter(gl.VIEWPORT)).toBeNull()
+			extension.restoreContext()
+			expect(gl.getParameter(gl.VIEWPORT)).not.toBeNull()
+			lost = true
+			await Promise.resolve()
+			expect(gl.getParameter(gl.VIEWPORT)).toBeNull()
+		}
+		finally {
+			canvas.dispose()
+			await Promise.resolve()
+			globalThis.DiminaServiceBridge.invoke = previousInvoke
+			delete globalThis.DiminaServiceBridge.canvasSyncSupported
+		}
+	})
+
 	it('returns actual native extension constants on the first game canvas before capability broadcasts', async () => {
 		router.setInitId('native_extension_cold')
 		const previousInvoke = globalThis.DiminaServiceBridge.invoke

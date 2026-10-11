@@ -4,6 +4,7 @@
 //
 
 #include "js_core.h"
+#include "../../../../../native/bridge/quickjs_value.hpp"
 #include <pthread.h>
 #include <thread>
 #include "log.h"
@@ -290,7 +291,14 @@ void JSCore::check_cb_impl(uv_check_t *handle) {
             return;
         }
     }
-    executeJavaScript(task.code, task.sourceUrl);
+    if (task.message) {
+        dimina::bridge::OwnedJSValue result(ctx, dimina::bridge::deliverMessage(ctx, *task.message));
+        if (JS_IsException(result.value)) {
+            OHError("service message callback failed");
+            JS_FreeValue(ctx, JS_GetException(ctx));
+        }
+        processPendingJobs();
+    } else executeJavaScript(task.code, task.sourceUrl);
 }
 
 // C 兼容的接口函数实现

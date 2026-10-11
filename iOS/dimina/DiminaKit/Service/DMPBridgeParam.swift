@@ -18,6 +18,7 @@ enum DMPBridgeParamType: Int {
     case double = 6
     case null = 7
     case undefined = 8
+    case arrayBuffer = 9
 }
 
 
@@ -27,7 +28,9 @@ public class DMPBridgeParam {
     var isAsync: Bool = false
     
     init(value: Any) {
-        if let dict = value as? [String: Any] {
+        if value is Data {
+            self.type = .arrayBuffer
+        } else if let dict = value as? [String: Any] {
             self.type = .object
             self.isAsync = DMPBridgeParam.hasCallbackIdentifiers(dict)
         } else if value is [Any] {
@@ -94,10 +97,8 @@ public class DMPBridgeParam {
 
     func getJSValue(context: JSContext) -> JSValue {
         switch type {
-        case .object:
-            return JSValue(object: value as! [String: Any], in: context)
-        case .array:
-            return JSValue(object: value as! [Any], in: context)
+        case .object, .array, .arrayBuffer:
+            return DMPBinaryBridge.encode(value, in: context)
         case .string:
             return JSValue(object: value as! String, in: context)
         case .number:
