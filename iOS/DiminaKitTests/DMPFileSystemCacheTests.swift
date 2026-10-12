@@ -72,6 +72,7 @@ final class DMPFileSystemCacheTests: XCTestCase {
         let fileStat = call(api.stat, ["path": file, "recursive": true]).get("stats") as? [String: Any]
         XCTAssertEqual(fileStat?["size"] as? Int, 2)
         let stats = call(api.stat, ["path": base, "recursive": true]).get("stats") as? [String: Any]
+        XCTAssertEqual(Set(try XCTUnwrap(stats).keys), ["", "/form.json"])
         XCTAssertEqual((stats?[""] as? [String: Any])?["isDirectory"] as? Bool, true)
         XCTAssertEqual(((stats?["/form.json"] as? [String: Any])?["mode"] as? Int ?? 0) & 0o170000, 0o100000)
         _ = call(api.writeFile, ["filePath": base + "/replacement", "data": "new", "encoding": "utf8"])

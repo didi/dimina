@@ -173,6 +173,15 @@ jobs:
             -disableAutomaticPackageResolution \
             -resultBundlePath TestResults.xcresult
 
+      - name: Summarize unit test results
+        if: always()
+        working-directory: ./iOS
+        run: |
+          if [[ -d TestResults.xcresult ]]; then
+            # Includes Swift Testing failures omitted from XCTest's "All tests" count.
+            xcrun xcresulttool get test-results summary --path TestResults.xcresult
+          fi
+
       - name: Compress test results
         if: always()
         working-directory: ./iOS

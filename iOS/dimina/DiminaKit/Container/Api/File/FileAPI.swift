@@ -757,10 +757,11 @@ public class FileAPI: DMPContainerApi {
             return rootStat
         }
         var result: [String: Any] = ["": rootStat]
-        guard let enumerator = FileManager.default.enumerator(at: url, includingPropertiesForKeys: nil) else { return result }
-        for item in enumerator {
-            guard let child = item as? URL else { continue }
-            result[String(child.path.dropFirst(url.path.count))] = try stat(path: child.path)
+        // Enumerate relative paths directly: absolute URLs can use a different
+        // /var alias than the root on devices, making prefix slicing unreliable.
+        guard let enumerator = FileManager.default.enumerator(atPath: url.path) else { return result }
+        for case let relativePath as String in enumerator {
+            result["/" + relativePath] = try stat(path: url.appendingPathComponent(relativePath).path)
         }
         return result
     }
