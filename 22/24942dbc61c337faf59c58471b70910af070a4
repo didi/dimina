@@ -1,0 +1,43 @@
+harmony/dimina/src/main/cpp/js_thread.cpp
+  cb90ce5e57cd6586 4,754-782,821
+fe/packages/service/src/api/core/ui/canvas/canvas-node.js
+  cb90ce5e57cd6586 537,543-546,561,586,599,605,613-614,1514
+fe/packages/common/src/index.js
+  cb90ce5e57cd6586 64
+harmony/scripts/fixtures/canvas-rle32.cpp
+  cb90ce5e57cd6586 1-94
+fe/packages/common/__tests__/canvas-compression.spec.js
+  cb90ce5e57cd6586 1-95
+fe/packages/service/__tests__/canvas-compression.spec.js
+  cb90ce5e57cd6586 1-83
+fe/packages/common/src/core/canvas-compression.js
+  cb90ce5e57cd6586 1-52
+fe/packages/render/__tests__/canvas-compression.spec.js
+  cb90ce5e57cd6586 1-63
+harmony/dimina/src/main/cpp/canvas_rle32.h
+  cb90ce5e57cd6586 1-81
+fe/packages/render/src/core/runtime.js
+  cb90ce5e57cd6586 1,1605,1898-1902
+harmony/scripts/canvas-rle32.test.mjs
+  cb90ce5e57cd6586 1-234
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "2224942dbc61c337faf59c58471b70910af070a4",
+  "prompts": {
+    "cb90ce5e57cd6586": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a12edc-6770-7aa1-8fec-c01669bb1db3",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 843,
+      "total_deletions": 55,
+      "accepted_lines": 1619,
+      "overriden_lines": 0
+    }
+  }
+}
