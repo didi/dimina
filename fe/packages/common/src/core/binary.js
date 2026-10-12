@@ -38,7 +38,9 @@ export function base64ToArrayBuffer(base64) {
 	if (!clean) return new ArrayBuffer(0)
 	if (typeof globalThis.atob === 'function') {
 		const binary = globalThis.atob(clean)
-		return Uint8Array.from(binary, char => char.charCodeAt(0)).buffer
+		const bytes = new Uint8Array(binary.length)
+		for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index)
+		return bytes.buffer
 	}
 
 	const padding = clean.endsWith('==') ? 2 : clean.endsWith('=') ? 1 : 0
