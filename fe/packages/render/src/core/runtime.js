@@ -1,4 +1,4 @@
-import { arrayBufferToBase64, base64ToArrayBuffer, CANVAS_ACTIVE_PROP, CANVAS_CONTRACT_CHANGE_EVENT, CANVAS_NODE_PROP, CANVAS_OWNER_PROP, canvasPixelBudgetError, deepEqual, getDataAttributes, normalizePropertyValues as normalizeMiniProgramPropertyValues, set, uuid } from '@dimina/common'
+import { arrayBufferToBase64, base64ToArrayBuffer, decodeCanvasRle32, CANVAS_ACTIVE_PROP, CANVAS_CONTRACT_CHANGE_EVENT, CANVAS_NODE_PROP, CANVAS_OWNER_PROP, canvasPixelBudgetError, deepEqual, getDataAttributes, normalizePropertyValues as normalizeMiniProgramPropertyValues, set, uuid } from '@dimina/common'
 import { Components, deepToRaw } from '@dimina/components'
 import {
 	createApp,
@@ -1602,7 +1602,7 @@ class Runtime {
 
 	getCanvasCapabilities() {
 		if (!this.canvasCapabilities) {
-			this.canvasCapabilities = probeWebGLCapabilities()
+			this.canvasCapabilities = { ...probeWebGLCapabilities(), typedArrayEncodings: ['rle32-v1'] }
 		}
 		return this.canvasCapabilities
 	}
@@ -1895,7 +1895,11 @@ class Runtime {
 		}
 
 		if (value.__canvasTypedArray && value.base64 !== undefined) {
-			const buffer = base64ToArrayBuffer(value.base64)
+			let buffer = base64ToArrayBuffer(value.base64)
+			if (value.encoding !== undefined) {
+				if (value.encoding !== 'rle32-v1') throw new TypeError('unsupported canvas typed array encoding')
+				buffer = decodeCanvasRle32(buffer, value.byteLength)
+			}
 			if (value.__canvasTypedArray === 'DataView') return new DataView(buffer)
 			const Ctor = TYPED_ARRAY_CTORS[value.__canvasTypedArray]
 			if (Ctor) return new Ctor(buffer)

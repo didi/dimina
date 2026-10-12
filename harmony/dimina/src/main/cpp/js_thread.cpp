@@ -1,6 +1,7 @@
 #include "js_thread.h"
 #include "js_engine.h"
 #include "video_decoder.h"
+#include "canvas_rle32.h"
 #include "log.h"
 #include "napi/native_api.h"
 #include <future>
@@ -750,6 +751,35 @@ static JSValue js_encode_array_buffer(JSContext *ctx, JSValueConst, int argc, JS
     } catch (const std::exception &error) { return throwNativeError(ctx, error.what()); }
 }
 
+static JSValue js_encode_canvas_array_buffer(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
+    if (argc < 1) return JS_ThrowTypeError(ctx, "Expected ArrayBuffer");
+    size_t size = 0;
+    const uint8_t *bytes = JS_GetArrayBuffer(ctx, &size, argv[0]);
+    if (JS_HasException(ctx)) return JS_EXCEPTION;
+    try {
+        std::vector<uint8_t> packed;
+        if (size >= dimina::canvas::MIN_CANVAS_RLE_BYTES && size <= dimina::canvas::MAX_CANVAS_RLE_BYTES && size % 4 == 0)
+            packed = dimina::canvas::encodeCanvasRle32(bytes, size);
+        const bool compressed = dimina::canvas::shouldUseCanvasRle32(size, packed.size());
+        const std::string encoded = compressed
+            ? dimina::canvas::canvasBytesToBase64(packed.data(), packed.size())
+            : dimina::canvas::canvasBytesToBase64(bytes, size);
+        JSValue result = JS_NewObject(ctx);
+        if (JS_IsException(result)) return result;
+        const auto set = [&](const char *key, JSValue value) {
+            if (JS_IsException(value)) return false;
+            return JS_SetPropertyStr(ctx, result, key, value) >= 0;
+        };
+        if (!set("base64", JS_NewStringLen(ctx, encoded.data(), encoded.size())) ||
+            (compressed && (!set("encoding", JS_NewString(ctx, "rle32-v1")) ||
+                !set("byteLength", JS_NewFloat64(ctx, static_cast<double>(size)))))) {
+            JS_FreeValue(ctx, result);
+            return JS_EXCEPTION;
+        }
+        return result;
+    } catch (const std::exception &error) { return throwNativeError(ctx, error.what()); }
+}
+
 static JSValue js_decode_array_buffer(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
     if (argc < 1) return JS_ThrowTypeError(ctx, "Expected base64 string");
     size_t length = 0;
@@ -788,6 +818,7 @@ void initBridges(JSContext *ctx, const char* virtualFilePrefix, int owner) {
     JS_SetPropertyStr(ctx, diminaServiceBridge, "canvasSyncSupported", JS_TRUE);
     JS_SetPropertyStr(ctx, diminaServiceBridge, "fileBinarySupported", JS_TRUE);
     JS_SetPropertyStr(ctx, diminaServiceBridge, "encodeArrayBuffer", JS_NewCFunction(ctx, js_encode_array_buffer, "encodeArrayBuffer", 1));
+    JS_SetPropertyStr(ctx, diminaServiceBridge, "encodeCanvasArrayBuffer", JS_NewCFunction(ctx, js_encode_canvas_array_buffer, "encodeCanvasArrayBuffer", 1));
     JS_SetPropertyStr(ctx, diminaServiceBridge, "decodeArrayBuffer", JS_NewCFunction(ctx, js_decode_array_buffer, "decodeArrayBuffer", 1));
     JS_SetPropertyStr(ctx, diminaServiceBridge, "getVideoDecoderFrame", CreateVideoDecoderFrameReader(ctx, owner));
     JSValue global = JS_GetGlobalObject(ctx);

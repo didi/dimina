@@ -534,12 +534,16 @@ function isPlainObject(value) {
 	return Object.prototype.toString.call(value) === '[object Object]'
 }
 
-function serializeTypedArray(value) {
+function serializeTypedArray(value, bridgeId) {
 	if (typeof ArrayBuffer === 'undefined' || !ArrayBuffer.isView(value)) {
 		return null
 	}
 	if (globalThis.DiminaServiceBridge?.canvasSyncSupported === true && value.byteLength >= 1024) {
 		const bytes = new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
+		const encode = globalThis.DiminaServiceBridge?.encodeCanvasArrayBuffer
+		if (typeof encode === 'function' && getWebGLCapabilities(bridgeId)?.typedArrayEncodings?.includes('rle32-v1')) {
+			return { __canvasTypedArray: value.constructor.name, ...encode(bytes.slice().buffer) }
+		}
 		return { __canvasTypedArray: value.constructor.name, base64: arrayBufferToBase64(bytes.slice().buffer) }
 	}
 	if (value instanceof DataView) {
@@ -554,7 +558,7 @@ function serializeTypedArray(value) {
 	}
 }
 
-function serializeCanvasArg(value) {
+function serializeCanvasArg(value, bridgeId) {
 	if (value === null || value === undefined) {
 		return value
 	}
@@ -579,7 +583,7 @@ function serializeCanvasArg(value) {
 		}
 	}
 
-	const typedArray = serializeTypedArray(value)
+	const typedArray = serializeTypedArray(value, bridgeId)
 	if (typedArray) {
 		return typedArray
 	}
@@ -592,13 +596,13 @@ function serializeCanvasArg(value) {
 	}
 
 	if (Array.isArray(value)) {
-		return value.map(item => serializeCanvasArg(item))
+		return value.map(item => serializeCanvasArg(item, bridgeId))
 	}
 
 	if (isPlainObject(value)) {
 		const result = {}
 		for (const [key, item] of Object.entries(value)) {
-			result[key] = serializeCanvasArg(item)
+			result[key] = serializeCanvasArg(item, bridgeId)
 		}
 		return result
 	}
@@ -606,8 +610,8 @@ function serializeCanvasArg(value) {
 	return value
 }
 
-function serializeCanvasArgs(args) {
-	return Array.from(args).map(arg => serializeCanvasArg(arg))
+function serializeCanvasArgs(args, bridgeId) {
+	return Array.from(args).map(arg => serializeCanvasArg(arg, bridgeId))
 }
 
 function makeResourceId(prefix = 'canvas_resource') {
@@ -1507,7 +1511,7 @@ class WebGLRenderingContextProxy {
 			op: 'contextCall',
 			contextId: this.contextId,
 			method,
-			args: serializeCanvasArgs(args),
+			args: serializeCanvasArgs(args, this.canvas.bridgeId),
 		}
 		if (method === 'compileShader') {
 			args[0]?.updateMetadata({ compileStatus: true })
