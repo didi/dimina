@@ -1,0 +1,126 @@
+harmony/scripts/quickjs-json.test.mjs
+  cb90ce5e57cd6586 1-58
+fe/packages/service/__tests__/video-decoder.spec.js
+  cb90ce5e57cd6586 12-38
+third_party/quickjs/patches/bridge-data.patch
+  cb90ce5e57cd6586 1-94
+harmony/scripts/video-decoder-pixels.test.mjs
+  cb90ce5e57cd6586 1-46
+harmony/scripts/fixtures/video-decoder-seek.cpp
+  cb90ce5e57cd6586 1-667
+harmony/scripts/video-decoder-frame.test.mjs
+  cb90ce5e57cd6586 13,28,47
+fe/packages/render/src/core/canvas-texture-upload.js
+  cb90ce5e57cd6586 1-265
+harmony/dimina/src/main/cpp/video_decoder_frame.h
+  cb90ce5e57cd6586 7,20,22-24,34-41,45-48,66,80-101
+harmony/dimina/src/main/cpp/canvas_rle32.h
+  cb90ce5e57cd6586 9-11,51-60
+harmony/dimina/src/main/cpp/log.h
+  cb90ce5e57cd6586 23-25,27
+harmony/scripts/fixtures/canvas-ui-channel.cpp
+  cb90ce5e57cd6586 1-89
+harmony/dimina/src/main/ets/Render/DMPRender.ets
+  57ebb526a40560ac 8,10-18,22-23,42-48,68,71,75-77,88,93,95-96,106-108,117-175,182,187
+harmony/dimina/src/main/cpp/js_thread.cpp
+  cb90ce5e57cd6586 5,9-10,173,198,204,250-278,287,290,432-441,752,865
+harmony/dimina/src/main/cpp/canvas_ui_channel.h
+  cb90ce5e57cd6586 1-126
+harmony/dimina/src/main/cpp/canvas_ui_route.cpp
+  cb90ce5e57cd6586 1-181
+harmony/scripts/keyboard-focus.test.mjs
+  cb90ce5e57cd6586 19
+fe/packages/common/src/index.js
+  cb90ce5e57cd6586 64
+harmony/dimina/src/main/cpp/dimina_native.cpp
+  cb90ce5e57cd6586 5,79-82
+harmony/dimina/src/main/cpp/video_decoder_headers.h
+  cb90ce5e57cd6586 1-82
+harmony/scripts/canvas-ui-channel.test.mjs
+  cb90ce5e57cd6586 1-21
+harmony/scripts/fixtures/video-decoder-pixels.cpp
+  cb90ce5e57cd6586 1-195
+fe/packages/common/src/core/canvas-compression.js
+  cb90ce5e57cd6586 4,8-10,23,28,44-46,51-53,59-75
+harmony/dimina/src/main/cpp/video_decoder_pixels.h
+  cb90ce5e57cd6586 1-101
+harmony/dimina/src/main/cpp/CMakeLists.txt
+  57ebb526a40560ac 76
+fe/packages/render/src/core/message.js
+  cb90ce5e57cd6586 18
+harmony/dimina/src/main/ets/Service/DMPWorkerWrapper.ets
+  57ebb526a40560ac 71-72
+harmony/dimina/src/main/cpp/canvas_ui_route.h
+  cb90ce5e57cd6586 1-12
+fe/packages/service/__tests__/canvas-compression.spec.js
+  cb90ce5e57cd6586 69,76-91
+harmony/dimina/src/main/cpp/video_decoder.cpp
+  cb90ce5e57cd6586 3-4,52,91-93,100,109-114,117-195,205,210,218-219,224-235,243-246,253-254,291-294,309,314-315,321,324,326,330,333-358,369,373,406-408,436-437,459,482,534-540
+harmony/scripts/fixtures/quickjs-json.cpp
+  cb90ce5e57cd6586 1-128
+harmony/dimina/src/main/ets/HybridContainer/DMPWebViewController.ets
+  57ebb526a40560ac 89,102
+harmony/dimina/src/main/ets/Service/DMPChannelProxyNext.ets
+  57ebb526a40560ac 14
+harmony/scripts/canvas-sync.test.mjs
+  cb90ce5e57cd6586 22,24,28,35,45-48,102,113,119,158-319
+cmake/DiminaQuickJS.cmake
+  57ebb526a40560ac 15,144-181
+harmony/dimina/src/main/ets/Service/DMPSendableObjects.ets
+  57ebb526a40560ac 164-167
+harmony/dimina/src/main/cpp/types/libdimina/index.d.ts
+  cb90ce5e57cd6586 32-36
+fe/packages/service/src/api/core/media/video/video-decoder.js
+  cb90ce5e57cd6586 125-128
+fe/packages/common/__tests__/canvas-compression.spec.js
+  cb90ce5e57cd6586 2,18-45
+fe/packages/render/__tests__/canvas-texture-upload.spec.js
+  cb90ce5e57cd6586 1-759
+harmony/dimina/src/main/ets/Service/DMPWorker.ets
+  57ebb526a40560ac 44,60-63
+harmony/scripts/fixtures/video-decoder-frame.cpp
+  cb90ce5e57cd6586 14-18,29-38,60-63,79,105,111-112
+fe/packages/service/__tests__/canvas-deferred-errors.spec.js
+  cb90ce5e57cd6586 1-109
+fe/packages/render/__tests__/canvas-deferred-errors.spec.js
+  cb90ce5e57cd6586 1-96
+fe/packages/service/src/api/core/ui/canvas/canvas-node.js
+  cb90ce5e57cd6586 545-549,1446,2168-2171,2180-2186,2243
+fe/packages/render/src/core/runtime.js
+  cb90ce5e57cd6586 38,665,1607,1839-1842,1863-1864,1990-1992,2012-2015,2035,2073-2077,2100,2178-2179,2222-2227,2343,2347,2386-2389,2396,2402
+harmony/scripts/video-decoder-seek.test.mjs
+  cb90ce5e57cd6586 1-78
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "d9ba21e10308cbbd51ea667063a9b626e3046c00",
+  "prompts": {
+    "57ebb526a40560ac": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1355f-2f33-7620-9ca8-625ed152a148",
+        "model": "unknown"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 148,
+      "total_deletions": 10,
+      "accepted_lines": 148,
+      "overriden_lines": 0
+    },
+    "cb90ce5e57cd6586": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a12edc-6770-7aa1-8fec-c01669bb1db3",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 79,
+      "total_deletions": 23,
+      "accepted_lines": 5840,
+      "overriden_lines": 0
+    }
+  }
+}
