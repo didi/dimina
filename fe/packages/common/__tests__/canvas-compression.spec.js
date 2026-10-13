@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { decodeCanvasRle32 } from '../src/core/canvas-compression'
+import { decodeCanvasRle32, decodeCanvasRle32Prefix, inspectCanvasRle32Tail } from '../src/core/canvas-compression'
 import { MAX_CANVAS_IMAGE_BYTES } from '../src/core/canvas-limits'
 
 function packet(...segments) {
@@ -14,6 +14,35 @@ function packet(...segments) {
 	}
 	return output.buffer
 }
+
+describe('validated RLE prefixes', () => {
+	it('returns exact prefixes across literals and runs and reports only the final run', () => {
+		const encoded = packet({ count: 2, bytes: [1, 2, 3, 4, 5, 6, 7, 8] },
+			{ run: true, count: 5, bytes: [0, 128, 255, 7] })
+		const full = new Uint8Array(decodeCanvasRle32(encoded, 28))
+		for (const size of [0, 4, 8, 12, 24, 28]) {
+			expect(new Uint8Array(decodeCanvasRle32Prefix(encoded, 28, size))).toEqual(full.slice(0, size))
+		}
+		expect(inspectCanvasRle32Tail(encoded, 28)).toEqual({ tailWord: 0x07FF8000, tailWords: 5 })
+	})
+	it('validates corruption after a completely decoded prefix', () => {
+		const encoded = packet({ count: 1, bytes: [1, 2, 3, 4] }, { run: true, count: 4, bytes: [0, 0, 0, 255] })
+		for (const corrupted of [encoded.slice(0, 12), encoded.slice(0, 8)]) {
+			expect(() => decodeCanvasRle32Prefix(corrupted, 20, 4)).toThrow()
+			expect(() => inspectCanvasRle32Tail(corrupted, 20)).toThrow()
+		}
+		new DataView(encoded).setUint32(8, 0x80000006, true)
+		expect(() => decodeCanvasRle32Prefix(encoded, 20, 4)).toThrow(/exceeds/)
+	})
+	it('cannot infer a constant tail from a final literal', () => {
+		const encoded = packet({ run: true, count: 3, bytes: [0, 0, 0, 255] }, { count: 1, bytes: [9, 10, 11, 12] })
+		expect(inspectCanvasRle32Tail(encoded, 16).tailWords).toBe(0)
+	})
+	it.each([-4, 2, 20, NaN, '4'])('rejects an invalid prefix size %j', (size) => {
+		const encoded = packet({ run: true, count: 4, bytes: [0, 0, 0, 255] })
+		expect(() => decodeCanvasRle32Prefix(encoded, 16, size)).toThrow(/prefix/)
+	})
+})
 
 describe('rle32 canvas decoder', () => {
 	it('decodes mixed literal and run words as exact bytes into an independent buffer', () => {

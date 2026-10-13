@@ -10,6 +10,7 @@ test('QuickJS receives owned RGBA bytes and frame metadata without base64', () =
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dimina-video-frame-'))
   const root = fileURLToPath(new URL('../../', import.meta.url))
   const fixture = fileURLToPath(new URL('./fixtures/video-decoder-frame.cpp', import.meta.url))
+  const sourcePatch = process.env.DIMINA_QUICKJS_PATCH ?? path.join(root, 'third_party/quickjs/patches/bridge-data.patch')
   try {
     const source = fs.readFileSync(path.join(root, 'harmony/dimina/src/main/cpp/js_thread.cpp'), 'utf8')
     const register = source.match(/void registerFunc\(JSContext \*ctx,[\s\S]*?\n}/)?.[0]
@@ -24,6 +25,7 @@ struct JSEngine {
 void initBridges(JSContext *ctx, const char *, int owner) {
     JSValue global = JS_GetGlobalObject(ctx);
     JS_SetPropertyStr(ctx, global, "readFrame", CreateVideoDecoderFrameReader(ctx, owner));
+    JS_SetPropertyStr(ctx, global, "seekForward", CreateVideoDecoderForwardSeeker(ctx, owner));
     JS_FreeValue(ctx, global);
 }
 void registerInvoke(JSContext *) {}
@@ -42,7 +44,7 @@ include("${root}/cmake/DiminaQuickJS.cmake")
 add_executable(video_frame "${fixture}")
 target_include_directories(video_frame PRIVATE "${root}/harmony/dimina/src/main/cpp" "${directory}")
 target_compile_features(video_frame PRIVATE cxx_std_17)
-dimina_configure_quickjs(video_frame ENABLE_DEBUGGER OFF)
+dimina_configure_quickjs(video_frame ENABLE_DEBUGGER OFF SOURCE_PATCH "${sourcePatch}")
 `)
     const cmake = process.env.CMAKE ?? 'cmake'
     const configure = spawnSync(cmake, ['-S', directory, '-B', path.join(directory, 'build'), '-DCMAKE_BUILD_TYPE=Release'], { encoding: 'utf8' })

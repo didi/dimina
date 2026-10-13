@@ -1,0 +1,101 @@
+#pragma once
+
+#include <algorithm>
+#include <cstddef>
+#include <cstdint>
+
+#if defined(__aarch64__) && defined(__ARM_NEON) && defined(__BYTE_ORDER__) && \
+    __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+#include <arm_neon.h>
+#endif
+
+namespace dimina::video {
+
+// The decoder validates buffer bounds and layout before invoking this core.
+struct NV12PixelLayout {
+    int width, height, stride, left, top;
+    bool fullRange, bt709;
+    size_t uvStart;
+};
+
+namespace detail {
+inline uint8_t PixelByte(double value) {
+    return uint8_t(std::max(0.0, std::min(255.0, value)));
+}
+inline void Pixel(const uint8_t *y, const uint8_t *uv, NV12PixelLayout layout, uint8_t *out) {
+    double luma = *y;
+    double scale = layout.fullRange ? 1.0 : 255.0 / 224;
+    double u = (uv[0] - 128.0) * scale, v = (uv[1] - 128.0) * scale;
+    double yy = layout.fullRange ? luma : (luma - 16) * 255.0 / 219;
+    out[0] = PixelByte(yy + (layout.bt709 ? 1.5748 : 1.402) * v);
+    out[1] = PixelByte(yy - (layout.bt709 ? 0.1873 : 0.3441) * u - (layout.bt709 ? 0.4681 : 0.7141) * v);
+    out[2] = PixelByte(yy + (layout.bt709 ? 1.8556 : 1.772) * u);
+    out[3] = 255;
+}
+
+#if defined(__aarch64__) && defined(__ARM_NEON) && defined(__BYTE_ORDER__) && \
+    __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+inline uint32x2_t PixelBytes(float64x2_t value) {
+    value = vmaxq_f64(vdupq_n_f64(0), vminq_f64(vdupq_n_f64(255), value));
+    return vmovn_u64(vcvtq_u64_f64(value));
+}
+#endif
+} // namespace detail
+
+inline void ConvertNV12PixelsScalar(const uint8_t *bytes, NV12PixelLayout layout, uint8_t *pixels) {
+    for (int y = 0; y < layout.height; ++y) for (int x = 0; x < layout.width; ++x) {
+        int sx = x + layout.left, sy = y + layout.top;
+        auto uv = layout.uvStart + size_t(sy / 2) * layout.stride + (sx / 2) * 2;
+        detail::Pixel(bytes + size_t(sy) * layout.stride + sx, bytes + uv, layout,
+            pixels + (size_t(y) * layout.width + x) * 4);
+    }
+}
+
+inline void ConvertNV12Pixels(const uint8_t *bytes, NV12PixelLayout layout, uint8_t *pixels) {
+    if (layout.width <= 0 || layout.height <= 0) return;
+#if defined(__aarch64__) && defined(__ARM_NEON) && defined(__BYTE_ORDER__) && \
+    __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+    const auto rV = vdupq_n_f64(layout.bt709 ? 1.5748 : 1.402);
+    const auto gU = vdupq_n_f64(layout.bt709 ? 0.1873 : 0.3441);
+    const auto gV = vdupq_n_f64(layout.bt709 ? 0.4681 : 0.7141);
+    const auto bU = vdupq_n_f64(layout.bt709 ? 1.8556 : 1.772);
+    const double scale = layout.fullRange ? 1.0 : 255.0 / 224;
+    for (int y = 0; y < layout.height; ++y) {
+        const int sy = y + layout.top;
+        const uint8_t *ys = bytes + size_t(sy) * layout.stride + layout.left;
+        const uint8_t *uvs = bytes + layout.uvStart + size_t(sy / 2) * layout.stride + (layout.left / 2) * 2;
+        uint8_t *out = pixels + size_t(y) * layout.width * 4;
+        int x = 0;
+        // An odd crop starts in the second pixel of its NV12 chroma pair.
+        if ((layout.left & 1) && x < layout.width) {
+            detail::Pixel(ys, uvs, layout, out);
+            ++x; uvs += 2;
+        }
+        for (; x + 1 < layout.width; x += 2, uvs += 2) {
+            float64x2_t yy {double(ys[x]), double(ys[x + 1])};
+            if (!layout.fullRange) {
+                yy = vsubq_f64(yy, vdupq_n_f64(16));
+                yy = vmulq_n_f64(yy, 255);
+                yy = vdivq_f64(yy, vdupq_n_f64(219));
+            }
+            const auto u = vdupq_n_f64((uvs[0] - 128.0) * scale);
+            const auto v = vdupq_n_f64((uvs[1] - 128.0) * scale);
+            // Preserve the original double FMA order, especially both green
+            // subtraction steps. Separately rounded products change bytes.
+            const auto red = vfmaq_f64(yy, rV, v);
+            const auto green = vfmsq_f64(vfmsq_f64(yy, gU, u), gV, v);
+            const auto blue = vfmaq_f64(yy, bU, u);
+            auto rgba = vorr_u32(detail::PixelBytes(red), vshl_n_u32(detail::PixelBytes(green), 8));
+            rgba = vorr_u32(rgba, vshl_n_u32(detail::PixelBytes(blue), 16));
+            rgba = vorr_u32(rgba, vdup_n_u32(0xff000000));
+            // Byte stores allow unaligned output without type-punning UB.
+            vst1_u8(out + x * 4, vreinterpret_u8_u32(rgba));
+        }
+        if (x < layout.width) detail::Pixel(ys + x, uvs, layout, out + x * 4);
+    }
+#else
+    ConvertNV12PixelsScalar(bytes, layout, pixels);
+#endif
+}
+
+} // namespace dimina::video

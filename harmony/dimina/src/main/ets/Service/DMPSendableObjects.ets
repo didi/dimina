@@ -161,7 +161,10 @@ export class WorkerCanvasRequest {
   deadline: number = Date.now() + 5000;
   requestId: number;
   body: string;
-  constructor(requestId: number, body: string) { this.requestId = requestId; this.body = body; }
+  structuredBody?: Object;
+  constructor(requestId: number, body: string, structuredBody?: Object) {
+    this.requestId = requestId; this.body = body; this.structuredBody = structuredBody;
+  }
 }
 export class WorkerCanvasResult {
   command: string = 'canvasSyncResult';

@@ -35,6 +35,7 @@ import {
 } from 'vue'
 import loader from './loader'
 import message from './message'
+import { CanvasTextureUpload } from './canvas-texture-upload'
 import { resolveCanvasExportSize } from './canvas-export-limits'
 import { createMiniProgramSlots } from './slots'
 import { invokeMapContext } from './map-context'
@@ -661,6 +662,7 @@ class Runtime {
 		this.componentAnimations = new Map()
 		this.performanceObservers = new Map()
 		this.canvasNodes = new Map()
+		this.canvasTextureUpload = new CanvasTextureUpload()
 		this.canvasResources = new Map()
 		this.canvasRafIds = new Map()
 		this.canvasCapabilities = null
@@ -1602,7 +1604,7 @@ class Runtime {
 
 	getCanvasCapabilities() {
 		if (!this.canvasCapabilities) {
-			this.canvasCapabilities = { ...probeWebGLCapabilities(), typedArrayEncodings: ['rle32-v1'] }
+			this.canvasCapabilities = { ...probeWebGLCapabilities(), typedArrayEncodings: ['rle32-v1'], deferredGLErrors: true }
 		}
 		return this.canvasCapabilities
 	}
@@ -1834,7 +1836,10 @@ class Runtime {
 			}
 			this.canvasResources.delete(resourceId)
 		}
-		for (const contextId of node.contexts?.keys() || []) this.canvasResources.delete(contextId)
+		for (const [contextId, context] of node.contexts || []) {
+			this.canvasTextureUpload.invalidate(context)
+			this.canvasResources.delete(contextId)
+		}
 		for (const [key, frameId] of [...this.canvasRafIds]) {
 			if (!key.startsWith(`${nodeId}:`)) continue
 			cancelAnimationFrame(frameId)
@@ -1855,6 +1860,8 @@ class Runtime {
 			if (event.type === 'webglcontextlost') event.preventDefault()
 			const contexts = {}
 			for (const [contextId, context] of node.contexts) {
+				if (event.type === 'webglcontextrestored') this.canvasTextureUpload.restore(context)
+				else this.canvasTextureUpload.reset(context)
 				contexts[contextId] = {
 					contextLost: event.type === 'webglcontextlost',
 					...(event.type === 'webglcontextrestored' ? { capabilities: describeWebGLContext(context, false) } : {}),
@@ -1980,6 +1987,9 @@ class Runtime {
 					if (budgetError) throw new RangeError(budgetError)
 				}
 				node.canvas[operation.prop] = operation.value
+				if (operation.prop === 'width' || operation.prop === 'height') {
+					for (const context of node.contexts.values()) this.canvasTextureUpload.reset(context)
+				}
 				break
 			}
 			case 'getContext': {
@@ -1999,7 +2009,10 @@ class Runtime {
 				const isWebGL = operation.contextType === 'webgl'
 					|| operation.contextType === 'experimental-webgl'
 					|| operation.contextType === 'webgl2'
-				if (context && isWebGL) this.observeWebGLContextEvents(node)
+				if (context && isWebGL) {
+					this.canvasTextureUpload.register(context, operation.contextType)
+					this.observeWebGLContextEvents(node)
+				}
 				return {
 					contextId: operation.contextId,
 					context: context
@@ -2019,6 +2032,7 @@ class Runtime {
 					const supported = operation.prop in context
 					if (supported) {
 						try {
+							if (typeof context[operation.prop] === 'function') this.canvasTextureUpload.disable(context)
 							context[operation.prop] = this.resolveCanvasArg(operation.value)
 						}
 						catch (error) {
@@ -2056,7 +2070,11 @@ class Runtime {
 				if (typeof method !== 'function' && !resetFallback) {
 					break
 				}
-				const args = (operation.args || []).map(arg => this.resolveCanvasArg(arg, context))
+				const wireUpload = operation.method === 'texImage2D' && !operation.typedArrayUpdateId
+					&& operation.args?.length === 9 && operation.args[8]?.encoding === 'rle32-v1'
+				const args = (operation.args || []).map((arg, index) => wireUpload && index === 8 ? arg : this.resolveCanvasArg(arg, context))
+				const preparedUpload = wireUpload ? this.canvasTextureUpload.prepareRleUpload(context, args) : null
+				if (wireUpload && !preparedUpload) args[8] = this.resolveCanvasArg(args[8], context)
 				// 兼容 active ImageData wire contract 之前发布的基础库：旧 service 会把 ImageData
 				// 序列化成普通 {width,height,data}，新 render 在真正调用前补回浏览器对象。
 				if (operation.method === 'putImageData' && args[0]?.data instanceof Uint8ClampedArray
@@ -2079,7 +2097,7 @@ class Runtime {
 						node.canvas.width = backingWidth
 					}
 					else {
-						const result = method.apply(context, args)
+						const result = preparedUpload ? preparedUpload() : this.canvasTextureUpload.invoke(context, operation.method, args, () => method.apply(context, args))
 						this.setCanvasResource(operation.resultId, result, node)
 					}
 				}
@@ -2157,7 +2175,8 @@ class Runtime {
 				let value = null
 				let queryError
 				try {
-					value = method.apply(context, (operation.args || []).map(arg => this.resolveCanvasArg(arg)))
+					const args = (operation.args || []).map(arg => this.resolveCanvasArg(arg))
+					value = this.canvasTextureUpload.invoke(context, operation.method, args, () => method.apply(context, args))
 				}
 				catch (error) {
 					queryError = { name: error.name, message: error.message }
@@ -2200,6 +2219,12 @@ class Runtime {
 				break
 			}
 			case 'extensionCall': {
+				// These extensions only affect vertex state or draw into already tracked
+				// framebuffers. Unknown extension mutations invalidate texture proofs.
+				if (!['createVertexArrayOES', 'deleteVertexArrayOES', 'bindVertexArrayOES', 'isVertexArrayOES',
+					'vertexAttribDivisorANGLE', 'drawArraysInstancedANGLE', 'drawElementsInstancedANGLE'].includes(operation.method)) {
+					this.canvasTextureUpload.disable(this.getCanvasResource(operation.contextId))
+				}
 				const extension = this.getCanvasResource(operation.extensionId)
 				const method = extension?.[operation.method]
 				let result = null
@@ -2315,9 +2340,11 @@ class Runtime {
 			typedArrays: [],
 		}
 		const touchedContexts = new Set()
+		const errorFeedbackContexts = new Set()
 		for (const operation of params.operations || []) {
 			if (operation.contextId) {
 				touchedContexts.add(operation.contextId)
+				if (operation.op === 'contextFeedback') errorFeedbackContexts.add(operation.contextId)
 			}
 			let result
 			try {
@@ -2356,20 +2383,23 @@ class Runtime {
 			}
 		}
 
-		for (const contextId of params.feedback ? touchedContexts : []) {
+		// Legacy services collect errors after every feedback batch. A negotiated
+		// service leaves the real GL sticky flags untouched until an error query.
+		const feedbackContexts = params.deferErrorFeedback === true ? errorFeedbackContexts : touchedContexts
+		for (const contextId of params.feedback ? feedbackContexts : []) {
 			const context = this.getCanvasResource(contextId)
 			if (!context || typeof context.getError !== 'function') {
 				continue
 			}
 			feedback.contexts[contextId] ||= {}
 			feedback.contexts[contextId].contextLost = Boolean(context.isContextLost?.())
-			const errors = []
+			const errors = this.canvasTextureUpload.drainErrors(context)
 			for (let i = 0; i < 32; i++) {
 				const error = context.getError()
 				if (error === context.NO_ERROR) {
 					break
 				}
-				errors.push(error)
+				if (!errors.includes(error)) errors.push(error)
 			}
 			if (errors.length > 0) {
 				feedback.contexts[contextId].errors = errors

@@ -66,10 +66,27 @@ describe('negotiated canvas typed array encoding', () => {
 		const descriptor = globalThis.DiminaServiceBridge.invoke.mock.calls.at(-1)[0].body.params.operations
 			.find(op => op.method === 'bufferData').args[1]
 		expect(encode).toHaveBeenCalledOnce()
+		expect(encode.mock.calls[0][0]).not.toBe(storage.buffer)
 		const snapshot = new Uint8Array(encode.mock.calls[0][0])
 		expect(snapshot.length).toBe(65536)
 		expect(snapshot.every(byte => byte === 23)).toBe(true)
 		expect([...Buffer.from(descriptor.base64, 'base64')].every(byte => byte === 23)).toBe(true)
+	})
+
+	it('encodes a complete native view without copying while owning its wire snapshot synchronously', () => {
+		const encode = vi.fn(buffer => ({ base64: Buffer.from(buffer).toString('base64') }))
+		globalThis.DiminaServiceBridge.encodeCanvasArrayBuffer = encode
+		const gl = create(['rle32-v1'])
+		const pixels = new Uint8Array(65536).fill(23)
+		gl.bufferData(gl.ARRAY_BUFFER, pixels, gl.STATIC_DRAW)
+		expect(encode).toHaveBeenCalledOnce()
+		expect(encode.mock.calls[0][0]).toBe(pixels.buffer)
+		pixels.fill(99)
+		gl.getError()
+		const descriptor = globalThis.DiminaServiceBridge.invoke.mock.calls.at(-1)[0].body.params.operations
+			.find(op => op.method === 'bufferData').args[1]
+		expect([...Buffer.from(descriptor.base64, 'base64')].every(byte => byte === 23)).toBe(true)
+		expect(pixels.every(byte => byte === 99)).toBe(true)
 	})
 
 	it('retains the negotiated encoding and original typed array kind in the wire descriptor', () => {

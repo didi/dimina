@@ -20,7 +20,11 @@ extern const int js_engine_domain;
 #define OHError(fmt, ...) OH_LOG_Print(LOG_APP, LOG_ERROR, js_engine_domain, js_engine_tag, fmt, ##__VA_ARGS__)
 
 //#ifdef DEBUG
+#ifdef NDEBUG
+#define OHLog(fmt, ...) ((void)0)
+#else
 #define OHLog(fmt, ...) OH_LOG_Print(LOG_APP, LOG_DEBUG, js_engine_domain, js_engine_tag, fmt, ##__VA_ARGS__)
+#endif
 #define OHInfo(fmt, ...) OH_LOG_Print(LOG_APP, LOG_INFO, js_engine_domain, js_engine_tag, fmt, ##__VA_ARGS__)
 #define OHWarn(fmt, ...) OH_LOG_Print(LOG_APP, LOG_WARN, js_engine_domain, js_engine_tag, fmt, ##__VA_ARGS__)
 //#else

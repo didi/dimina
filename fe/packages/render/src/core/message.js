@@ -15,7 +15,7 @@ class Message {
 		// window.DiminaRenderBridge 是容器提供，容器调用此方法给视图层发消息
 		window.DiminaRenderBridge.onMessage = (msg) => {
 			const decodedMsg = decodeDataFunctions(msg)
-			console.log('[system]', '[render]', 'receive msg: ', decodedMsg)
+			if (__DEV__) console.log('[system]', '[render]', 'receive msg: ', decodedMsg)
 			const { type, body } = decodedMsg
 			this.event.emit(type, body)
 		}

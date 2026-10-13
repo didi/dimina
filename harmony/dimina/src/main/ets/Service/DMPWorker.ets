@@ -41,7 +41,7 @@ const serviceToContainer = (t: number, wid: number, msg: string | object, ab: Ar
   // 如果可以在 worker 解决的，就不传递到 main thread
   let result: CallerReturnType;
 
-  if (t === 1 || t === 4) {
+  if (t === 1 || t === 4 || t === 6) {
     const data: object = typeof msg === 'string' ? JSON.parse(msg) : msg;
     const type: string = data['type'];
     const target: string = data['target'];
@@ -57,7 +57,10 @@ const serviceToContainer = (t: number, wid: number, msg: string | object, ab: Ar
           resolve(canvasError('canvas query timed out'));
         }, 5000);
         canvasReplies.set(requestId, (value: string) => { clearTimeout(timer); resolve(value); });
-        try { workerPort.postMessage(new WorkerCanvasRequest(requestId, JSON.stringify(body))); }
+        try {
+          workerPort.postMessage(t === 6 ? new WorkerCanvasRequest(requestId, '', body) :
+            new WorkerCanvasRequest(requestId, JSON.stringify(body)));
+        }
         catch (error) {
           canvasReplies.get(requestId)?.(canvasError((error as Error).message));
           canvasReplies.delete(requestId);

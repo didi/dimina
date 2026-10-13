@@ -16,7 +16,7 @@ function load(name, deps = {}) {
 const focus = load('DMPKeyboardFocus.ts')
 function fixture() {
   let shown = 0
-  const app = { currentWebViewId: 1, navigatorManager: { isRetainedInBackground: false } }
+  const app = { currentWebViewId: 1, navigatorManager: { isRetainedInBackground: false }, render: { invalidateCanvasUi() {} } }
   const manager = { isHostVisible: () => true, getPresentedApp: () => app }
   const { DMPWebViewController } = load('DMPWebViewController.ets', {
     '@ohos.web.webview': { WebviewController: class {} },

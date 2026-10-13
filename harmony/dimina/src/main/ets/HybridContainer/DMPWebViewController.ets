@@ -86,6 +86,7 @@ export class DMPWebViewController extends web_webview.WebviewController {
   }
 
   notifyPageBegin() {
+    this.app.render.invalidateCanvasUi(this.webViewId, this)
     this.cancelFocusedKeyboard()
     this.isPageEnd = false;
     this.webViewLifeCycle.notifyPageBegin()
@@ -98,6 +99,7 @@ export class DMPWebViewController extends web_webview.WebviewController {
   }
 
   notifyControllerDetached() {
+    this.app.render.invalidateCanvasUi(this.webViewId, this)
     this.cancelFocusedKeyboard()
     this.isControllerAttached = false;
   }

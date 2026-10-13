@@ -11,6 +11,11 @@ VideoDecoderFrame ReadVideoDecoderFrame(int owner, const std::string &id) {
     return {1, 1, owner * 1000, {uint8_t(owner), 0, 0, 255}, false, ""};
 }
 
+bool TrySeekVideoDecoderForward(int owner, const std::string &id, double position) {
+    if (id == "codec-error") throw std::runtime_error("codec failed");
+    return !removed && id == "decoder" && position == 200 && (owner == 7 || owner == 8);
+}
+
 int main() {
     JSRuntime *runtime = JS_NewRuntime();
     JSContext *ctx = JS_NewContext(runtime);
@@ -21,7 +26,16 @@ int main() {
         std::vector<uint8_t> pixels(720 * 1080 * 4);
         for (size_t i = 0; i < pixels.size(); ++i) pixels[i] = uint8_t(i % 251);
         VideoDecoderFrame frame {720, 1080, 125000, std::move(pixels), false, ""};
-        JSValue value = VideoDecoderFrameToJS(ctx, frame);
+        const uint8_t *originalPixels = frame.pixels.data();
+        JSMemoryUsage before, after;
+        JS_ComputeMemoryUsage(runtime, &before);
+        JSValue value = VideoDecoderFrameToJS(ctx, std::move(frame));
+        JSValue data = JS_GetPropertyStr(ctx, value, "data");
+        size_t length;
+        if (JS_GetArrayBuffer(ctx, &length, data) != originalPixels || length != 3110400) result = 1;
+        JS_FreeValue(ctx, data);
+        JS_ComputeMemoryUsage(runtime, &after);
+        if (after.malloc_size - before.malloc_size < 3110400) result = 1;
         frame = {};
         JSValue global = JS_GetGlobalObject(ctx);
         JS_SetPropertyStr(ctx, global, "frame", value);
@@ -43,6 +57,10 @@ int main() {
             if (nativeFrame.pts !== 7000 || new Uint8Array(nativeFrame.data)[0] !== 7)
                 throw Error('caller changed decoder ownership');
             if (readFrame('missing').data !== undefined) throw Error('unknown decoder returned bytes');
+            if (seekForward('decoder', 200, 999) !== true || seekForward('missing', 200) !== false || seekForward('decoder', 0) !== false)
+                throw Error('native forward result or owner changed');
+            try { seekForward('decoder', '200'); throw Error('expected a position type error'); }
+            catch (error) { if (!(error instanceof TypeError)) throw error; }
             let invalid = false, failed = false;
             try { readFrame(7); } catch (error) { invalid = error instanceof TypeError; }
             try { readFrame('codec-error'); } catch (error) { failed = /codec failed/.test(error.message); }
@@ -58,7 +76,7 @@ int main() {
             VideoDecoderFrame{0, 0, 0, {}, false, "codec failed"}}) {
             value = VideoDecoderFrameToJS(ctx, packet);
             if (JS_IsException(value)) result = 1;
-            JSValue data = JS_GetPropertyStr(ctx, value, "data");
+            data = JS_GetPropertyStr(ctx, value, "data");
             if (!JS_IsUndefined(data)) result = 1;
             JS_FreeValue(ctx, data);
             if (packet.error.empty()) {
@@ -84,14 +102,14 @@ int main() {
         JS_FreeValue(other, value);
         JS_FreeContext(other);
         removed = true;
-        const char *teardown = "if (readFrame('decoder').data !== undefined) throw Error('removed decoder returned bytes');";
+        const char *teardown = "if (readFrame('decoder').data !== undefined || seekForward('decoder',200) !== false) throw Error('removed decoder returned bytes or accepted a seek');";
         value = JS_Eval(ctx, teardown, std::strlen(teardown), "<teardown>", JS_EVAL_TYPE_GLOBAL);
         if (JS_IsException(value)) result = 1;
         JS_FreeValue(ctx, value);
         JS_SetMemoryLimit(runtime, 4 * 1024 * 1024);
         VideoDecoderFrame large {720, 1080, 0, std::vector<uint8_t>(720 * 1080 * 4), false, ""};
-        value = VideoDecoderFrameToJS(ctx, large);
-        if (!JS_IsException(value)) result = 1;
+        value = VideoDecoderFrameToJS(ctx, std::move(large));
+        if (!JS_IsException(value)) { result = 1; std::cerr << "owned frame bypassed QuickJS memory limit\n"; }
         JS_FreeValue(ctx, value);
         if (JS_HasException(ctx)) JS_FreeValue(ctx, JS_GetException(ctx));
         JS_SetMemoryLimit(runtime, SIZE_MAX);

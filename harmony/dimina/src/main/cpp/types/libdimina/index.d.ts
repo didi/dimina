@@ -29,3 +29,8 @@ export const videoDecoderOperate: (owner: number, id: string, command: string,
   source: string, argument: number) => Promise<object>;
 export const videoDecoderGetFrame: (owner: number, id: string) => VideoDecoderFrame;
 export const videoDecoderDispose: (owner: number) => void;
+
+export const canvasUiRegister: (owner: number, page: number, callback: (requestId: string, script: string) => void) => string;
+export const canvasUiUnregister: (owner: number, page: number, token: string) => void;
+export const canvasUiPublish: (owner: number, page: number, script: string) => boolean;
+export const canvasUiComplete: (requestId: string, feedback: string, error: string) => void;

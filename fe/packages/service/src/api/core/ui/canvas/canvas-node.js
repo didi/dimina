@@ -542,7 +542,11 @@ function serializeTypedArray(value, bridgeId) {
 		const bytes = new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
 		const encode = globalThis.DiminaServiceBridge?.encodeCanvasArrayBuffer
 		if (typeof encode === 'function' && getWebGLCapabilities(bridgeId)?.typedArrayEncodings?.includes('rle32-v1')) {
-			return { __canvasTypedArray: value.constructor.name, ...encode(bytes.slice().buffer) }
+			// The native codec synchronously returns owned strings. A complete view
+			// already names its exact input; partial/shared views still need a copy.
+			const buffer = bytes.buffer instanceof ArrayBuffer && bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength
+				? bytes.buffer : bytes.slice().buffer
+			return { __canvasTypedArray: value.constructor.name, ...encode(buffer) }
 		}
 		return { __canvasTypedArray: value.constructor.name, base64: arrayBufferToBase64(bytes.slice().buffer) }
 	}
@@ -1439,6 +1443,7 @@ class WebGLRenderingContextProxy {
 				if (error) {
 					return error
 				}
+				if (this.canvas.supportsSyncQueries) return WEBGL_CONSTANTS.NO_ERROR
 				this.canvas.enqueueOperation({
 					op: 'contextFeedback',
 					contextId: this.contextId,
@@ -2160,6 +2165,10 @@ export class CanvasNode {
 		return globalThis.DiminaServiceBridge?.canvasSyncSupported === true
 	}
 
+	get supportsDeferredGLErrors() {
+		return this.supportsSyncQueries && getWebGLCapabilities(this.bridgeId)?.deferredGLErrors === true
+	}
+
 	flushOperationsSync() {
 		if (this.disposed) throw new Error('canvas node is disposed')
 		this.flushScheduled = false
@@ -2168,7 +2177,13 @@ export class CanvasNode {
 		const feedback = message.invoke({
 			type: 'canvasNodeSync',
 			target: 'container',
-			body: { bridgeId: this.bridgeId, params: { nodeId: this.nodeId, operations, feedback: true } },
+			body: {
+				bridgeId: this.bridgeId,
+				params: {
+					nodeId: this.nodeId, operations, feedback: true,
+					...(this.supportsDeferredGLErrors ? { deferErrorFeedback: true } : {}),
+				},
+			},
 		})
 		if (!feedback || feedback.error) {
 			for (const operation of operations) {
@@ -2225,6 +2240,7 @@ export class CanvasNode {
 				nodeId: this.nodeId,
 				operations,
 				feedback,
+				...(this.supportsDeferredGLErrors ? { deferErrorFeedback: true } : {}),
 			})
 		}
 		catch (error) {

@@ -68,7 +68,8 @@ export class DMPWorkerWrapper {
           return;
         }
         const app = DMPAppManager.sharedInstance().getApp(this.appIndex);
-        const reply = app ? app.render.canvasNodeSync(DMPMap.createFromObject(JSON.parse(canvasRequest.body))) :
+        const reply = app ? app.render.canvasNodeSync(DMPMap.createFromObject(canvasRequest.structuredBody === undefined ?
+          JSON.parse(canvasRequest.body) : canvasRequest.structuredBody), canvasRequest.deadline) :
           Promise.resolve(canvasError('app destroyed'));
         reply.then((result: string) => {
           if (!this.destroyed) this.w.postMessage(new WorkerCanvasResult(canvasRequest.requestId, result));

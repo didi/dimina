@@ -6,6 +6,9 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#if defined(__aarch64__) && defined(__ARM_NEON)
+#include <arm_neon.h>
+#endif
 
 namespace dimina::canvas {
 // Private rle32-v1 wire format: a little-endian uint32 token stores the
@@ -45,6 +48,16 @@ inline std::vector<uint8_t> encodeCanvasRle32(const uint8_t *bytes, size_t lengt
     while (index < words) {
         const uint32_t word = canvasRleWord(bytes + index * 4);
         size_t end = index + 1;
+#if defined(__aarch64__) && defined(__ARM_NEON)
+        if (end < words && canvasRleWord(bytes + end * 4) == word) {
+            const auto expected = vdupq_n_u32(word);
+            while (end + 4 <= words) {
+                const auto actual = vreinterpretq_u32_u8(vld1q_u8(bytes + end * 4));
+                if (vminvq_u32(vceqq_u32(actual, expected)) != 0xffffffffu) break;
+                end += 4;
+            }
+        }
+#endif
         while (end < words && canvasRleWord(bytes + end * 4) == word) ++end;
         const size_t count = end - index;
         if (count >= 3) {

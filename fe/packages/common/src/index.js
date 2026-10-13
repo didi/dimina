@@ -61,4 +61,4 @@ export {
 } from './core/utils'
 
 export { arrayBufferToBase64, base64ToArrayBuffer } from './core/binary'
-export { decodeCanvasRle32 } from './core/canvas-compression'
+export { decodeCanvasRle32, inspectCanvasRle32Tail, decodeCanvasRle32Prefix, decodeCanvasRle32PrefixWithTail } from './core/canvas-compression'

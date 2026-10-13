@@ -2,9 +2,12 @@
 #include "js_engine.h"
 #include "video_decoder.h"
 #include "canvas_rle32.h"
+#include "canvas_ui_route.h"
 #include "log.h"
 #include "napi/native_api.h"
 #include <future>
+#include <cmath>
+#include <limits>
 #include "utils.h"
 #include "types/qjs_extension/settimeout.h"
 #include <sys/mman.h> // 包含 mmap, munmap 等函数
@@ -167,7 +170,7 @@ static void onMessageCb(napi_env env, napi_value js_cb, void *, void *data) {
         napi_close_handle_scope(env, scope); return;
     }
     args[2] = undefined; args[3] = undefined;
-    if (message->type == 4) {
+    if (message->type == 4 || message->type == 6) {
         try { args[2] = dimina::bridge::toNAPI(env, message->value); }
         catch (const std::exception &error) {
             message->promise->set_value({"", error.what()});
@@ -192,13 +195,13 @@ static void onMessageCb(napi_env env, napi_value js_cb, void *, void *data) {
     if (status == napi_ok) {
         bool isPromise = false;
         napi_is_promise(env, result, &isPromise);
-        if (message->type == 1 && isPromise) {
+        if ((message->type == 1 || message->type == 6) && isPromise) {
             deferred = attachBridgePromise(env, result, message->promise);
             if (!deferred) reply.error = "cannot attach canvas reply";
         } else if (message->type == 4) {
             try { reply.value = dimina::bridge::fromNAPI(env, result); reply.structured = true; }
             catch (const std::exception &error) { reply.error = error.what(); }
-        } else if (message->type == 1) reply = serializeReply(env, result);
+        } else if (message->type == 1 || message->type == 6) reply = serializeReply(env, result);
     } else reply.error = "container handler failed";
     if (!deferred) {
         napi_value exception;
@@ -244,8 +247,35 @@ static JSValue invoke(JSContext *ctx, JSValueConst this_val, int argc, JSValueCo
         if (JS_IsException(name.value)) return JS_EXCEPTION;
         const bool fileMessage = JS_IsString(name.value) &&
             dimina::bridge::readString(ctx, name.value).compare(0, 18, u"FileSystemManager.") == 0;
-        OwnedCStr str(fileMessage ? nullptr : JSValueToString(ctx, argv[0]));
-        if (!fileMessage && !str) {
+        bool canvasMessage = false;
+        if (!fileMessage) {
+            dimina::bridge::OwnedJSValue messageType(ctx, JS_GetPropertyStr(ctx, argv[0], "type"));
+            dimina::bridge::OwnedJSValue messageTarget(ctx, JS_GetPropertyStr(ctx, argv[0], "target"));
+            if (JS_IsException(messageType.value) || JS_IsException(messageTarget.value)) return JS_EXCEPTION;
+            canvasMessage = JS_IsString(messageType.value) && JS_IsString(messageTarget.value) &&
+                dimina::bridge::readString(ctx, messageType.value) == u"canvasNodeSync" &&
+                dimina::bridge::readString(ctx, messageTarget.value) == u"container";
+        }
+        const bool structuredMessage = fileMessage || canvasMessage;
+        if (canvasMessage) {
+            dimina::bridge::OwnedJSValue page(ctx, JS_GetPropertyStr(ctx, body.value, "bridgeId"));
+            if (JS_IsException(page.value)) return JS_EXCEPTION;
+            double pageNumber = -1;
+            if (JS_IsNumber(page.value) && JS_ToFloat64(ctx, &pageNumber, page.value) == 0 &&
+                std::isfinite(pageNumber) && pageNumber >= 0 && pageNumber <= std::numeric_limits<int32_t>::max() &&
+                std::floor(pageNumber) == pageNumber) {
+                const auto pageId = static_cast<int32_t>(pageNumber);
+                if (auto channel = dimina::canvas::FindUiChannel(currentEngine->getAppIndex(), pageId)) {
+                    OwnedCStr json(JSValueToString(ctx, body.value));
+                    if (!json) return throwNativeError(ctx, "cannot serialize canvas query");
+                    auto reply = channel->Query(json.get(), dimina::canvas::NowMs() + 4500);
+                    if (!reply.error.empty()) return throwNativeError(ctx, reply.error.c_str());
+                    return JS_ParseJSON(ctx, reply.json.data(), reply.json.size(), "<canvas-ui-reply>");
+                }
+            }
+        }
+        OwnedCStr str(structuredMessage ? nullptr : JSValueToString(ctx, argv[0]));
+        if (!structuredMessage && !str) {
             // 转不出字符串就没有可投递的内容。这里不挡住的话，下面拿 NULL 去构造
             // std::string 是未定义行为。
             OHError("invoke JSValueToString failed");
@@ -254,10 +284,10 @@ static JSValue invoke(JSContext *ctx, JSValueConst this_val, int argc, JSValueCo
         // packet 在成功投递之前都归这边所有，用 unique_ptr 持有，任何提前返回或抛异常
         // 都不会漏；投递成功后再 release，把所有权交给 onMessageCb。
         std::unique_ptr<OnMessageData> asyncContext(new OnMessageData());
-        if (fileMessage) asyncContext->value = dimina::bridge::fromJS(ctx, argv[0]);
+        if (structuredMessage) asyncContext->value = dimina::bridge::fromJS(ctx, argv[0]);
         else asyncContext->str = str.get();
         asyncContext->appIndex = currentEngine->getAppIndex(); // 设置 appIndex
-        asyncContext->type = fileMessage ? 4 : 1;
+        asyncContext->type = fileMessage ? 4 : canvasMessage ? 6 : 1;
         const bool blocking = true;
 
         napi_threadsafe_function tsfn = getTsfn(currentEngine->getAppIndex());
@@ -397,6 +427,16 @@ static JSValue publish(JSContext *ctx, JSValueConst this_val, int argc, JSValueC
         if (!str) {
             OHError("publish JSValueToString failed");
             return throwNativeError(ctx, "publish: failed to serialize message");
+        }
+
+        dimina::bridge::OwnedJSValue target(ctx, JS_GetPropertyStr(ctx, argv[1], "target"));
+        if (JS_IsException(target.value)) return JS_EXCEPTION;
+        if (JS_IsString(target.value) && dimina::bridge::readString(ctx, target.value) == u"render") {
+            if (auto channel = dimina::canvas::FindUiChannel(currentEngine->getAppIndex(), webViewId)) {
+                if (!channel->SendScript("DiminaRenderBridge.onMessage(" + std::string(str.get()) + ")"))
+                    return throwNativeError(ctx, "canvas UI channel is unavailable");
+                return JS_UNDEFINED;
+            }
         }
 
         std::unique_ptr<OnMessageData> asyncContext(new OnMessageData());
@@ -709,6 +749,7 @@ napi_value destroyJsEngine(napi_env env, napi_callback_info info) {
     }
 
     OHWarn("thread destroyJsEngine for appIndex: %{public}d", appIndex);
+    dimina::canvas::DisposeUiChannels(appIndex);
     DisposeVideoDecoders(appIndex);
     engine->destroyEngine();
     OHWarn("thread delete engine for appIndex: %{public}d", appIndex);
@@ -821,6 +862,7 @@ void initBridges(JSContext *ctx, const char* virtualFilePrefix, int owner) {
     JS_SetPropertyStr(ctx, diminaServiceBridge, "encodeCanvasArrayBuffer", JS_NewCFunction(ctx, js_encode_canvas_array_buffer, "encodeCanvasArrayBuffer", 1));
     JS_SetPropertyStr(ctx, diminaServiceBridge, "decodeArrayBuffer", JS_NewCFunction(ctx, js_decode_array_buffer, "decodeArrayBuffer", 1));
     JS_SetPropertyStr(ctx, diminaServiceBridge, "getVideoDecoderFrame", CreateVideoDecoderFrameReader(ctx, owner));
+    JS_SetPropertyStr(ctx, diminaServiceBridge, "seekVideoDecoderForward", CreateVideoDecoderForwardSeeker(ctx, owner));
     JSValue global = JS_GetGlobalObject(ctx);
     JS_SetPropertyStr(ctx, global, "DiminaServiceBridge", diminaServiceBridge);
 

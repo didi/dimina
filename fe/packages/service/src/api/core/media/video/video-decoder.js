@@ -122,7 +122,10 @@ class VideoDecoder {
 			if (this.removed) throw new Error('VideoDecoder has been removed')
 			if (generation !== this.generation) throw new Error('VideoDecoder control was stopped')
 			if (command === 'start') this.startDispatched = true
-			const result = skipNative ? {} : await invokeAPI(`VideoDecoder.${command}`, { decoderId: this.videoDecoderId, ...params })
+			const advance = globalThis.DiminaServiceBridge?.seekVideoDecoderForward
+			const advanced = command === 'seek' && typeof advance === 'function'
+				&& advance(this.videoDecoderId, params.position) === true
+			const result = skipNative || advanced ? {} : await invokeAPI(`VideoDecoder.${command}`, { decoderId: this.videoDecoderId, ...params })
 			if (this.removed) throw new Error('VideoDecoder has been removed')
 			if (generation !== this.generation) throw new Error('VideoDecoder control was stopped')
 			return complete(result)

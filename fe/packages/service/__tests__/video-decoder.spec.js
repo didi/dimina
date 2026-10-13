@@ -9,6 +9,33 @@ const createVideoDecoder = () => wx.createVideoDecoder()
 
 describe('VideoDecoder native adapter', () => {
 	beforeEach(() => vi.mocked(invokeAPI).mockReset())
+	it('uses an accepted native forward seek inside the control queue and preserves fallback and events', async () => {
+		const previous = globalThis.DiminaServiceBridge.seekVideoDecoderForward
+		const advance = vi.fn().mockReturnValueOnce(true).mockReturnValue(false)
+		globalThis.DiminaServiceBridge.seekVideoDecoderForward = advance
+		try {
+			const decoder = createVideoDecoder(), sought = vi.fn()
+			decoder.on('seek', sought)
+			vi.mocked(invokeAPI).mockResolvedValue({ width: 2, height: 1 })
+			await decoder.start({ source: 'video.mp4' })
+			vi.mocked(invokeAPI).mockClear()
+			const first = decoder.seek(200), next = decoder.seek(0)
+			expect(advance).not.toHaveBeenCalled()
+			expect(decoder.getFrameData()).toBeNull()
+			expect(await first).toBe(200)
+			expect(await next).toBe(0)
+			expect(advance.mock.calls).toEqual([[decoder.videoDecoderId, 200], [decoder.videoDecoderId, 0]])
+			expect(invokeAPI).toHaveBeenCalledExactlyOnceWith('VideoDecoder.seek', expect.objectContaining({ position: 0 }))
+			expect(sought.mock.calls).toEqual([[{ position: 200 }], [{ position: 0 }]])
+			await decoder.remove()
+			advance.mockClear()
+			await expect(decoder.seek(300)).rejects.toThrow('removed')
+			expect(advance).not.toHaveBeenCalled()
+		} finally {
+			if (previous === undefined) delete globalThis.DiminaServiceBridge.seekVideoDecoderForward
+			else globalThis.DiminaServiceBridge.seekVideoDecoderForward = previous
+		}
+	})
 
 	it('starts asynchronously in fastest mode, reports dimensions and seeks in milliseconds', async () => {
 		const decoder = createVideoDecoder()

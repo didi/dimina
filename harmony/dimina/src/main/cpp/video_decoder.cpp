@@ -1,5 +1,7 @@
 #include "video_decoder.h"
 #include "video_decoder_control.h"
+#include "video_decoder_pixels.h"
+#include "video_decoder_headers.h"
 #include <multimedia/player_framework/native_avcodec_videodecoder.h>
 #include <multimedia/player_framework/native_avdemuxer.h>
 #include <multimedia/player_framework/native_avsource.h>
@@ -47,6 +49,7 @@ struct Layout {
 class Decoder {
 public:
     std::atomic<bool> removed {false};
+    std::atomic<uint32_t> pendingControls {0};
     VideoDecoderStartGate startGate;
     // Control operations run on N-API's async pool; they never block the service worker.
     std::mutex control;
@@ -85,14 +88,17 @@ public:
             if (!format) throw std::runtime_error("no video track");
             width = Int(format, OH_MD_KEY_WIDTH, 0); height = Int(format, OH_MD_KEY_HEIGHT, 0);
             CheckSize(width, height);
+            uint8_t *config = nullptr; size_t configSize = 0;
+            if (OH_AVFormat_GetBuffer(format, OH_MD_KEY_CODEC_CONFIG, &config, &configSize))
+                codecHeaders = dimina::video::CodecHeaders(codecMime, config, configSize);
             demuxer = OH_AVDemuxer_CreateWithSource(source);
             if (!demuxer) throw std::runtime_error("cannot create demuxer");
             Check(OH_AVDemuxer_SelectTrackByID(demuxer, track));
             {
                 std::lock_guard<std::mutex> guard(mutex);
                 playbackMode = mode;
+                targetUs = 0;
             }
-            targetUs = 0;
             Configure();
             startGate.CheckCurrent(generation);
             if (removed) throw std::runtime_error("decoder removed");
@@ -100,13 +106,93 @@ public:
         } catch (...) { Stop(); throw; }
     }
 
-    void Seek(double position) {
+    void Seek(double position, uint64_t generation) {
+        auto checkCurrent = [this, generation] {
+            startGate.CheckCurrent(generation);
+            if (removed) throw std::runtime_error("decoder removed");
+        };
+        checkCurrent();
         if (!demuxer || !std::isfinite(position) || position < 0 || position >= double(INT64_MAX) / 1000)
             throw std::runtime_error("invalid position or stopped decoder");
-        StopCodec();
-        Check(OH_AVDemuxer_SeekToTime(demuxer, static_cast<int64_t>(position), SEEK_MODE_PREVIOUS_SYNC));
-        targetUs = static_cast<int64_t>(position * 1000);
-        Configure();
+        const int64_t requestedUs = static_cast<int64_t>(position * 1000);
+        try {
+            bool forward = false;
+            {
+                std::lock_guard<std::mutex> guard(mutex);
+                // A prior seek may already have discarded frames below targetUs.
+                // Such a range cannot be recovered merely by moving the target.
+                forward = AdvanceForwardLocked(requestedUs);
+                if (!forward) {
+                    // A decoder flush/rebuild still needs full pump quiescence.
+                    pausing = true;
+                }
+                cv.notify_all();
+            }
+            if (forward) {
+                checkCurrent();
+                return;
+            }
+            if (pump.joinable()) pump.join();
+            checkCurrent();
+            {
+                bool flushed = false;
+                bool demuxSought = false;
+                {
+                    std::lock_guard<std::mutex> guard(mutex);
+                    flushed = codec && failure.empty() && !codecHeaders.empty();
+                    if (flushed) stopping = true;
+                }
+                if (flushed) {
+                    // Never hold mutex across Flush: it waits for all preceding
+                    // callbacks on this non-callback control thread to finish.
+                    flushed = OH_VideoDecoder_Flush(codec) == AV_ERR_OK;
+                    checkCurrent();
+                    if (flushed) {
+                        std::lock_guard<std::mutex> guard(mutex);
+                        // Flush invalidates every old index; none may be freed,
+                        // pushed or reused after this callback barrier.
+                        inputs.clear(); outputs.clear(); frames.clear();
+                        ended = false; inputEnded = false; clockStarted = false;
+                        hasDeliveredFrame = false; lastDeliveredPts = 0; failure.clear();
+                        layout = {}; layout.width = width; layout.height = height;
+                    }
+                }
+                if (flushed) {
+                    Check(OH_AVDemuxer_SeekToTime(demuxer, static_cast<int64_t>(position), SEEK_MODE_PREVIOUS_SYNC));
+                    demuxSought = true;
+                    { std::lock_guard<std::mutex> guard(mutex); targetUs = requestedUs; }
+                    checkCurrent();
+                    { std::lock_guard<std::mutex> guard(mutex);
+                      codecHeadersPending = true; stopping = false; pausing = false; }
+                    flushed = OH_VideoDecoder_Start(codec) == AV_ERR_OK;
+                    checkCurrent();
+                }
+                if (flushed) pump = std::thread([this] { Pump(); });
+                else {
+                    StopCodec();
+                    checkCurrent();
+                    if (!demuxSought)
+                        Check(OH_AVDemuxer_SeekToTime(demuxer, static_cast<int64_t>(position), SEEK_MODE_PREVIOUS_SYNC));
+                    { std::lock_guard<std::mutex> guard(mutex); targetUs = requestedUs; }
+                    checkCurrent();
+                    Configure();
+                }
+                checkCurrent();
+            }
+        } catch (...) {
+            StopCodec();
+            throw;
+        }
+    }
+
+    bool TrySeekForward(double position) {
+        if (!std::isfinite(position) || position < 0 || position >= double(INT64_MAX) / 1000) return false;
+        std::unique_lock<std::mutex> controlGuard(control, std::try_to_lock);
+        if (!controlGuard.owns_lock() || pendingControls.load() || removed) return false;
+        std::lock_guard<std::mutex> guard(mutex);
+        if (!AdvanceForwardLocked(static_cast<int64_t>(position * 1000))) return false;
+        cv.notify_all();
+        return true;
     }
 
     void Stop() {
@@ -116,11 +202,12 @@ public:
         if (format) OH_AVFormat_Destroy(format);
         if (fd >= 0) close(fd);
         demuxer = nullptr; source = nullptr; format = nullptr; fd = -1;
+        codecHeaders.clear();
     }
 
     bool Next(Frame &frame, bool &eof, std::string &error) {
         std::lock_guard<std::mutex> guard(mutex);
-        if (removed) return false;
+        if (removed || stopping || pausing) return false;
         error = failure;
         eof = ended && frames.empty();
         if (!error.empty() || frames.empty()) return false;
@@ -128,11 +215,24 @@ public:
         if (!clockStarted) { clockStarted = true; clock = now; clockPts = frames.front().pts; }
         if (playbackMode == 0 && frames.front().pts - clockPts >
             std::chrono::duration_cast<std::chrono::microseconds>(now - clock).count()) return false;
-        frame = std::move(frames.front()); frames.pop_front(); cv.notify_all();
+        frame = std::move(frames.front()); frames.pop_front();
+        hasDeliveredFrame = true; lastDeliveredPts = frame.pts; cv.notify_all();
         return true;
     }
 
 private:
+    // The control gate and mutex are held by the caller. This path changes only
+    // owned target/queue state; driver calls, joins and rebuilds stay asynchronous.
+    bool AdvanceForwardLocked(int64_t requestedUs) {
+        if (!codec || stopping || inputEnded || ended || !failure.empty() || removed ||
+            !hasDeliveredFrame || requestedUs <= lastDeliveredPts || requestedUs < targetUs) return false;
+        frames.erase(std::remove_if(frames.begin(), frames.end(), [requestedUs](const Frame &frame) {
+            return frame.pts < requestedUs;
+        }), frames.end());
+        targetUs = requestedUs;
+        clockStarted = false;
+        return true;
+    }
     OH_AVSource *source = nullptr;
     OH_AVDemuxer *demuxer = nullptr;
     OH_AVFormat *format = nullptr;
@@ -140,14 +240,18 @@ private:
     int fd = -1, width = 0, height = 0, playbackMode = 1;
     uint32_t track = 0;
     std::string codecMime;
-    int64_t targetUs = 0, clockPts = 0;
+    std::vector<uint8_t> codecHeaders;
+    bool codecHeadersPending = false;
+    bool codecHeadersProbePending = true;
+    int64_t targetUs = 0, clockPts = 0, lastDeliveredPts = 0;
     std::mutex mutex;
     std::condition_variable cv;
     std::thread pump;
     std::deque<Buffer> inputs, outputs;
     std::deque<Frame> frames;
     Layout layout;
-    bool stopping = true, ended = false, inputEnded = false, clockStarted = false;
+    bool stopping = true, pausing = false, ended = false, inputEnded = false, clockStarted = false;
+    bool hasDeliveredFrame = false;
     std::string failure;
     std::chrono::steady_clock::time_point clock;
 
@@ -184,7 +288,10 @@ private:
         if (removed) throw std::runtime_error("decoder removed");
         {
             std::lock_guard<std::mutex> guard(mutex);
-            stopping = false; ended = false; inputEnded = false; clockStarted = false;
+            stopping = false; pausing = false; ended = false; inputEnded = false; clockStarted = false;
+            hasDeliveredFrame = false; lastDeliveredPts = 0;
+            codecHeadersPending = false;
+            codecHeadersProbePending = true;
             failure.clear(); frames.clear(); layout = {}; layout.width = width; layout.height = height;
         }
         codec = OH_VideoDecoder_CreateByMime(codecMime.c_str());
@@ -199,29 +306,56 @@ private:
         } catch (...) { StopCodec(); throw; }
     }
     void StopCodec() {
-        { std::lock_guard<std::mutex> guard(mutex); stopping = true; frames.clear(); cv.notify_all(); }
+        { std::lock_guard<std::mutex> guard(mutex); stopping = true; pausing = false; frames.clear(); cv.notify_all(); }
         if (pump.joinable()) pump.join();
         if (codec) OH_VideoDecoder_Destroy(codec);
         codec = nullptr;
         std::lock_guard<std::mutex> guard(mutex);
-        inputs.clear(); outputs.clear(); ended = false; failure.clear();
+        inputs.clear(); outputs.clear(); ended = false; failure.clear(); hasDeliveredFrame = false; lastDeliveredPts = 0;
+        codecHeadersPending = false;
     }
     void Pump() {
         try {
             while (true) {
                 Buffer buffer; Layout pixels; bool output = false;
+                int64_t minimumPts = 0;
                 {
                     std::unique_lock<std::mutex> guard(mutex);
-                    cv.wait(guard, [this] { return stopping || removed || !failure.empty() ||
+                    cv.wait(guard, [this] { return stopping || pausing || removed || !failure.empty() ||
                         (frames.size() < 2 && (!outputs.empty() || (!inputs.empty() && !inputEnded))); });
-                    if (stopping || removed || !failure.empty()) return;
+                    if (stopping || pausing || removed || !failure.empty()) return;
                     output = !outputs.empty();
                     auto &buffers = output ? outputs : inputs;
                     buffer = buffers.front(); buffers.pop_front(); pixels = layout;
+                    minimumPts = targetUs;
                 }
                 if (!output) {
-                    Check(OH_AVDemuxer_ReadSample(demuxer, track, buffer.memory, &buffer.attr));
-                    if (buffer.attr.flags & AVCODEC_BUFFER_FLAGS_EOS) inputEnded = true;
+                    if (codecHeadersPending) {
+                        const int capacity = OH_AVMemory_GetSize(buffer.memory);
+                        auto address = OH_AVMemory_GetAddr(buffer.memory);
+                        if (!address || capacity < 0 || codecHeaders.size() > static_cast<size_t>(capacity))
+                            throw std::runtime_error("codec parameter sets exceed input buffer");
+                        std::memcpy(address, codecHeaders.data(), codecHeaders.size());
+                        buffer.attr = {0, static_cast<int32_t>(codecHeaders.size()), 0, AVCODEC_BUFFER_FLAGS_CODEC_DATA};
+                        codecHeadersPending = false;
+                    } else {
+                        Check(OH_AVDemuxer_ReadSample(demuxer, track, buffer.memory, &buffer.attr));
+                        // Demuxers may combine SPS/PPS with an IDR and mark only
+                        // SYNC_FRAME. Probe one bounded initial sample, retaining
+                        // its exact original bytes/attributes for normal decode.
+                        if (codecHeadersProbePending && codecHeaders.empty() && minimumPts == 0) {
+                            const int capacity = OH_AVMemory_GetSize(buffer.memory);
+                            auto address = OH_AVMemory_GetAddr(buffer.memory);
+                            if (address && buffer.attr.offset >= 0 && buffer.attr.size >= 0 && capacity >= 0 &&
+                                static_cast<size_t>(buffer.attr.size) <= dimina::video::MAX_CODEC_PROBE_BYTES &&
+                                int64_t(buffer.attr.offset) + buffer.attr.size <= capacity)
+                                codecHeaders = dimina::video::AnnexBHeaders(codecMime, address + buffer.attr.offset, buffer.attr.size);
+                        }
+                        codecHeadersProbePending = false;
+                    }
+                    if (buffer.attr.flags & AVCODEC_BUFFER_FLAGS_EOS) {
+                        std::lock_guard<std::mutex> guard(mutex); inputEnded = true;
+                    }
                     Check(OH_VideoDecoder_PushInputData(codec, buffer.index, buffer.attr));
                 } else {
                     try {
@@ -232,11 +366,11 @@ private:
                                 std::lock_guard<std::mutex> guard(mutex); pixels = layout;
                             }
                         }
-                        if (buffer.attr.size > 0 && buffer.attr.pts >= targetUs &&
+                        if (buffer.attr.size > 0 && buffer.attr.pts >= minimumPts &&
                             !(buffer.attr.flags & AVCODEC_BUFFER_FLAGS_CODEC_DATA)) {
                             Frame frame = Convert(buffer, pixels);
                             std::lock_guard<std::mutex> guard(mutex);
-                            if (!stopping && !removed) frames.push_back(std::move(frame));
+                            if (!stopping && !removed && frame.pts >= targetUs) frames.push_back(std::move(frame));
                         }
                         if (buffer.attr.flags & AVCODEC_BUFFER_FLAGS_EOS) {
                             std::lock_guard<std::mutex> guard(mutex); ended = true;
@@ -269,20 +403,9 @@ private:
         if (!bytes) throw std::runtime_error("missing decoded pixels");
         bytes += buffer.attr.offset;
         Frame frame {layout.width, layout.height, buffer.attr.pts, std::vector<uint8_t>(layout.width * layout.height * 4)};
-        auto byte = [](double value) { return uint8_t(std::max(0.0, std::min(255.0, value))); };
-        for (int y = 0; y < layout.height; ++y) for (int x = 0; x < layout.width; ++x) {
-            int sx = x + layout.left, sy = y + layout.top;
-            double luma = bytes[sy * layout.stride + sx];
-            auto uv = uvStart + (sy / 2) * layout.stride + (sx / 2) * 2;
-            double scale = layout.fullRange ? 1.0 : 255.0 / 224;
-            double u = (bytes[uv] - 128.0) * scale, v = (bytes[uv + 1] - 128.0) * scale;
-            double yy = layout.fullRange ? luma : (luma - 16) * 255.0 / 219;
-            size_t index = (y * layout.width + x) * 4;
-            frame.pixels[index] = byte(yy + (layout.bt709 ? 1.5748 : 1.402) * v);
-            frame.pixels[index + 1] = byte(yy - (layout.bt709 ? 0.1873 : 0.3441) * u - (layout.bt709 ? 0.4681 : 0.7141) * v);
-            frame.pixels[index + 2] = byte(yy + (layout.bt709 ? 1.8556 : 1.772) * u);
-            frame.pixels[index + 3] = 255;
-        }
+        dimina::video::ConvertNV12Pixels(bytes,
+            {layout.width, layout.height, layout.stride, layout.left, layout.top,
+                layout.fullRange, layout.bt709, static_cast<size_t>(uvStart)}, frame.pixels.data());
         return frame;
     }
 };
@@ -310,6 +433,8 @@ struct Work {
     double argument = 0;
     int width = 0, height = 0;
     uint64_t generation = 0;
+    bool tracked = false;
+    ~Work() { if (tracked) --decoder->pendingControls; }
 };
 napi_value Operate(napi_env env, napi_callback_info info) {
     size_t argc = 5; napi_value args[5];
@@ -331,6 +456,7 @@ napi_value Operate(napi_env env, napi_callback_info info) {
             }
             if (found != store.end()) {
                 work->decoder = found->second;
+                ++work->decoder->pendingControls; work->tracked = true;
                 if (work->command == "stop" || work->command == "remove") work->decoder->startGate.Cancel();
                 work->generation = work->decoder->startGate.Capture();
                 if (work->command == "remove") { work->decoder->removed = true; store.erase(found); }
@@ -353,7 +479,7 @@ napi_value Operate(napi_env env, napi_callback_info info) {
                     if (work->argument != 0 && work->argument != 1) throw std::runtime_error("invalid mode");
                     auto dimensions = work->decoder->Start(work->source, int(work->argument), work->generation);
                     work->width = dimensions.first; work->height = dimensions.second;
-                } else if (work->command == "seek") work->decoder->Seek(work->argument);
+                } else if (work->command == "seek") work->decoder->Seek(work->argument, work->generation);
                 else work->decoder->Stop();
             } catch (const std::exception &error) { work->error = error.what(); }
         }, [](napi_env env, napi_status status, void *data) {
@@ -404,6 +530,13 @@ napi_value Dispose(napi_env env, napi_callback_info info) {
     napi_get_undefined(env, &result); return result;
 }
 } // namespace
+
+bool TrySeekVideoDecoderForward(int owner, const std::string &id, double position) {
+    std::shared_ptr<Decoder> decoder;
+    { std::lock_guard<std::mutex> guard(storeMutex);
+      auto found = store.find({owner, id}); if (found != store.end()) decoder = found->second; }
+    return decoder && decoder->TrySeekForward(position);
+}
 
 VideoDecoderFrame ReadVideoDecoderFrame(int owner, const std::string &id) {
     std::shared_ptr<Decoder> decoder;

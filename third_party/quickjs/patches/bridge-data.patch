@@ -1,0 +1,94 @@
+--- a/quickjs.c
++++ b/quickjs.c
+@@ -49946,6 +49946,16 @@
+     if (string_buffer_putc8(b, '\"'))
+         goto fail;
+     for(i = 0; i < p->len; ) {
++        if (!p->is_wide_char) {
++            int start = i;
++            while (i < p->len && p->u.str8[i] >= 32 &&
++                   p->u.str8[i] != '\\' && p->u.str8[i] != '"')
++                i++;
++            if (i > start && string_buffer_write8(b, p->u.str8 + start, i - start))
++                goto fail;
++            if (i == p->len)
++                break;
++        }
+         c = string_getc(p, &i);
+         switch(c) {
+         case '\t':
+@@ -56853,6 +56863,61 @@
+                                         (uint8_t *)buf,
+                                         js_array_buffer_free, NULL,
+                                         TRUE);
++}
++
++/* Embedding-owned buffers are charged to the runtime and GC budget. The
++   caller retains ownership on failure; the finalizer owns it on success. */
++typedef struct JSOwnedArrayBufferData {
++    size_t charged_bytes;
++    JSFreeArrayBufferDataFunc *free_func;
++    void *opaque;
++} JSOwnedArrayBufferData;
++
++static void js_owned_array_buffer_free(JSRuntime *rt, void *opaque, void *ptr)
++{
++    /* Detached/transferred source objects finalize again with a NULL data pointer. */
++    if (!ptr)
++        return;
++    JSOwnedArrayBufferData *data = opaque;
++    rt->malloc_ctx.malloc_state.malloc_size -= data->charged_bytes;
++    rt->malloc_ctx.malloc_state.malloc_count--;
++    data->free_func(rt, data->opaque, ptr);
++    js_free_rt(rt, data);
++}
++
++JSValue JS_NewArrayBufferOwned(JSContext *ctx, uint8_t *buf, size_t len,
++                              size_t charged_bytes,
++                              JSFreeArrayBufferDataFunc *free_func, void *opaque)
++{
++    JSRuntime *rt = ctx->rt;
++    JSMallocState *state = &rt->malloc_ctx.malloc_state;
++    JSOwnedArrayBufferData *data;
++    JSValue result;
++    if (!buf || !free_func || len > INT32_MAX || charged_bytes < len)
++        return JS_ThrowRangeError(ctx, "invalid owned ArrayBuffer");
++    if (charged_bytes > SIZE_MAX - state->malloc_size)
++        return JS_ThrowOutOfMemory(ctx);
++    js_trigger_gc(rt, charged_bytes);
++    data = js_malloc(ctx, sizeof(*data));
++    if (!data)
++        return JS_EXCEPTION;
++    if (state->malloc_size > state->malloc_limit ||
++        charged_bytes > state->malloc_limit - state->malloc_size) {
++        js_free(ctx, data);
++        return JS_ThrowOutOfMemory(ctx);
++    }
++    data->charged_bytes = charged_bytes;
++    data->free_func = free_func;
++    data->opaque = opaque;
++    state->malloc_size += charged_bytes;
++    state->malloc_count++;
++    result = JS_NewArrayBuffer(ctx, buf, len, js_owned_array_buffer_free, data, FALSE);
++    if (JS_IsException(result)) {
++        state->malloc_size -= charged_bytes;
++        state->malloc_count--;
++        js_free(ctx, data);
++    }
++    return result;
+ }
+ 
+ static JSValue js_array_buffer_constructor0(JSContext *ctx, JSValueConst new_target,
+--- a/quickjs.h
++++ b/quickjs.h
+@@ -872,6 +872,10 @@
+                           JSFreeArrayBufferDataFunc *free_func, void *opaque,
+                           JS_BOOL is_shared);
+ JSValue JS_NewArrayBufferCopy(JSContext *ctx, const uint8_t *buf, size_t len);
++/* Transfers embedding ownership only on success; charged_bytes includes capacity. */
++JSValue JS_NewArrayBufferOwned(JSContext *ctx, uint8_t *buf, size_t len,
++                              size_t charged_bytes,
++                              JSFreeArrayBufferDataFunc *free_func, void *opaque);
+ void JS_DetachArrayBuffer(JSContext *ctx, JSValueConst obj);
+ uint8_t *JS_GetArrayBuffer(JSContext *ctx, size_t *psize, JSValueConst obj);
+ 

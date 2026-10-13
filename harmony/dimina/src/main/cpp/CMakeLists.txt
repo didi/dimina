@@ -73,6 +73,7 @@ add_library(dimina SHARED ${sources})
 
 dimina_configure_quickjs(dimina
     ENABLE_DEBUGGER "${DIMINA_ENABLE_QUICKJS_DEBUGGER}"
+    SOURCE_PATCH "${DIMINA_REPOSITORY_ROOT}/third_party/quickjs/patches/bridge-data.patch"
 )
 dimina_configure_libuv(dimina)
 include("${CMAKE_CURRENT_LIST_DIR}/../../../../../cmake/DiminaWasm.cmake")
