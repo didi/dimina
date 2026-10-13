@@ -1,0 +1,47 @@
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "9d857de0b5e24db505e99ed7d121fbb7d4621f93",
+  "prompts": {
+    "cb90ce5e57cd6586": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a12edc-6770-7aa1-8fec-c01669bb1db3",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 7863,
+      "total_deletions": 2454,
+      "accepted_lines": 5446,
+      "overriden_lines": 0
+    },
+    "df09811669978d61": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a134fc-b01b-7c22-99b0-8b472ad9aa18",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 312,
+      "total_deletions": 9,
+      "accepted_lines": 231,
+      "overriden_lines": 0
+    },
+    "f0f9c4534ac901f8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a13504-2488-7521-b013-c8e48d150a8a",
+        "model": "unknown"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 22,
+      "total_deletions": 7,
+      "accepted_lines": 0,
+      "overriden_lines": 0
+    }
+  }
+}
