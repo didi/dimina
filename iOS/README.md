@@ -27,6 +27,30 @@ https://github.com/didi/dimina.git
 
 版本可固定为当前已发布版本；如果选择 `Up to Next Major Version`，发布前仍应检查实际解析到的版本。
 
+#### 依赖安装失败排查
+
+如果 Xcode 提示 `no versions of 'dimina' match the requirement`，先核对版本标签和工具链。这个错误发生在依赖解析阶段，尚未编译 SDK 源码。
+
+以 `1.7.7` 为例，Xcode 的 **Exact Version** 填写 `1.7.7`，对应的 Git 标签是 `v1.7.7`。在终端检查远端是否提供该标签：
+
+```bash
+git ls-remote --tags https://github.com/didi/dimina.git 'refs/tags/v1.7.7' 'refs/tags/v1.7.7^{}'
+xcodebuild -version
+xcrun swift --version
+```
+
+- 如果查询失败，先检查 GitHub 网络连接或 Git 代理配置；如果查询成功但没有输出，所选版本尚未提供对应标签。
+- 确认实际使用的是 Xcode 16.0+。终端的工具链可能与打开工程的 Xcode 不同；同时检查 **Xcode > About Xcode**。将宿主的 Swift language mode 改为 Swift 5，不能替代 SDK 要求的 Swift 6 工具链。
+- 标签存在且 Xcode 版本满足要求时，取消添加窗口，执行 **File > Packages > Reset Package Caches**，重新添加依赖并执行 **Resolve Package Versions**，让 Xcode 重新读取远端标签。
+
+若仍失败，在宿主工程目录执行依赖解析并保留完整日志，将下面的 `Host` 替换为实际工程名和 scheme；使用 workspace 的工程将 `-project Host.xcodeproj` 替换为 `-workspace Host.xcworkspace`：
+
+```bash
+xcodebuild -resolvePackageDependencies -project Host.xcodeproj -scheme Host
+```
+
+根据日志区分标签不可用、工具链不兼容、源码依赖冲突和二进制下载失败。只选择核心 `Dimina` product 时，SwiftPM 仍可能下载同包内的高德 XCFramework；这类下载错误需要检查 Release 附件的访问情况。
+
 ### 步骤 2: 准备小程序资源
 
 将编译好的小程序压缩包放入 `iOS/dimina/Resources/JsApp.bundle` 文件夹，文件夹以小程序 ID 命名。示例工程可通过 `copy-shared-resources.sh` 从根目录 `shared/jsapp` 同步资源。每个小程序文件夹需包含以下内容：
