@@ -36,6 +36,7 @@ import {
 import loader from './loader'
 import message from './message'
 import { CanvasTextureUpload } from './canvas-texture-upload'
+import { WebGLFramePresentation } from './webgl-frame-presentation'
 import { resolveCanvasExportSize } from './canvas-export-limits'
 import { createMiniProgramSlots } from './slots'
 import { invokeMapContext } from './map-context'
@@ -1987,6 +1988,10 @@ class Runtime {
 					if (budgetError) throw new RangeError(budgetError)
 				}
 				node.canvas[operation.prop] = operation.value
+				if (node.presentation && (operation.prop === 'width' || operation.prop === 'height')) {
+					node.presentation.canvas[operation.prop] = operation.value
+					node.presentation.dirty = false
+				}
 				if (operation.prop === 'width' || operation.prop === 'height') {
 					for (const context of node.contexts.values()) this.canvasTextureUpload.reset(context)
 				}
@@ -1995,20 +2000,32 @@ class Runtime {
 			case 'getContext': {
 				let context = null
 				let statusMessage
+				const isWebGL = operation.contextType === 'webgl'
+					|| operation.contextType === 'experimental-webgl'
+					|| operation.contextType === 'webgl2'
 				try {
-					context = node.canvas.getContext(
+					let canvas = node.canvas
+					const needsPresentation = isWebGL && !node.presentation && node.contexts.size === 0
+						&& canvas.hasAttribute?.('data-dimina-game-canvas')
+					if (needsPresentation) {
+						canvas = document.createElement('canvas')
+						canvas.width = node.canvas.width
+						canvas.height = node.canvas.height
+					}
+					context = canvas.getContext(
 						operation.contextType,
 						this.resolveCanvasArg(operation.attributes),
 					)
+					if (context && needsPresentation) {
+						node.presentation = new WebGLFramePresentation(node.canvas, canvas, context)
+						node.canvas = canvas
+					}
 				}
 				catch (error) {
 					statusMessage = error instanceof Error ? error.message : String(error)
 				}
 				node.contexts.set(operation.contextId, context)
 				this.setCanvasResource(operation.contextId, context, node)
-				const isWebGL = operation.contextType === 'webgl'
-					|| operation.contextType === 'experimental-webgl'
-					|| operation.contextType === 'webgl2'
 				if (context && isWebGL) {
 					this.canvasTextureUpload.register(context, operation.contextType)
 					this.observeWebGLContextEvents(node)
@@ -2099,6 +2116,7 @@ class Runtime {
 					else {
 						const result = preparedUpload ? preparedUpload() : this.canvasTextureUpload.invoke(context, operation.method, args, () => method.apply(context, args))
 						this.setCanvasResource(operation.resultId, result, node)
+						if (context === node.presentation?.gl) node.presentation.markDraw(operation.method)
 					}
 				}
 				catch (error) {
@@ -2233,6 +2251,7 @@ class Runtime {
 					try {
 						result = method.apply(extension, (operation.args || []).map(arg => this.resolveCanvasArg(arg)))
 						this.setCanvasResource(operation.resultId, result, node)
+						if (this.getCanvasResource(operation.contextId) === node.presentation?.gl) node.presentation.markDraw(operation.method)
 					}
 					catch (error) {
 						queryError = { name: error.name, message: error.message }
@@ -2406,6 +2425,7 @@ class Runtime {
 			}
 		}
 		if (synchronous) return feedback
+		node.presentation?.present()
 		this.triggerCallback(bridgeId, params.feedback, feedback)
 	}
 

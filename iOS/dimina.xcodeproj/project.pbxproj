@@ -340,11 +340,15 @@
 			inputFileListPaths = (
 			);
 			inputPaths = (
+				"$(SRCROOT)/../shared/jsapp",
+				"$(SRCROOT)/../shared/jssdk",
 			);
 			name = "Copy Shared Resources";
 			outputFileListPaths = (
 			);
 			outputPaths = (
+				"$(SRCROOT)/dimina/Resources/JsApp.bundle",
+				"$(SRCROOT)/dimina/Resources/JsSdk.bundle",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;

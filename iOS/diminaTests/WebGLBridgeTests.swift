@@ -2,6 +2,7 @@ import JavaScriptCore
 import Testing
 import UIKit
 import WebKit
+import XCTest
 @testable import dimina
 
 // Loads the shipped SDK in the same JavaScriptCore/WKWebView environments as
@@ -10,6 +11,146 @@ extension DMPUIIntegrationTests {
     @Suite
     @MainActor
     struct WebGLBridgeTests {
+        @Test(arguments: ["webgl", "webgl2"], [false, true])
+        func shaderQueriesKeepThePreviousFrameVisible(contextType: String, preserveDrawingBuffer: Bool) async throws {
+            DMPResourceManager.prepareSdk()
+            let app = DMPApp(appConfig: DMPAppConfig(appName: "WebGL frame regression", appId: "webgl-frame-test"), appIndex: -1)
+            let service = DMPService(app: app)
+            let render = DMPRender(app: app)
+            app.service = service
+            app.render = render
+            let view = render.createWebView(appName: "WebGL frame regression")
+            render.setupJSBridge(webViewId: view.getWebViewId())
+            let webView = view.getWebView()
+            let scene = try #require(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+            let window = UIWindow(windowScene: scene)
+            let controller = UIViewController()
+            window.rootViewController = controller
+            window.windowLevel = .alert + 2
+            window.isHidden = false
+            webView.frame = controller.view.bounds
+            webView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            controller.view.addSubview(webView)
+            let resume = DispatchSemaphore(value: 0)
+            defer {
+                resume.signal()
+                window.isHidden = true
+                webView.removeFromSuperview()
+                render.releaseWebView(view)
+                service.destroy()
+                app.service = nil
+                app.render = nil
+            }
+            let navigation = NavigationReady()
+            webView.navigationDelegate = navigation
+            try await navigation.load(view)
+            webView.navigationDelegate = view
+            await service.loadFile(path: DMPSandboxManager.sdkServicePath())
+            await service.evaluateScript("modDefine('game', function () {});")
+            await service.postMessage(data: DMPMap([
+                "type": "loadResource",
+                "body": ["appId": "webgl-frame-test", "bridgeId": view.getWebViewId(), "pagePath": "game", "runtimeType": "game",
+                         "hostEnv": ["systemInfo": ["windowWidth": 256, "windowHeight": 256, "pixelRatio": 1]]],
+            ]))
+            let engine = service.getEngine()
+            let label = "\(contextType)-\(preserveDrawingBuffer ? "preserved" : "default")"
+            let first = try await evaluate(service, """
+                globalThis.frameCanvas = wx.createCanvas(); frameCanvas.width = 256; frameCanvas.height = 256;
+                globalThis.frameGL = frameCanvas.getContext('\(contextType)'\(preserveDrawingBuffer ? ", {preserveDrawingBuffer: true}" : ""));
+                if (!frameGL) throw new Error('WebGL context unavailable');
+                \(contextType == "webgl2" ? "frameGL.clearBufferfv(frameGL.COLOR, 0, new Float32Array([1, 0, 1, 1]));" : "frameGL.clearColor(1, 0, 1, 1); frameGL.clear(frameGL.COLOR_BUFFER_BIT);")
+                return {preserveDrawingBuffer: frameGL.getContextAttributes().preserveDrawingBuffer};
+                """)
+            #expect(first["preserveDrawingBuffer"] as? Bool == preserveDrawingBuffer)
+            try await waitForPresentation(webView)
+            let initial = try await snapshotCenter(webView, label: "\(label)-initial")
+            print("WEBGL_FRAME_INITIAL=\(label):\(initial)")
+            #expect(initial[0] > 240 && initial[1] < 15 && initial[2] > 240)
+
+            // Hold the Service turn after the synchronous shader query so WebKit
+            // has time to composite the intermediate clear. This is an observed
+            // query boundary, not a timer used to drive rendering.
+            var previousColor: [UInt8] = [255, 0, 255, 255]
+            let colors: [[UInt8]] = [[0, 255, 255, 255], [0, 255, 0, 255], [255, 0, 0, 255]]
+            for (frame, color) in colors.enumerated() {
+                let paused = XCTestExpectation(description: "shader query reached in frame \(frame)")
+                engine.registerMethod(name: "__shaderQueryPaused") { _ in
+                    paused.fulfill()
+                    _ = resume.wait(timeout: .now() + 15)
+                    return nil
+                }
+                engine.enqueueScript("""
+                (function () {
+                frameGL.clearColor(0, 0, 0, 1); frameGL.clear(frameGL.COLOR_BUFFER_BIT);
+                const frameShader = frameGL.createShader(frameGL.FRAGMENT_SHADER);
+                frameGL.shaderSource(frameShader, '\(contextType == "webgl2" ? "#version 300 es\\nprecision mediump float;out vec4 color;void main(){color=vec4(1.0);}" : "precision mediump float;void main(){gl_FragColor=vec4(1.0);}")');
+                frameGL.compileShader(frameShader);
+                if (!frameGL.getShaderParameter(frameShader, frameGL.COMPILE_STATUS)) throw new Error(frameGL.getShaderInfoLog(frameShader));
+                __shaderQueryPaused();
+                frameGL.clearColor(\(color.map { String(Double($0) / 255) }.joined(separator: ","))); frameGL.clear(frameGL.COLOR_BUFFER_BIT);
+                })();
+                """)
+                let pauseResult = await XCTWaiter.fulfillment(of: [paused], timeout: 10)
+                try #require(pauseResult == .completed)
+                try await waitForPresentation(webView)
+                let duringQuery = try await snapshotCenter(webView, label: "\(label)-shader-query-\(frame)")
+                print("WEBGL_FRAME_DURING_QUERY=\(label):\(frame):\(duringQuery)")
+                #expect(duringQuery == previousColor)
+                resume.signal()
+                let completed = try await evaluate(service, "return {error: frameGL.getError()};")
+                #expect(completed["error"] as? Int == 0)
+                try await waitForPresentation(webView)
+                let final = try await snapshotCenter(webView, label: "\(label)-final-\(frame)")
+                print("WEBGL_FRAME_COMPLETED=\(label):\(frame):\(final)")
+                #expect(final == color)
+                previousColor = color
+            }
+        }
+
+        private func waitForPresentation(_ webView: WKWebView) async throws {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                var completed = false
+                let finish: (Error?) -> Void = { error in
+                    guard !completed else { return }
+                    completed = true
+                    if let error { continuation.resume(throwing: error) }
+                    else { continuation.resume() }
+                }
+                webView.callAsyncJavaScript(
+                    "if (document.visibilityState !== 'visible') throw new Error('WebGL document is ' + document.visibilityState); await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));",
+                    arguments: [:], in: nil, in: .page
+                ) { result in
+                    switch result {
+                    case .success: finish(nil)
+                    case .failure(let error): finish(error)
+                    }
+                }
+                // A native deadline still fires if WebContent has been suspended.
+                // It fails the test; it does not drive or substitute for a frame.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+                    finish(NSError(domain: "WebGLFrameTest", code: 1, userInfo: [
+                        NSLocalizedDescriptionKey: "WebKit presentation frames timed out"
+                    ]))
+                }
+            }
+        }
+
+        private func snapshotCenter(_ webView: WKWebView, label: String) async throws -> [UInt8] {
+            let image = try await webView.takeSnapshot(configuration: nil)
+            let path = FileManager.default.temporaryDirectory.appendingPathComponent("\(label).png")
+            try #require(image.pngData()).write(to: path)
+            print("WEBGL_FRAME_SNAPSHOT=\(path.path)")
+            let cgImage = try #require(image.cgImage)
+            let center = try #require(cgImage.cropping(to: CGRect(x: cgImage.width / 2, y: cgImage.height / 2, width: 1, height: 1)))
+            var pixel = [UInt8](repeating: 0, count: 4)
+            try pixel.withUnsafeMutableBytes { bytes in
+                let context = try #require(CGContext(data: bytes.baseAddress, width: 1, height: 1, bitsPerComponent: 8,
+                    bytesPerRow: 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+                context.draw(center, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+            }
+            return pixel
+        }
+
         @Test func bundledSDKQueriesDrawsAndRecoversOnWebKit() async throws {
             DMPResourceManager.prepareSdk()
             let app = DMPApp(appConfig: DMPAppConfig(appName: "WebGL regression", appId: "webgl-test"), appIndex: -1)

@@ -1754,6 +1754,7 @@ export class CanvasNode {
 		this.rafCallbacks = new Map()
 		this.pendingOperations = []
 		this.flushScheduled = false
+		this.presentationPending = false
 		this.disposed = false
 		this._width = normalizeCanvasBitmapDimension(width, 300)
 		this._height = normalizeCanvasBitmapDimension(height, 150)
@@ -2085,6 +2086,7 @@ export class CanvasNode {
 		}
 		this.rafCallbacks.clear()
 		this.pendingOperations = []
+		this.presentationPending = false
 		this.pendingTypedArrayUpdates.clear()
 		this.pendingStateFeedbacks.clear()
 		this.stateFeedbackByProperty.clear()
@@ -2174,6 +2176,7 @@ export class CanvasNode {
 		this.flushScheduled = false
 		const operations = this.compactStateFeedback(this.pendingOperations)
 		this.pendingOperations = []
+		if (!this.offscreen && WEBGL_CONTEXT_TYPES.has(this.activeContextType) && operations.length > 0) this.presentationPending = true
 		const feedback = message.invoke({
 			type: 'canvasNodeSync',
 			target: 'container',
@@ -2196,9 +2199,10 @@ export class CanvasNode {
 
 	flushOperations() {
 		this.flushScheduled = false
-		if (this.pendingOperations.length === 0) {
+		if (this.pendingOperations.length === 0 && !this.presentationPending) {
 			return
 		}
+		this.presentationPending = false
 		const operations = this.compactStateFeedback(this.pendingOperations)
 		this.pendingOperations = []
 		const stateKeys = operations.flatMap((operation) => {

@@ -16,6 +16,10 @@ let toRender
 let toService
 let contexts
 
+function screenContext() {
+	return contexts.find(context => [...runtime.canvasNodes.values()].some(node => node.presentation?.gl === context))
+}
+
 function drainRender() {
 	while (toRender.length) window.DiminaRenderBridge.onMessage(toRender.shift())
 }
@@ -56,6 +60,12 @@ function createHostGL(canvas, attributes, type) {
 	let color = new Uint8Array(4)
 	const gl = {
 		canvas, commands,
+		FRAMEBUFFER: 0x8D40, FRAMEBUFFER_BINDING: 0x8CA6, SCISSOR_TEST: 0x0C11,
+		COLOR_WRITEMASK: 0x0C23, DEPTH_WRITEMASK: 0x0B72, STENCIL_WRITEMASK: 0x0B98, STENCIL_BACK_WRITEMASK: 0x8CA5,
+		COLOR_CLEAR_VALUE: 0x0C22, DEPTH_CLEAR_VALUE: 0x0B73, STENCIL_CLEAR_VALUE: 0x0B91,
+		COLOR_BUFFER_BIT: 0x4000, DEPTH_BUFFER_BIT: 0x100, STENCIL_BUFFER_BIT: 0x400, FRONT: 0x404, BACK: 0x405,
+		bindFramebuffer() {}, isEnabled: () => false, enable() {}, disable() {}, colorMask() {}, depthMask() {}, stencilMaskSeparate() {},
+		clearColor() {}, clearDepth() {}, clearStencil() {}, clear() {},
 		NO_ERROR: 0, VERTEX_SHADER: 0x8B31, FRAGMENT_SHADER: 0x8B30,
 		COMPILE_STATUS: 0x8B81, SHADER_TYPE: 0x8B4F,
 		LINK_STATUS: 0x8B82, VALIDATE_STATUS: 0x8B83, ACTIVE_UNIFORMS: 0x8B86,
@@ -74,7 +84,9 @@ function createHostGL(canvas, attributes, type) {
 				: name === 'OES_vertex_array_object' ? vao
 					: name === 'OES_texture_half_float' && type === 'webgl' ? halfFloat : null,
 		getParameter: pname => pname === gl.VIEWPORT ? viewport.slice()
-			: pname === gl.ELEMENT_ARRAY_BUFFER_BINDING ? currentVertexArray.elementBuffer : null,
+			: pname === gl.ELEMENT_ARRAY_BUFFER_BINDING ? currentVertexArray.elementBuffer
+				: pname === gl.COLOR_WRITEMASK ? [true, true, true, true]
+					: pname === gl.COLOR_CLEAR_VALUE ? [0, 0, 0, 0] : null,
 		viewport(x, y, width, height) { if (width >= 0 && height >= 0) viewport = new Int32Array([x, y, width, height]) },
 		getShaderPrecisionFormat: () => ({ rangeMin: 127, rangeMax: 127, precision: 23 }),
 		isContextLost: () => Boolean(gl.lost),
@@ -141,6 +153,7 @@ describe('native mini game WebGL bridge', () => {
 		canvasApi.disposeCanvasNodes(bridgeId)
 		vi.spyOn(console, 'log').mockImplementation(() => {})
 		vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (type, attributes) {
+			if (type === '2d') return { drawImage: vi.fn() }
 			if (type !== 'webgl' && type !== 'webgl2') return null
 			const gl = createHostGL(this, attributes, type)
 			contexts.push(gl)
@@ -175,8 +188,9 @@ describe('native mini game WebGL bridge', () => {
 		const canvas = canvasApi.createCanvas()
 		expect(canvas.type).toBe('2d')
 		const gl = canvas.getContext(type)
-		const host = contexts.find(context => context.canvas.hasAttribute('data-dimina-game-canvas'))
-		expect(host.canvas.isConnected).toBe(true)
+		const host = screenContext()
+		expect(host.canvas.isConnected).toBe(false)
+		expect(runtime.canvasNodes.get(canvas.nodeId).presentation.canvas.isConnected).toBe(true)
 		expect(canvas.webglCapabilities).toBeNull()
 		expect(toService.some(message => message.type === 'canvasCapabilities')).toBe(true)
 		expect(gl.getContextAttributes().preserveDrawingBuffer).toBe(false)
@@ -276,7 +290,7 @@ describe('native mini game WebGL bridge', () => {
 		await Promise.resolve()
 		drainRender()
 		drainService()
-		const host = contexts.find(context => context.canvas.hasAttribute('data-dimina-game-canvas'))
+		const host = screenContext()
 		expect(host.commands.find(command => command[0] === 'compressedTexImage2D'))
 			.toEqual(['compressedTexImage2D', gl.TEXTURE_2D, 0, 0x93B4, 6, 6, 0, pixels])
 	})
@@ -316,7 +330,7 @@ describe('native mini game WebGL bridge', () => {
 		expect(vao.isVertexArrayOES(vertexArray)).toBe(true)
 		vao.deleteVertexArrayOES(vertexArray)
 		expect(vao.isVertexArrayOES(vertexArray)).toBe(false)
-		contexts.find(context => context.canvas.hasAttribute('data-dimina-game-canvas')).failVertexArrayCreation = true
+		screenContext().failVertexArrayCreation = true
 		expect(vao.createVertexArrayOES()).toBeNull()
 	})
 
@@ -339,7 +353,7 @@ describe('native mini game WebGL bridge', () => {
 	it('forwards context loss and restoration and refreshes the context before handlers run', () => {
 		const canvas = canvasApi.createCanvas()
 		const gl = canvas.getContext('webgl')
-		const host = contexts.find(context => context.canvas.hasAttribute('data-dimina-game-canvas'))
+		const host = screenContext()
 		const previousExtension = gl.getExtension('OES_vertex_array_object')
 		const lost = vi.fn(event => {
 			expect(event.target).toBe(canvas)
