@@ -576,14 +576,22 @@ public class FileAPI: DMPContainerApi {
 
     private static func readFileSync(param: DMPBridgeParam, env: DMPBridgeEnv) throws -> Any {
         let map = param.getMap()
-        let data = try Data(contentsOf: try resolveReadable(env: env, path: map.getString(key: "filePath") ?? ""))
-        let position = map.getInt(key: "position") ?? 0
-        let length = map.getInt(key: "length") ?? (data.count - position)
-        let slice = slice(data, position: position, length: length)
-        if let encoding = map.getString(key: "encoding"), !encoding.isEmpty {
-            return decode(data: slice, encoding: encoding)
+        let handle = try FileHandle(forReadingFrom: resolveReadable(env: env, path: map.getString(key: "filePath") ?? ""))
+        defer { try? handle.close() }
+        let position = max(0, map.getInt(key: "position") ?? 0)
+        if position > 0 { try handle.seek(toOffset: UInt64(position)) }
+        // Read only the requested range; slicing Data(contentsOf:) loads and
+        // copies the entire asset even when the caller needs a small chunk.
+        let data: Data
+        if let length = map.getInt(key: "length") {
+            data = try handle.read(upToCount: max(0, length)) ?? Data()
+        } else {
+            data = try handle.readToEnd() ?? Data()
         }
-        return bufferPayload(slice)
+        if let encoding = map.getString(key: "encoding"), !encoding.isEmpty {
+            return decode(data: data, encoding: encoding)
+        }
+        return bufferPayload(data)
     }
 
     private static func readdirSync(path: String, env: DMPBridgeEnv) throws -> [String] {
@@ -689,10 +697,24 @@ public class FileAPI: DMPContainerApi {
     private static func writeSync(param: DMPBridgeParam, appId: String) throws -> [String: Any] {
         let file = try opened(param, appId: appId)
         let map = param.getMap()
-        if let position = map.getInt(key: "position") { try file.handle.seek(toOffset: UInt64(position)) }
         let key = map.get("arrayBuffer") != nil ? "arrayBuffer" : "data"
-        let data = bytes(param: param, key: key)
-        file.handle.write(data)
+        var data = bytes(param: param, key: key)
+        // Buffer offsets describe the input data, independently of the file
+        // position. Text writes use the entire encoded string instead.
+        if !(map.get(key) is String) {
+            let offset = map.getInt(key: "offset") ?? 0
+            guard offset >= 0, offset <= data.count else { throw FileError.message("invalid buffer offset") }
+            let length = map.getInt(key: "length") ?? (data.count - offset)
+            guard length >= 0, length <= data.count - offset else { throw FileError.message("invalid buffer length") }
+            if offset != 0 || length != data.count {
+                data = data.subdata(in: offset..<(offset + length))
+            }
+        }
+        if let position = map.getInt(key: "position") {
+            guard position >= 0 else { throw FileError.message("invalid file position") }
+            try file.handle.seek(toOffset: UInt64(position))
+        }
+        try file.handle.write(contentsOf: data)
         return ["bytesWritten": data.count]
     }
 

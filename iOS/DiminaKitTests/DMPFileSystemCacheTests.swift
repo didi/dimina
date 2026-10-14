@@ -153,4 +153,140 @@ final class DMPFileSystemCacheTests: XCTestCase {
         XCTAssertEqual(DMPBinaryBridge.decodeBuffer(context.evaluateScript("packet.empty")), Data())
         XCTAssertTrue(context.evaluateScript("Object.getPrototypeOf(packet) === Object.prototype && packet.__proto__ === 'own property'")!.toBool())
     }
+
+    @MainActor
+    func testBundledSDKBinaryFileBatchAndDescriptorRanges() async throws {
+        let appId = "file-batch-\(UUID().uuidString)"
+        let app = DMPApp(appConfig: DMPAppConfig(appName: "file batch", appId: appId), appIndex: 0)
+        app.container = DMPContainer(app: app)
+        _ = FileAPI(app: app)
+        let service = DMPService(app: app)
+        app.service = service
+        defer {
+            service.destroy()
+            FileAPI.clearOpenFiles(appId: appId)
+            try? FileManager.default.removeItem(atPath: DMPSandboxManager.appStoreResourceDirectoryPath(appId: appId))
+        }
+        DMPResourceManager.prepareSdk()
+        await service.loadFile(path: DMPSandboxManager.sdkServicePath())
+        let finished = expectation(description: "bundled SDK file batch completed")
+        let reports = ThreadSafeEventLog()
+        let engine = service.getEngine()
+        engine.registerMethod(name: "__fileBatchFinished") { value in
+            reports.record(value.toString() ?? "")
+            finished.fulfill()
+            return nil
+        }
+        engine.enqueueScript("""
+            (async function() {
+                const stringify = JSON.stringify;
+                const report = {samples: [], checks: {}};
+                try {
+                    const fsm = wx.getFileSystemManager();
+                    const root = wx.env.USER_DATA_PATH + '/';
+                    if (!DiminaServiceBridge.fileBinarySupported) throw new Error('binary bridge unavailable');
+                    JSON.stringify = function() { throw new Error('file payload must not stringify'); };
+                    DiminaServiceBridge.encodeArrayBuffer = function() { throw new Error('file payload must not use Base64'); };
+                    function check(buffer, size, first) {
+                        const bytes = new Uint8Array(buffer);
+                        if (!(buffer instanceof ArrayBuffer) || bytes.length !== size ||
+                            bytes[0] !== first || bytes[size >> 1] !== 173 || bytes[size - 1] !== 255)
+                            throw new Error('binary payload mismatch');
+                    }
+                    for (const [mib, count] of [[1, 32], [8, 8], [32, 2]]) {
+                        const payload = new Uint8Array(mib * 1024 * 1024).fill(173);
+                        payload[payload.length - 1] = 255;
+                        let start = Date.now();
+                        for (let i = 0; i < count; i++) {
+                            payload[0] = i;
+                            fsm.writeFileSync(root + 'asset-' + i, payload.buffer);
+                        }
+                        const writeMs = Date.now() - start;
+                        start = Date.now();
+                        for (let i = 0; i < count; i++) check(fsm.readFileSync(root + 'asset-' + i), payload.length, i);
+                        const readMs = Date.now() - start;
+                        report.samples.push({mode: 'sync', mib, count, writeMs, readMs});
+                        for (let i = 0; i < count; i++) fsm.unlinkSync(root + 'asset-' + i);
+                    }
+                    const payload = new Uint8Array(8 * 1024 * 1024).fill(173);
+                    payload[0] = 0; payload[payload.length - 1] = 255;
+                    const path = root + 'async-asset';
+                    let start = Date.now();
+                    for (let i = 0; i < 8; i++) await fsm.writeFile({filePath: path, data: payload.buffer});
+                    const writeMs = Date.now() - start;
+                    start = Date.now();
+                    for (let i = 0; i < 8; i++) check((await fsm.readFile({filePath: path})).data, payload.length, 0);
+                    report.samples.push({mode: 'promise', mib: 8, count: 8, writeMs, readMs: Date.now() - start});
+                    await new Promise((resolve, reject) => {
+                        const events = [];
+                        fsm.readFile({filePath: path, success(res) {
+                            try { check(res.data, payload.length, 0); events.push('success'); }
+                            catch (error) { reject(error); }
+                        }, fail: reject, complete(res) {
+                            try {
+                                check(res.data, payload.length, 0); events.push('complete');
+                                report.checks.callbackOrder = events.join(',') === 'success,complete';
+                                resolve();
+                            } catch (error) { reject(error); }
+                        }});
+                    });
+                    fsm.unlinkSync(path);
+                    const slicePath = root + 'slice-asset';
+                    const large = new Uint8Array(32 * 1024 * 1024).fill(173);
+                    large[large.length - 1] = 255;
+                    fsm.writeFileSync(slicePath, large.buffer);
+                    start = Date.now();
+                    for (let i = 0; i < 64; i++) {
+                        const bytes = new Uint8Array(fsm.readFileSync(slicePath, undefined, i * 65536, 65536));
+                        if (bytes.length !== 65536 || bytes[0] !== 173 || bytes[65535] !== 173)
+                            throw new Error('partial read mismatch');
+                    }
+                    report.samples.push({mode: 'slice', mib: 32, count: 64, length: 65536, readMs: Date.now() - start});
+                    const eof = fsm.readFileSync(slicePath, undefined, large.length - 2, 10);
+                    report.checks.partialEOF = eof.byteLength === 2 && new Uint8Array(eof)[1] === 255;
+                    report.checks.beyondEOF = fsm.readFileSync(slicePath, undefined, large.length + 1, 10).byteLength === 0;
+                    fsm.unlinkSync(slicePath);
+                    const rangePath = root + 'ranges';
+                    fsm.writeFileSync(rangePath, new Uint8Array([90, 91, 92, 93, 94]).buffer);
+                    const fd = fsm.openSync({filePath: rangePath, flag: 'r+'});
+                    const written = fsm.writeSync({fd, position: 1, data: new Uint8Array([8, 7, 6, 5]).buffer,
+                        offset: 1, length: 2});
+                    report.checks.writeRange = written.bytesWritten === 2 &&
+                        Array.from(new Uint8Array(fsm.readFileSync(rangePath))).join(',') === '90,7,6,93,94';
+                    const zero = fsm.writeSync({fd, position: 0, data: payload.buffer, offset: 1, length: 0});
+                    report.checks.zeroLengthWrite = zero.bytesWritten === 0;
+                    const remaining = await fsm.write({fd, position: 0, data: new Uint8Array([8, 7, 6, 5]).buffer, offset: 2});
+                    report.checks.asyncWriteRange = remaining.bytesWritten === 2 &&
+                        new Uint8Array(fsm.readFileSync(rangePath))[0] === 6;
+                    let rejected = false;
+                    try { fsm.writeSync({fd, data: new ArrayBuffer(4), offset: 3, length: 2}); }
+                    catch (error) { rejected = true; }
+                    report.checks.invalidWriteRange = rejected;
+                    fsm.closeSync({fd});
+                    fsm.writeFileSync(rangePath, new Uint8Array([90, 91, 92, 93, 94]).buffer);
+                    const readFd = fsm.openSync({filePath: rangePath, flag: 'r'});
+                    const target = new Uint8Array(6).fill(99);
+                    const read = fsm.readSync({fd: readFd, position: 1, arrayBuffer: target.buffer, offset: 2, length: 2});
+                    report.checks.readRange = read.bytesRead === 2 && read.arrayBuffer === target.buffer &&
+                        Array.from(target).join(',') === '99,99,91,92,99,99';
+                    fsm.closeSync({fd: readFd}); fsm.unlinkSync(rangePath);
+                } catch (error) {
+                    report.error = String(error); report.stack = error.stack;
+                } finally {
+                    JSON.stringify = stringify;
+                    __fileBatchFinished(stringify(report));
+                }
+            })();
+            """)
+        await fulfillment(of: [finished], timeout: 60)
+        let json = try XCTUnwrap(reports.events.first)
+        print("FILE_BATCH_REPORT=\(json)")
+        let report = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any])
+        XCTAssertNil(report["error"], json)
+        let checks = try XCTUnwrap(report["checks"] as? [String: Bool])
+        XCTAssertEqual(checks, ["callbackOrder": true, "writeRange": true, "zeroLengthWrite": true,
+                                "asyncWriteRange": true, "invalidWriteRange": true, "readRange": true,
+                                "partialEOF": true, "beyondEOF": true], json)
+        XCTAssertEqual((report["samples"] as? [[String: Any]])?.count, 5)
+    }
 }
