@@ -3,6 +3,7 @@
 #include "video_decoder_pixels.h"
 #include "video_decoder_headers.h"
 #include <multimedia/player_framework/native_avcodec_videodecoder.h>
+#include <multimedia/player_framework/native_avcapability.h>
 #include <multimedia/player_framework/native_avdemuxer.h>
 #include <multimedia/player_framework/native_avsource.h>
 #include <multimedia/player_framework/native_avmemory.h>
@@ -37,6 +38,24 @@ int Int(OH_AVFormat *format, const char *key, int fallback) {
 void CheckSize(int width, int height) {
     if (width <= 0 || height <= 0 || width > 4096 || height > 4096 ||
         int64_t(width) * height > 2097152) throw std::runtime_error("video frame exceeds pixel budget");
+}
+OH_AVCodec *CreateDecoder(const std::string &mime, int width, int height) {
+    auto create = [width, height](OH_AVCapability *capability) -> OH_AVCodec * {
+        if (!capability || !OH_AVCapability_IsVideoSizeSupported(capability, width, height)) return nullptr;
+        const int32_t *formats = nullptr;
+        uint32_t count = 0;
+        if (OH_AVCapability_GetVideoSupportedPixelFormats(capability, &formats, &count) != AV_ERR_OK || !formats ||
+            std::find(formats, formats + count, AV_PIXEL_FORMAT_NV12) == formats + count) return nullptr;
+        const char *name = OH_AVCapability_GetName(capability);
+        return name && *name ? OH_VideoDecoder_CreateByName(name) : nullptr;
+    };
+    // CreateByMime always selects the system recommendation. Its hardware
+    // decoder may reject a small video that the software decoder supports.
+    if (auto codec = create(OH_AVCodec_GetCapability(mime.c_str(), false))) return codec;
+    if (auto codec = create(OH_AVCodec_GetCapabilityByCategory(mime.c_str(), false, HARDWARE))) return codec;
+    if (auto codec = create(OH_AVCodec_GetCapabilityByCategory(mime.c_str(), false, SOFTWARE))) return codec;
+    throw std::runtime_error("no video decoder supports " + mime + " " + std::to_string(width) + "x" +
+        std::to_string(height) + " with NV12 output");
 }
 struct Frame { int width, height; int64_t pts; std::vector<uint8_t> pixels; };
 struct Buffer { uint32_t index; OH_AVMemory *memory; OH_AVCodecBufferAttr attr {}; };
@@ -294,8 +313,7 @@ private:
             codecHeadersProbePending = true;
             failure.clear(); frames.clear(); layout = {}; layout.width = width; layout.height = height;
         }
-        codec = OH_VideoDecoder_CreateByMime(codecMime.c_str());
-        if (!codec) throw std::runtime_error("unsupported video codec");
+        codec = CreateDecoder(codecMime, width, height);
         try {
             Check(OH_VideoDecoder_SetCallback(codec, {OnError, OnFormat, OnInput, OnOutput}, this));
             OH_AVFormat_SetIntValue(format, OH_MD_KEY_PIXEL_FORMAT, AV_PIXEL_FORMAT_NV12);

@@ -47,6 +47,8 @@ AV_KEY(OH_MD_KEY_COLOR_PRIMARIES);
 AV_KEY(OH_MD_KEY_CODEC_CONFIG);
 #undef AV_KEY
 
+enum OH_AVCodecCategory { HARDWARE, SOFTWARE };
+struct OH_AVCapability { std::string name; int minimum = 2; int maximum = 4096; bool nv12 = true; };
 struct OH_AVCodec;
 struct OH_AVMemory {
     std::vector<uint8_t> bytes {64, 64, 64, 64, 128, 128};
@@ -66,6 +68,8 @@ struct OH_AVCodecCallback {
     void (*output)(OH_AVCodec *, uint32_t, OH_AVMemory *, OH_AVCodecBufferAttr *, void *);
 };
 struct OH_AVCodec {
+    std::string name;
+    bool destroyed = false;
     int generation = 0;
     bool active = false;
     bool flushed = false;
@@ -86,6 +90,9 @@ int64_t seekMilliseconds = 0;
 bool failSeek = false;
 bool failFlush = false, failRestart = false, blockFlush = false, flushEntered = false, emitFlushCallbacks = false;
 std::string mime = "video/mock";
+int sourceWidth = 2, sourceHeight = 2;
+OH_AVCapability hardware {"hardware"}, software {"software"};
+bool recommendedAvailable = true, hardwareAvailable = true, softwareAvailable = true;
 std::vector<uint8_t> config;
 std::vector<uint8_t> sample;
 uint32_t sampleFlags = 0;
@@ -165,7 +172,7 @@ OH_AVFormat *OH_AVSource_GetSourceFormat(OH_AVSource *) {
 OH_AVFormat *OH_AVSource_GetTrackFormat(OH_AVSource *, int) {
     auto format = new OH_AVFormat;
     format->mime = Mock::mime; format->config = Mock::config;
-    format->values[OH_MD_KEY_WIDTH] = 2; format->values[OH_MD_KEY_HEIGHT] = 2; return format;
+    format->values[OH_MD_KEY_WIDTH] = Mock::sourceWidth; format->values[OH_MD_KEY_HEIGHT] = Mock::sourceHeight; return format;
 }
 void OH_AVFormat_Destroy(OH_AVFormat *format) { delete format; }
 bool OH_AVFormat_GetIntValue(OH_AVFormat *format, const char *key, int32_t *value) {
@@ -195,16 +202,36 @@ OH_AVErrCode OH_AVDemuxer_ReadSample(OH_AVDemuxer *, uint32_t, OH_AVMemory *memo
         memory->sampleEos ? AVCODEC_BUFFER_FLAGS_EOS : Mock::sampleFlags};
     return AV_ERR_OK;
 }
+OH_AVCapability *OH_AVCodec_GetCapability(const char *, bool) { return Mock::recommendedAvailable ? &Mock::hardware : nullptr; }
+OH_AVCapability *OH_AVCodec_GetCapabilityByCategory(const char *, bool, OH_AVCodecCategory category) {
+    return category == HARDWARE ? (Mock::hardwareAvailable ? &Mock::hardware : nullptr) : (Mock::softwareAvailable ? &Mock::software : nullptr);
+}
+const char *OH_AVCapability_GetName(OH_AVCapability *capability) { return capability->name.c_str(); }
+bool OH_AVCapability_IsVideoSizeSupported(OH_AVCapability *capability, int width, int height) {
+    return width >= capability->minimum && height >= capability->minimum && width <= capability->maximum && height <= capability->maximum;
+}
+OH_AVErrCode OH_AVCapability_GetVideoSupportedPixelFormats(OH_AVCapability *capability, const int32_t **formats, uint32_t *count) {
+    static const int32_t nv12 = AV_PIXEL_FORMAT_NV12, other = 77;
+    *formats = capability->nv12 ? &nv12 : &other; *count = 1; return AV_ERR_OK;
+}
+OH_AVCodec *OH_VideoDecoder_CreateByName(const char *name) {
+    std::lock_guard<std::mutex> lock(Mock::mutex);
+    auto codec = std::make_unique<OH_AVCodec>(); codec->name = name; codec->generation = ++Mock::counts.create;
+    auto pointer = codec.get(); Mock::codecs.push_back(std::move(codec)); return pointer;
+}
 OH_AVCodec *OH_VideoDecoder_CreateByMime(const char *) {
     std::lock_guard<std::mutex> lock(Mock::mutex);
-    auto codec = std::make_unique<OH_AVCodec>(); codec->generation = ++Mock::counts.create;
+    auto codec = std::make_unique<OH_AVCodec>(); codec->name = "hardware"; codec->generation = ++Mock::counts.create;
     auto pointer = codec.get(); Mock::codecs.push_back(std::move(codec)); return pointer;
 }
 OH_AVErrCode OH_VideoDecoder_SetCallback(OH_AVCodec *codec, OH_AVCodecCallback callback, void *data) {
     codec->callback = callback; codec->data = data; return AV_ERR_OK;
 }
-OH_AVErrCode OH_VideoDecoder_Configure(OH_AVCodec *, OH_AVFormat *) {
-    std::lock_guard<std::mutex> lock(Mock::mutex); ++Mock::counts.configure; return AV_ERR_OK;
+OH_AVErrCode OH_VideoDecoder_Configure(OH_AVCodec *codec, OH_AVFormat *format) {
+    std::lock_guard<std::mutex> lock(Mock::mutex); ++Mock::counts.configure;
+    auto capability = codec->name == "software" ? &Mock::software : &Mock::hardware;
+    return OH_AVCapability_IsVideoSizeSupported(capability, format->values[OH_MD_KEY_WIDTH], format->values[OH_MD_KEY_HEIGHT]) && capability->nv12
+        ? AV_ERR_OK : AV_ERR_INVALID;
 }
 OH_AVErrCode OH_VideoDecoder_Prepare(OH_AVCodec *) {
     std::lock_guard<std::mutex> lock(Mock::mutex); ++Mock::counts.prepare; return AV_ERR_OK;
@@ -230,7 +257,8 @@ OH_AVErrCode OH_VideoDecoder_Flush(OH_AVCodec *codec) {
 }
 OH_AVErrCode OH_VideoDecoder_Destroy(OH_AVCodec *codec) {
     std::lock_guard<std::mutex> lock(Mock::mutex);
-    Mock::Require(codec->active, "codec generation must only be destroyed once");
+    Mock::Require(!codec->destroyed, "codec generation must only be destroyed once");
+    codec->destroyed = true;
     codec->active = false; ++Mock::counts.destroy; Mock::changed.notify_all(); return AV_ERR_OK;
 }
 OH_AVErrCode OH_VideoDecoder_PushInputData(OH_AVCodec *codec, uint32_t index, OH_AVCodecBufferAttr attr) {
@@ -493,6 +521,36 @@ void RunningForwardCase(const std::string &name) {
 }
 
 void Run(const std::string &name) {
+    if (name.rfind("select-", 0) == 0) {
+        Mock::hardware.minimum = 64;
+        Mock::sourceWidth = Mock::sourceHeight = 16;
+        if (name == "select-hardware" || name == "select-recommended-missing") { Mock::sourceWidth = 720; Mock::sourceHeight = 1080; }
+        if (name == "select-recommended-missing") Mock::recommendedAvailable = false;
+        if (name == "select-pixel-format") { Mock::sourceWidth = Mock::sourceHeight = 128; Mock::hardware.nv12 = false; }
+        if (name == "select-software-missing") Mock::softwareAvailable = false;
+        if (name == "select-software-incompatible") Mock::software.nv12 = false;
+        Decoder decoder;
+        std::string error;
+        try {
+            const auto size = decoder.Start(inputPath, 1, decoder.startGate.Capture());
+            Mock::Require(size.first == Mock::sourceWidth && size.second == Mock::sourceHeight, "must return actual source dimensions");
+            Mock::WaitInitialPush();
+        } catch (const std::exception &failure) { error = failure.what(); }
+        const bool unsupported = name == "select-software-missing" || name == "select-software-incompatible";
+        if (unsupported) {
+            Mock::Require(error.find("no video decoder supports") != std::string::npos, "unsupported video must report its decoder capability limit");
+            Mock::Require(Mock::Snapshot().create == 0, "unsupported decoder must be rejected before a driver instance is created");
+        } else {
+            Mock::Require(error.empty(), "supported video must start with a capable decoder: " + error);
+            const bool hardware = name == "select-hardware" || name == "select-recommended-missing";
+            Mock::Require(decoder.codec && decoder.codec->name == (hardware ? "hardware" : "software"), "selected decoder must support actual video size and NV12 output");
+            Mock::Require(Mock::Snapshot().create == 1, "must not allocate an incompatible decoder before selecting a supported one");
+        }
+        decoder.Stop();
+        Mock::Require(Mock::Snapshot().invalid == 0, "decoder selection produced invalid callback ownership");
+        return;
+    }
+
     if (name.rfind("direct-", 0) == 0) {
         Decoder decoder; Start(decoder); Deliver(decoder);
         QueueFrame(decoder, 150000); QueueFrame(decoder, 250000);

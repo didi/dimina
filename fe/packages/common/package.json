@@ -16,6 +16,7 @@
 	"scripts": {
 		"dev": "vite build",
 		"build": "vite build",
+		"build:canvas-decoder": "node scripts/build-canvas-decode.mjs",
 		"test": "vitest run",
 		"test:dev": "vitest",
 		"coverage": "vitest run --coverage"

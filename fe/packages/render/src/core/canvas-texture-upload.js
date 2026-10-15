@@ -1,4 +1,4 @@
-import { base64ToArrayBuffer, decodeCanvasRle32PrefixWithTail } from '@dimina/common'
+import { base64ToArrayBuffer, decodeCanvasRle32PrefixWithTail, decodeLargeCanvasRleBand } from '@dimina/common'
 
 const TEXTURE_2D = 0x0DE1
 const TEXTURE0 = 0x84C0
@@ -176,6 +176,14 @@ export class CanvasTextureUpload {
 			|| ![0, BROWSER_DEFAULT_WEBGL].includes(unpack.colorspace)
 			|| prior.width !== width || prior.height !== height || prior.alignment !== unpack.alignment
 			|| prior.premultiply !== unpack.premultiply || prior.colorspace !== unpack.colorspace) return null
+		const fast = decodeLargeCanvasRleBand(wire.base64, bytes, width, height, prior.rows, prior.word)
+		if (fast) {
+			const pixels = new Uint8Array(fast.buffer)
+			return () => {
+				prior.rows = fast.rows
+				if (fast.rows > 0) return context.texSubImage2D(target, level, 0, 0, width, fast.rows, format, type, pixels)
+			}
+		}
 		const encoded = base64ToArrayBuffer(wire.base64)
 		if (encoded.byteLength < 8 || encoded.byteLength % 4 !== 0) return null
 		const candidate = new DataView(encoded)

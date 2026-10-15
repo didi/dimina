@@ -136,6 +136,23 @@ function rleWire(width, height, rows, color = [9, 80, 211, 255], tail = [0, 0, 0
 }
 
 describe('compressed constant-tail bands', () => {
+	it('preserves every texture byte for a large decoded band that grows and shrinks', () => {
+		const width = 256, height = 512
+		const f = harness()
+		f.upload(frame(width, height, 200), width, height)
+		for (const rows of [240, 210, 250, 180]) {
+			const wire = rleWire(width, height, rows)
+			expect(wire.base64.length).toBeGreaterThan(65536)
+			const upload = f.helper.prepareRleUpload(f.gl, fullArgs(wire, width, height))
+			expect(upload).toBeTypeOf('function')
+			upload()
+			expect(f.gl.pixels(f.texture)).toEqual(frame(width, height, rows, [9, 80, 211, 255]))
+		}
+		expect(f.gl.texImage2D).toHaveBeenCalledTimes(1)
+		expect(f.gl.texSubImage2D).toHaveBeenCalledTimes(4)
+		expect(f.helper.cachedBytes).toBe(0)
+	})
+
 	it('decodes only the active prefix and preserves the complete texture while growing and shrinking', () => {
 		const f = harness(); f.upload(frame())
 		for (const rows of [3, 1, 4, 2]) {

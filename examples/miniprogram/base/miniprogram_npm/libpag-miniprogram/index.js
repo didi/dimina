@@ -263,6 +263,8 @@ let VideoReader = class {
     return this.error;
   }
   onDestroy() {
+    // Dimina vendored fix: destroyVerify blocks helper calls once isDestroyed is set.
+    this.clearFrameDataLoop();
     this.isDestroyed = true;
     if (this.getFrameDataResolve) {
       this.getFrameDataResolve({ id: -1, data: new ArrayBuffer(0), width: 0, height: 0 });
@@ -272,7 +274,6 @@ let VideoReader = class {
       this.player.unlinkVideoReader(this);
       this.player = null;
     }
-    this.clearFrameDataLoop();
     this.videoDecoder.remove();
     if (this.mp4Path) {
       removeFile(this.mp4Path);

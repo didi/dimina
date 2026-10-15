@@ -31,6 +31,12 @@ before(() => {
 after(() => fs.rmSync(directory, { recursive: true, force: true }))
 
 const cases = [
+  ['select-small', '16x16 video selects software when the recommended hardware starts at 64x64'],
+  ['select-hardware', 'normal video keeps the supported hardware decoder'],
+  ['select-pixel-format', 'a decoder without NV12 output is replaced by a capable software decoder'],
+  ['select-recommended-missing', 'missing system recommendation still finds a supported hardware decoder'],
+  ['select-software-missing', 'unsupported dimensions report a capability error before creating a driver instance'],
+  ['select-software-incompatible', 'software without required NV12 output cannot claim video support'],
   ['direct-forward', 'direct forward seek advances the live pump and preserves exact post-target PTS'],
   ['direct-pending', 'direct seek cannot bypass queued native control work'],
   ['direct-busy', 'direct seek falls back without waiting for an active control operation'],
