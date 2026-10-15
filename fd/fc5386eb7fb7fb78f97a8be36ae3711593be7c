@@ -1,0 +1,23 @@
+harmony/scripts/fixtures/video-decoder-seek.cpp
+  8af1d552e52349d6 132,134,523-563,612,624
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "fdfc5386eb7fb7fb78f97a8be36ae3711593be7c",
+  "prompts": {
+    "8af1d552e52349d6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a13a21-78ed-75f2-92f0-99883b0afb3e",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 49,
+      "total_deletions": 5,
+      "accepted_lines": 607,
+      "overriden_lines": 0
+    }
+  }
+}
