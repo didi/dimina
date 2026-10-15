@@ -1,0 +1,70 @@
+docs/VideoDecoder.md
+  53f753c2c8f31baa 32-33
+harmony/scripts/fixtures/quickjs-timers.cpp
+  8af1d552e52349d6 1-168
+docs/WXWebAssembly.md
+  53f753c2c8f31baa 59,64-73,76-84
+harmony/scripts/quickjs-timers.test.mjs
+  8af1d552e52349d6 1-90
+fe/packages/render/__tests__/canvas-texture-upload.spec.js
+  8af1d552e52349d6 139-155
+harmony/dimina/src/main/cpp/types/qjs_extension/settimeout.c
+  8af1d552e52349d6 3-6,8,10,19,23,29-38,43-47,50-54,57-69,78-86,88-89,91-101,103-104,106-107,111-113,115-116,120-121,123-134,137-150,153-154,156-165,167-186,189-192,194-206,209-210,212-213,215-219,221,227-228,230-234,240-246,248,250
+harmony/dimina/src/main/cpp/video_decoder.cpp
+  8af1d552e52349d6 6,42-59,316
+harmony/dimina/consumer-rules.txt
+  8af1d552e52349d6 1-249
+harmony/scripts/video-decoder-seek.test.mjs
+  8af1d552e52349d6 34-39
+harmony/scripts/bridge-obfuscation.test.mjs
+  8af1d552e52349d6 1-55
+fe/packages/common/scripts/build-canvas-decode.mjs
+  8af1d552e52349d6 1-39
+fe/packages/common/src/core/canvas-decode-fast.js
+  8af1d552e52349d6 1-73
+fe/packages/common/src/core/canvas-decode-kernel.c
+  8af1d552e52349d6 1-116
+harmony/scripts/fixtures/video-decoder-seek.cpp
+  8af1d552e52349d6 50-51,71-72,93-95,175,205-221,224,230-234,260-261,524-553
+fe/packages/render/src/core/canvas-texture-upload.js
+  8af1d552e52349d6 1,179-186
+fe/packages/common/__tests__/canvas-decode-fast.spec.js
+  8af1d552e52349d6 1-157
+fe/packages/common/src/core/canvas-decode-kernel-bytes.js
+  8af1d552e52349d6 1-2
+fe/packages/common/src/index.js
+  8af1d552e52349d6 65
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "d117a2b42f8a2770b59ad89d307ffca5d8efe291",
+  "prompts": {
+    "53f753c2c8f31baa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a13f76-f7b0-72e2-9c07-ae7dbd2e10a5",
+        "model": "unknown"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 23,
+      "total_deletions": 1,
+      "accepted_lines": 23,
+      "overriden_lines": 0
+    },
+    "8af1d552e52349d6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a13a21-78ed-75f2-92f0-99883b0afb3e",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 4984,
+      "total_deletions": 557,
+      "accepted_lines": 1890,
+      "overriden_lines": 0
+    }
+  }
+}
