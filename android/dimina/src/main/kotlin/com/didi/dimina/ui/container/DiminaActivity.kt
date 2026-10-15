@@ -2567,13 +2567,18 @@ class DiminaActivity : ComponentActivity() {
         private val pendingLaunches = mutableSetOf<String>()
         private val returnTasks = mutableMapOf<String, Int>()
 
-        private fun isObsoleteHostLaunch(intent: Intent): Boolean =
+        private fun isObsoleteHostLaunch(intent: Intent): Boolean {
+            // TaskInfo.baseIntent may use the boot ClassLoader. On Android 12, even a
+            // string lookup unparcels all extras, including our MiniProgram Parcelable.
+            intent.setExtrasClassLoader(MiniProgram::class.java.classLoader)
             // A previous process's saved Intent is a legitimate cold restore, not an
             // in-flight launch canceled by this process's destroyAllMiniPrograms call.
-            intent.getStringExtra(HOST_SESSION_KEY) == hostSession &&
+            return intent.getStringExtra(HOST_SESSION_KEY) == hostSession &&
                 intent.getLongExtra(HOST_GENERATION_KEY, hostGeneration) != hostGeneration
+        }
 
         private fun getMiniProgramFromIntent(intent: Intent): MiniProgram? {
+            intent.setExtrasClassLoader(MiniProgram::class.java.classLoader)
             return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 intent.getParcelableExtra(MINI_PROGRAM_KEY, MiniProgram::class.java)
             } else {
