@@ -146,7 +146,10 @@ describe('compressed constant-tail bands', () => {
 			const upload = f.helper.prepareRleUpload(f.gl, fullArgs(wire, width, height))
 			expect(upload).toBeTypeOf('function')
 			upload()
-			expect(f.gl.pixels(f.texture)).toEqual(frame(width, height, rows, [9, 80, 211, 255]))
+			// Compare the complete texture without a matcher traversal per byte.
+			const actual = Buffer.from(f.gl.pixels(f.texture))
+			const expected = Buffer.from(frame(width, height, rows, [9, 80, 211, 255]))
+			expect(actual.equals(expected), `complete texture after ${rows} active rows`).toBe(true)
 		}
 		expect(f.gl.texImage2D).toHaveBeenCalledTimes(1)
 		expect(f.gl.texSubImage2D).toHaveBeenCalledTimes(4)

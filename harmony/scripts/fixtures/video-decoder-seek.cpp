@@ -129,9 +129,9 @@ OH_AVMemory *Input(OH_AVCodec *codec, bool eos = false) {
     return memory;
 }
 
-OH_AVMemory *Output(OH_AVCodec *codec, int64_t pts, bool block = false, bool eos = false) {
+OH_AVMemory *Output(OH_AVCodec *codec, int64_t pts, bool block = false, bool eos = false, uint32_t flags = 0) {
     auto memory = Allocate(codec, true, block);
-    OH_AVCodecBufferAttr attr {0, eos ? 0 : int32_t(memory->bytes.size()), pts, eos ? AVCODEC_BUFFER_FLAGS_EOS : 0};
+    OH_AVCodecBufferAttr attr {0, eos ? 0 : int32_t(memory->bytes.size()), pts, (eos ? AVCODEC_BUFFER_FLAGS_EOS : 0) | flags};
     codec->callback.output(codec, memory->index, memory, &attr, codec->data);
     return memory;
 }
@@ -520,6 +520,47 @@ void RunningForwardCase(const std::string &name) {
     NoRebuild(before);
 }
 
+void TailForwardCase(const std::string &name) {
+    Decoder decoder; Start(decoder); Deliver(decoder);
+    const auto pump = decoder.pump.get_id();
+    OH_AVMemory *pending = nullptr;
+    if (name == "tail-input" || name == "tail-output") {
+        if (name == "tail-input") {
+            Mock::WaitPushed(Mock::Input(decoder.codec, true));
+            QueueFrame(decoder, 150000); QueueFrame(decoder, 200000);
+        } else {
+            QueueFrame(decoder, 150000);
+            Mock::WaitFreed(Mock::Output(decoder.codec, 200000, false, false, AVCODEC_BUFFER_FLAGS_EOS));
+        }
+    } else {
+        Mock::WaitPushed(Mock::Input(decoder.codec, true));
+        // Filling the converted queue holds the pump before it can take this
+        // real output callback; no sleep or conversion timing is involved.
+        QueueFrame(decoder, 150000); QueueFrame(decoder, 175000);
+        pending = Mock::Output(decoder.codec, 200000, false, name == "tail-empty",
+            name == "tail-headers" ? AVCODEC_BUFFER_FLAGS_CODEC_DATA : 0);
+    }
+    const auto before = Mock::Snapshot();
+    const bool advanced = decoder.TrySeekForward(200);
+    if (name == "tail-empty" || name == "tail-headers") {
+        Mock::Require(!advanced, "non-frame output bypassed exhausted decoder recovery");
+        std::lock_guard<std::mutex> lock(decoder.mutex);
+        Mock::Require(decoder.targetUs == 0 && decoder.frames.size() == 2 && decoder.outputs.size() == 1,
+            "rejected EOS seek changed owned queues");
+    } else {
+        Mock::Require(advanced, "EOS replayed a GOP despite an owned frame at the forward target");
+        Mock::Require(decoder.pump.get_id() == pump, "EOS forward target recreated the live pump");
+        if (pending) Mock::WaitFreed(pending);
+        Mock::Require(Take(decoder).pts == 200000, "EOS forward target did not return its exact real PTS");
+        if (name == "tail-output") {
+            Frame frame {}; bool eof = false; std::string error;
+            Mock::Require(!decoder.Next(frame, eof, error) && eof && error.empty(), "tail delivery lost real output EOF");
+        }
+    }
+    NoRebuild(before);
+    Mock::Require(Mock::Snapshot().flush == before.flush, "owned tail target unnecessarily flushed the codec");
+}
+
 void Run(const std::string &name) {
     if (name.rfind("select-", 0) == 0) {
         Mock::hardware.minimum = 64;
@@ -568,7 +609,7 @@ void Run(const std::string &name) {
             Mock::Require(!advanced && decoder.targetUs == 0, "direct seek bypassed a busy control gate");
             NoRebuild(before); return;
         }
-        const bool advanced = decoder.TrySeekForward(200);
+        const bool advanced = decoder.TrySeekForward(name == "direct-eos" ? 300 : 200);
         if (name != "direct-forward") {
             Mock::Require(!advanced && decoder.targetUs == 0 && decoder.frames.size() == 2,
                 "ineligible direct seek changed the target or queue instead of falling back");
@@ -580,6 +621,7 @@ void Run(const std::string &name) {
         NoRebuild(before); return;
     }
     if (name == "headers") { HeaderContracts(); return; }
+    if (name.rfind("tail-", 0) == 0) { TailForwardCase(name); return; }
     if (name.rfind("flush-", 0) == 0) { FlushCase(name); return; }
     if (name == "inflight-below" || name == "inflight-above" || name == "callbacks") { RunningForwardCase(name); return; }
     Decoder decoder;

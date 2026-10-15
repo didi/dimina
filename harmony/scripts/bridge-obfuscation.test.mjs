@@ -45,7 +45,10 @@ test('cross-thread DTO and plain JS message fields keep the same wire names', ()
 	for (const field of ['bridgeId', 'pagePath']) assert.ok(properties.has(field), `resourceLoaded.${field}`)
 })
 test('native Node-API exports and returned frame fields keep their declared names', () => {
-	const native = readFileSync(join(sdk, 'src/main/cpp/types/libdimina/Index.d.ts'), 'utf8')
+	const directory = join(sdk, 'src/main/cpp/types/libdimina')
+	const declaration = 'index.d.ts'
+	assert.ok(readdirSync(directory).includes(declaration), `declaration filename must match exact case: ${declaration}`)
+	const native = readFileSync(join(directory, declaration), 'utf8')
 	const globals = section('-keep-global-name')
 	for (const name of native.matchAll(/export const\s+(\w+)/g)) {
 		assert.ok(properties.has(name[1]), name[1])

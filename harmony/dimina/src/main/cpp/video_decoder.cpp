@@ -243,8 +243,19 @@ private:
     // The control gate and mutex are held by the caller. This path changes only
     // owned target/queue state; driver calls, joins and rebuilds stay asynchronous.
     bool AdvanceForwardLocked(int64_t requestedUs) {
-        if (!codec || stopping || inputEnded || ended || !failure.empty() || removed ||
+        if (!codec || stopping || !failure.empty() || removed ||
             !hasDeliveredFrame || requestedUs <= lastDeliveredPts || requestedUs < targetUs) return false;
+        // Input EOS can precede the final output frames. Replaying their GOP
+        // discards a target we already own, but an exhausted queue still needs
+        // the asynchronous seek/recovery path. Only actual frame data counts.
+        if ((inputEnded || ended) &&
+            std::none_of(frames.begin(), frames.end(), [requestedUs](const Frame &frame) {
+                return frame.pts >= requestedUs;
+            }) &&
+            std::none_of(outputs.begin(), outputs.end(), [requestedUs](const Buffer &buffer) {
+                return buffer.attr.size > 0 && buffer.attr.pts >= requestedUs &&
+                    !(buffer.attr.flags & AVCODEC_BUFFER_FLAGS_CODEC_DATA);
+            })) return false;
         frames.erase(std::remove_if(frames.begin(), frames.end(), [requestedUs](const Frame &frame) {
             return frame.pts < requestedUs;
         }), frames.end());
