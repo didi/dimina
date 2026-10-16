@@ -30,7 +30,12 @@ export const videoDecoderOperate: (owner: number, id: string, command: string,
 export const videoDecoderGetFrame: (owner: number, id: string) => VideoDecoderFrame;
 export const videoDecoderDispose: (owner: number) => void;
 
-export const canvasUiRegister: (owner: number, page: number, callback: (requestId: string, script: string) => void) => string;
+export const canvasUiRegister: (owner: number, page: number, callback: (requestId: string, script: string) => void, webTag?: string) => string;
 export const canvasUiUnregister: (owner: number, page: number, token: string) => void;
 export const canvasUiPublish: (owner: number, page: number, script: string) => boolean;
 export const canvasUiComplete: (requestId: string, feedback: string, error: string) => void;
+
+
+export const canvasUiConnectNative:(appIndex:number,webViewId:number,token:string,allowNative?:boolean)=>boolean;
+
+export const canvasUiNativeReady:(appIndex:number,webViewId:number,token:string)=>boolean;

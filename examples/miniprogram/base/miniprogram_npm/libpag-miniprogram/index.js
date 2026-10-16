@@ -162,8 +162,13 @@ const BUFFER_MAX_SIZE = 6;
 const BUFFER_MIN_SIZE = 2;
 const GET_FRAME_DATA_INTERVAL = 2;
 const frameDataOptions2FrameData = (id, options) => {
-  const data = new ArrayBuffer(options.data.byteLength);
-  new Uint8Array(data).set(new Uint8Array(options.data));
+  let data = options.data;
+  // Dimina explicitly identifies independent native allocations. Older hosts
+  // and WeChat may reuse storage, so they still need the original private copy.
+  if (options.dataOwned !== true || !(data instanceof ArrayBuffer)) {
+    data = new ArrayBuffer(options.data.byteLength);
+    new Uint8Array(data).set(new Uint8Array(options.data));
+  }
   return {
     id,
     data,
@@ -192,10 +197,11 @@ let VideoReader = class {
     writeFile(this.mp4Path, mp4Data.buffer.slice(mp4Data.byteOffset, mp4Data.byteLength + mp4Data.byteOffset));
     this.videoDecoder = wx.createVideoDecoder();
     this.videoDecoder.on("ended", () => {
-      var _a;
-      (_a = this.videoDecoder) == null ? void 0 : _a.seek(0).then(() => {
-        this.bufferIndex = 0;
-      });
+      if (this.isDestroyed)
+        return;
+      // Prefetch can finish before the player consumes the last buffered frames.
+      // Keep their indices; prepare() seeks when playback actually wraps around.
+      this.clearFrameDataLoop();
     });
     this.videoDecoderPromise = this.videoDecoder.start({ source: this.mp4Path, mode: 1 }).then(() => {
       this.startGetFrameDataLoop();

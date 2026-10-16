@@ -542,11 +542,12 @@ function serializeTypedArray(value, bridgeId) {
 		const bytes = new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
 		const encode = globalThis.DiminaServiceBridge?.encodeCanvasArrayBuffer
 		if (typeof encode === 'function' && getWebGLCapabilities(bridgeId)?.typedArrayEncodings?.includes('rle32-v1')) {
-			// The native codec synchronously returns owned strings. A complete view
+			// The native codec synchronously returns owned data. A complete view
 			// already names its exact input; partial/shared views still need a copy.
 			const buffer = bytes.buffer instanceof ArrayBuffer && bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength
 				? bytes.buffer : bytes.slice().buffer
-			return { __canvasTypedArray: value.constructor.name, ...encode(buffer) }
+			const encoded = globalThis.DiminaServiceBridge.canvasBinarySupported === true ? encode(buffer, bridgeId) : encode(buffer)
+			return { __canvasTypedArray: value.constructor.name, ...encoded }
 		}
 		return { __canvasTypedArray: value.constructor.name, base64: arrayBufferToBase64(bytes.slice().buffer) }
 	}

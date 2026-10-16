@@ -1,6 +1,9 @@
 # Names used by string dispatch, Worker RPC, WebView proxy, or the C++ Node-API ABI.
 # Consumers may enable property/export obfuscation; these contracts must remain literal.
 -keep-property-name
+canvasBinaryProtocol
+canvasUiConnectNative
+canvasUiNativeReady
 StartJsEngine
 ab
 addPhoneContact
@@ -233,6 +236,8 @@ width
 writeBLECharacteristicValue
 
 -keep-global-name
+canvasUiConnectNative
+canvasUiNativeReady
 StartJsEngine
 brotliDecompress
 canvasUiComplete

@@ -1,4 +1,4 @@
-import { base64ToArrayBuffer, decodeCanvasRle32PrefixWithTail, decodeLargeCanvasRleBand } from '@dimina/common'
+import { base64ToArrayBuffer, decodeCanvasRle32PrefixWithTail, decodeLargeCanvasRleBand, consumeLargeCanvasRleBand } from '@dimina/common'
 
 const TEXTURE_2D = 0x0DE1
 const TEXTURE0 = 0x84C0
@@ -158,7 +158,7 @@ export class CanvasTextureUpload {
 		return result
 	}
 
-	prepareRleUpload(context, args) {
+	rleState(context, args) {
 		const state = this.states.get(context)
 		const entry = state?.textures.get(state.bindings.get(state.activeTexture))
 		const prior = entry?.tail, unpack = state?.unpack
@@ -170,23 +170,44 @@ export class CanvasTextureUpload {
 			|| !Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width <= 0 || height <= 0
 			|| !Number.isSafeInteger(bytes) || bytes > MAX_INPUT_BYTES
 			|| !wire || !['Uint8Array', 'Uint8ClampedArray'].includes(wire.__canvasTypedArray)
-			|| wire.encoding !== 'rle32-v1' || wire.byteLength !== bytes || typeof wire.base64 !== 'string'
+			|| wire.encoding !== 'rle32-v1' || wire.byteLength !== bytes || (typeof wire.base64 !== 'string' && !ArrayBuffer.isView(wire.packed))
 			|| unpack.flip !== false || typeof unpack.premultiply !== 'boolean'
 			|| ![1, 2, 4, 8].includes(unpack.alignment) || width * 4 % unpack.alignment !== 0
 			|| ![0, BROWSER_DEFAULT_WEBGL].includes(unpack.colorspace)
 			|| prior.width !== width || prior.height !== height || prior.alignment !== unpack.alignment
 			|| prior.premultiply !== unpack.premultiply || prior.colorspace !== unpack.colorspace) return null
-		const fast = decodeLargeCanvasRleBand(wire.base64, bytes, width, height, prior.rows, prior.word)
-		if (fast) {
-			const pixels = new Uint8Array(fast.buffer)
-			return () => {
-				prior.rows = fast.rows
-				if (fast.rows > 0) return context.texSubImage2D(target, level, 0, 0, width, fast.rows, format, type, pixels)
-			}
+		return { prior, width, height, bytes, wire }
+	}
+
+	uploadBand(context, prior, width, rows, pixels, opaque = false) {
+		// Keep the attempted maximum even if the driver raises an error.
+		prior.rows = rows
+		if (!rows) return
+		if (prior.premultiply && opaque) {
+			context.pixelStorei(UNPACK_PREMULTIPLY_ALPHA_WEBGL, false)
+			try { return context.texSubImage2D(TEXTURE_2D, 0, 0, 0, width, rows, RGBA, UNSIGNED_BYTE, pixels) }
+			finally { context.pixelStorei(UNPACK_PREMULTIPLY_ALPHA_WEBGL, true) }
 		}
-		const encoded = base64ToArrayBuffer(wire.base64)
+		return context.texSubImage2D(TEXTURE_2D, 0, 0, 0, width, rows, RGBA, UNSIGNED_BYTE, pixels)
+	}
+
+	invokeRleUpload(context, args) {
+		const match = this.rleState(context, args)
+		if (!match) return false
+		const { prior, width, height, bytes, wire } = match
+		return consumeLargeCanvasRleBand(wire.packed || wire.base64, bytes, width, height, prior.rows, prior.word,
+			fast => this.uploadBand(context, prior, width, fast.rows, fast.pixels, fast.opaque)) !== null
+	}
+
+	prepareRleUpload(context, args) {
+		const match = this.rleState(context, args)
+		if (!match) return null
+		const { prior, width, height, bytes, wire } = match
+		const fast = decodeLargeCanvasRleBand(wire.base64, bytes, width, height, prior.rows, prior.word)
+		if (fast) return () => this.uploadBand(context, prior, width, fast.rows, new Uint8Array(fast.buffer), fast.opaque)
+		const encoded = wire.packed || new Uint8Array(base64ToArrayBuffer(wire.base64))
 		if (encoded.byteLength < 8 || encoded.byteLength % 4 !== 0) return null
-		const candidate = new DataView(encoded)
+		const candidate = new DataView(encoded.buffer, encoded.byteOffset, encoded.byteLength)
 		const finalToken = candidate.getUint32(encoded.byteLength - 8, true)
 		const tailWords = finalToken & 0x7FFFFFFF
 		const tailWord = candidate.getUint32(encoded.byteLength - 4, true)
@@ -199,11 +220,7 @@ export class CanvasTextureUpload {
 		const decoded = decodeCanvasRle32PrefixWithTail(encoded, bytes, rows * width * 4)
 		if (decoded.tailWord !== tailWord || decoded.tailWords !== tailWords) return null
 		const pixels = new Uint8Array(decoded.buffer)
-		return () => {
-			// Advance before the real upload, including failed driver attempts.
-			prior.rows = rows
-			if (rows > 0) return context.texSubImage2D(target, level, 0, 0, width, rows, format, type, pixels)
-		}
+		return () => this.uploadBand(context, prior, width, rows, pixels)
 	}
 
 	upload(context, state, entry, args, invokeOriginal) {

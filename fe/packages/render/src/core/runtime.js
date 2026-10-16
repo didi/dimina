@@ -1902,8 +1902,8 @@ class Runtime {
 			return this.canvasNodes.get(value.__canvasNodeId)?.canvas
 		}
 
-		if (value.__canvasTypedArray && value.base64 !== undefined) {
-			let buffer = base64ToArrayBuffer(value.base64)
+		if (value.__canvasTypedArray && (value.base64 !== undefined || ArrayBuffer.isView(value.packed))) {
+			let buffer = value.packed ? value.packed.slice().buffer : base64ToArrayBuffer(value.base64)
 			if (value.encoding !== undefined) {
 				if (value.encoding !== 'rle32-v1') throw new TypeError('unsupported canvas typed array encoding')
 				buffer = decodeCanvasRle32(buffer, value.byteLength)
@@ -2090,8 +2090,6 @@ class Runtime {
 				const wireUpload = operation.method === 'texImage2D' && !operation.typedArrayUpdateId
 					&& operation.args?.length === 9 && operation.args[8]?.encoding === 'rle32-v1'
 				const args = (operation.args || []).map((arg, index) => wireUpload && index === 8 ? arg : this.resolveCanvasArg(arg, context))
-				const preparedUpload = wireUpload ? this.canvasTextureUpload.prepareRleUpload(context, args) : null
-				if (wireUpload && !preparedUpload) args[8] = this.resolveCanvasArg(args[8], context)
 				// 兼容 active ImageData wire contract 之前发布的基础库：旧 service 会把 ImageData
 				// 序列化成普通 {width,height,data}，新 render 在真正调用前补回浏览器对象。
 				if (operation.method === 'putImageData' && args[0]?.data instanceof Uint8ClampedArray
@@ -2106,6 +2104,7 @@ class Runtime {
 					imageData.data.set(legacy.data)
 					args[0] = imageData
 				}
+				let resolvingWire = false
 				try {
 					if (resetFallback) {
 						// 老 WebKit 没有 CanvasRenderingContext2D.reset()；重设相同 backing width
@@ -2114,12 +2113,20 @@ class Runtime {
 						node.canvas.width = backingWidth
 					}
 					else {
-						const result = preparedUpload ? preparedUpload() : this.canvasTextureUpload.invoke(context, operation.method, args, () => method.apply(context, args))
+						let result
+						if (!(wireUpload && this.canvasTextureUpload.invokeRleUpload(context, args))) {
+							resolvingWire = wireUpload
+							const preparedUpload = wireUpload ? this.canvasTextureUpload.prepareRleUpload(context, args) : null
+							if (wireUpload && !preparedUpload) args[8] = this.resolveCanvasArg(args[8], context)
+							resolvingWire = false
+							result = preparedUpload ? preparedUpload() : this.canvasTextureUpload.invoke(context, operation.method, args, () => method.apply(context, args))
+						}
 						this.setCanvasResource(operation.resultId, result, node)
 						if (context === node.presentation?.gl) node.presentation.markDraw(operation.method)
 					}
 				}
 				catch (error) {
+					if (resolvingWire) throw error
 					console.warn('[system]', '[render]', `Canvas context call ${operation.method} failed: ${error}`)
 				}
 

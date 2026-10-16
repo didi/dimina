@@ -18,12 +18,13 @@ static const int8_t table[256] = {
 
 static uint32_t output_words[1048576];
 #define output ((uint8_t *)output_words)
-static uint32_t tail_word, tail_words;
+static uint32_t tail_word, tail_words, opaque_bits;
 
 uint8_t *input_ptr(void) { return input; }
 uint8_t *output_ptr(void) { return output; }
 uint32_t last_word(void) { return tail_word; }
 uint32_t last_words(void) { return tail_words; }
+uint32_t last_opaque(void) { return (opaque_bits >> 24) == 255; }
 
 static uint32_t word(uint32_t offset) {
     return (uint32_t)input[offset] | ((uint32_t)input[offset + 1] << 8) | ((uint32_t)input[offset + 2] << 16) |
@@ -35,6 +36,7 @@ int decode(uint32_t encoded, uint32_t total, uint32_t prefix) {
         return 1;
     uint32_t cursor = 0, written = 0;
     tail_word = tail_words = 0;
+    opaque_bits = 0xffffffffu;
     while (cursor < encoded) {
         uint32_t token = word(cursor);
         cursor += 4;
@@ -48,6 +50,7 @@ int decode(uint32_t encoded, uint32_t total, uint32_t prefix) {
             if (encoded - cursor < 4)
                 return 4;
             uint32_t value = word(cursor);
+            opaque_bits &= value;
             cursor += 4;
             tail_word = value;
             tail_words = count;
@@ -59,8 +62,22 @@ int decode(uint32_t encoded, uint32_t total, uint32_t prefix) {
                 return 5;
             tail_words = 0;
             uint32_t copied = written < prefix ? (size < prefix - written ? size : prefix - written) : 0;
-            for (uint32_t i = 0; i < copied; ++i)
-                output[written + i] = input[cursor + i];
+            uint32_t i = 0;
+            v128_t all = wasm_i32x4_splat(-1);
+            for (; i + 16 <= copied; i += 16) {
+                v128_t pixels = wasm_v128_load(input + cursor + i);
+                wasm_v128_store(output + written + i, pixels);
+                all = wasm_v128_and(all, pixels);
+            }
+            opaque_bits &= (uint32_t)wasm_i32x4_extract_lane(all, 0);
+            opaque_bits &= (uint32_t)wasm_i32x4_extract_lane(all, 1);
+            opaque_bits &= (uint32_t)wasm_i32x4_extract_lane(all, 2);
+            opaque_bits &= (uint32_t)wasm_i32x4_extract_lane(all, 3);
+            for (; i < copied; i += 4) {
+                uint32_t pixels = word(cursor + i);
+                output_words[(written + i) / 4] = pixels;
+                opaque_bits &= pixels;
+            }
             cursor += size;
         }
         written += size;

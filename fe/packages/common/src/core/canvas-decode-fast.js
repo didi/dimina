@@ -30,7 +30,21 @@ function getCodec() {
 // null selects the original decoder, including its whitespace/error behavior.
 // The kernel validates the complete packet before returning an owned band.
 export function decodeLargeCanvasRleBand(base64, total, width, height, priorRows, expectedWord) {
-	if (typeof base64 !== 'string' || base64.length < 65536 || base64.length > MAX_BASE64_CHARS || busy
+	if (typeof base64 !== 'string') return null
+	return decodeBand(base64, total, width, height, priorRows, expectedWord)
+}
+
+// The synchronous consumer may upload this view immediately. It must not retain
+// it: every byte is cleared before this function returns, including exceptions.
+export function consumeLargeCanvasRleBand(input, total, width, height, priorRows, expectedWord, consume) {
+	if (typeof consume !== 'function') return null
+	return decodeBand(input, total, width, height, priorRows, expectedWord, consume)
+}
+
+function decodeBand(input, total, width, height, priorRows, expectedWord, consume) {
+	const binary = ArrayBuffer.isView(input) ? new Uint8Array(input.buffer, input.byteOffset, input.byteLength) : null
+	if ((binary ? binary.byteLength < 65536 || binary.byteLength > PACKED_BYTES
+		: typeof input !== 'string' || input.length < 65536 || input.length > MAX_BASE64_CHARS) || busy
 		|| !Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width <= 0 || height <= 0
 		|| !Number.isSafeInteger(total) || total !== width * height * 4 || total > MAX_CANVAS_IMAGE_BYTES
 		|| !Number.isSafeInteger(priorRows) || priorRows < 0 || priorRows > Math.floor(height / 2)
@@ -41,13 +55,24 @@ export function decodeLargeCanvasRleBand(base64, total, width, height, priorRows
 	if (!c) return null
 	busy = true
 	const e = c.exports, m = c.memory
-	let textWritten = Math.min(TEXT_BYTES, base64.length * 3)
-	let prefix = 0
+	let textWritten = binary ? 0 : Math.min(TEXT_BYTES, input.length * 3)
+	let packedWritten = binary ? binary.byteLength : 0
+	let prefix = 0, consuming = false
 	try {
-		const written = c.encoder.encodeInto(base64, m.subarray(c.text, c.text + TEXT_BYTES))
-		textWritten = written.written
-		if (written.read !== base64.length || written.written !== base64.length) return null
-		const packed = e.decode_base64(written.written)
+		let packed
+		if (binary) {
+			m.set(binary, c.packed)
+			packed = binary.byteLength
+		}
+		else {
+			const written = c.encoder.encodeInto(input, m.subarray(c.text, c.text + TEXT_BYTES))
+			textWritten = written.written
+			if (written.read !== input.length || written.written !== input.length) return null
+			// A failed Wasm call may already have written a partial packet.
+			packedWritten = Math.min(PACKED_BYTES, Math.ceil(textWritten / 4) * 3)
+			packed = e.decode_base64(written.written)
+		}
+		packedWritten = Math.max(packedWritten, Math.min(PACKED_BYTES, Math.ceil(textWritten / 4) * 3))
 		if (packed < 8 || packed % 4) return null
 		const packet = new DataView(m.buffer, c.packed, packed)
 		const token = packet.getUint32(packed - 8, true), candidateWords = token & 0x7FFFFFFF
@@ -60,13 +85,26 @@ export function decodeLargeCanvasRleBand(base64, total, width, height, priorRows
 		prefix = rows * width * 4
 		if (e.decode(packed, total, prefix) !== 0 || (e.last_words() >>> 0) !== candidateWords
 			|| (e.last_word() >>> 0) !== expectedWord) return null
-		return { rows, buffer: m.slice(c.output, c.output + rows * width * 4).buffer }
+		const opaque = (expectedWord >>> 24) === 255 && e.last_opaque() === 1
+		if (consume) {
+			consuming = true
+			return { value: consume({ rows, pixels: m.subarray(c.output, c.output + prefix), opaque }) }
+		}
+		return {
+			rows, buffer: m.slice(c.output, c.output + rows * width * 4).buffer,
+			// The proven omitted suffix is the final run; all earlier pixels are
+			// inside this decoded prefix. RGB * alpha is unchanged only at 255.
+			opaque,
+		}
 	}
-	catch { return null }
+	catch (error) {
+		if (consuming) throw error
+		return null
+	}
 	finally {
 		// No prior frame's pixels remain in reusable storage, including failures.
 		m.fill(0, c.text, c.text + textWritten)
-		m.fill(0, c.packed, c.packed + Math.min(PACKED_BYTES, Math.ceil(textWritten / 4) * 3))
+		m.fill(0, c.packed, c.packed + packedWritten)
 		m.fill(0, c.output, c.output + prefix)
 		busy = false
 	}

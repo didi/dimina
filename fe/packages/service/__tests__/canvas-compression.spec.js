@@ -17,6 +17,7 @@ describe('negotiated canvas typed array encoding', () => {
 	})
 	afterEach(() => {
 		for (const canvas of canvases.splice(0)) canvas.dispose()
+		delete globalThis.DiminaServiceBridge.canvasBinarySupported
 		delete globalThis.DiminaServiceBridge.canvasSyncSupported
 		delete globalThis.DiminaServiceBridge.encodeCanvasArrayBuffer
 		globalThis.DiminaServiceBridge.invoke = originalInvoke
@@ -87,6 +88,24 @@ describe('negotiated canvas typed array encoding', () => {
 			.find(op => op.method === 'bufferData').args[1]
 		expect([...Buffer.from(descriptor.base64, 'base64')].every(byte => byte === 23)).toBe(true)
 		expect(pixels.every(byte => byte === 99)).toBe(true)
+	})
+
+	it('preserves the one-argument codec contract on older and other-platform bridges', () => {
+		const encode = vi.fn(buffer => ({ base64: Buffer.from(buffer).toString('base64') }))
+		globalThis.DiminaServiceBridge.encodeCanvasArrayBuffer = encode
+		flush(create(['rle32-v1']), new Uint8Array(65536))
+		expect(encode.mock.calls[0]).toHaveLength(1)
+	})
+
+	it('passes the exact page identity only to an explicitly capable binary bridge', () => {
+		globalThis.DiminaServiceBridge.canvasBinarySupported = true
+		const encode = vi.fn(buffer => ({ packed: buffer.slice(0) }))
+		globalThis.DiminaServiceBridge.encodeCanvasArrayBuffer = encode
+		const input = new Uint8Array(65536).fill(23)
+		const descriptor = flush(create(['rle32-v1']), input)
+		expect(encode.mock.calls[0]).toEqual([input.buffer, 'compression-page'])
+		expect(descriptor.__canvasTypedArray).toBe('Uint8Array')
+		expect(Buffer.from(descriptor.packed).equals(Buffer.from(input))).toBe(true)
 	})
 
 	it('retains the negotiated encoding and original typed array kind in the wire descriptor', () => {

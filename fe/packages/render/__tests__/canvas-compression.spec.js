@@ -43,6 +43,44 @@ describe('compressed canvas arguments', () => {
 		}
 	})
 
+	it('reports corrupt texture arguments through the operation failure callback before any GL upload', () => {
+		const gl = { texImage2D: vi.fn(), getError: () => 0, NO_ERROR: 0 }
+		const node = { nodeId: 'corrupt-node', bridgeId: 'corrupt-page', contexts: new Map([['corrupt-gl', gl]]) }
+		const callback = vi.spyOn(runtime, 'triggerCallback').mockImplementation(() => {})
+		const warning = vi.spyOn(console, 'warn').mockImplementation(() => {})
+		runtime.canvasNodes.set(node.nodeId, node)
+		runtime.canvasResources.set('corrupt-gl', gl)
+		try {
+			runtime.canvasNodeFlush({ bridgeId: node.bridgeId, synchronous: true, params: {
+				nodeId: node.nodeId, operations: [{ op: 'contextCall', contextId: 'corrupt-gl', method: 'texImage2D',
+					args: [0xDE1, 0, 0x1908, 1, 5, 0, 0x1908, 0x1401, { ...descriptor(), byteLength: 24 }],
+					callback: 'bad-upload', resultEnvelope: true }],
+			} })
+			expect(gl.texImage2D).not.toHaveBeenCalled()
+			expect(callback).toHaveBeenCalledWith(node.bridgeId, 'bad-upload', { ok: false, error: expect.stringMatching(/smaller than its declared size/) })
+		} finally {
+			callback.mockRestore(); warning.mockRestore()
+			runtime.canvasNodes.delete(node.nodeId); runtime.canvasResources.delete('corrupt-gl')
+		}
+	})
+
+	it('preserves exact unaligned packed bytes and original Float32 bit patterns', () => {
+		const raw = new Uint32Array([0x7FC000A5, 0x80000000, 0xFFFFFFFF])
+		const storage = new Uint8Array(raw.byteLength + 6).fill(17)
+		storage.set(new Uint8Array(raw.buffer), 3)
+		const value = runtime.resolveCanvasArg({ __canvasTypedArray: 'Float32Array', packed: storage.subarray(3, -3) })
+		storage.fill(99)
+		expect([...new Uint32Array(value.buffer)]).toEqual([0x7FC000A5, 0x80000000, 0xFFFFFFFF])
+		expect(value.byteLength).toBe(raw.byteLength)
+	})
+
+	it('decodes packed RLE descriptors through the same validated bit-exact fallback', () => {
+		const original = descriptor('Float32Array')
+		const packed = new Uint8Array(Buffer.from(original.base64, 'base64'))
+		const value = runtime.resolveCanvasArg({ ...original, base64: undefined, packed })
+		expect([...new Uint32Array(value.buffer)]).toEqual([0x3F800000, 0x3F800000, 0x3F800000, 0x7FC000A5, 0xFFFFFFFF])
+	})
+
 	it('rejects unknown encodings instead of sending encoded data to GL', () => {
 		expect(() => runtime.resolveCanvasArg({ ...descriptor(), encoding: 'unknown' })).toThrow(/unsupported/)
 	})

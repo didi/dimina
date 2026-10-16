@@ -1,3 +1,4 @@
+#include "canvas_binary_value.h"
 #include "js_thread.h"
 #include "js_engine.h"
 #include "video_decoder.h"
@@ -6,6 +7,7 @@
 #include "log.h"
 #include "napi/native_api.h"
 #include <future>
+#include <chrono>
 #include <cmath>
 #include <limits>
 #include "utils.h"
@@ -266,9 +268,8 @@ static JSValue invoke(JSContext *ctx, JSValueConst this_val, int argc, JSValueCo
                 std::floor(pageNumber) == pageNumber) {
                 const auto pageId = static_cast<int32_t>(pageNumber);
                 if (auto channel = dimina::canvas::FindUiChannel(currentEngine->getAppIndex(), pageId)) {
-                    OwnedCStr json(JSValueToString(ctx, body.value));
-                    if (!json) return throwNativeError(ctx, "cannot serialize canvas query");
-                    auto reply = channel->Query(json.get(), dimina::canvas::NowMs() + 4500);
+                    auto packet = dimina::canvas::SerializeCanvasBody(ctx, body.value, channel->IsBinary());
+                    auto reply = channel->Query(std::move(packet.json), dimina::canvas::NowMs() + 4500, std::move(packet.buffers));
                     if (!reply.error.empty()) return throwNativeError(ctx, reply.error.c_str());
                     return JS_ParseJSON(ctx, reply.json.data(), reply.json.size(), "<canvas-ui-reply>");
                 }
@@ -422,25 +423,26 @@ static JSValue publish(JSContext *ctx, JSValueConst this_val, int argc, JSValueC
 
     // 同 invoke：整段放进 try，别让 C++ 异常越过 QuickJS 的 C 回调边界。
     try {
-        // JSValueToString 不接管所有权，多加的那次引用没人还；返回的缓冲区交给作用域对象。
-        OwnedCStr str(JSValueToString(ctx, argv[1]));
-        if (!str) {
-            OHError("publish JSValueToString failed");
-            return throwNativeError(ctx, "publish: failed to serialize message");
-        }
-
         dimina::bridge::OwnedJSValue target(ctx, JS_GetPropertyStr(ctx, argv[1], "target"));
         if (JS_IsException(target.value)) return JS_EXCEPTION;
-        if (JS_IsString(target.value) && dimina::bridge::readString(ctx, target.value) == u"render") {
-            if (auto channel = dimina::canvas::FindUiChannel(currentEngine->getAppIndex(), webViewId)) {
-                if (!channel->SendScript("DiminaRenderBridge.onMessage(" + std::string(str.get()) + ")"))
-                    return throwNativeError(ctx, "canvas UI channel is unavailable");
-                return JS_UNDEFINED;
-            }
+        const bool renderTarget = JS_IsString(target.value) && dimina::bridge::readString(ctx, target.value) == u"render";
+        std::shared_ptr<dimina::canvas::UiChannel> channel;
+        if (renderTarget) channel = dimina::canvas::FindUiChannel(currentEngine->getAppIndex(), webViewId);
+        if (channel) {
+            auto packet = dimina::canvas::SerializeCanvasBody(ctx, argv[1], channel->IsBinary());
+            if (!channel->Publish(std::move(packet.json), std::move(packet.buffers)))
+                return throwNativeError(ctx, "canvas UI channel is unavailable");
+            return JS_UNDEFINED;
         }
+        // A stale packed command must fail instead of becoming {} on a legacy
+        // route after its page is closed. Ordinary messages retain JSON semantics.
+        std::string renderJson;
+        if (renderTarget) renderJson = dimina::canvas::SerializeCanvasBody(ctx, argv[1], false).json;
+        OwnedCStr str(renderTarget ? nullptr : JSValueToString(ctx, argv[1]));
+        if (!renderTarget && !str) return throwNativeError(ctx, "publish: failed to serialize message");
 
         std::unique_ptr<OnMessageData> asyncContext(new OnMessageData());
-        asyncContext->str = str.get();
+        asyncContext->str = renderTarget ? renderJson : str.get();
         asyncContext->appIndex = currentEngine->getAppIndex(); // 设置 appIndex
         asyncContext->type = 2;
         asyncContext->webViewId = webViewId;
@@ -802,22 +804,43 @@ static JSValue js_encode_canvas_array_buffer(JSContext *ctx, JSValueConst, int a
         if (size >= dimina::canvas::MIN_CANVAS_RLE_BYTES && size <= dimina::canvas::MAX_CANVAS_RLE_BYTES && size % 4 == 0)
             packed = dimina::canvas::encodeCanvasRle32(bytes, size);
         const bool compressed = dimina::canvas::shouldUseCanvasRle32(size, packed.size());
-        const std::string encoded = compressed
-            ? dimina::canvas::canvasBytesToBase64(packed.data(), packed.size())
-            : dimina::canvas::canvasBytesToBase64(bytes, size);
-        JSValue result = JS_NewObject(ctx);
-        if (JS_IsException(result)) return result;
+        bool binary = false;
+        if (argc > 1 && JS_IsNumber(argv[1])) {
+            int32_t page = -1;
+            if (JS_ToInt32(ctx, &page, argv[1]) < 0) return JS_EXCEPTION;
+            for (const auto &entry : engineMap) {
+                if (entry.second->getContext() != ctx) continue;
+                auto channel = dimina::canvas::FindUiChannel(entry.second->getAppIndex(), page);
+                binary = channel && channel->IsBinary();
+                break;
+            }
+        }
+        dimina::bridge::OwnedJSValue output(ctx, JS_NewObject(ctx));
+        const JSValue result = output.value;
+        if (JS_IsException(result)) return JS_DupValue(ctx, result);
         const auto set = [&](const char *key, JSValue value) {
             if (JS_IsException(value)) return false;
             return JS_SetPropertyStr(ctx, result, key, value) >= 0;
         };
+        if (binary) {
+            const uint8_t *data = compressed ? packed.data() : bytes;
+            const size_t length = compressed ? packed.size() : size;
+            if (!set("packed", JS_NewArrayBufferCopy(ctx, data, length)) ||
+                (compressed && (!set("encoding", JS_NewString(ctx, "rle32-v1")) ||
+                    !set("byteLength", JS_NewFloat64(ctx, static_cast<double>(size)))))) {
+                return JS_EXCEPTION;
+            }
+            return JS_DupValue(ctx, result);
+        }
+        const std::string encoded = compressed
+            ? dimina::canvas::canvasBytesToBase64(packed.data(), packed.size())
+            : dimina::canvas::canvasBytesToBase64(bytes, size);
         if (!set("base64", JS_NewStringLen(ctx, encoded.data(), encoded.size())) ||
             (compressed && (!set("encoding", JS_NewString(ctx, "rle32-v1")) ||
                 !set("byteLength", JS_NewFloat64(ctx, static_cast<double>(size)))))) {
-            JS_FreeValue(ctx, result);
             return JS_EXCEPTION;
         }
-        return result;
+        return JS_DupValue(ctx, result);
     } catch (const std::exception &error) { return throwNativeError(ctx, error.what()); }
 }
 
@@ -857,6 +880,7 @@ static JSValue js_decode_array_buffer(JSContext *ctx, JSValueConst, int argc, JS
 void initBridges(JSContext *ctx, const char* virtualFilePrefix, int owner) {
     JSValue diminaServiceBridge = JS_NewObject(ctx);
     JS_SetPropertyStr(ctx, diminaServiceBridge, "canvasSyncSupported", JS_TRUE);
+    JS_SetPropertyStr(ctx, diminaServiceBridge, "canvasBinarySupported", JS_TRUE);
     JS_SetPropertyStr(ctx, diminaServiceBridge, "fileBinarySupported", JS_TRUE);
     JS_SetPropertyStr(ctx, diminaServiceBridge, "encodeArrayBuffer", JS_NewCFunction(ctx, js_encode_array_buffer, "encodeArrayBuffer", 1));
     JS_SetPropertyStr(ctx, diminaServiceBridge, "encodeCanvasArrayBuffer", JS_NewCFunction(ctx, js_encode_canvas_array_buffer, "encodeCanvasArrayBuffer", 1));

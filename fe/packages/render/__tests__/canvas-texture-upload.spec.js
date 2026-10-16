@@ -777,3 +777,72 @@ describe('CanvasTextureUpload errors and lifetime', () => {
 		expect(helper.entryCount).toBe(0)
 	})
 })
+
+describe('opaque premultiplication upload proof', () => {
+	it('temporarily skips premultiplication only after verifying every RGBA alpha byte', () => {
+		const width = 256, height = 512, f = harness()
+		f.call('pixelStorei', GL.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true)
+		f.upload(frame(width, height, 200), width, height)
+		f.gl.pixelStorei.mockClear()
+		f.helper.prepareRleUpload(f.gl, fullArgs(rleWire(width, height, 240), width, height))()
+		expect(f.gl.pixelStorei.mock.calls).toEqual([[GL.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false], [GL.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true]])
+		expect(Buffer.from(f.gl.pixels(f.texture)).equals(Buffer.from(frame(width, height, 240, [9, 80, 211, 255])))).toBe(true)
+	})
+	it('preserves premultiplication when any active pixel is translucent', () => {
+		const width = 256, height = 512, f = harness()
+		f.call('pixelStorei', GL.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true)
+		f.upload(frame(width, height, 200), width, height)
+		f.gl.pixelStorei.mockClear()
+		f.helper.prepareRleUpload(f.gl, fullArgs(rleWire(width, height, 240, [9, 80, 211, 127]), width, height))()
+		expect(f.gl.pixelStorei).not.toHaveBeenCalled()
+	})
+	it('restores premultiplication when the actual upload throws', () => {
+		const width = 256, height = 512, f = harness()
+		f.call('pixelStorei', GL.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true)
+		f.upload(frame(width, height, 200), width, height)
+		f.gl.pixelStorei.mockClear()
+		const upload = f.helper.prepareRleUpload(f.gl, fullArgs(rleWire(width, height, 240), width, height))
+		f.gl.texSubImage2D.mockImplementationOnce(() => { throw new Error('driver upload failed') })
+		expect(upload).toThrow('driver upload failed')
+		expect(f.gl.pixelStorei.mock.calls.at(-1)).toEqual([GL.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true])
+	})
+})
+
+
+describe('synchronous borrowed band upload', () => {
+	it('uploads every current pixel before clearing its temporary view, including shrinking rows', () => {
+		const width = 256, height = 512, f = harness()
+		f.call('pixelStorei', GL.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true)
+		f.upload(frame(width, height, 200), width, height)
+		for (const rows of [240, 210, 250, 180]) {
+			expect(f.helper.invokeRleUpload(f.gl, fullArgs(rleWire(width, height, rows), width, height))).toBe(true)
+			expect(Buffer.from(f.gl.pixels(f.texture)).equals(Buffer.from(frame(width, height, rows, [9, 80, 211, 255])))).toBe(true)
+			expect(f.gl.texSubImage2D.mock.calls.at(-1)[8].some(byte => byte !== 0)).toBe(false)
+		}
+		expect(f.gl.texImage2D).toHaveBeenCalledTimes(1)
+		expect(f.gl.texSubImage2D).toHaveBeenCalledTimes(4)
+		expect(f.helper.cachedBytes).toBe(0)
+	})
+	it('clears scratch and restores unpack state after an upload exception, then recovers', () => {
+		const width = 256, height = 512, f = harness()
+		f.call('pixelStorei', GL.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true)
+		f.upload(frame(width, height, 200), width, height)
+		let borrowed
+		f.gl.texSubImage2D.mockImplementationOnce((...args) => { borrowed = args[8]; throw Error('upload failed') })
+		const args = fullArgs(rleWire(width, height, 240), width, height)
+		expect(() => f.helper.invokeRleUpload(f.gl, args)).toThrow('upload failed')
+		expect(borrowed.some(byte => byte !== 0)).toBe(false)
+		expect(f.gl.pixelStorei.mock.calls.at(-1)).toEqual([GL.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true])
+		expect(f.helper.invokeRleUpload(f.gl, args)).toBe(true)
+		expect(Buffer.from(f.gl.pixels(f.texture)).equals(Buffer.from(frame(width, height, 240, [9, 80, 211, 255])))).toBe(true)
+	})
+	it('validates even an omitted malformed tail before invoking the real GL method', () => {
+		const width = 256, height = 512, f = harness()
+		f.upload(frame(width, height, 200), width, height)
+		const wire = rleWire(width, height, 240), encoded = Buffer.from(wire.base64, 'base64')
+		encoded.writeUInt32LE(0x80000000 + width * height, encoded.length - 8)
+		wire.base64 = encoded.toString('base64')
+		expect(f.helper.invokeRleUpload(f.gl, fullArgs(wire, width, height))).toBe(false)
+		expect(f.gl.texSubImage2D).not.toHaveBeenCalled()
+	})
+})

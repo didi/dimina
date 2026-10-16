@@ -46,6 +46,7 @@ int main() {
         const char *script = R"JS(
             if (!(frame.data instanceof ArrayBuffer) || frame.data.byteLength !== 3110400)
                 throw Error('missing owned RGBA buffer');
+            if (frame.dataOwned !== true) throw Error('owned frame is not identified to its consumer');
             if (frame.width !== 720 || frame.height !== 1080 || frame.pts !== 125000 || frame.pkPts !== frame.pts)
                 throw Error('frame metadata changed');
             const bytes = new Uint8Array(frame.data);
@@ -54,6 +55,10 @@ int main() {
             }
             bytes[0] = 99;
             const nativeFrame = readFrame('decoder', 8);
+            const nextFrame = readFrame('decoder');
+            if (nativeFrame.dataOwned !== true || nextFrame.dataOwned !== true || nativeFrame.data === nextFrame.data)
+                throw Error('independent native frame buffers lost ownership');
+            new Uint8Array(nextFrame.data)[0] = 91;
             if (nativeFrame.pts !== 7000 || new Uint8Array(nativeFrame.data)[0] !== 7)
                 throw Error('caller changed decoder ownership');
             if (readFrame('missing').data !== undefined) throw Error('unknown decoder returned bytes');
@@ -77,6 +82,9 @@ int main() {
             value = VideoDecoderFrameToJS(ctx, packet);
             if (JS_IsException(value)) result = 1;
             data = JS_GetPropertyStr(ctx, value, "data");
+            if (!JS_IsUndefined(data)) result = 1;
+            JS_FreeValue(ctx, data);
+            data = JS_GetPropertyStr(ctx, value, "dataOwned");
             if (!JS_IsUndefined(data)) result = 1;
             JS_FreeValue(ctx, data);
             if (packet.error.empty()) {

@@ -15,11 +15,12 @@ function load(name, deps = {}) {
 }
 const focus = load('DMPKeyboardFocus.ts')
 function fixture() {
-  let shown = 0
+  let shown = 0, tags = 0
   const app = { currentWebViewId: 1, navigatorManager: { isRetainedInBackground: false }, render: { invalidateCanvasUi() {} } }
   const manager = { isHostVisible: () => true, getPresentedApp: () => app }
   const { DMPWebViewController } = load('DMPWebViewController.ets', {
-    '@ohos.web.webview': { WebviewController: class {} },
+    '@ohos.web.webview': { WebviewController: class { constructor(tag) { this.boundTag = tag } } },
+    '@kit.ArkTS': { util: { generateRandomUUID: () => String(++tags) } },
     '../DApp/config/DMPAppConfig': {},
     './DMPWebViewLifeCycle': { WebViewLifeCycle: class { notifyPageBegin() {} } },
     './DMPWebViewProxy': { DMPWebViewProxy: class {} },
@@ -33,7 +34,7 @@ function fixture() {
   controller.webContainer = { hasWebFocus: true, modalInteractionBlocked: false }
   controller.requestFocus = () => {}
   controller.runJavaScript = async () => 'true'
-  return { controller, app, manager, shown: () => shown }
+  return { controller, app, manager, shown: () => shown, nextController: () => new DMPWebViewController(1, app) }
 }
 test('foreground focused input requests the keyboard', async () => {
   const f = fixture(); await f.controller.showFocusedKeyboard(1); assert.equal(f.shown(), 1)
@@ -89,4 +90,13 @@ test('native blur cancels a request even if the Web refocuses before its callbac
   const pending = f.controller.showFocusedKeyboard(1)
   f.controller.cancelFocusedKeyboard()
   finish('true'); await pending; assert.equal(f.shown(), 0)
+})
+
+
+test('each WebView uses its own native tag when constructing the SDK controller', () => {
+  const f = fixture(), next = f.nextController()
+  assert.match(f.controller.nativeWebTag, /^dimina-/)
+  assert.equal(f.controller.boundTag, f.controller.nativeWebTag)
+  assert.equal(next.boundTag, next.nativeWebTag)
+  assert.notEqual(f.controller.nativeWebTag, next.nativeWebTag)
 })

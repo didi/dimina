@@ -1,3 +1,4 @@
+import { util } from '@kit.ArkTS'
 import web_webview from '@ohos.web.webview'
 import { DMPApp } from '../DApp/DMPApp'
 import { DMPLaunchType } from '../DApp/config/DMPAppConfig'
@@ -22,6 +23,7 @@ interface DMPJavaScriptProxy {
 }
 
 export class DMPWebViewController extends web_webview.WebviewController {
+  readonly nativeWebTag: string
   webViewId: number
   private webViewProxy: DMPWebViewProxy
   webContainer: DMPWebComponent | undefined | null
@@ -33,8 +35,9 @@ export class DMPWebViewController extends web_webview.WebviewController {
   private keyboardGeneration: number = 0
   private pendingKeyboardRevision: number | undefined
 
-  constructor(webViewId: number, app: DMPApp) {
-    super()
+  constructor(webViewId: number, app: DMPApp, nativeWebTag: string = 'dimina-' + util.generateRandomUUID()) {
+    super(nativeWebTag)
+    this.nativeWebTag = nativeWebTag
     this.app = app
     this.webViewId = webViewId
     // Cannot read property appIndex of undefined

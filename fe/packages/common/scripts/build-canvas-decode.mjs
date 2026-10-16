@@ -28,7 +28,7 @@ try {
 	run(compiler, ['--target=wasm32-unknown-unknown', '-std=c11', '-O3', '-msimd128', '-ffreestanding', '-fno-builtin',
 		'-Wall', '-Wextra', '-Werror', '-c', source, '-o', object])
 	run(linker, ['--no-entry', '--strip-all', '--export=text_ptr', '--export=input_ptr', '--export=output_ptr',
-		'--export=decode_base64', '--export=decode', '--export=last_word', '--export=last_words',
+		'--export=decode_base64', '--export=decode', '--export=last_word', '--export=last_words', '--export=last_opaque',
 		'--initial-memory=8388608', '--max-memory=8388608', object, '-o', binary])
 	const bytes = readFileSync(binary)
 	if (!WebAssembly.validate(bytes)) throw new Error('Generated Canvas codec is not valid Wasm')

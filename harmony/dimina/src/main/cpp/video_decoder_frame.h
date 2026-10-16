@@ -46,6 +46,9 @@ inline JSValue VideoDecoderFrameToJS(JSContext *ctx, VideoDecoderFrame frame) {
             JS_FreeValue(ctx, data); return JS_EXCEPTION;
         }
         if (!set("data", data)) return JS_EXCEPTION;
+        // The vector now belongs exclusively to this ArrayBuffer and survives
+        // seek/stop/removal. Consumers may keep it without copying RGBA again.
+        if (!set("dataOwned", JS_TRUE)) return JS_EXCEPTION;
     } else if (!frame.error.empty()) {
         if (!set("error", JS_NewStringLen(ctx, frame.error.data(), frame.error.size()))) return JS_EXCEPTION;
     } else if (!set("ended", JS_NewBool(ctx, frame.ended))) return JS_EXCEPTION;

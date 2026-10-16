@@ -19,12 +19,12 @@ function load(path, dependencies, extra = {}) {
 const noLog = { d() {}, e() {} }
 const { DMPMap } = load('Utils/DMPMap.ts', { '@kit.ArkTS': { ArrayList: class {} } })
 const messages = load('Service/DMPSendableObjects.ets', { '../Utils/DMPMap': { DMPMap }, '@kit.ArkTS': {}, '@ohos.app.ability.common': {} })
-function render(native = { canvasUiRegister: () => 'test-canvas', canvasUiUnregister() {}, canvasUiPublish: () => true, canvasUiComplete() {} }) {
+function render(native = { canvasUiRegister: () => 'test-canvas', canvasUiUnregister() {}, canvasUiPublish: () => true, canvasUiComplete() {} }, extra = {}) {
   const { DMPRender } = load('Render/DMPRender.ets', {
     'libdimina.so': native,
     '../Service/DMPSendableObjects': messages, '../DApp/DMPApp': {}, '../HybridContainer/DMPWebViewController': {}, '@kit.BasicServicesKit': {},
     '../Utils/DMPMap': { DMPMap }, '@ohos.base': {}, '../EventTrack/DMPLogger': { DMPLogger: noLog },
-  })
+  }, extra)
   return new DMPRender({ appIndex: 9 })
 }
 function worker() {
@@ -316,4 +316,55 @@ test('direct UI feedback rejects empty/null data and preserves actual context er
   const real = { contexts: { gl: { contextLost: true, errors: [0x9242] } }, typedArrays: [] }
   f.routes[0].callback('ui-1:9', 'query'); f.scripts.at(-1).callback(null, JSON.stringify(real))
   assert.deepEqual(JSON.parse(f.completed.at(-1).json), real)
+})
+
+
+function binaryBootstrap() {
+  const scripts = [], registrations = [], connections = [], retired = [], timers = new Map()
+  let timerId = 0, ready = false
+  const native = {
+    canvasUiRegister(owner, page, callback, webTag) { registrations.push({ owner, page, callback, webTag }); return 'scope1' },
+    canvasUiUnregister(owner, page, token) { retired.push(token) }, canvasUiPublish() { return true }, canvasUiComplete() {},
+    canvasUiConnectNative(owner, page, token, enabled) { connections.push(enabled); return true },
+    canvasUiNativeReady() { return ready },
+  }
+  const r = render(native, { setTimeout: callback => { const id = ++timerId; timers.set(id, callback); return id }, clearTimeout: id => timers.delete(id) })
+  const controller = { isControllerAttached: true, nativeWebTag: 'web3', runJavaScript(script, callback) { scripts.push({ script, callback }) } }
+  r.setController(3, controller)
+  return { r, controller, scripts, registrations, connections, retired, timers, setReady() { ready = true },
+    expire() { const [id, fn] = timers.entries().next().value; timers.delete(id); fn() },
+    async activate(protocol = 1) {
+      const pending = r.canvasNodeSync(new DMPMap({ bridgeId: 3, params: { nodeId: 'canvas', operations: [] } }))
+      scripts[0].callback(null, JSON.stringify({ contexts: {}, typedArrays: [], ...(protocol ? { canvasBinaryProtocol: protocol } : {}) }))
+      await pending
+    },
+  }
+}
+test('old frontend feedback selects legacy without starting a native handshake', async () => {
+  const f = binaryBootstrap(); await f.activate(0)
+  assert.equal(f.registrations[0].webTag, ''); assert.equal(f.scripts.length, 1)
+  assert.equal(f.timers.size, 0); assert.equal(f.connections.length, 0)
+})
+test('binary registration waits for actual page support and falls back on a false result', async () => {
+  const f = binaryBootstrap(); await f.activate()
+  assert.equal(f.registrations[0].webTag, 'web3'); assert.equal(f.connections.length, 0)
+  assert.match(f.scripts[1].script, /typeof globalThis.__diminaCanvasBinaryConnect/)
+  f.scripts[1].callback(null, 'false')
+  assert.deepEqual(f.connections, [false]); assert.equal(f.timers.size, 0)
+})
+test('unacknowledged native readiness falls back once and ignores a late bootstrap callback', async () => {
+  const f = binaryBootstrap(); await f.activate(); const late = f.scripts[1].callback
+  late(null, 'true'); assert.deepEqual(f.connections, [true])
+  f.expire(); assert.deepEqual(f.connections, [true, false])
+  late(null, 'true'); assert.deepEqual(f.connections, [true, false]); assert.equal(f.timers.size, 0)
+})
+test('a real ready acknowledgment keeps the native route and clears its startup timer', async () => {
+  const f = binaryBootstrap(); await f.activate()
+  f.scripts[1].callback(null, 'true'); f.setReady(); f.expire()
+  assert.deepEqual(f.connections, [true]); assert.equal(f.timers.size, 0)
+})
+test('document replacement clears startup state before late page callbacks', async () => {
+  const f = binaryBootstrap(); await f.activate(); const late = f.scripts[1].callback
+  f.r.invalidateCanvasUi(3, f.controller); late(null, 'true')
+  assert.equal(f.timers.size, 0); assert.deepEqual(f.retired, ['scope1']); assert.equal(f.connections.length, 0)
 })

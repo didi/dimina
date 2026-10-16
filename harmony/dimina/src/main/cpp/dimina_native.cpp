@@ -77,6 +77,8 @@ EXTERN_C_START static napi_value Init(napi_env env, napi_value exports) {
         {"dispatchJsTaskPath", nullptr, dispatchJsTaskPath, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"destroyJsEngine", nullptr, destroyJsEngine, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"canvasUiRegister", nullptr, canvasUiRegister, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"canvasUiConnectNative",nullptr,canvasUiConnectNative,nullptr,nullptr,nullptr,napi_default,nullptr},
+        {"canvasUiNativeReady",nullptr,canvasUiNativeReady,nullptr,nullptr,nullptr,napi_default,nullptr},
         {"canvasUiUnregister", nullptr, canvasUiUnregister, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"canvasUiPublish", nullptr, canvasUiPublish, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"canvasUiComplete", nullptr, canvasUiComplete, nullptr, nullptr, nullptr, napi_default, nullptr},

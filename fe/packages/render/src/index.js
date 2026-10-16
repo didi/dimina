@@ -1,3 +1,4 @@
+import { CanvasBinaryPort } from './core/canvas-binary-port'
 import './polyfills'
 import { callback } from '@dimina/common'
 import env from './core/env'
@@ -15,7 +16,15 @@ class Render {
 		this.message = message
 		window.__message = message
 		window.__callback = callback
-		window.__diminaCanvasSync = request => runtime.canvasNodeFlush({ ...request, synchronous: true })
+		window.__diminaCanvasSync = request => {
+            const feedback = runtime.canvasNodeFlush({ ...request, synchronous: true })
+            feedback.canvasBinaryProtocol = 1
+            return feedback
+        }
+		const binary=new CanvasBinaryPort(window,window.__diminaCanvasSync)
+		window.__diminaCanvasBinaryConnect=token=>binary.connect(token)
+		window.__diminaCanvasBinaryDisconnect=token=>binary.disconnect(token)
+
 
 		this.init()
 	}

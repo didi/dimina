@@ -245,10 +245,11 @@ private:
     bool AdvanceForwardLocked(int64_t requestedUs) {
         if (!codec || stopping || !failure.empty() || removed ||
             !hasDeliveredFrame || requestedUs <= lastDeliveredPts || requestedUs < targetUs) return false;
-        // Input EOS can precede the final output frames. Replaying their GOP
-        // discards a target we already own, but an exhausted queue still needs
-        // the asynchronous seek/recovery path. Only actual frame data counts.
-        if ((inputEnded || ended) &&
+        // Input EOS only finishes compressed input. Output callbacks and an
+        // in-flight conversion can still deliver the forward target, so keep
+        // draining that codec. After output EOS, require a frame we still own;
+        // an exhausted decoder needs the asynchronous seek/recovery path.
+        if (ended &&
             std::none_of(frames.begin(), frames.end(), [requestedUs](const Frame &frame) {
                 return frame.pts >= requestedUs;
             }) &&

@@ -10,3 +10,8 @@ napi_value canvasUiRegister(napi_env env, napi_callback_info info);
 napi_value canvasUiUnregister(napi_env env, napi_callback_info info);
 napi_value canvasUiPublish(napi_env env, napi_callback_info info);
 napi_value canvasUiComplete(napi_env env, napi_callback_info info);
+
+
+napi_value canvasUiConnectNative(napi_env env,napi_callback_info info);
+
+napi_value canvasUiNativeReady(napi_env env, napi_callback_info info);

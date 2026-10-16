@@ -5,13 +5,15 @@ import { AsyncCallback } from '@kit.BasicServicesKit';
 import { DMPMap } from '../Utils/DMPMap';
 import { BusinessError } from '@ohos.base';
 import { DMPLogger } from '../EventTrack/DMPLogger';
-import { canvasUiRegister, canvasUiUnregister, canvasUiPublish, canvasUiComplete } from 'libdimina.so';
+import { canvasUiRegister, canvasUiUnregister, canvasUiPublish, canvasUiComplete, canvasUiConnectNative, canvasUiNativeReady } from 'libdimina.so';
 
 class CanvasUiScope {
   controller: DMPWebViewController;
   generation: number;
   token: string = '';
   closed: boolean = false;
+  handshakeTimer: number = -1;
+  negotiating: boolean = false;
   constructor(controller: DMPWebViewController, generation: number) {
     this.controller = controller; this.generation = generation;
   }
@@ -41,8 +43,10 @@ export class DMPRender {
       }
       if (this.canvasUiScopes.has(webViewId)) {
         try {
-          if (!canvasUiPublish(this.app.appIndex, webViewId, script))
+          if (!canvasUiPublish(this.app.appIndex, webViewId, script)) {
             DMPLogger.e('', 'canvas UI channel is unavailable');
+            this.invalidateCanvasUi(webViewId, controller);
+          }
         } catch (error) { DMPLogger.e('', `canvas UI script failed: ${(error as Error).message}`); }
         return;
       }
@@ -105,7 +109,7 @@ export class DMPRender {
               if (!feedback || typeof feedback !== 'object') throw new Error('invalid canvas feedback');
               const record = feedback as Record<string, Object>;
               if (record['contexts'] && Array.isArray(record['typedArrays']))
-                this.bindCanvasUi(webViewId, controller, generation);
+                this.bindCanvasUi(webViewId, controller, generation, record['canvasBinaryProtocol'] === 1);
               complete(json);
             } catch (error) { complete(canvasError((error as Error).message)); }
           }
@@ -114,7 +118,7 @@ export class DMPRender {
     });
   }
 
-  private bindCanvasUi(webViewId: number, controller: DMPWebViewController, generation: number): void {
+  private bindCanvasUi(webViewId: number, controller: DMPWebViewController, generation: number, binaryProtocol: boolean): void {
     if (this.canvasUiScopes.has(webViewId)) return;
     const scope = new CanvasUiScope(controller, generation);
     try {
@@ -148,10 +152,45 @@ export class DMPRender {
           if (requestId) canvasUiComplete(requestId, '', (error as Error).message);
           else DMPLogger.e('', `canvas UI script failed: ${(error as Error).message}`);
         }
-      });
+      }, binaryProtocol ? controller.nativeWebTag : '');
       this.canvasUiScopes.set(webViewId, scope);
+      if (binaryProtocol) {
+        scope.negotiating = true;
+        const fallback = (): void => {
+          scope.negotiating = false;
+          clearTimeout(scope.handshakeTimer); scope.handshakeTimer = -1;
+          if (!this.isCanvasUiCurrent(webViewId, scope)) return;
+          try {
+            if (!canvasUiConnectNative(this.app.appIndex, webViewId, scope.token, false))
+              this.invalidateCanvasUi(webViewId, controller);
+          }
+          catch (error) { this.invalidateCanvasUi(webViewId, controller); }
+        };
+        // This bounds an unacknowledged protocol handshake, never drawing order.
+        scope.handshakeTimer = setTimeout((): void => {
+          scope.handshakeTimer = -1;
+          if (!this.isCanvasUiCurrent(webViewId, scope)) return;
+          try {
+            if (!canvasUiNativeReady(this.app.appIndex, webViewId, scope.token)) fallback();
+            else scope.negotiating = false;
+          } catch (error) { fallback(); }
+        }, 1200);
+        const connect = `typeof globalThis.__diminaCanvasBinaryConnect === 'function' && globalThis.__diminaCanvasBinaryConnect(${JSON.stringify(scope.token)})`;
+        controller.runJavaScript(connect, (error, result) => {
+          if (!this.isCanvasUiCurrent(webViewId, scope) || !scope.negotiating) return;
+          try {
+            const parsed: Object | string | boolean | null = error ? null : JSON.parse(result);
+            const supported = parsed === true || parsed === 'true';
+            if (!supported) { fallback(); return; }
+            if (!canvasUiConnectNative(this.app.appIndex, webViewId, scope.token, true)) fallback();
+          } catch (error) { fallback(); }
+        });
+      }
     } catch (error) {
       scope.closed = true;
+      clearTimeout(scope.handshakeTimer);
+      if (scope.token) canvasUiUnregister(this.app.appIndex, webViewId, scope.token);
+      this.canvasUiScopes.delete(webViewId);
       DMPLogger.e('', `canvas UI registration failed: ${(error as Error).message}`);
     }
   }
@@ -169,6 +208,7 @@ export class DMPRender {
     this.canvasUiScopes.delete(webViewId);
     if (scope) {
       scope.closed = true;
+      clearTimeout(scope.handshakeTimer);
       canvasUiUnregister(this.app.appIndex, webViewId, scope.token);
     }
   }

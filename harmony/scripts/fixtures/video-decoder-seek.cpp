@@ -524,6 +524,7 @@ void TailForwardCase(const std::string &name) {
     Decoder decoder; Start(decoder); Deliver(decoder);
     const auto pump = decoder.pump.get_id();
     OH_AVMemory *pending = nullptr;
+    OH_AVMemory *final = nullptr;
     if (name == "tail-input" || name == "tail-output") {
         if (name == "tail-input") {
             Mock::WaitPushed(Mock::Input(decoder.codec, true));
@@ -539,14 +540,17 @@ void TailForwardCase(const std::string &name) {
         QueueFrame(decoder, 150000); QueueFrame(decoder, 175000);
         pending = Mock::Output(decoder.codec, 200000, false, name == "tail-empty",
             name == "tail-headers" ? AVCODEC_BUFFER_FLAGS_CODEC_DATA : 0);
+        if (name == "tail-headers") final = Mock::Output(decoder.codec, 200000, false, true);
     }
     const auto before = Mock::Snapshot();
     const bool advanced = decoder.TrySeekForward(200);
     if (name == "tail-empty" || name == "tail-headers") {
-        Mock::Require(!advanced, "non-frame output bypassed exhausted decoder recovery");
-        std::lock_guard<std::mutex> lock(decoder.mutex);
-        Mock::Require(decoder.targetUs == 0 && decoder.frames.size() == 2 && decoder.outputs.size() == 1,
-            "rejected EOS seek changed owned queues");
+        Mock::Require(advanced, "input EOS stopped draining before actual output EOS");
+        Mock::WaitFreed(pending);
+        if (final) Mock::WaitFreed(final);
+        Frame frame {}; bool eof = false; std::string error;
+        Mock::Require(!decoder.Next(frame, eof, error) && eof && error.empty(),
+            "empty EOS or codec parameter data fabricated a target frame");
     } else {
         Mock::Require(advanced, "EOS replayed a GOP despite an owned frame at the forward target");
         Mock::Require(decoder.pump.get_id() == pump, "EOS forward target recreated the live pump");
@@ -559,6 +563,38 @@ void TailForwardCase(const std::string &name) {
     }
     NoRebuild(before);
     Mock::Require(Mock::Snapshot().flush == before.flush, "owned tail target unnecessarily flushed the codec");
+}
+
+void InputDrainCase(const std::string &name) {
+    Decoder decoder;
+    Mock::GateGuard gate;
+    Start(decoder); Deliver(decoder);
+    Mock::WaitPushed(Mock::Input(decoder.codec, true));
+    OH_AVMemory *inflight = nullptr;
+    if (name == "drain-inflight") {
+        inflight = Mock::Output(decoder.codec, 200000, true);
+        Mock::WaitEntered(inflight);
+    }
+    const auto before = Mock::Snapshot(); const auto pump = decoder.pump.get_id();
+    if (name == "drain-past-end") {
+        Mock::Require(decoder.TrySeekForward(500), "input EOS restarted a still-draining codec beyond its final frame");
+        QueueFrame(decoder, 400000);
+        Mock::WaitFreed(Mock::Output(decoder.codec, 400000, false, true));
+        Frame frame {}; bool eof = false; std::string error;
+        Mock::Require(!decoder.Next(frame, eof, error) && eof && error.empty(), "seek beyond the final output returned stale pixels");
+        NoRebuild(before); return;
+    }
+    if (name == "input-eos") decoder.Seek(200, decoder.startGate.Capture());
+    else Mock::Require(decoder.TrySeekForward(200), "input EOS replayed a GOP before the pending output arrived");
+    NoRebuild(before);
+    Mock::Require(decoder.pump.get_id() == pump, "draining forward seek replaced its live pump");
+    if (inflight) { Mock::Release(); Mock::WaitFreed(inflight); }
+    else QueueFrame(decoder, 200000);
+    Mock::Require(Take(decoder).pts == 200000, "draining seek lost the real target PTS");
+    Mock::WaitFreed(Mock::Output(decoder.codec, 200000, false, true));
+    Frame frame {}; bool eof = false; std::string error;
+    Mock::Require(!decoder.Next(frame, eof, error) && eof && error.empty(), "drain lost actual output EOF");
+    NoRebuild(before);
 }
 
 void Run(const std::string &name) {
@@ -598,7 +634,11 @@ void Run(const std::string &name) {
         const auto before = Mock::Snapshot(); const auto pump = decoder.pump.get_id();
         if (name == "direct-pending") decoder.pendingControls = 1;
         else if (name == "direct-removed") decoder.removed = true;
-        else if (name == "direct-eos") decoder.inputEnded = true;
+        else if (name == "direct-eos") {
+            Take(decoder); Take(decoder);
+            Mock::WaitPushed(Mock::Input(decoder.codec, true));
+            Mock::WaitFreed(Mock::Output(decoder.codec, 250000, false, true));
+        }
         else if (name == "direct-same") {
             Mock::Require(!decoder.TrySeekForward(100), "same delivered frame incorrectly used direct forward seek");
             NoRebuild(before); return;
@@ -611,7 +651,7 @@ void Run(const std::string &name) {
         }
         const bool advanced = decoder.TrySeekForward(name == "direct-eos" ? 300 : 200);
         if (name != "direct-forward") {
-            Mock::Require(!advanced && decoder.targetUs == 0 && decoder.frames.size() == 2,
+            Mock::Require(!advanced && decoder.targetUs == 0 && decoder.frames.size() == (name == "direct-eos" ? 0 : 2),
                 "ineligible direct seek changed the target or queue instead of falling back");
         } else {
             Mock::Require(advanced && decoder.targetUs == 200000 && decoder.pump.get_id() == pump,
@@ -622,6 +662,7 @@ void Run(const std::string &name) {
     }
     if (name == "headers") { HeaderContracts(); return; }
     if (name.rfind("tail-", 0) == 0) { TailForwardCase(name); return; }
+    if (name.rfind("drain-", 0) == 0 || name == "input-eos") { InputDrainCase(name); return; }
     if (name.rfind("flush-", 0) == 0) { FlushCase(name); return; }
     if (name == "inflight-below" || name == "inflight-above" || name == "callbacks") { RunningForwardCase(name); return; }
     Decoder decoder;
@@ -742,7 +783,6 @@ void Run(const std::string &name) {
         if (name == "same-frame") position = 100;
         else if (name == "backward") position = 50;
         else if (name == "output-eos") Mock::WaitFreed(Mock::Output(decoder.codec, 100000, false, true));
-        else if (name == "input-eos") Mock::WaitPushed(Mock::Input(decoder.codec, true));
         else if (name == "error-before") decoder.codec->callback.error(decoder.codec, 71, decoder.codec->data);
         else if (name == "nested-target") {
             auto initial = Mock::Snapshot();
