@@ -1,0 +1,91 @@
+harmony/scripts/canvas-binary-channel.test.mjs
+  8af1d552e52349d6 1-20
+harmony/dimina/src/main/cpp/canvas_ui_route.cpp
+  8af1d552e52349d6 2,4-5,15-19,24-30,33-37,43-44,47,52-53,60-64,77-81,85,92,94,105-119,134-135,137-141,147-148,151-154,160-161,165,167-168,171,190,202-207,219-220,222,226-260
+fe/packages/render/__tests__/canvas-texture-upload.spec.js
+  8af1d552e52349d6 780-848
+harmony/scripts/canvas-sync.test.mjs
+  8af1d552e52349d6 22,27,320-369
+harmony/scripts/fixtures/canvas-native-route-cases.mjs
+  8af1d552e52349d6 1-165
+harmony/scripts/keyboard-focus.test.mjs
+  8af1d552e52349d6 18,22-23,37,94-101
+harmony/scripts/fixtures/include/web/arkweb_interface.h
+  8af1d552e52349d6 1-35
+fe/packages/render/src/index.js
+  8af1d552e52349d6 1,19-27
+harmony/scripts/fixtures/canvas-binary-channel.cpp
+  8af1d552e52349d6 1-47
+fe/packages/render/src/core/canvas-binary-port.js
+  8af1d552e52349d6 1-159
+harmony/scripts/fixtures/canvas-native-route.cpp
+  8af1d552e52349d6 1-84
+fe/packages/common/src/core/canvas-decode-kernel-bytes.js
+  8af1d552e52349d6 2
+fe/packages/render/__tests__/canvas-binary-port.spec.js
+  8af1d552e52349d6 1-117
+harmony/dimina/src/main/cpp/types/libdimina/index.d.ts
+  8af1d552e52349d6 33,37-41
+fe/packages/render/src/core/runtime.js
+  8af1d552e52349d6 1905-1906,2107,2116-2123,2129
+harmony/dimina/src/main/cpp/canvas_ui_route.h
+  8af1d552e52349d6 13-17
+harmony/dimina/src/main/cpp/canvas_ui_channel.h
+  8af1d552e52349d6 4,9,11,15-16,21-31,33-62,64-65,72,89,99,101-117,132-149,158-159,161-170,176,179-181,183,185,187,192,201-204,209
+harmony/dimina/src/main/cpp/canvas_binary_value.h
+  8af1d552e52349d6 1-87
+harmony/dimina/src/main/cpp/canvas_native_port.h
+  8af1d552e52349d6 1-179
+harmony/dimina/consumer-rules.txt
+  8af1d552e52349d6 4-6,239-240
+fe/packages/common/src/index.js
+  8af1d552e52349d6 65
+fe/packages/service/__tests__/canvas-compression.spec.js
+  8af1d552e52349d6 20,93-108
+harmony/scripts/canvas-native-route.test.mjs
+  8af1d552e52349d6 1-26
+fe/packages/common/scripts/build-canvas-decode.mjs
+  8af1d552e52349d6 31
+fe/packages/common/__tests__/canvas-decode-fast.spec.js
+  8af1d552e52349d6 6,8,20-49,61,105,113,115-116,122-123,188-262
+harmony/scripts/fixtures/canvas-binary-value.cpp
+  8af1d552e52349d6 1-78
+harmony/dimina/src/main/cpp/js_thread.cpp
+  8af1d552e52349d6 1,10,271-272,428-435,437-442,445,807-820,825-837,843,883
+fe/packages/render/src/core/canvas-texture-upload.js
+  8af1d552e52349d6 1,161,173,179-189,191-208,210,223
+harmony/scripts/canvas-binary-value.test.mjs
+  8af1d552e52349d6 1-60
+fe/packages/render/__tests__/canvas-compression.spec.js
+  8af1d552e52349d6 46-83
+fe/packages/common/src/core/canvas-decode-fast.js
+  8af1d552e52349d6 33-47,58-60,62-75,88-102,107
+harmony/scripts/fixtures/include/napi/native_api.h
+  8af1d552e52349d6 1-2
+fe/packages/service/src/api/core/ui/canvas/canvas-node.js
+  8af1d552e52349d6 545,549-550
+fe/packages/common/src/core/canvas-decode-kernel.c
+  8af1d552e52349d6 21,27,39,53,65-80
+harmony/dimina/src/main/cpp/dimina_native.cpp
+  8af1d552e52349d6 80-81
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "681b44a122758be40334b6cd6c30f4f0817836c2",
+  "prompts": {
+    "8af1d552e52349d6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a13a21-78ed-75f2-92f0-99883b0afb3e",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 1971,
+      "total_deletions": 266,
+      "accepted_lines": 2413,
+      "overriden_lines": 0
+    }
+  }
+}
