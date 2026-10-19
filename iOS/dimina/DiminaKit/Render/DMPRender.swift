@@ -38,6 +38,7 @@ public class DMPRender: DMPWebViewDelegate {
     // Release WebView instance
     @MainActor
     public func releaseWebView(_ webview: DMPWebview) {
+        webview.closeCanvasBinary()
         let webViewId = webview.getWebViewId()
         NativeComponentAPI.clear(webViewId: webViewId)
         webviewsMap.removeValue(forKey: webViewId)
@@ -56,10 +57,13 @@ public class DMPRender: DMPWebViewDelegate {
     // JavaScriptCore runs on the service thread. Keep the main run loop free to
     // execute the queued drawing commands and return the actual WebGL result.
     func canvasNodeSync(webViewId: Int, request: DMPMap) -> Any {
+        canvasNodeSync(webViewId: webViewId, json: request.toJsonString())
+    }
+
+    func canvasNodeSync(webViewId: Int, json: String) -> Any {
         guard !Thread.isMainThread else { return ["error": "Canvas query requires the service thread"] }
         let reply = CanvasSyncReply()
         let semaphore = DispatchSemaphore(value: 0)
-        let json = request.toJsonString()
         guard let quoted = try? JSONSerialization.data(withJSONObject: json, options: [.fragmentsAllowed]),
               let argument = String(data: quoted, encoding: .utf8) else {
             return ["error": "Invalid canvas request"]
@@ -71,9 +75,13 @@ public class DMPRender: DMPWebViewDelegate {
                 semaphore.signal()
                 return
             }
+            if let error = webview.canvasBinaryError {
+                reply.set(["error": error.localizedDescription]); semaphore.signal(); return
+            }
             let script = "(function(){try{DiminaRenderBridge.__diminaFlushMessages?.();return __diminaCanvasSync(JSON.parse(\(argument)))}catch(e){return {error:String(e)}}})()"
             webview.executeJavaScript(script) { value, error in
                 reply.set(value ?? ["error": error?.localizedDescription ?? "Canvas renderer returned no result"])
+                if error == nil { webview.probeCanvasBinary() }
                 semaphore.signal()
             }
         }
@@ -82,6 +90,42 @@ public class DMPRender: DMPWebViewDelegate {
             return ["error": "Canvas query timed out"]
         }
         return reply.get()
+    }
+
+    func canvasPacketSync(webViewId: Int, packet: DMPCanvasPacket) -> Any {
+        guard !Thread.isMainThread, let webview = webviewsMap[webViewId], webview.canvasBinaryReady else {
+            return ["error": "Canvas binary page is unavailable"]
+        }
+        let reply = CanvasSyncReply(), semaphore = DispatchSemaphore(value: 0)
+        do {
+            let data = try packet.wire(type: "canvas", deadline: Int64(Date().timeIntervalSince1970 * 1000) + 4500)
+            webview.executeCanvasPacket(data) { value, error in
+                reply.set(value ?? ["error": error?.localizedDescription ?? "Canvas renderer returned no result"])
+                semaphore.signal()
+            }
+        } catch { return ["error": error.localizedDescription] }
+        guard semaphore.wait(timeout: .now() + 5) == .success else { reply.cancel(); return ["error": "Canvas query timed out"] }
+        return reply.get()
+    }
+
+    func publishCanvasPacket(webViewId: Int, packet: DMPCanvasPacket) throws {
+        guard !Thread.isMainThread else { throw NSError(domain: "Canvas publication requires the service thread", code: 1) }
+        let reply = CanvasSyncReply(), semaphore = DispatchSemaphore(value: 0)
+        let data = try packet.wire(type: "publish", deadline: Int64(Date().timeIntervalSince1970 * 1000) + 4500)
+        DispatchQueue.main.async { [weak self] in
+            guard reply.isActive() else { return }
+            guard let webview = self?.webviewsMap[webViewId] else {
+                reply.set(NSError(domain: "Canvas page has been disposed", code: 1)); semaphore.signal(); return
+            }
+            webview.publishCanvasPacket(data) { error in
+                if let error { reply.set(error) } else { reply.set(NSNull()) }
+                semaphore.signal()
+            }
+        }
+        guard semaphore.wait(timeout: .now() + 5) == .success else {
+            reply.cancel(); throw NSError(domain: "Canvas publication admission timed out", code: 1)
+        }
+        if let error = reply.get() as? Error { throw error }
     }
 
     // Register JavaScript method to allow Native to listen to JavaScript calls

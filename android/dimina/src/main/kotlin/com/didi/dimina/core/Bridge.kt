@@ -59,6 +59,7 @@ class Bridge(
     private var destroyed: Boolean = false
     @Volatile
     private var resourceLoadId: String? = null
+    private val canvasChannel = CanvasBinaryChannel(options.webview) { ready -> options.jscore.setCanvasBinaryReady(id, ready) }
     private val pageVisibilityLedger = PageVisibilityLedger { delivery ->
         options.jscore.postMessage(
             if (delivery == PageVisibilityDelivery.SHOW) "pageShow" else "pageHide",
@@ -72,11 +73,13 @@ class Bridge(
     // 保存回调引用以便在销毁时移除
     private val serviceInvokeHandler: (JSONObject) -> JSValue? = { msg -> messageInvoke("service", msg) }
     private val servicePublishHandler: (JSONObject) -> Unit = { msg -> messagePublish(msg) }
+    private val canvasPublishHandler: (JSONObject, Long, (String?) -> Unit) -> Unit = { msg, deadline, done -> messagePublish(msg, deadline, done) }
 
     fun init(addHandler: Boolean = true) {
         if (addHandler) {
             options.jscore.invoke(id, serviceInvokeHandler)
             options.jscore.publish(id, servicePublishHandler)
+            options.jscore.canvasPublish(id, canvasPublishHandler)
 
             // Add JavaScript interface for DiminaRenderBridge
             options.webview.addJavascriptInterface(
@@ -169,6 +172,9 @@ class Bridge(
         val latch = CountDownLatch(1)
         val result = AtomicReference<JSONObject>()
         val active = AtomicBoolean(true)
+        val deadline = System.currentTimeMillis() + 4500
+        @Suppress("UNCHECKED_CAST")
+        val buffers = body.remove("__diminaCanvasBuffers") as? Array<ByteArray> ?: emptyArray()
         val request = body
         val call = JavaScriptUtils.invokeWithJson("__diminaCanvasSync", request.toString())
         Handler(Looper.getMainLooper()).post {
@@ -177,10 +183,23 @@ class Bridge(
                 result.set(JSONObject().put("error", "Canvas page has been disposed"))
                 latch.countDown()
             } else {
+                canvasChannel.error?.let { error ->
+                    result.set(JSONObject().put("error", error)); latch.countDown(); return@post
+                }
+                if (buffers.isNotEmpty() || canvasBinaryReady()) {
+                    canvasChannel.query(body, buffers, deadline) { value, error ->
+                        result.set(runCatching { JSONObject(value ?: "{}") }.getOrElse { JSONObject() }.apply {
+                            if (error != null) put("error", error)
+                        })
+                        latch.countDown()
+                    }
+                    return@post
+                }
                 options.webview.evaluateJavascript("(function(){try{return $call}catch(e){return {error:String(e)}}})()") { value ->
                     result.set(runCatching { JSONObject(value) }.getOrElse {
                         JSONObject().put("error", "Canvas renderer returned no result")
                     })
+                    canvasChannel.probe()
                     latch.countDown()
                 }
             }
@@ -194,6 +213,8 @@ class Bridge(
         if (!completed) return failure("Canvas query timed out")
         return JSValue.createObject(result.get().toString())
     }
+
+    private fun canvasBinaryReady(): Boolean = options.jscore.isCanvasBinaryReady(id)
 
     private fun messageInvoke(source: String, msg: JSONObject): JSValue? {
         if (destroyed) {
@@ -301,23 +322,33 @@ class Bridge(
     /**
      * 消息中转
      */
-    private fun messagePublish(msg: JSONObject) {
+    private fun messagePublish(msg: JSONObject, deadline: Long = Long.MAX_VALUE, admitted: ((String?) -> Unit)? = null) {
         if (destroyed) {
+            admitted?.invoke("Canvas page has been disposed")
             return
         }
         val body = msg.getJSONObject("body")
         val bridgeId = body.optString("bridgeId")
         if (bridgeId.isNotEmpty() && bridgeId != id) {
+            admitted?.invoke("Canvas page does not match")
             return
         }
 
         val target = msg.getString("target")
+        if (admitted != null && target != "render") { admitted("Invalid Canvas publication target"); return }
         if (target == "service") {
             //  转发到逻辑线程
             options.jscore.postMessage(msg.toString())
         } else if (target == "render") {
+            @Suppress("UNCHECKED_CAST")
+            val buffers = body.remove("__diminaCanvasBuffers") as? Array<ByteArray> ?: emptyArray()
+            if (deadline <= System.currentTimeMillis()) { admitted?.invoke("Canvas publication timed out"); return }
+            canvasChannel.error?.let { admitted?.invoke(it); return }
+            if (canvasBinaryReady()) { canvasChannel.publish(msg, buffers, deadline, admitted); return }
+            if (buffers.isNotEmpty()) { admitted?.invoke("Canvas binary page is unavailable"); return }
             // 转发到渲染线程
             options.webview.postMessage(msg.toString())
+            admitted?.invoke(null)
         }
 
 
@@ -371,6 +402,7 @@ class Bridge(
         val wasResourceLoaded = isResourceLoaded()
         synchronized(this) {
             destroyed = true
+            canvasChannel.close()
             serviceResource = false
             renderResource = false
             resourceLoadedForwarded = false
@@ -387,6 +419,7 @@ class Bridge(
             // 移除在 init() 中添加的回调
             options.jscore.removeInvoke(id, serviceInvokeHandler)
             options.jscore.removePublish(id, servicePublishHandler)
+            options.jscore.removeCanvasPublish(id, canvasPublishHandler)
         }
 
         LogUtils.d(tag, "Bridge destroyed and callbacks removed")

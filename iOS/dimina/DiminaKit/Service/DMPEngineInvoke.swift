@@ -14,10 +14,29 @@ public class DMPEngineInvoke {
         to context: JSContext,
         appResolver: @escaping () -> DMPApp? = { nil }
     ) {
-        let invoke: @convention(block) (JSValue) -> JSValue? = { d in
+        _ = DMPCanvasPacket.serializer(in: context)
+        DMPCanvasPacket.installEncoder(in: context, appResolver: appResolver)
+        let invoke: @convention(block) (JSValue) -> JSValue? = { [weak context] d in
+            guard let context else { return nil }
             let type = d.forProperty("type").toString() ?? ""
             let target = d.forProperty("target").toString() ?? ""
             let rawBody = d.forProperty("body")!
+            if type == "canvasNodeSync", target == "container" {
+                do {
+                    let packet = try DMPCanvasPacket.read(rawBody, using: DMPCanvasPacket.serializer(in: context))
+                    let page = rawBody.forProperty("bridgeId")!.toInt32()
+                    guard let app = appResolver() else { return JSValue(nullIn: context) }
+                    if !packet.buffers.isEmpty {
+                        let value = app.render?.canvasPacketSync(webViewId: Int(page), packet: packet) ?? ["error": "Canvas page unavailable"]
+                        return DMPBinaryBridge.encode(value, in: context)
+                    }
+                    let value = app.render?.canvasNodeSync(webViewId: Int(page), json: packet.json) ?? ["error": "Canvas page unavailable"]
+                    return DMPBinaryBridge.encode(value, in: context)
+                } catch {
+                    context.exception = JSValue(newErrorFromMessage: error.localizedDescription, in: context)
+                    return JSValue(undefinedIn: context)
+                }
+            }
             let body: DMPMap
             if type == "invokeAPI", target == "container",
                let name = rawBody.forProperty("name")?.toString(), name.hasPrefix("FileSystemManager.") {
@@ -32,12 +51,6 @@ public class DMPEngineInvoke {
 
             guard let app = appResolver() else {
                 return JSValue(nullIn: context)
-            }
-            if type == "canvasNodeSync", target == "container" {
-                let webViewId = body.get("bridgeId") as? Int ?? 0
-                let value = app.render?.canvasNodeSync(webViewId: webViewId, request: body)
-                    ?? ["error": "Canvas runtime is unavailable"]
-                return DMPBridgeParam.from(rawValue: value).getJSValue(context: context)
             }
             let result = DMPChannelProxy.messageHandler(
                 type: type,

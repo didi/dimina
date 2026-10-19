@@ -18,6 +18,8 @@
 #include "libunicode.h"
 #include "../../../../../native/bridge/quickjs_value.hpp"
 #include "../../../../../native/bridge/jni_value.hpp"
+#include "../../../../../native/canvas/rle32.h"
+#include "../../../../../native/canvas/quickjs_packet.hpp"
 
 // Define log tag for Android logging
 #define LOG_TAG "QuickJSEngine(cpp)"
@@ -707,6 +709,95 @@ static JSValue convertJavaJSValueToQuickJS(JNIEnv* env, JSContext* ctx, jobject 
 // QuickJSEngine methods
 
 // DiminaServiceBridge invoke method implementation
+static bool isCanvasMessage(JSContext *ctx, JSValueConst message, bool publish) {
+    JSValueGuard body(ctx, JS_GetPropertyStr(ctx, message, "body"));
+    if (!JS_IsObject(body.get())) return false;
+    JSValueGuard type(ctx, JS_GetPropertyStr(ctx, message, "type"));
+    JSValueGuard target(ctx, JS_GetPropertyStr(ctx, message, "target"));
+    if (!JS_IsString(target.get())) return false;
+    if (publish) {
+        JSValueGuard name(ctx, JS_GetPropertyStr(ctx, body.get(), "name"));
+        return dimina::bridge::readString(ctx, target.get()) == u"render" && JS_IsString(name.get()) &&
+            dimina::bridge::readString(ctx, name.get()).compare(0, 10, u"canvasNode") == 0;
+    }
+    return JS_IsString(type.get()) && dimina::bridge::readString(ctx, type.get()) == u"canvasNodeSync" &&
+        dimina::bridge::readString(ctx, target.get()) == u"container";
+}
+
+static JSValue deliverCanvas(JSContext *ctx, JNIEnv *env, EngineInstance *instance, JSValueConst message, JSValueConst page, bool publish) {
+    const auto packet = dimina::canvas::SerializeCanvasBody(ctx, message, true);
+    dimina::bridge::LocalFrame frame(env);
+    const auto json = dimina::bridge::decodeString(packet.json.data(), packet.json.size());
+    auto text = env->NewString(reinterpret_cast<const jchar *>(json.data()), json.size());
+    auto byteClass = env->FindClass("[B");
+    auto arrays = env->NewObjectArray(packet.buffers.size(), byteClass, nullptr);
+    dimina::bridge::checkJNI(env);
+    for (size_t i = 0; i < packet.buffers.size(); ++i) {
+        const auto &bytes = packet.buffers[i];
+        auto array = env->NewByteArray(bytes.size());
+        if (!bytes.empty()) env->SetByteArrayRegion(array, 0, bytes.size(), reinterpret_cast<const jbyte *>(bytes.data()));
+        env->SetObjectArrayElement(arrays, i, array); env->DeleteLocalRef(array);
+        dimina::bridge::checkJNI(env);
+    }
+    auto cls = env->GetObjectClass(instance->engineObj);
+    if (publish) {
+        const auto id = dimina::bridge::readString(ctx, page);
+        auto key = env->NewString(reinterpret_cast<const jchar *>(id.data()), id.size());
+        auto method = env->GetMethodID(cls, "publishCanvasFromJS", "(Ljava/lang/String;Ljava/lang/String;[[B)V");
+        dimina::bridge::checkJNI(env);
+        env->CallVoidMethod(instance->engineObj, method, key, text, arrays);
+        dimina::bridge::checkJNI(env);
+        return JS_UNDEFINED;
+    }
+    auto method = env->GetMethodID(cls, "invokeCanvasFromJS", "(Ljava/lang/String;[[B)Lcom/didi/dimina/engine/qjs/JSValue;");
+    dimina::bridge::checkJNI(env);
+    auto result = env->CallObjectMethod(instance->engineObj, method, text, arrays);
+    dimina::bridge::checkJNI(env);
+    return convertJavaJSValueToQuickJS(env, ctx, result);
+}
+
+static JSValue js_encode_canvas_array_buffer(JSContext *ctx, JSValueConst, int argc, JSValueConst *argv) {
+    if (argc < 1) return JS_ThrowTypeError(ctx, "Expected ArrayBuffer");
+    size_t size = 0;
+    const auto *bytes = JS_GetArrayBuffer(ctx, &size, argv[0]);
+    if (JS_HasException(ctx)) return JS_EXCEPTION;
+    try {
+        std::vector<uint8_t> packed;
+        if (size >= dimina::canvas::MIN_CANVAS_RLE_BYTES && size <= dimina::canvas::MAX_CANVAS_RLE_BYTES && size % 4 == 0)
+            packed = dimina::canvas::encodeCanvasRle32(bytes, size);
+        const bool compressed = dimina::canvas::shouldUseCanvasRle32(size, packed.size());
+        bool binary = false;
+        if (argc > 1 && JS_IsString(argv[1])) {
+            auto *instance = findInstanceByContext(ctx);
+            JNIEnvGuard guard;
+            if (instance && guard.isValid()) {
+                auto *env = guard.get(); dimina::bridge::LocalFrame frame(env);
+                const auto page = dimina::bridge::readString(ctx, argv[1]);
+                auto key = env->NewString(reinterpret_cast<const jchar *>(page.data()), page.size());
+                auto cls = env->GetObjectClass(instance->engineObj);
+                auto method = env->GetMethodID(cls, "isCanvasBinaryReady", "(Ljava/lang/String;)Z");
+                dimina::bridge::checkJNI(env);
+                binary = env->CallBooleanMethod(instance->engineObj, method, key);
+                dimina::bridge::checkJNI(env);
+            }
+        }
+        const auto *data = compressed ? packed.data() : bytes;
+        const auto length = compressed ? packed.size() : size;
+        JSValueGuard result(ctx, JS_NewObject(ctx));
+        if (compressed) {
+            if (JS_SetPropertyStr(ctx, result.get(), "encoding", JS_NewString(ctx, "rle32-v1")) < 0 ||
+                JS_SetPropertyStr(ctx, result.get(), "byteLength", JS_NewFloat64(ctx, size)) < 0) return JS_EXCEPTION;
+        }
+        if (binary) {
+            if (JS_SetPropertyStr(ctx, result.get(), "packed", JS_NewArrayBufferCopy(ctx, data, length)) < 0) return JS_EXCEPTION;
+        } else {
+            const auto encoded = dimina::canvas::canvasBytesToBase64(data, length);
+            if (JS_SetPropertyStr(ctx, result.get(), "base64", JS_NewStringLen(ctx, encoded.data(), encoded.size())) < 0) return JS_EXCEPTION;
+        }
+        return JS_DupValue(ctx, result.get());
+    } catch (const std::exception &error) { return JS_ThrowInternalError(ctx, "%s", error.what()); }
+}
+
 static JSValue js_dimina_invoke(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
     if (argc < 1 || !JS_IsObject(argv[0])) {
         return JS_ThrowTypeError(ctx, "Expected object argument");
@@ -728,6 +819,7 @@ static JSValue js_dimina_invoke(JSContext *ctx, JSValueConst this_val, int argc,
     // File payloads bypass JSON so ArrayBuffers never become strings or empty
     // objects. Other APIs keep their existing serialization contract.
     try {
+        if (isCanvasMessage(ctx, argv[0], false)) return deliverCanvas(ctx, env, instance, argv[0], JS_UNDEFINED, false);
         JSValueGuard body(ctx, JS_GetPropertyStr(ctx, argv[0], "body"));
         if (body.isException()) return JS_EXCEPTION;
         JSValueGuard name(ctx, JS_IsObject(body.get()) ? JS_GetPropertyStr(ctx, body.get(), "name") : JS_UNDEFINED);
@@ -843,6 +935,10 @@ static JSValue js_dimina_publish(JSContext *ctx, JSValueConst this_val, int argc
         return JS_ThrowInternalError(ctx, "Failed to get JNI environment");
     }
     JNIEnv* env = envGuard.get();
+
+    try {
+        if (isCanvasMessage(ctx, argv[1], true)) return deliverCanvas(ctx, env, instance, argv[1], argv[0], true);
+    } catch (const std::exception &error) { return throwJavaExceptionOrInternalError(ctx, env, error.what()); }
     
     // Stringify the object
     JSValueGuard jsonStr(ctx, jsonStringify(ctx, argv[1]));
@@ -1213,6 +1309,8 @@ static void register_dimina_service_bridge(JSContext *ctx, const char* virtualFi
     
     // Register methods
     JS_SetPropertyStr(ctx, diminaObj, "canvasSyncSupported", JS_TRUE);
+    JS_SetPropertyStr(ctx, diminaObj, "canvasBinarySupported", JS_TRUE);
+    JS_SetPropertyStr(ctx, diminaObj, "encodeCanvasArrayBuffer", JS_NewCFunction(ctx, js_encode_canvas_array_buffer, "encodeCanvasArrayBuffer", 2));
     JS_SetPropertyStr(ctx, diminaObj, "fileBinarySupported", JS_TRUE);
     JS_SetPropertyStr(ctx, diminaObj, "encodeArrayBuffer", JS_NewCFunction(ctx, js_encode_array_buffer, "encodeArrayBuffer", 1));
     JS_SetPropertyStr(ctx, diminaObj, "decodeArrayBuffer", JS_NewCFunction(ctx, js_decode_array_buffer, "decodeArrayBuffer", 1));

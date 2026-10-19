@@ -72,7 +72,7 @@ let package = Package(
             .define("DIMINA_WASM_APPLE"),
         ]),
         .target(name: "DiminaWasmBridge", dependencies: ["DiminaWamr"], path: "apple_bridge",
-                sources: ["dimina_wasm.cpp"], publicHeadersPath: "include", cxxSettings: [
+                sources: ["dimina_wasm.cpp", "canvas_codec.cpp"], publicHeadersPath: "include", cxxSettings: [
                     .define("DIMINA_WASM_JSC"),
                     .headerSearchPath("../upstream/core/iwasm/include"),
                 ], linkerSettings: [.linkedFramework("JavaScriptCore")]),

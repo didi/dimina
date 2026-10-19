@@ -1,4 +1,5 @@
 import { CanvasBinaryPort } from './core/canvas-binary-port'
+import { createCanvasResourceReceiver } from './core/canvas-resource'
 import './polyfills'
 import { callback } from '@dimina/common'
 import env from './core/env'
@@ -23,7 +24,9 @@ class Render {
         }
 		const binary=new CanvasBinaryPort(window,window.__diminaCanvasSync)
 		window.__diminaCanvasBinaryConnect=token=>binary.connect(token)
+		window.__diminaCanvasBinaryAcknowledgements = 1
 		window.__diminaCanvasBinaryDisconnect=token=>binary.disconnect(token)
+		window.__diminaCanvasResource = createCanvasResourceReceiver(window, window.__diminaCanvasSync)
 
 
 		this.init()
@@ -39,6 +42,7 @@ class Render {
 
 		// 资源加载消息
 		this.message.on('loadResource', (msg) => {
+			window.__diminaCanvasResource?.cancel()
 			const { bridgeId, appId, pagePath, root = '.', baseUrl = '/', resourceLoadId, runtimeType } = msg
 			debugBridgeId = bridgeId
 			if (msg.debugEnabled === 'true') window.dispatchEvent(new Event('dimina:debug-ready'))

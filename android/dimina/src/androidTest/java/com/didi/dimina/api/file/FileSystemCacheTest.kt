@@ -16,6 +16,29 @@ import java.util.UUID
 
 @RunWith(AndroidJUnit4::class)
 class FileSystemCacheTest {
+    @Test fun structuredFileBridgeOmitsUndefinedObjectFieldsButKeepsNullAndBytes() {
+        val engine = com.didi.dimina.engine.qjs.QuickJSEngine()
+        try {
+            assertTrue(engine.initialize())
+            engine.setInvokeCallback("file-contract") { message ->
+                val params = message.getJSONObject("body").getJSONObject("params")
+                com.didi.dimina.engine.qjs.JSValue.createNative(JSONObject()
+                    .put("encodingPresent", params.has("encoding"))
+                    .put("lengthPresent", params.has("length"))
+                    .put("nullPresent", params.has("explicitNull") && params.isNull("explicitNull"))
+                    .put("arrayNulls", params.getJSONArray("array").isNull(0) && params.getJSONArray("array").isNull(1))
+                    .put("bytes", params.get("bytes")))
+            }
+            val result = engine.evaluate("""
+                (()=>{const result=DiminaServiceBridge.invoke({type:'invokeAPI',target:'container',body:{bridgeId:'file-contract',
+                    name:'FileSystemManager.readFileSync',params:{encoding:undefined,length:undefined,explicitNull:null,
+                    array:[undefined,null],bytes:new Uint8Array([0,255,17]).buffer}}});
+                    return !result.encodingPresent&&!result.lengthPresent&&result.nullPresent&&result.arrayNulls&&
+                        result.bytes instanceof ArrayBuffer&&new Uint8Array(result.bytes).join(',')==='0,255,17';})()
+            """.trimIndent())
+            assertTrue("Undefined optional fields must stay absent across the actual JNI bridge: $result", result.booleanValue)
+        } finally { engine.destroy() }
+    }
     @Test
     fun binaryFileApisPreserveLargePayloadAndDescriptorRanges() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()

@@ -27,6 +27,7 @@
 		9E9F7EDCE127D18B2331A8DC /* DMPWebSocketManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23EDE52DA8E2C3DFF607829B /* DMPWebSocketManagerTests.swift */; };
 		A33500000000000000000001 /* DMPFileSystemCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A33500000000000000000002 /* DMPFileSystemCacheTests.swift */; };
 		A35200000000000000000001 /* DMPVideoDecoderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A35200000000000000000002 /* DMPVideoDecoderTests.swift */; };
+		A35200000000000000000201 /* DMPCanvasPacketTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A35200000000000000000202 /* DMPCanvasPacketTests.swift */; };
 		B41C7E52A0D34F0891C6D311 /* DMPServiceRenderOrderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B41C7E52A0D34F0891C6D310 /* DMPServiceRenderOrderTests.swift */; };
 		D3AF9DC58D4F29D8D2A8F71F /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2EAA9C0614F7638987B22EAC /* Foundation.framework */; };
 		E90FD67E791E4377923344EF /* DMPEngineTimerThreadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 898FFD601DB04AFEBBAAAE0A /* DMPEngineTimerThreadTests.swift */; };
@@ -69,6 +70,7 @@
 		9A1D30A12F12000100000002 /* DMPNavigatorCapsuleTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DMPNavigatorCapsuleTests.swift; sourceTree = "<group>"; };
 		A33500000000000000000002 /* DMPFileSystemCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DMPFileSystemCacheTests.swift; sourceTree = "<group>"; };
 		A35200000000000000000002 /* DMPVideoDecoderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DMPVideoDecoderTests.swift; sourceTree = "<group>"; };
+		A35200000000000000000202 /* DMPCanvasPacketTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DMPCanvasPacketTests.swift; sourceTree = "<group>"; };
 		AE429915A2BA3583BF99A758 /* DiminaKitTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DiminaKitTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		B41C7E52A0D34F0891C6D310 /* DMPServiceRenderOrderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DMPServiceRenderOrderTests.swift; sourceTree = "<group>"; };
 		FAB6B466B43575C7978B1BAD /* DMPWebSocketValidationTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DMPWebSocketValidationTests.swift; sourceTree = "<group>"; };
@@ -194,6 +196,7 @@
 				B41C7E52A0D34F0891C6D310 /* DMPServiceRenderOrderTests.swift */,
 				A33500000000000000000002 /* DMPFileSystemCacheTests.swift */,
 				A35200000000000000000002 /* DMPVideoDecoderTests.swift */,
+				A35200000000000000000202 /* DMPCanvasPacketTests.swift */,
 			);
 			path = DiminaKitTests;
 			sourceTree = "<group>";
@@ -393,6 +396,7 @@
 				B41C7E52A0D34F0891C6D311 /* DMPServiceRenderOrderTests.swift in Sources */,
 				A33500000000000000000001 /* DMPFileSystemCacheTests.swift in Sources */,
 				A35200000000000000000001 /* DMPVideoDecoderTests.swift in Sources */,
+				A35200000000000000000201 /* DMPCanvasPacketTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

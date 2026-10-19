@@ -61,6 +61,9 @@ public class DMPWebview: NSObject, WKNavigationDelegate, WKScriptMessageHandler,
     }
 
     private var webView: WKWebView
+    private var canvasChannel: DMPCanvasChannel!
+    var canvasBinaryReady: Bool { canvasChannel.isReady }
+    var canvasBinaryError: Error? { canvasChannel.error }
     private weak var delegate: DMPWebViewDelegate?
     internal var jsBridgeCallbacks: [String: (Any) -> Void] = [:]
     private var loadingStateObserver: LoadingStateObserver?
@@ -148,6 +151,7 @@ public class DMPWebview: NSObject, WKNavigationDelegate, WKScriptMessageHandler,
         self.appName = appName
 
         super.init()
+        canvasChannel = DMPCanvasChannel(view: webView)
 
         self.webView.navigationDelegate = self
 
@@ -280,11 +284,23 @@ public class DMPWebview: NSObject, WKNavigationDelegate, WKScriptMessageHandler,
     // Execute JavaScript code
     public func executeJavaScript(_ script: String, completionHandler: ((Any?, Error?) -> Void)? = nil) -> Void {
         if Thread.isMainThread {
-            webView.evaluateJavaScript(script, completionHandler: completionHandler)
+            canvasChannel.execute(script, completion: completionHandler)
         } else {
             DispatchQueue.main.async {
-                self.webView.evaluateJavaScript(script, completionHandler: completionHandler)
+                self.canvasChannel.execute(script, completion: completionHandler)
             }
+        }
+    }
+
+    func probeCanvasBinary() { canvasChannel.probe() }
+    func closeCanvasBinary() { canvasChannel.close() }
+    func executeCanvasPacket(_ data: Data, completion: @escaping (Any?, Error?) -> Void) {
+        DispatchQueue.main.async { self.canvasChannel.packet(data, completion: completion) }
+    }
+
+    func publishCanvasPacket(_ data: Data, admitted: @escaping (Error?) -> Void) {
+        canvasChannel.packet(data, admitted: admitted) { _, error in
+            if let error { DMPLogger.debug("Canvas publication failed: \(error)") }
         }
     }
 

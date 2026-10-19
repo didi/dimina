@@ -16,6 +16,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.didi.dimina.common.JavaScriptUtils
 import com.didi.dimina.common.LogUtils
+import com.didi.dimina.core.CanvasBinaryChannel
 import org.json.JSONObject
 
 /**
@@ -143,7 +144,8 @@ fun WebView.postMessage(
 }
 
 fun WebView.postMessage(msg: String, callback: ((String?) -> Unit)? = null) {
-    this.evaluateJavascript(JavaScriptUtils.invokeWithJson("DiminaRenderBridge.onMessage", msg), callback)
+    val script = JavaScriptUtils.invokeWithJson("DiminaRenderBridge.onMessage", msg)
+    if (!CanvasBinaryChannel.postMessage(this, script, callback)) this.evaluateJavascript(script, callback)
 }
 
 

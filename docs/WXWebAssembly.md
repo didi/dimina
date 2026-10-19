@@ -55,7 +55,8 @@ Wasm 内部的 `memory.grow` 同样会分离旧 buffer，包含增长后立即�
 
 | 平台 | 已验证内容 | 尚未验证或未通过的内容 |
 | --- | --- | --- |
-| Android / iOS | 模拟器中的真实 libpag 4.5.85、红色 PAG 像素、视频 PAG 多时间点绘制及动画推进 | 真机性能、编码和系统版本兼容性 |
+| Android | 模拟器中的真实 libpag 4.5.85、红色 PAG 像素、视频 PAG 多时间点绘制及动画推进；PLK110 / Android 16 真机：原生二进制纹理、异步上传后的同步读回、完整视频 PAG 三处进度的已呈现像素对照；Release 约 10 秒采样为 24.80 FPS | 长时间连续源帧、持续 25 FPS 与物理上屏帧率尚未验收；其他机型、编码和系统版本兼容性 |
+| iOS | 上述模拟器功能；iPhone 14 Pro / iOS 27.0.1 真机：WebGL1 / 2、着色器查询期间的画面保留、原生二进制纹理、上下文恢复、完整视频 PAG 三处进度的已呈现像素对照；最终实现约 10 秒采样为 24.90 FPS | 长时间连续源帧与物理上屏帧率尚未验收；其他机型、编码和系统版本兼容性 |
 | Harmony | Mate 60 Pro / HarmonyOS 6.1.1.120 真机：真实 libpag 4.5.85、48 MiB 扩容、红色 PAG 像素、16×16 RGBA 视频帧、seek / stop / restart / remove、视频 PAG 0% / 50% / 90% 像素与播放推进；2026-10-19 两轮各 180 秒采样为 24.998 / 24.999 FPS，每轮 4500 个源帧连续、时钟重置为 0；正常包功能与页面操作验证通过 | 尚未验证反馈者的畅享 90 Plus，也未测量物理上屏帧率；上述 FPS 为实际完成的 PAG flush |
 | Web | 浏览器中的 `.wasm` / `.wasm.br`、JS imports、内存扩容；真实 libpag 4.5.85 的 PAGInit、48 MiB 分配、红色 PAG 像素、视频 PAG 多进度绘制、seek 与动画推进 | 其他浏览器、显卡和编码组合尚需验证；依赖 OffscreenCanvas / Worker WebGL，视频另需 WebCodecs |
 
@@ -128,6 +129,18 @@ JSSDK 69 在 Harmony 增加私有硬件帧订阅，由 `OH_NativeVSync` 的真�
 2026-10-19 使用同机官方 `video.pag`（720×1080、25 FPS），保留正常页面每 250 ms 的进度更新，每轮预热 5 秒、连续测量 180 秒。两轮实际完成帧率为 24.997778 / 24.998889 FPS，每轮完成 4500 个连续源帧、没有源帧跳号，时钟重置为 0。该结果是运行时完成帧率；未测量物理上屏帧率。移除临时原生计数接口及分段采样钩子后的正常混淆包通过像素与功能检查，以及实际播放、暂停、重置、后台返回、继续播放、关闭和重新打开操作；关闭重开验证的是保留页面。Service 902 项、原生桥接与播放器 87 项、实际正常编译产物 67 项回归及 QuickJS Release / Debug 内存预算回归通过。硬件回调的投递、背压、旧代次过滤、停止，以及双缓冲的创建、转移和释放分别消融后，目标断言失败，恢复后通过。
 
 最终正常包与采样包的原生库及 JSSDK 69 逐字节一致，采样应用仅保留正常页面进度更新与实际完成计数，并在测量结束后显示结果，不含原生诊断计数接口。两轮各 60 秒复验为 25.000000 / 24.995834 FPS，每轮完成 1500 个连续源帧、没有源帧跳号或时钟重置，14 项功能检查通过。正常应用资源版本为 10072，不含采样模块。
+
+## Android / iOS Canvas 传输
+
+JSSDK 资源 73 与配套原生 SDK 将 Harmony 的 `rle32-v1` 编码器移到 `native/canvas` 共用。只在 Render 声明编码能力后使用 RLE，并在节省至少 25% 时采用；不可压缩数据保留全部原始字节。Android 使用经过握手的 WebMessage ArrayBuffer 端口，iOS 使用页面独占、只消费一次的本地二进制资源；像素不再嵌入 JavaScript 或 Base64 字符串。iOS 使用该资源通道是因为公开的 [WKWebView 异步脚本参数](https://developer.apple.com/documentation/webkit/wkwebview/callasyncjavascript(_:arguments:in:in:completionhandler:))不接受 Data。Android 按 [WebMessageCompat 的能力检查要求](https://developer.android.com/reference/androidx/webkit/WebMessageCompat)探测 ArrayBuffer 支持。
+
+脚本、异步纹理上传和后续查询保持 FIFO。查询仍返回真实 WebGL 结果，等待只发生在 Service 线程；UI 线程继续处理 WebView 和回包。异步上传窗口达到 32 项或 8 MiB 时，Service 等待执行确认再继续提交；总预算仍为 256 项及 64 MiB。页面关闭或复用会释放待处理数据并过滤旧代次；已提交的二进制操作出错后返回错误，不回退重放。旧 Render、缺少系统能力或握手失败时保留原有通道。Android 还要求 Render 明确声明确认回包能力，防止旧版通道因缺少确认而超时。Android / iOS 的帧订阅仍由浏览器 RAF 驱动。
+
+2026-10-19 使用随包真实 libpag 4.5.85 与官方 `video.pag`（720×1080、25 FPS），每组预热 2 秒、测量约 10 秒。对照在相同视频解码优化及播放器上关闭 `encodeCanvasArrayBuffer`，其余实现保持一致，因此该数据衡量纹理编码与交付路径的收益，不是两个发布版本的整体对比。iPhone 14 Pro / iOS 27.0.1 的 Release 优化测试包关闭诊断日志，最终对照为 1.35 → 24.90 FPS。PLK110 / Android 16 的两轮 Release 对照为 2.49 → 24.80、2.30 → 24.80 FPS；此前 Debug 测试包的三轮对照为 1.51 → 6.90、1.50 → 7.50、1.56 → 7.80 FPS，不能用来代表 Release 性能。两端每轮三处进度的已呈现画布像素哈希均与各自对照一致，且有非透明内容，另保留了 iPhone 真机画面截图。上述帧率是成功完成的 `PAG.flush`，尚未验证长期连续源帧、持续 25 FPS 或物理上屏帧率。
+
+Service 902 项、Render 332 项、共用原生编码及序列化 17 项、Android Debug / Release 各 359 项单元测试及各 6 项真机测试、iOS 所选原生及 WebGL 回归、iOS 独立包资源检查通过，共用编码器通过 Address Sanitizer。真机回归覆盖可压缩及不可压缩纹理、提交后修改源数据、异步上传后的大块及小块读回、WebGL1 / 2、上下文恢复及页面资源归属。两端延迟交付后连续提交 512 次上传的用例在加入背压前均因队列预算耗尽失败，修复后通过。Android 禁用二进制载荷选择后，同一用例在 `binary` 断言失败，像素仍正确；iOS 为资源交付增加可控延迟并禁用 FIFO 后，在 `ordered` 断言失败，恢复 FIFO 后通过。Android 还修复了 JNI 将未提供的对象字段转换为 null 的问题：保留 JSON 的缺省字段语义，数组中的空值和显式 null 保持原样；否则默认文件读取会变成文本或零字节，导致 PAG 加载失败。真实 JNI 用例在旧实现的缺省字段断言处失败，修复后通过。
+
+## Web Canvas 与视频
 
 Web 的 `<canvas type="webgl">` 节点通过 OffscreenCanvas 将绘制权交给逻辑 Worker，WebGL 查询、资源创建和像素读取由浏览器同步执行。通过 `createSelectorQuery().fields({ node: true })` 获取节点；传递在 selector 回调之前完成，同一节点重复查询返回同一对象。页面卸载释放 Worker 的 Canvas 和视频解码资源。`wx.createOffscreenCanvas` 在支持该能力的 Web Worker 中也使用浏览器画布。
 

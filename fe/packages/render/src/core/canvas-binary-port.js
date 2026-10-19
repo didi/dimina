@@ -107,12 +107,14 @@ export class CanvasBinaryPort {
 			const packet = this.read(data)
 			command = packet.command
 			if (command.type === 'script') {
+				if (command.ack === true) id = this.requestId(command.requestId)
 				this.target.eval(command.script)
+				if (id) this.reply(id, 'null')
 				return
 			}
 			id = this.requestId(command.requestId)
 			if (command.type !== 'legacy') body = this.restore(command.body, packet.buffers)
-			if (command.type === 'canvas') {
+			if (command.type === 'canvas' || (command.type === 'publish' && command.ack === true)) {
 				if (!Number.isSafeInteger(command.deadline)) throw Error('invalid canvas deadline')
 				if (Date.now() >= command.deadline) { this.reply(id, '', 'canvas query timed out'); return }
 			}
@@ -121,6 +123,7 @@ export class CanvasBinaryPort {
 		try {
 			if (command.type === 'publish') {
 				this.target.DiminaRenderBridge.onMessage(body)
+				if (command.ack === true) this.reply(id, 'null')
 				return
 			}
 			const result = command.type === 'legacy' ? this.target.eval(command.script) : JSON.stringify(this.flush(body))

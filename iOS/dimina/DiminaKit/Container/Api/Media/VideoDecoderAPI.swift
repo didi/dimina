@@ -1,4 +1,5 @@
 import AVFoundation
+import Accelerate
 import Foundation
 
 final class VideoDecoderAPI: DMPContainerApi {
@@ -68,6 +69,34 @@ private struct VideoDecoderError: LocalizedError {
     let message: String
     init(_ message: String) { self.message = message }
     var errorDescription: String? { message }
+}
+
+enum VideoFramePixels {
+    static func rgba(from image: CVPixelBuffer) throws -> Data {
+        let width = CVPixelBufferGetWidth(image), height = CVPixelBufferGetHeight(image)
+        guard width > 0, height > 0, width <= 4096, height <= 4096, width * height <= 2_097_152 else {
+            throw VideoDecoderError("video frame exceeds pixel budget")
+        }
+        guard CVPixelBufferGetPixelFormatType(image) == kCVPixelFormatType_32BGRA,
+              CVPixelBufferLockBaseAddress(image, .readOnly) == kCVReturnSuccess else {
+            throw VideoDecoderError("cannot read decoded pixels")
+        }
+        defer { CVPixelBufferUnlockBaseAddress(image, .readOnly) }
+        guard let base = CVPixelBufferGetBaseAddress(image) else { throw VideoDecoderError("missing decoded pixels") }
+        var rgba = Data(count: width * height * 4)
+        let error = rgba.withUnsafeMutableBytes { bytes -> vImage_Error in
+            var source = vImage_Buffer(data: base, height: vImagePixelCount(height), width: vImagePixelCount(width),
+                                       rowBytes: CVPixelBufferGetBytesPerRow(image))
+            var destination = vImage_Buffer(data: bytes.baseAddress!, height: vImagePixelCount(height),
+                                            width: vImagePixelCount(width), rowBytes: width * 4)
+            // Byte permutation preserves alpha and all channel values, including
+            // padded source rows; vImage supplies the platform SIMD implementation.
+            let channels: [UInt8] = [2, 1, 0, 3]
+            return vImagePermuteChannels_ARGB8888(&source, &destination, channels, vImage_Flags(kvImageNoFlags))
+        }
+        guard error == kvImageNoError else { throw VideoDecoderError("cannot convert decoded pixels: \(error)") }
+        return rgba
+    }
 }
 
 enum VideoDecoderStore {
@@ -254,25 +283,13 @@ fileprivate final class VideoDecoderSession {
         do {
             guard let image = CMSampleBufferGetImageBuffer(sample) else { throw VideoDecoderError("missing decoded frame") }
             let width = CVPixelBufferGetWidth(image), height = CVPixelBufferGetHeight(image)
-            guard width > 0, height > 0, width <= 4096, height <= 4096, width * height <= 2_097_152 else { throw VideoDecoderError("video frame exceeds pixel budget") }
-            guard CVPixelBufferLockBaseAddress(image, .readOnly) == kCVReturnSuccess else { throw VideoDecoderError("cannot read decoded frame") }
-            defer { CVPixelBufferUnlockBaseAddress(image, .readOnly) }
-            guard let base = CVPixelBufferGetBaseAddress(image) else { throw VideoDecoderError("missing decoded pixels") }
-            let stride = CVPixelBufferGetBytesPerRow(image)
-            var rgba = Data(count: width * height * 4)
-            rgba.withUnsafeMutableBytes { raw in
-                let destination = raw.bindMemory(to: UInt8.self)
-                let source = base.assumingMemoryBound(to: UInt8.self)
-                for y in 0..<height { for x in 0..<width {
-                    let s = y * stride + x * 4, d = (y * width + x) * 4
-                    destination[d] = source[s + 2]; destination[d + 1] = source[s + 1]
-                    destination[d + 2] = source[s]; destination[d + 3] = source[s + 3]
-                } }
-            }
+            let rgba = try VideoFramePixels.rgba(from: image)
             let pts = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sample)) * 1_000_000
             let decodeTime = CMSampleBufferGetDecodeTimeStamp(sample)
+            // The owning JS thread converts Data through DMPBinaryBridge. Keep
+            // pixels as bytes instead of encoding and decoding every frame.
             var frame: [String: Any] = ["width": width, "height": height, "pts": pts, "pkPts": pts,
-                "data": ["__diminaArrayBufferBase64": rgba.base64EncodedString()]]
+                "data": rgba]
             if decodeTime.isNumeric {
                 let dts = CMTimeGetSeconds(decodeTime) * 1_000_000
                 frame["dts"] = dts; frame["pkDts"] = dts

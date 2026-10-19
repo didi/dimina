@@ -65,6 +65,11 @@ class JsCore {
         return jsEngine.evaluate(script)
     }
 
+    internal fun setCanvasBinaryReady(page: String, ready: Boolean) = jsEngine.setCanvasBinaryReady(page, ready)
+    internal fun isCanvasBinaryReady(page: String): Boolean = jsEngine.isCanvasBinaryReady(page)
+    internal fun canvasPublish(id: String, callback: (JSONObject, Long, (String?) -> Unit) -> Unit) = jsEngine.setCanvasPublishCallback(id, callback)
+    internal fun removeCanvasPublish(id: String, callback: (JSONObject, Long, (String?) -> Unit) -> Unit) = jsEngine.removeCanvasPublishCallback(id, callback)
+
     fun evaluateFromFile(scriptPath: String): JSValue {
         if (!isInitialized()) {
             return JSValue.createError("Engine not initialized")

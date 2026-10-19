@@ -313,6 +313,7 @@ class QuickJSEngine {
      * Release the QuickJS runtime and context
      */
     fun destroy() {
+        canvasBinaryPages.clear()
         Log.d(tag, "Destroying QuickJS engine (instance ID: $instanceId)")
 
         // Signal the thread to stop
@@ -362,6 +363,52 @@ class QuickJSEngine {
      * Callbacks for invoke and publish methods
      */
     private val invokeCallbacks = mutableMapOf<String, (JSONObject) -> JSValue?>()
+    private val canvasBinaryPages = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val canvasPublishCallbacks = java.util.concurrent.ConcurrentHashMap<String, (JSONObject, Long, (String?) -> Unit) -> Unit>()
+    fun setCanvasPublishCallback(id: String, callback: (JSONObject, Long, (String?) -> Unit) -> Unit) {
+        canvasPublishCallbacks[id] = callback
+    }
+    fun removeCanvasPublishCallback(id: String, callback: (JSONObject, Long, (String?) -> Unit) -> Unit) {
+        canvasPublishCallbacks.remove(id, callback)
+    }
+    fun setCanvasBinaryReady(page: String, ready: Boolean) {
+        if (ready) canvasBinaryPages.add(page) else canvasBinaryPages.remove(page)
+    }
+    @Suppress("unused")
+    fun isCanvasBinaryReady(page: String): Boolean = canvasBinaryPages.contains(page)
+
+    @Suppress("unused")
+    fun invokeCanvasFromJS(json: String, buffers: Array<ByteArray>): JSValue? {
+        val message = JSONObject(json)
+        message.getJSONObject("body").put("__diminaCanvasBuffers", buffers)
+        return invokeFromJS(message)
+    }
+
+    @Suppress("unused")
+    fun publishCanvasFromJS(id: String, json: String, buffers: Array<ByteArray>) {
+        val message = JSONObject(json)
+        message.getJSONObject("body").put("__diminaCanvasBuffers", buffers)
+        val handler = canvasPublishCallbacks[id]
+        if (handler == null) { mainHandler.post { publishCallbacks[id]?.invoke(message) }; return }
+        val done = CountDownLatch(1)
+        val settled = java.util.concurrent.atomic.AtomicBoolean(false)
+        var failure: String? = null
+        val deadline = System.currentTimeMillis() + 4500
+        val complete: (String?) -> Unit = { error ->
+            if (settled.compareAndSet(false, true)) { failure = error; done.countDown() }
+        }
+        mainHandler.post {
+            if (!settled.get()) {
+                try { handler(message, deadline, complete) }
+                catch (error: Exception) { complete(error.message ?: "Canvas publication failed") }
+            }
+        }
+        if (!done.await(5, TimeUnit.SECONDS)) {
+            settled.set(true)
+            throw IllegalStateException("Canvas publication admission timed out")
+        }
+        failure?.let { throw IllegalStateException(it) }
+    }
     private val publishCallbacks = mutableMapOf<String, (JSONObject) -> Unit>()
 
     fun setInvokeCallback(id: String, callback: (JSONObject) -> JSValue?) {
@@ -386,6 +433,7 @@ class QuickJSEngine {
 
     fun clearPublishCallbacks() {
         publishCallbacks.clear()
+        canvasPublishCallbacks.clear()
     }
 
     @Suppress("unused")

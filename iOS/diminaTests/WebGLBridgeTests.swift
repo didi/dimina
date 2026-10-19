@@ -198,6 +198,78 @@ extension DMPUIIntegrationTests {
             ], "\(report)")
             print("WEBGL_REPORT=\(report)")
 
+            let binaryDeadline = Date().addingTimeInterval(5)
+            while !view.canvasBinaryReady && Date() < binaryDeadline { await Task.yield() }
+            #expect(view.canvasBinaryReady, "The real WebKit resource handshake must enable binary Canvas")
+            // Model a slow binary resource. Later legacy queries must wait for
+            // the upload even when WebKit can execute their scripts sooner.
+            _ = try await webView.callAsyncJavaScript("""
+                const receive=globalThis.__diminaCanvasResource;
+                globalThis.__undelayedCanvasResource=receive;
+                const delayed=async url=>{await new Promise(resolve=>setTimeout(resolve,100));return receive(url)};
+                delayed.cancel=()=>receive.cancel();globalThis.__diminaCanvasResource=delayed;return true;
+                """, arguments: [:], in: nil, in: .page)
+            let binary = try await evaluate(service, """
+                const pixels = new Uint8Array(256 * 256 * 4); pixels.fill(255);
+                const descriptor = DiminaServiceBridge.encodeCanvasArrayBuffer(pixels.buffer, \(view.getWebViewId()));
+                const gl = globalThis.__webgl;
+                gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+                gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+                const texture = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, texture);
+                const framebuffer = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+                gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
+                let exact = true, ordered = true;
+                for (let round = 0; round < 3; round++) {
+                    for (let i = 0; i < pixels.length; i += 4) {
+                        pixels[i] = round === 0 ? 255 : (i * 37 + round) & 255;
+                        pixels[i+1] = round === 0 ? 255 : (i * 13 + 9) & 255;
+                        pixels[i+2] = round === 0 ? 255 : (i * 7 + 11) & 255;
+                        pixels[i+3] = 255;
+                    }
+                    const expected = pixels.slice();
+                    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 256, 256, 0, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+                    if (round === 2) {
+                        gl.canvas.flushOperations();
+                        const first = new Uint8Array(4);
+                        gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, first);
+                        ordered = first.every((byte, index) => byte === expected[index]);
+                    }
+                    pixels.fill(17);
+                    const output = new Uint8Array(expected.length);
+                    gl.readPixels(0, 0, 256, 256, gl.RGBA, gl.UNSIGNED_BYTE, output);
+                    exact = exact && output.every((byte, index) => byte === expected[index]);
+                }
+                gl.deleteFramebuffer(framebuffer); gl.deleteTexture(texture);
+                return {binary: descriptor.packed instanceof ArrayBuffer, compressed: descriptor.encoding === 'rle32-v1',
+                    packedBytes: descriptor.packed?.byteLength, exact, ordered, error: gl.getError()};
+                """)
+            #expect(binary["binary"] as? Bool == true, "\(binary)")
+            #expect(binary["compressed"] as? Bool == true)
+            #expect(binary["exact"] as? Bool == true, "\(binary)")
+            #expect(binary["ordered"] as? Bool == true, "\(binary)")
+            #expect(binary["error"] as? Int == 0, "\(binary)")
+            print("WEBGL_BINARY_REPORT=\(binary)")
+
+            _ = try await webView.callAsyncJavaScript("""
+                const receive=globalThis.__undelayedCanvasResource;
+                const delayed=async url=>{await new Promise(resolve=>setTimeout(resolve,5));return receive(url)};
+                delayed.cancel=()=>receive.cancel();globalThis.__diminaCanvasResource=delayed;return true;
+                """, arguments: [:], in: nil, in: .page)
+            let pressure = try await evaluate(service, """
+                const gl=globalThis.__webgl, buffer=gl.createBuffer();
+                gl.bindBuffer(gl.ARRAY_BUFFER,buffer);
+                for(let i=0;i<512;i++){
+                    gl.bufferData(gl.ARRAY_BUFFER,new Uint8Array(1024).fill(i&255),gl.DYNAMIC_DRAW);
+                    gl.canvas.flushOperations();
+                }
+                const size=gl.getBufferParameter(gl.ARRAY_BUFFER,gl.BUFFER_SIZE);
+                gl.deleteBuffer(buffer);return {size,errorCode:gl.getError()};
+                """)
+            try #require(pressure["error"] == nil, "Delayed uploads must apply backpressure without dropping commands: \(pressure)")
+            #expect(pressure["size"] as? Int == 1024, "\(pressure)")
+            #expect(pressure["errorCode"] as? Int == 0, "\(pressure)")
+            _ = try await webView.callAsyncJavaScript("globalThis.__diminaCanvasResource=globalThis.__undelayedCanvasResource;return true", arguments: [:], in: nil, in: .page)
+
             // Explicit context loss uses the real WebKit extension. Wait for Service's
             // forwarded restored event instead of guessing how many frames it takes.
             let events = await withCheckedContinuation { continuation in
@@ -230,6 +302,128 @@ extension DMPUIIntegrationTests {
             let json = try #require(result?.toString())
             return try #require(JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any])
         }
+
+        @Test func bundledVideoPAGCanvasTransportComparison() async throws {
+            let fixture = "wxbaf4b47de04f1d8a"
+            let owner = "pag-canvas-\(UUID().uuidString)"
+            DMPResourceManager.prepareSdk()
+            let resources = try #require(DMPResourceManager.jsappBundle?.resourcePath)
+            let archive = (resources as NSString).appendingPathComponent("\(fixture)/\(fixture).zip")
+            #expect(DMPSandboxManager.initBundleDirectoryForApp(appId: owner))
+            #expect(DMPFileUtil.unzipFile(at: archive, to: DMPSandboxManager.appBundlePath(owner)))
+            defer {
+                VideoDecoderStore.dispose(owner: owner)
+                try? FileManager.default.removeItem(atPath: DMPSandboxManager.appBundlePath(owner))
+            }
+            let app = DMPApp(appConfig: DMPAppConfig(appName: "PAG Canvas benchmark", appId: owner), appIndex: -1)
+            app.container = DMPContainer(app: app)
+            _ = FileAPI(app: app)
+            _ = VideoDecoderAPI(app: app)
+            let service = DMPService(app: app), render = DMPRender(app: app)
+            app.service = service; app.render = render
+            let view = render.createWebView(appName: "PAG Canvas benchmark")
+            render.setupJSBridge(webViewId: view.getWebViewId())
+            let webView = view.getWebView()
+            let scene = try #require(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+            let window = UIWindow(windowScene: scene), controller = UIViewController()
+            window.rootViewController = controller; window.windowLevel = .alert + 2; window.isHidden = false
+            webView.frame = controller.view.bounds; controller.view.addSubview(webView)
+            let idleTimer = UIApplication.shared.isIdleTimerDisabled
+            UIApplication.shared.isIdleTimerDisabled = true
+            defer {
+                UIApplication.shared.isIdleTimerDisabled = idleTimer
+                window.isHidden = true; webView.removeFromSuperview()
+                render.releaseWebView(view); service.destroy()
+                app.service = nil; app.render = nil
+            }
+            let navigation = NavigationReady()
+            webView.navigationDelegate = navigation
+            try await navigation.load(view)
+            webView.navigationDelegate = view
+            await service.loadFile(path: DMPSandboxManager.sdkServicePath())
+            let libraryPath = (DMPSandboxManager.appBundlePath(owner) as NSString).appendingPathComponent("miniprogram_npm/libpag-miniprogram/index.js")
+            let library = try String(contentsOfFile: libraryPath, encoding: .utf8)
+            await service.evaluateScript("modDefine('pag-benchmark', function(require,module,exports){\(library)\n});modDefine('game',function(){});")
+            await service.postMessage(data: DMPMap(["type": "loadResource", "body": [
+                "appId": owner, "bridgeId": view.getWebViewId(), "pagePath": "game", "runtimeType": "game",
+                "hostEnv": ["systemInfo": ["windowWidth": 720, "windowHeight": 1080, "pixelRatio": 1]]
+            ]]))
+            let finished = XCTestExpectation(description: "actual video PAG playback")
+            var report = ""
+            service.getEngine().registerMethod(name: "__pagCanvasReport") { value in
+                report = value.toString() ?? ""; finished.fulfill(); return nil
+            }
+            service.getEngine().registerMethod(name: "__pagPresentedPixels") { _ in
+                let done = DispatchSemaphore(value: 0)
+                var result: Any = ["error": "Presented Canvas unavailable"]
+                DispatchQueue.main.async {
+                    view.executeJavaScript(Self.presentedPixels) { value, error in
+                        result = value ?? ["error": error?.localizedDescription ?? "Pixel readback failed"]
+                        done.signal()
+                    }
+                }
+                guard done.wait(timeout: .now() + 5) == .success else { return ["error": "Pixel readback timed out"] }
+                return result
+            }
+            service.getEngine().enqueueScript("""
+                (async()=>{
+                    const report={samples:[],pixels:[]}, encode=DiminaServiceBridge.encodeCanvasArrayBuffer;
+                    let file, view;
+                    try {
+                        const PAG=await modRequire('pag-benchmark').PAGInit({locateFile:name=>'/pages/libpag/assets/'+name});
+                        const input=wx.getFileSystemManager().readFileSync('/pages/libpag/assets/video.pag');
+                        report.input={type:Object.prototype.toString.call(input),bytes:input?.byteLength,magic:Array.from(new Uint8Array(input).subarray(0,4))};
+                        file=await PAG.PAGFile.load(input);
+                        report.source={width:file.width(),height:file.height(),duration:file.duration(),fps:file.frameRate()};
+                        const canvas=wx.createCanvas();canvas.width=file.width();canvas.height=file.height();
+                        for(const mode of ['base64','native']){
+                            DiminaServiceBridge.encodeCanvasArrayBuffer=mode==='base64'?undefined:encode;
+                            view=await PAG.PAGView.init(file,canvas,{firstFrame:false});view.setRepeatCount(0);
+                            const hashes=[];
+                            for(const progress of [0,0.5,0.9]){
+                                view.setProgress(progress);await view.flush();
+                                if(canvas.getContext('webgl').getError()!==0)throw Error('PAG flush GL error');
+                                const pixels=__pagPresentedPixels(null);
+                                if(pixels.error)throw Error(pixels.error);
+                                hashes.push(pixels);
+                            }
+                            report.pixels.push(hashes);
+                            if(!hashes.some(value=>value.alpha>0))throw Error('PAG checkpoints are all transparent');
+                            view.setProgress(0);
+                            let frames=0,measuring=false,maxFlush=0;
+                            const flush=view.flush.bind(view);
+                            view.flush=async function(){const start=Date.now(),result=await flush();if(measuring&&result){frames++;maxFlush=Math.max(maxFlush,Date.now()-start)}return result};
+                            await view.play();await new Promise(resolve=>setTimeout(resolve,2000));
+                            measuring=true;const start=Date.now();await new Promise(resolve=>setTimeout(resolve,10000));
+                            const elapsedMs=Date.now()-start;measuring=false;await view.pause();
+                            report.samples.push({mode,frames,elapsedMs,fps:frames*1000/elapsedMs,maxFlush,debug:view.getDebugData()});
+                            await view.destroy();view=null;
+                        }
+                    }catch(error){report.error=String(error)+'\\n'+String(error?.stack||'')}
+                    finally{DiminaServiceBridge.encodeCanvasArrayBuffer=encode;try{if(view)await view.destroy();if(file)file.destroy()}catch(e){}__pagCanvasReport(JSON.stringify(report))}
+                })();
+                """)
+            let status = await XCTWaiter.fulfillment(of: [finished], timeout: 150)
+            try #require(status == .completed)
+            print("PAG_CANVAS_REPORT=\(report)")
+            let result = try #require(JSONSerialization.jsonObject(with: Data(report.utf8)) as? [String: Any])
+            #expect(result["error"] == nil, "\(report)")
+            let pixels = try #require(result["pixels"] as? NSArray)
+            #expect(pixels.count == 2)
+            if pixels.count == 2 { #expect(pixels[0] as? NSArray == pixels[1] as? NSArray, "\(report)") }
+            #expect(view.canvasBinaryReady)
+            let image = try await webView.takeSnapshot(configuration: nil)
+            let path = FileManager.default.temporaryDirectory.appendingPathComponent("video-pag-canvas-binary.png")
+            try #require(image.pngData()).write(to: path)
+            print("PAG_CANVAS_SCREENSHOT=\(path.path)")
+        }
+
+        private static let presentedPixels = """
+            (()=>{const canvas=document.querySelector('canvas[data-dimina-game-canvas]');if(!canvas)return {error:'visible game canvas missing'};
+            const pixels=canvas.getContext('2d').getImageData(0,0,canvas.width,canvas.height).data;
+            let hash=2166136261,alpha=0;for(let i=0;i<pixels.length;i++){hash=Math.imul(hash^pixels[i],16777619);if(i%4===3)alpha+=pixels[i]}
+            return {hash:hash>>>0,alpha}})()
+            """
 
         private static let queryAndDraw = """
         const canvas = wx.createCanvas(); canvas.width = 256; canvas.height = 256;

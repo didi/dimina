@@ -26,6 +26,19 @@ function harness() {
 }
 
 describe('native Canvas binary wire protocol', () => {
+	it('acknowledges native scripts and publications only after execution', () => {
+		const f = harness()
+		f.channel.receive(JSON.stringify({ type: 'script', script: 'before', ack: true, requestId: 'page:1' }))
+		f.channel.receive(packet('publish', 2, {}, [], { ack: true }))
+		expect(f.order).toEqual(['before', 'publish'])
+		expect(f.replies).toEqual(['ready\npage', 'page:1\nnull', 'page:2\nnull'])
+	})
+	it('rejects expired acknowledged publications before executing them', () => {
+		const f = harness()
+		f.channel.receive(packet('publish', 1, {}, [], { ack: true, deadline: Date.now() - 1 }))
+		expect(f.target.DiminaRenderBridge.onMessage).not.toHaveBeenCalled()
+		expect(f.replies[1]).toBe('!page:1\ncanvas query timed out')
+	})
 	it('keeps script, async byte publication and real query feedback in one FIFO', () => {
 		const f = harness(), bytes = new Uint8Array([0, 255, 128, 17])
 		expect(f.replies).toEqual(['ready\npage'])

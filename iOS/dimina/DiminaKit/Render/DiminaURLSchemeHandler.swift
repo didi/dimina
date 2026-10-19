@@ -98,6 +98,7 @@ enum DMPWebResourceLoader {
 @available(iOS 11.0, *)
 class DiminaURLSchemeHandler: NSObject, WKURLSchemeHandler {
     private let appId: String
+    let canvasResources = DMPCanvasResources()
     
     init(appId: String) {
         self.appId = appId
@@ -110,6 +111,15 @@ class DiminaURLSchemeHandler: NSObject, WKURLSchemeHandler {
             return
         }
         
+        if url.scheme == "dimina", url.host == nil, url.path.hasPrefix("/__canvas_packet/") {
+            guard let data = canvasResources.take(url, for: webView) else {
+                urlSchemeTask.didFailWithError(NSError(domain: "Canvas packet expired or unavailable", code: 404)); return
+            }
+            urlSchemeTask.didReceive(URLResponse(url: url, mimeType: "application/octet-stream", expectedContentLength: data.count, textEncodingName: nil))
+            urlSchemeTask.didReceive(data)
+            urlSchemeTask.didFinish()
+            return
+        }
         guard let path = resolvePath(for: url) else {
             urlSchemeTask.didFailWithError(NSError(
                 domain: "DiminaErrorDomain",

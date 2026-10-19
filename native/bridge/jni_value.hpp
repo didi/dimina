@@ -118,6 +118,9 @@ inline jobject toJava(JNIEnv *env, const Value &value) {
             };
             for (const auto &item : value.array) append(nullptr, item);
             for (const auto &entry : value.object) {
+                // JSONObject cannot represent undefined. Match the legacy JSON
+                // contract: omit object fields, while array holes stay null.
+                if (entry.second.kind == Value::Undefined) continue;
                 auto key = env->NewString(reinterpret_cast<const jchar *>(entry.first.data()), entry.first.size());
                 append(key, entry.second); env->DeleteLocalRef(key);
             }

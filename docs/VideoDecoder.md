@@ -33,9 +33,24 @@ Harmony 在创建解码器前检查视频尺寸和 NV12 输出能力，优先使
 
 Harmony 的新版原生 SDK 直接在所属逻辑线程创建帧的 `ArrayBuffer`，避免逐帧经过 Worker、JSON 和 Base64 转换；解码器控制仍异步执行，取帧不等待系统解码。需要同步更新 Service 与原生 SDK 才能使用此路径；旧容器继续使用兼容的取帧通道。
 
+Android、iOS 的新版原生 SDK 也以二进制交付视频帧：Android 将独立的 RGBA `ByteArray` 通过原生值桥接转为 `ArrayBuffer`，iOS 将 RGBA `Data` 在所属 JS 线程转为 `ArrayBuffer`。两端均省去像素的 Base64 编解码，Android 同时省去帧结果的 JSON 字符串序列化。需配套支持二进制帧的 Service；旧原生容器的 Base64 返回格式仍由 Service 兼容。
+
+Android 的 YUV 转换复用平面步幅和相邻像素的色度计算，保留裁切、BT.601 / BT.709、全范围 / 有限范围的原有字节结果；iOS 使用 Accelerate 交换 BGRA 通道，正确处理源行填充并保留 alpha。解码器仍最多预取两帧，已返回的缓冲区在后续取帧、seek、stop 和 remove 后保持独立有效。
+
 支持 `on` / `off` 多监听及 `start`、`stop`、`seek`、`ended` 事件。`ended` 在最后一帧取出后、下一次取帧时触发一次；`seek` 或重新 `start` 后可再次触发。暂不发送 `bufferchange`。原生解码器内部最多预取两帧；Web 在两帧就绪后暂停提交输入，浏览器解码重排和异步像素复制合计最多保留八个输出帧。每个小程序最多保留四个解码器；单帧不超过 2,097,152 像素，单边不超过 4096。超过限制会报错，不会隐式缩放。`remove` 立即使对象失效，未完成的控制操作不能恢复该对象。小程序销毁或重启时资源也会释放；Web 页面卸载也会移除所属解码器。
 
 `stop()` 可以取消尚未完成的 `start()`，被取消的 Promise 会拒绝；旧控制回复不会恢复播放状态。停止完成后可以重新 `start()`。iOS 的停止和移除操作会取消正在进行的远程下载。
+
+## Android / iOS 取帧验证
+
+2026-10-19，同机对照使用 H.264、720×1080、120 帧、`mode: 1`，前 8 帧预热。下表是解码、RGBA 转换和交付 JS `ArrayBuffer` 的取帧吞吐，包含测试驱动开销，不是完整 PAG 播放或物理上屏帧率。
+
+| 真机 | 旧路径 | 二进制交付及像素转换优化后 |
+| --- | --- | --- |
+| PLK110 / Android 16 | 约 7.62 FPS | 两轮约 28.74 / 28.54 FPS |
+| iPhone 14 Pro / iOS 27.0.1 | 两轮约 3.66 / 3.50 FPS | 两轮约 273.84 / 255.71 FPS |
+
+Android 用真实 MediaCodec 和 QuickJS 原生桥；iOS 用真实 AVAssetReader、JavaScriptCore 和随包 Service SDK，两组均为 Release 优化、启用测试所需的 DEBUG 编译条件，每帧在 JS 任务间让出 2 ms。iOS 用同一解码器 seek 后测量第二轮，检查返回缓冲区在 stop / remove 后仍有效。移除二进制交付的旧路径在原生字节类型断言处失败，恢复后通过。Android 的 359 项单元测试、2 项真机回归、Service 的 11 项视频接口回归，以及 iOS 真机 7 项 XCTest 和 4 组像素校验通过；iOS 像素转换另通过独立主机 Address Sanitizer 检查。其他机型、编码及完整 PAG 场景的持续播放性能需分别验证。
 
 ## Web 支持范围
 

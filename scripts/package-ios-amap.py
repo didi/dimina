@@ -86,7 +86,7 @@ def package(version, output, cache):
                         ignore=shutil.ignore_patterns(".DS_Store"))
         # The manifest's native targets and their relative includes must remain
         # inside the standalone package, along with the upstream license files.
-        for relative in ("third_party/wamr", "native/wasm"):
+        for relative in ("third_party/wamr", "native/wasm", "native/canvas"):
             shutil.copytree(ROOT / relative, package_root / relative,
                             ignore=shutil.ignore_patterns(".DS_Store", ".build", ".swiftpm"))
         shutil.copy(ROOT / "iOS/MapAMap/README.md", package_root / "README.md")

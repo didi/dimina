@@ -1,5 +1,8 @@
 import AVFoundation
+import JavaScriptCore
 import Network
+import Testing
+import UIKit
 import XCTest
 @testable import dimina
 
@@ -63,13 +66,17 @@ final class DMPVideoDecoderTests: XCTestCase {
         XCTAssertEqual(metadata.getInt(key: "width"), 16)
         XCTAssertEqual(metadata.getInt(key: "height"), 16)
         let first = try nextFrame()
-        let encoded = try XCTUnwrap((first["data"] as? [String: String])?["__diminaArrayBufferBase64"])
-        let pixels = try XCTUnwrap(Data(base64Encoded: encoded))
+        let pixels = try XCTUnwrap(first["data"] as? Data, "Video frames must reach the bridge as owned bytes, without Base64")
         XCTAssertEqual(pixels.count, 16 * 16 * 4)
         XCTAssertGreaterThan(pixels[0], 200) // The first encoded frame is red; verify BGRA -> RGBA.
         XCTAssertLessThan(pixels[1], 40)
         XCTAssertLessThan(pixels[2], 40)
         XCTAssertEqual(pixels[3], 255)
+        let context = try XCTUnwrap(JSContext())
+        context.setObject(DMPBridgeParam.from(rawValue: first).getJSValue(context: context), forKeyedSubscript: "frame" as NSString)
+        XCTAssertTrue(context.evaluateScript("frame.data instanceof ArrayBuffer && frame.data.byteLength === 1024")!.toBool())
+        context.evaluateScript("new Uint8Array(frame.data)[0] = 17")
+        XCTAssertGreaterThan(pixels[0], 200, "JS mutation must not change the native frame")
 
         _ = control(api.seek, ["position": 500])
         let sought = try nextFrame()
@@ -89,6 +96,8 @@ final class DMPVideoDecoderTests: XCTestCase {
         XCTAssertNil(frame()["data"])
         _ = control(api.remove)
         XCTAssertTrue(frame().isEmpty)
+        XCTAssertEqual(context.evaluateScript("new Uint8Array(frame.data)[0]")!.toInt32(), 17,
+                       "The returned ArrayBuffer must survive seek, stop, and removal")
     }
 
     func testHTTPVideoDecodesSeeksAndReleasesDownloadedSources() throws {
@@ -133,8 +142,7 @@ final class DMPVideoDecoderTests: XCTestCase {
         }
         control(api.start, ["source": server.url.absoluteString, "mode": 1])
         let first = try nextFrame()
-        let encoded = try XCTUnwrap((first["data"] as? [String: String])?["__diminaArrayBufferBase64"])
-        let pixels = try XCTUnwrap(Data(base64Encoded: encoded))
+        let pixels = try XCTUnwrap(first["data"] as? Data)
         XCTAssertEqual(pixels.count, 16 * 16 * 4)
         XCTAssertGreaterThan(pixels[0], 200)
         XCTAssertLessThan(pixels[1], 40)
@@ -246,42 +254,147 @@ final class DMPVideoDecoderTests: XCTestCase {
         XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: directory).isEmpty)
     }
 
-    private func writeVideo(_ url: URL) throws {
+    @MainActor
+    func testBundledSDKPortraitVideoThroughput() async throws {
+        let idleTimerDisabled = UIApplication.shared.isIdleTimerDisabled
+        UIApplication.shared.isIdleTimerDisabled = true
+        defer { UIApplication.shared.isIdleTimerDisabled = idleTimerDisabled }
+        let owner = "video-throughput-\(UUID().uuidString)"
+        let directory = DMPSandboxManager.appTmpResourceDirectoryPath(appId: owner)
+        try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+        let url = URL(fileURLWithPath: directory).appendingPathComponent("portrait.mp4")
+        try writeVideo(url, width: 720, height: 1080, frames: 120, fps: 25)
+        let app = DMPApp(appConfig: DMPAppConfig(appName: "video throughput", appId: owner), appIndex: 0)
+        app.container = DMPContainer(app: app)
+        _ = VideoDecoderAPI(app: app)
+        let service = DMPService(app: app)
+        app.service = service
+        defer {
+            service.destroy()
+            VideoDecoderStore.dispose(owner: owner)
+            try? FileManager.default.removeItem(atPath: DMPSandboxManager.appStoreResourceDirectoryPath(appId: owner))
+        }
+        DMPResourceManager.prepareSdk()
+        await service.loadFile(path: DMPSandboxManager.sdkServicePath())
+        let finished = expectation(description: "bundled SDK video throughput")
+        let reports = ThreadSafeEventLog()
+        let engine = service.getEngine()
+        engine.registerMethod(name: "__videoBenchmarkComplete") { value in
+            reports.record(value.toString() ?? "")
+            finished.fulfill()
+            return nil
+        }
+        let source = DMPFileUtil.vPathFromSandboxPath(sandboxPath: url.path, appId: owner)
+        engine.enqueueScript("""
+            (async function() {
+                const report = {samples: [], checks: {}};
+                const decoder = wx.createVideoDecoder();
+                try {
+                    await decoder.start({source: '\(source)', mode: 1});
+                    let retained;
+                    for (let round = 0; round < 2; round++) {
+                        if (round) await decoder.seek(0);
+                        let count = 0, start = 0, lastPTS = -1;
+                        const deadline = Date.now() + 60000;
+                        while (count < 120 && Date.now() < deadline) {
+                            const frame = decoder.getFrameData();
+                            if (!frame) { await new Promise(resolve => setTimeout(resolve, 2)); continue; }
+                            if (!(frame.data instanceof ArrayBuffer) || frame.data.byteLength !== 3110400 ||
+                                frame.width !== 720 || frame.height !== 1080 || frame.pts <= lastPTS)
+                                throw Error('invalid frame bytes or PTS');
+                            lastPTS = frame.pts;
+                            if (!retained) { retained = frame.data; new Uint8Array(retained)[0] = 17; }
+                            if (count === 8) start = Date.now();
+                            count++;
+                            // Let the engine process another task between frames,
+                            // as it does during actual player callbacks.
+                            await new Promise(resolve => setTimeout(resolve, 2));
+                        }
+                        if (count !== 120) throw Error('decoded frame count: ' + count);
+                        const elapsedMs = Date.now() - start;
+                        report.samples.push({frames: count, warmup: 8, elapsedMs, fps: 112000 / elapsedMs});
+                    }
+                    await decoder.stop();
+                    report.checks.stopped = decoder.getFrameData() === null;
+                    await decoder.remove();
+                    report.checks.removed = decoder.getFrameData() === null;
+                    report.checks.retained = new Uint8Array(retained)[0] === 17;
+                } catch (error) { report.error = String(error && (error.stack || error)); }
+                finally { await decoder.remove(); __videoBenchmarkComplete(JSON.stringify(report)); }
+            })();
+        """)
+        await fulfillment(of: [finished], timeout: 150)
+        let report = try XCTUnwrap(reports.events.first)
+        print("VIDEO_FRAME_REPORT \(report)")
+        let result = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(report.utf8)) as? [String: Any])
+        XCTAssertNil(result["error"], report)
+        XCTAssertEqual((result["samples"] as? [[String: Any]])?.count, 2, report)
+        XCTAssertTrue((result["checks"] as? [String: Bool])?.values.allSatisfy { $0 } == true, report)
+    }
+
+    private func writeVideo(_ url: URL, width: Int = 16, height: Int = 16, frames: Int = 3, fps: Int32 = 2) throws {
         let writer = try AVAssetWriter(outputURL: url, fileType: .mp4)
         let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
-            AVVideoCodecKey: AVVideoCodecType.h264, AVVideoWidthKey: 16, AVVideoHeightKey: 16,
+            AVVideoCodecKey: AVVideoCodecType.h264, AVVideoWidthKey: width, AVVideoHeightKey: height,
         ])
         let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
-            kCVPixelBufferWidthKey as String: 16, kCVPixelBufferHeightKey as String: 16,
+            kCVPixelBufferWidthKey as String: width, kCVPixelBufferHeightKey as String: height,
         ])
         writer.add(input)
         XCTAssertTrue(writer.startWriting())
         writer.startSession(atSourceTime: .zero)
-        for index in 0..<3 {
+        for index in 0..<frames {
             var buffer: CVPixelBuffer?
-            XCTAssertEqual(CVPixelBufferCreate(kCFAllocatorDefault, 16, 16, kCVPixelFormatType_32BGRA, nil, &buffer), kCVReturnSuccess)
+            XCTAssertEqual(CVPixelBufferCreate(kCFAllocatorDefault, width, height, kCVPixelFormatType_32BGRA, nil, &buffer), kCVReturnSuccess)
             let image = try XCTUnwrap(buffer)
             CVPixelBufferLockBaseAddress(image, [])
             let bytes = try XCTUnwrap(CVPixelBufferGetBaseAddress(image)).assumingMemoryBound(to: UInt8.self)
             let stride = CVPixelBufferGetBytesPerRow(image)
-            for y in 0..<16 { for x in 0..<16 {
-                let offset = y * stride + x * 4
-                bytes[offset] = index == 2 ? 255 : 0
-                bytes[offset + 1] = index == 1 ? 255 : 0
-                bytes[offset + 2] = index == 0 ? 255 : 0
-                bytes[offset + 3] = 255
-            } }
+            let color: [UInt8] = [index % 3 == 2 ? 255 : 0, index % 3 == 1 ? 255 : 0, index % 3 == 0 ? 255 : 0, 255]
+            color.withUnsafeBytes { memset_pattern4(bytes, $0.baseAddress!, stride * height) }
             CVPixelBufferUnlockBaseAddress(image, [])
             let deadline = Date().addingTimeInterval(5)
             while !input.isReadyForMoreMediaData && Date() < deadline { Thread.sleep(forTimeInterval: 0.005) }
-            XCTAssertTrue(adaptor.append(image, withPresentationTime: CMTime(value: Int64(index), timescale: 2)))
+            XCTAssertTrue(adaptor.append(image, withPresentationTime: CMTime(value: Int64(index), timescale: fps)))
         }
         input.markAsFinished()
         let finished = expectation(description: "fixture video encoded")
         writer.finishWriting { finished.fulfill() }
         wait(for: [finished], timeout: 5)
         XCTAssertEqual(writer.status, .completed, writer.error?.localizedDescription ?? "encoding failed")
+    }
+}
+
+struct VideoFramePixelsTests {
+    @Test(arguments: [1, 3, 17, 256])
+    func preservesChannelsAlphaPaddedRowsAndOwnership(width: Int) throws {
+        let height = 5
+        var buffer: CVPixelBuffer?
+        let attributes = [kCVPixelBufferBytesPerRowAlignmentKey: 64] as CFDictionary
+        let status = CVPixelBufferCreate(kCFAllocatorDefault, width, height, kCVPixelFormatType_32BGRA, attributes, &buffer)
+        #expect(status == kCVReturnSuccess)
+        let image = try #require(buffer)
+        func fill() throws -> [UInt8] {
+            CVPixelBufferLockBaseAddress(image, [])
+            defer { CVPixelBufferUnlockBaseAddress(image, []) }
+            let stride = CVPixelBufferGetBytesPerRow(image)
+            let bytes = try #require(CVPixelBufferGetBaseAddress(image)).assumingMemoryBound(to: UInt8.self)
+            for index in 0..<stride * height { bytes[index] = UInt8(truncatingIfNeeded: index * 37 + 19) }
+            var expected: [UInt8] = []
+            for y in 0..<height { for x in 0..<width {
+                let offset = y * stride + x * 4
+                expected.append(contentsOf: [bytes[offset + 2], bytes[offset + 1], bytes[offset], bytes[offset + 3]])
+            } }
+            return expected
+        }
+        let expected = try fill()
+        let rgba = try VideoFramePixels.rgba(from: image)
+        #expect(Array(rgba) == expected)
+        CVPixelBufferLockBaseAddress(image, [])
+        memset(CVPixelBufferGetBaseAddress(image)!, 0, CVPixelBufferGetBytesPerRow(image) * height)
+        CVPixelBufferUnlockBaseAddress(image, [])
+        #expect(Array(rgba) == expected, "returned pixels must not alias the decoder's reusable pixel buffer")
     }
 }
 

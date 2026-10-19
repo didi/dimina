@@ -8,7 +8,6 @@ import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.os.Handler
 import android.os.HandlerThread
-import android.util.Base64
 import com.didi.dimina.api.*
 import com.didi.dimina.common.ApiUtils
 import com.didi.dimina.common.MediaFileUtils
@@ -66,7 +65,7 @@ class VideoDecoderApi : BaseApiHandler() {
         val key = appId to id
         if (apiName == "VideoDecoder.getFrameData") {
             val result = sessions[key]?.frame() ?: JSONObject()
-            return SyncResult(JSValue.createObject(result.toString()))
+            return SyncResult(JSValue.createNative(result))
         }
         if (apiName == "VideoDecoder.remove") {
             val complete = {
@@ -270,37 +269,17 @@ class VideoDecoderApi : BaseApiHandler() {
             require(image.format == ImageFormat.YUV_420_888) { "unsupported decoded pixel format" }
             val crop = image.cropRect
             val width = crop.width(); val height = crop.height()
-            require(width > 0 && height > 0 && width <= 4096 && height <= 4096 && width.toLong() * height <= 2_097_152) { "video frame exceeds pixel budget" }
-            val pixels = ByteArray(width * height * 4)
-            val planes = image.planes
-            fun component(plane: Int, x: Int, y: Int): Int {
-                val p = planes[plane]
-                return p.buffer.get(p.buffer.position() + y * p.rowStride + x * p.pixelStride).toInt() and 255
-            }
             val fullRange = outputFormat?.let { it.containsKey(MediaFormat.KEY_COLOR_RANGE) &&
                 it.getInteger(MediaFormat.KEY_COLOR_RANGE) == MediaFormat.COLOR_RANGE_FULL } == true
             val bt709 = outputFormat?.let { it.containsKey(MediaFormat.KEY_COLOR_STANDARD) &&
                 it.getInteger(MediaFormat.KEY_COLOR_STANDARD) == MediaFormat.COLOR_STANDARD_BT709 } == true
-            var offset = 0
-            for (y in 0 until height) for (x in 0 until width) {
-                val sx = x + crop.left; val sy = y + crop.top
-                val luma = component(0, sx, sy)
-                val u = component(1, sx / 2, sy / 2) - 128.0
-                val v = component(2, sx / 2, sy / 2) - 128.0
-                val yy = if (fullRange) luma.toDouble() else (luma - 16) * 255.0 / 219
-                val chromaScale = if (fullRange) 1.0 else 255.0 / 224
-                val r = yy + (if (bt709) 1.5748 else 1.402) * v * chromaScale
-                val g = yy - (if (bt709) 0.1873 else 0.3441) * u * chromaScale -
-                    (if (bt709) 0.4681 else 0.7141) * v * chromaScale
-                val b = yy + (if (bt709) 1.8556 else 1.772) * u * chromaScale
-                pixels[offset++] = r.toInt().coerceIn(0, 255).toByte()
-                pixels[offset++] = g.toInt().coerceIn(0, 255).toByte()
-                pixels[offset++] = b.toInt().coerceIn(0, 255).toByte()
-                pixels[offset++] = 255.toByte()
-            }
+            val planes = image.planes.map { VideoPlane(it.buffer, it.rowStride, it.pixelStride) }.toTypedArray()
+            val pixels = videoFrameRgba(width, height, crop.left, crop.top, planes, fullRange, bt709)
             return JSONObject().put("width", width).put("height", height).put("pts", pts)
                 .put("pkPts", pts)
-                .put("data", JSONObject().put("__diminaArrayBufferBase64", Base64.encodeToString(pixels, Base64.NO_WRAP)))
+                // The native value bridge copies these owned bytes into an
+                // ArrayBuffer on the JS thread, without JSON or Base64 pixels.
+                .put("data", pixels)
         }
     }
 }

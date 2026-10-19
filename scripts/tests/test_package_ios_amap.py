@@ -68,6 +68,10 @@ class PackageSourcesTest(unittest.TestCase):
                 "native/wasm/js_value.hpp",
                 "native/wasm/include/dimina_wasm.h",
                 "native/wasm/wamr_helpers.c",
+                "native/canvas/rle32.h",
+                "native/canvas/include/dimina_canvas.h",
+                "third_party/wamr/apple_bridge/canvas_codec.cpp",
+                "third_party/wamr/apple_bridge/include/dimina_canvas.h",
             ]
             with zipfile.ZipFile(work / "output/DiminaMapAMap-9.9.9.zip") as archive:
                 for relative in required:
@@ -78,6 +82,8 @@ class PackageSourcesTest(unittest.TestCase):
                 ("third_party/wamr/apple_bridge/dimina_wasm.cpp", "../../../native/wasm/dimina_wasm.cpp"),
                 ("third_party/wamr/apple_bridge/include/dimina_wasm.h", "../../../../native/wasm/include/dimina_wasm.h"),
                 ("third_party/wamr/apple_helpers.c", "../../native/wasm/wamr_helpers.c"),
+                ("third_party/wamr/apple_bridge/canvas_codec.cpp", "../../../native/canvas/rle32.h"),
+                ("third_party/wamr/apple_bridge/include/dimina_canvas.h", "../../../../native/canvas/include/dimina_canvas.h"),
             ]:
                 self.assertTrue((destination / relative).parent.joinpath(include).is_file())
             self.assertIn("WAMR", (destination / "NOTICE").read_text())

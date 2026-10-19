@@ -133,3 +133,12 @@ tasks.register<Copy>("copySharedJssdkToAssets") {
 tasks.named("preBuild") {
     dependsOn("copySharedJssdkToAssets")
 }
+
+// Reuse the shipped PAG fixture without checking a second binary into tests.
+val copyCanvasTestFixture by tasks.registering(Copy::class) {
+    from("${rootProject.projectDir}/../shared/jsapp/wxbaf4b47de04f1d8a/wxbaf4b47de04f1d8a.zip")
+    into("${projectDir}/src/androidTest/assets/generated")
+}
+tasks.matching { it.name == "mergeDebugAndroidTestAssets" }.configureEach {
+    dependsOn(copyCanvasTestFixture)
+}
