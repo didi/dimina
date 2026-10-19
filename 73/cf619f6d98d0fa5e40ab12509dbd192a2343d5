@@ -1,0 +1,115 @@
+third_party/wamr/apple_bridge/include/dimina_canvas.h
+  8af1d552e52349d6 1-2
+iOS/dimina/DiminaKit/Render/DiminaURLSchemeHandler.swift
+  8af1d552e52349d6 101,114-122
+native/canvas/quickjs_packet.hpp
+  8af1d552e52349d6 1-89
+android/dimina/src/main/kotlin/com/didi/dimina/core/CanvasBinaryChannel.kt
+  8af1d552e52349d6 1-150
+android/dimina/src/main/kotlin/com/didi/dimina/api/media/VideoFramePixels.kt
+  8af1d552e52349d6 1-51
+iOS/dimina/DiminaKit/Service/DMPEnginePublish.swift
+  8af1d552e52349d6 17,19-20,23-36
+scripts/package-ios-amap.py
+  8af1d552e52349d6 89
+android/dimina/build.gradle.kts
+  8af1d552e52349d6 136-143
+android/dimina/src/androidTest/java/com/didi/dimina/core/CanvasBinaryTest.kt
+  8af1d552e52349d6 1-189
+fe/packages/render/src/core/canvas-resource.js
+  8af1d552e52349d6 1-24
+android/dimina/src/androidTest/java/com/didi/dimina/api/media/VideoDecoderBinaryTest.kt
+  8af1d552e52349d6 1-153
+android/dimina/src/main/kotlin/com/didi/dimina/core/Bridge.kt
+  8af1d552e52349d6 62,76,82,175-177,186-197,202,217-218,325,327,333,338,343-348,351,405,422
+android/engine_qjs/src/main/kotlin/com/didi/dimina/engine/qjs/QuickJSEngine.kt
+  8af1d552e52349d6 316,366-411,436
+android/dimina/src/main/kotlin/com/didi/dimina/api/media/VideoDecoderApi.kt
+  8af1d552e52349d6 68,276-277,280-282
+Package.swift
+  8af1d552e52349d6 91
+native/canvas/rle32.h
+  8af1d552e52349d6 1-94
+android/dimina/src/main/kotlin/com/didi/dimina/ui/view/DiminaWebView.kt
+  8af1d552e52349d6 19,147-148
+shared/jssdk/config.json
+  8af1d552e52349d6 2-3
+fe/packages/render/src/index.js
+  8af1d552e52349d6 2,27,29,45
+iOS/DiminaKitTests/DMPVideoDecoderTests.swift
+  8af1d552e52349d6 2,4-5,69,75-79,99-100,145,257-335,338,342,347,349,354-355,359,369-397
+iOS/DiminaKitTests/DMPCanvasPacketTests.swift
+  8af1d552e52349d6 1-56
+iOS/dimina/DiminaKit/Render/DMPRender.swift
+  8af1d552e52349d6 41,60-63,78-80,84,95-128
+fe/packages/render/src/core/canvas-binary-port.js
+  8af1d552e52349d6 110,112,117,126
+iOS/dimina/DiminaKit/Service/DMPEngineInvoke.swift
+  8af1d552e52349d6 17-20,24-39
+third_party/wamr/Package.swift
+  8af1d552e52349d6 75
+native/bridge/jni_value.hpp
+  8af1d552e52349d6 121-123
+iOS/dimina/DiminaKit/Render/DMPWebview.swift
+  8af1d552e52349d6 64-66,154,287,290,295-303
+iOS/dimina/DiminaKit/Container/Api/Media/VideoDecoderAPI.swift
+  8af1d552e52349d6 2,74-101,286,289-290,292
+android/dimina/src/main/kotlin/com/didi/dimina/core/JsCore.kt
+  8af1d552e52349d6 68-72
+android/engine_qjs/src/main/cpp/qjs.cpp
+  8af1d552e52349d6 21-22,712-800,822,938-941,1312-1313
+harmony/dimina/src/main/cpp/canvas_rle32.h
+  8af1d552e52349d6 2
+iOS/dimina/DiminaKit/Render/DMPCanvasChannel.swift
+  8af1d552e52349d6 1-151
+iOS/dimina/DiminaKit/Service/DMPCanvasPacket.swift
+  8af1d552e52349d6 1-88
+android/dimina/src/androidTest/assets/pag-canvas-benchmark.js
+  8af1d552e52349d6 1-36
+harmony/dimina/src/main/cpp/canvas_binary_value.h
+  8af1d552e52349d6 3
+android/dimina/src/androidTest/java/com/didi/dimina/api/file/FileSystemCacheTest.kt
+  8af1d552e52349d6 19-41
+scripts/tests/test_package_ios_amap.py
+  8af1d552e52349d6 71-74,85-86
+android/dimina/src/test/java/com/didi/dimina/api/media/VideoFramePixelsTest.kt
+  8af1d552e52349d6 1-65
+iOS/diminaTests/WebGLBridgeTests.swift
+  8af1d552e52349d6 201-272,306-426
+android/dimina/src/androidTest/assets/generated/.gitignore
+  8af1d552e52349d6 1-2
+docs/VideoDecoder.md
+  8af1d552e52349d6 36-39,44-53
+docs/WXWebAssembly.md
+  8af1d552e52349d6 58-59,133-143
+native/canvas/include/dimina_canvas.h
+  8af1d552e52349d6 1-12
+third_party/wamr/apple_bridge/canvas_codec.cpp
+  8af1d552e52349d6 1-18
+fe/packages/render/__tests__/canvas-binary-port.spec.js
+  8af1d552e52349d6 29-41
+fe/packages/render/__tests__/canvas-resource.spec.js
+  8af1d552e52349d6 1-68
+iOS/dimina.xcodeproj/project.pbxproj
+  8af1d552e52349d6 30,73,199,399
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "73cf619f6d98d0fa5e40ab12509dbd192a2343d5",
+  "prompts": {
+    "8af1d552e52349d6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a13a21-78ed-75f2-92f0-99883b0afb3e",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 8025,
+      "total_deletions": 1330,
+      "accepted_lines": 6784,
+      "overriden_lines": 0
+    }
+  }
+}
