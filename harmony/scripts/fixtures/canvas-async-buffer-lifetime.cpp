@@ -25,9 +25,11 @@ static void Eval(JSContext *ctx, const std::string &source) {
     JS_FreeValue(ctx, result);
 }
 int main(int argc, char **argv) {
-    assert(argc == 4);
+    assert(argc == 5);
     const std::string mode = argv[3];
     assert(mode == "success" || mode == "null" || mode == "missing");
+    const std::string lookahead = argv[4];
+    assert(lookahead == "single" || lookahead == "default");
     JSRuntime *rt = JS_NewRuntime();
     JSContext *ctx = JS_NewContext(rt);
     // Fixture only: prove refcount release without relying on a later cycle GC.
@@ -54,6 +56,7 @@ int main(int argc, char **argv) {
     assert(pipeline != std::string::npos && pipelineEnd > pipeline);
     Eval(ctx, player.substr(pipeline, pipelineEnd - pipeline));
     Eval(ctx, "const mode='" + mode + "';");
+    Eval(ctx, "const singleLookahead=" + std::string(lookahead == "single" ? "true" : "false") + ";");
     Eval(ctx, R"JS(
 function assert(ok, message) { if (!ok) throw Error(message); }
 let serial=0, callbackSerial=0;
@@ -80,9 +83,12 @@ gl.createBuffer=function(){const value=new CanvasResource(canvas,'ordinary_'+ser
 gl.deleteBuffer=buffer=>buffer.markDeleted();
 gl[Symbol.for('dimina.canvas.createBufferAsync')]=function(){const promise=this.prepareBufferAsync();promiseRefs.push(new WeakRef(promise));return promise};
 const buffers=new AsyncFrameBuffers(), player={videoReaders:[1]};
+assert(buffers.prefetchAhead===2,'default buffer lookahead changed');
+if(singleLookahead) buffers.prefetchAhead=1;
+const allocationRounds=2048, expectedLookahead=singleLookahead?1:2;
 globalThis.done=false;
 async function perform() {
-    for(let i=0;i<2048;i++) {
+    for(let i=0;i<allocationRounds;i++) {
         if(mode==='success') {
             const run=buffers.begin(player);await run.prepared;buffers.enter(run);
             let value=buffers.create(gl);buffers.leave(run);buffers.end(run);gl.deleteBuffer(value);value=null;
@@ -91,6 +97,11 @@ async function perform() {
             try { const value=await promise;assert(mode==='null'&&value===null,'null allocation result changed'); }
             catch(error) {assert(mode==='missing'&&error.message==='canvas buffer feedback missing','allocation rejection changed');}
         }
+    }
+    if(mode==='success') {
+        const state=buffers.players.get(player);
+        assert(state.runs.size===0&&[state.next,state.afterNext].filter(Boolean).length===expectedLookahead,
+            'idle buffer lookahead bound changed');
     }
     buffers.cancel(player);await Promise.resolve();await Promise.resolve();globalThis.done=true;
 }
@@ -102,7 +113,11 @@ perform();
     assert(result == 0);
     Eval(ctx, R"JS(
 assert(done,'allocation tasks did not complete');
-assert(promiseRefs.length===2048,'actual async allocations changed');
+// The first successful round uses ordinary creation. Later rounds consume one
+// async allocation each, while the configured idle lookahead is also allocated.
+const expectedAllocations=mode==='success'?allocationRounds-1+expectedLookahead:allocationRounds;
+assert(promiseRefs.length===expectedAllocations,
+    'actual async allocations changed: expected '+expectedAllocations+', received '+promiseRefs.length);
 assert(gl.pendingBufferCreations.size===0&&timers.size===0,'settled task retained a pending request or timer');
 assert([...events.values()].every(listeners=>listeners.size===0),'settled task retained listeners');
 assert(promiseRefs.every(reference=>reference.deref()===undefined),'completed allocations kept their Promise until GC');

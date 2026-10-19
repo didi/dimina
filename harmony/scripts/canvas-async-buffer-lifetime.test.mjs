@@ -30,11 +30,12 @@ dimina_configure_quickjs(buffer_lifetime ENABLE_DEBUGGER OFF SOURCE_PATCH "${roo
   executable = join(directory, 'build', 'buffer_lifetime')
 })
 after(() => { if (directory) rmSync(directory, { recursive: true, force: true }) })
-for (const mode of ['success', 'null', 'missing']) {
-  test(`real QuickJS releases settled buffer allocation captures before GC: ${mode}`, () => {
+for (const [mode, lookahead] of [['success', 'single'], ['success', 'default'], ['null', 'default'], ['missing', 'default']]) {
+  const label = mode === 'success' ? `${mode}, ${lookahead} lookahead` : mode
+  test(`real QuickJS releases settled buffer allocation captures before GC: ${label}`, () => {
     const canvas = process.env.DIMINA_ASYNC_BUFFER_SOURCE ?? join(root, 'fe/packages/service/src/api/core/ui/canvas/canvas-node.js')
     const player = join(root, 'examples/miniprogram/base/miniprogram_npm/libpag-miniprogram/index.js')
-    const result = spawnSync(executable, [canvas, player, mode], { encoding: 'utf8', timeout: 10000 })
+    const result = spawnSync(executable, [canvas, player, mode, lookahead], { encoding: 'utf8', timeout: 10000 })
     assert.equal(result.status, 0, result.stderr || result.stdout || result.error?.message)
     assert.match(result.stdout, /PASS settled buffer tasks release Promise\/resource captures before GC/)
   })
