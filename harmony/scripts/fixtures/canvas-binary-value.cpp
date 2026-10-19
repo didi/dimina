@@ -1,5 +1,6 @@
 #include "canvas_binary_value.h"
 #include "canvas_rle32.h"
+#include "canvas_prepared_pixels.h"
 #include <cassert>
 #include <cstdlib>
 #include <cstring>
@@ -36,6 +37,23 @@ int main(int argc,char **argv){
   current->ActivateBinary([]{return true;});
   OwnedJSValue global(ctx,JS_GetGlobalObject(ctx));
   JS_SetPropertyStr(ctx,global.value,"encode",JS_NewCFunction(ctx,js_encode_canvas_array_buffer,"encode",1));
+  {
+   std::vector<uint8_t> pixels(65536,7);
+   const auto prepared=PrepareCanvasPixels(pixels.data(),pixels.size());assert(prepared);
+   PreparedCanvasRegistry::Add(pixels.data(),prepared);
+   OwnedJSValue input(ctx,JS_NewArrayBuffer(ctx,pixels.data(),pixels.size(),[](JSRuntime *,void *,void *){},nullptr,false));
+   JSValue args[]={input.value,JS_NewInt32(ctx,3)};
+   const auto check=[&](bool unchanged){
+    OwnedJSValue result(ctx,js_encode_canvas_array_buffer(ctx,JS_UNDEFINED,2,args));assert(!JS_IsException(result.value));
+    OwnedJSValue packed(ctx,JS_GetPropertyStr(ctx,result.value,"packed"));size_t length=0;
+    const auto bytes=JS_GetArrayBuffer(ctx,&length,packed.value);assert(bytes);
+    const std::vector<uint8_t> actual(bytes,bytes+length);
+    assert(MatchesCanvasRle32(pixels.data(),pixels.size(),actual));
+    assert((actual==prepared->packed)==unchanged);
+   };
+   check(true);pixels.back()^=1;check(false);pixels.back()^=1;check(true);
+   PreparedCanvasRegistry::Remove(pixels.data());
+  }
   OwnedJSValue input(ctx,eval(ctx,R"JS(
    globalThis.pixels=new Uint8Array(131072);for(let i=0;i<pixels.length;i++)pixels[i]=i%251;
    globalThis.message={type:'invokeAPI',target:'render',body:{bridgeId:3,name:'canvasNodeFlush',frame:{__canvasTypedArray:'Uint8Array',...encode(pixels.buffer,3)},empty:{__canvasTypedArray:'Uint8Array',...encode(new ArrayBuffer(0),3)},

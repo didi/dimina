@@ -1,3 +1,4 @@
+#include "canvas_prepared_pixels.h"
 #include "canvas_binary_value.h"
 #include "js_thread.h"
 #include "js_engine.h"
@@ -800,9 +801,11 @@ static JSValue js_encode_canvas_array_buffer(JSContext *ctx, JSValueConst, int a
     const uint8_t *bytes = JS_GetArrayBuffer(ctx, &size, argv[0]);
     if (JS_HasException(ctx)) return JS_EXCEPTION;
     try {
-        std::vector<uint8_t> packed;
-        if (size >= dimina::canvas::MIN_CANVAS_RLE_BYTES && size <= dimina::canvas::MAX_CANVAS_RLE_BYTES && size % 4 == 0)
-            packed = dimina::canvas::encodeCanvasRle32(bytes, size);
+        const auto prepared = dimina::canvas::PreparedCanvasRegistry::Find(bytes, size);
+        std::vector<uint8_t> fallbackPacked;
+        if (!prepared && size >= dimina::canvas::MIN_CANVAS_RLE_BYTES && size <= dimina::canvas::MAX_CANVAS_RLE_BYTES && size % 4 == 0)
+            fallbackPacked = dimina::canvas::encodeCanvasRle32(bytes, size);
+        const auto &packed = prepared ? prepared->packed : fallbackPacked;
         const bool compressed = dimina::canvas::shouldUseCanvasRle32(size, packed.size());
         bool binary = false;
         if (argc > 1 && JS_IsNumber(argv[1])) {

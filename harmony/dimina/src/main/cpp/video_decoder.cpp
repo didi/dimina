@@ -57,7 +57,7 @@ OH_AVCodec *CreateDecoder(const std::string &mime, int width, int height) {
     throw std::runtime_error("no video decoder supports " + mime + " " + std::to_string(width) + "x" +
         std::to_string(height) + " with NV12 output");
 }
-struct Frame { int width, height; int64_t pts; std::vector<uint8_t> pixels; };
+struct Frame { int width, height; int64_t pts; std::vector<uint8_t> pixels; std::shared_ptr<const dimina::canvas::PreparedCanvasPixels> prepared; };
 struct Buffer { uint32_t index; OH_AVMemory *memory; OH_AVCodecBufferAttr attr {}; };
 struct Layout {
     int width = 0, height = 0, stride = 0, slice = 0, left = 0, top = 0;
@@ -432,10 +432,11 @@ private:
         auto bytes = OH_AVMemory_GetAddr(buffer.memory);
         if (!bytes) throw std::runtime_error("missing decoded pixels");
         bytes += buffer.attr.offset;
-        Frame frame {layout.width, layout.height, buffer.attr.pts, std::vector<uint8_t>(layout.width * layout.height * 4)};
+        Frame frame {layout.width, layout.height, buffer.attr.pts, std::vector<uint8_t>(layout.width * layout.height * 4), {}};
         dimina::video::ConvertNV12Pixels(bytes,
             {layout.width, layout.height, layout.stride, layout.left, layout.top,
                 layout.fullRange, layout.bt709, static_cast<size_t>(uvStart)}, frame.pixels.data());
+        if (playbackMode == 1) frame.prepared = dimina::canvas::PrepareCanvasPixels(frame.pixels.data(), frame.pixels.size());
         return frame;
     }
 };
@@ -579,7 +580,7 @@ VideoDecoderFrame ReadVideoDecoderFrame(int owner, const std::string &id) {
     bool ended = false;
     std::string error;
     if (decoder) decoder->Next(frame, ended, error);
-    return {frame.width, frame.height, frame.pts, std::move(frame.pixels), ended, error};
+    return {frame.width, frame.height, frame.pts, std::move(frame.pixels), ended, error, std::move(frame.prepared)};
 }
 
 void DisposeVideoDecoders(int owner) {

@@ -36,6 +36,7 @@ import {
 import loader from './loader'
 import message from './message'
 import { CanvasTextureUpload } from './canvas-texture-upload'
+import { CanvasBufferReferences } from './canvas-buffer-references'
 import { WebGLFramePresentation } from './webgl-frame-presentation'
 import { resolveCanvasExportSize } from './canvas-export-limits'
 import { createMiniProgramSlots } from './slots'
@@ -666,6 +667,7 @@ class Runtime {
 		this.canvasTextureUpload = new CanvasTextureUpload()
 		this.canvasResources = new Map()
 		this.canvasRafIds = new Map()
+		this.canvasFrameStreams = new Map()
 		this.canvasCapabilities = null
 		this.resourceLoadIds = new Map()
 		this._pageReRenderPending = false
@@ -719,6 +721,7 @@ class Runtime {
 			cancelAnimationFrame(frameId)
 		}
 		this.canvasRafIds.clear()
+		this.canvasFrameStreams.clear()
 		this.canvasScopeQueues.clear()
 		this.resourceLoadIds.clear()
 	}
@@ -1605,7 +1608,7 @@ class Runtime {
 
 	getCanvasCapabilities() {
 		if (!this.canvasCapabilities) {
-			this.canvasCapabilities = { ...probeWebGLCapabilities(), typedArrayEncodings: ['rle32-v1'], deferredGLErrors: true }
+			this.canvasCapabilities = { ...probeWebGLCapabilities(), typedArrayEncodings: ['rle32-v1'], deferredGLErrors: true, asyncBufferCreation: true, animationFrameStream: 1 }
 		}
 		return this.canvasCapabilities
 	}
@@ -1846,6 +1849,9 @@ class Runtime {
 			cancelAnimationFrame(frameId)
 			this.canvasRafIds.delete(key)
 		}
+		for (const [key, stream] of this.canvasFrameStreams) {
+			if (stream.node === node) this.canvasFrameStreams.delete(key)
+		}
 		this.canvasNodes.delete(nodeId)
 	}
 
@@ -1856,6 +1862,7 @@ class Runtime {
 	observeWebGLContextEvents(node) {
 		if (node.contextEventCleanup) return
 		const forward = (event) => {
+			for (const references of new Set(node.bufferReferences?.values() || [])) references.invalidate()
 			// Service runs in another JS environment and cannot cancel this DOM event
 			// before dispatch finishes. Keep native recovery enabled for its handlers.
 			if (event.type === 'webglcontextlost') event.preventDefault()
@@ -2025,6 +2032,12 @@ class Runtime {
 					statusMessage = error instanceof Error ? error.message : String(error)
 				}
 				node.contexts.set(operation.contextId, context)
+				if (context && !node.presentation && node.trackRetiredBuffers && ['webgl', 'experimental-webgl'].includes(operation.contextType)) {
+					node.bufferReferences ||= new Map()
+					const shared = [...node.bufferReferences.values()].find(value => value.gl === context)
+					node.bufferReferences.set(operation.contextId, shared || new CanvasBufferReferences(context))
+				}
+
 				this.setCanvasResource(operation.contextId, context, node)
 				if (context && isWebGL) {
 					this.canvasTextureUpload.register(context, operation.contextType)
@@ -2049,7 +2062,10 @@ class Runtime {
 					const supported = operation.prop in context
 					if (supported) {
 						try {
-							if (typeof context[operation.prop] === 'function') this.canvasTextureUpload.disable(context)
+							if (typeof context[operation.prop] === 'function') {
+								this.canvasTextureUpload.disable(context)
+								node.bufferReferences?.get(operation.contextId)?.invalidate()
+							}
 							context[operation.prop] = this.resolveCanvasArg(operation.value)
 						}
 						catch (error) {
@@ -2104,6 +2120,8 @@ class Runtime {
 					imageData.data.set(legacy.data)
 					args[0] = imageData
 				}
+				const references = node.bufferReferences?.get(operation.contextId)
+				references?.before(operation.method, args)
 				let resolvingWire = false
 				try {
 					if (resetFallback) {
@@ -2122,6 +2140,9 @@ class Runtime {
 							result = preparedUpload ? preparedUpload() : this.canvasTextureUpload.invoke(context, operation.method, args, () => method.apply(context, args))
 						}
 						this.setCanvasResource(operation.resultId, result, node)
+						references?.after(operation.method, args, result, operation.resultId,
+							node.resourceIds?.has(operation.args?.[0]?.__canvasResourceId), operation.contextId)
+
 						if (context === node.presentation?.gl) node.presentation.markDraw(operation.method)
 					}
 				}
@@ -2228,6 +2249,7 @@ class Runtime {
 					console.warn('[system]', '[render]', `Canvas extension ${operation.name} failed: ${error}`)
 				}
 				this.setCanvasResource(operation.extensionId, extension, node)
+				node.bufferReferences?.get(operation.contextId)?.extensionEnabled(extension)
 				if (operation.key) {
 					return {
 						contextId: operation.contextId,
@@ -2256,8 +2278,12 @@ class Runtime {
 				let queryError
 				if (typeof method === 'function') {
 					try {
-						result = method.apply(extension, (operation.args || []).map(arg => this.resolveCanvasArg(arg)))
+						const args = (operation.args || []).map(arg => this.resolveCanvasArg(arg))
+						result = method.apply(extension, args)
 						this.setCanvasResource(operation.resultId, result, node)
+						node.bufferReferences?.get(operation.contextId)?.extensionCall(extension, operation.method, args, result,
+							node.resourceIds?.has(operation.args?.[0]?.__canvasResourceId))
+
 						if (this.getCanvasResource(operation.contextId) === node.presentation?.gl) node.presentation.markDraw(operation.method)
 					}
 					catch (error) {
@@ -2361,6 +2387,8 @@ class Runtime {
 			return
 		}
 
+		if (params.trackRetiredBuffers === 1 && node.bridgeId === bridgeId) node.trackRetiredBuffers = true
+
 		const feedback = {
 			contexts: {},
 			typedArrays: [],
@@ -2431,9 +2459,54 @@ class Runtime {
 				feedback.contexts[contextId].errors = errors
 			}
 		}
+		// Existing query/allocation feedback acknowledges retirement too. Keep proof
+		// queued across fire-and-forget batches instead of adding a per-frame event.
+		if (node.trackRetiredBuffers && (synchronous || params.feedback)) {
+			for (const references of new Set(node.bufferReferences?.values() || [])) {
+				for (const { id, contextId } of references.drain()) {
+					if (!node.resourceIds?.has(id)) continue
+					const context = feedback.contexts[contextId] ||= {}
+					context.retiredBuffers ||= []
+					context.retiredBuffers.push(id)
+				}
+			}
+		}
 		if (synchronous) return feedback
 		node.presentation?.present()
 		this.triggerCallback(bridgeId, params.feedback, feedback)
+	}
+
+	canvasNodeSubscribeAnimationFrame({ bridgeId, params }) {
+		const node = this.canvasNodes.get(params.nodeId)
+		if (!node || node.bridgeId !== bridgeId || params.version !== 1
+			|| !Number.isSafeInteger(params.requestId) || params.requestId <= 0 || typeof params.callback !== 'string') return
+		const key = `${params.nodeId}:${params.requestId}`
+		if (this.canvasFrameStreams.has(key) || this.canvasRafIds.has(key)) return
+		const stream = { node, bridgeId, sequence: 0, acknowledged: 0 }
+		stream.schedule = () => {
+			if (this.canvasFrameStreams.get(key) !== stream || this.canvasRafIds.has(key)
+				// Bound queued callbacks even when Service is busy or its transport closes.
+				|| stream.sequence - stream.acknowledged >= 4) return
+			this.canvasRafIds.set(key, requestAnimationFrame((timestamp) => {
+				if (this.canvasFrameStreams.get(key) !== stream || this.canvasNodes.get(params.nodeId) !== node) return
+				this.canvasRafIds.delete(key)
+				const sequence = ++stream.sequence
+				stream.schedule()
+				this.triggerCallback(bridgeId, params.callback, { requestId: params.requestId, sequence, timestamp })
+			}))
+		}
+		this.canvasFrameStreams.set(key, stream)
+		stream.schedule()
+	}
+
+	canvasNodeAcknowledgeAnimationFrame({ bridgeId, params }) {
+		const key = `${params.nodeId}:${params.requestId}`
+		const stream = this.canvasFrameStreams.get(key)
+		if (!stream || stream.bridgeId !== bridgeId || this.canvasNodes.get(params.nodeId) !== stream.node
+			|| !Number.isSafeInteger(params.sequence) || params.sequence <= stream.acknowledged || params.sequence > stream.sequence) return
+		stream.acknowledged = params.sequence
+		// A credit resumes a new real RAF; it never replays or synthesizes a timestamp.
+		stream.schedule()
 	}
 
 	canvasNodeRequestAnimationFrame({ bridgeId, params }) {
@@ -2445,8 +2518,11 @@ class Runtime {
 		this.canvasRafIds.set(key, frameId)
 	}
 
-	canvasNodeCancelAnimationFrame({ params }) {
+	canvasNodeCancelAnimationFrame({ bridgeId, params }) {
 		const key = `${params.nodeId}:${params.requestId}`
+		const stream = this.canvasFrameStreams.get(key)
+		if (stream && stream.bridgeId !== bridgeId) return
+		this.canvasFrameStreams.delete(key)
 		const frameId = this.canvasRafIds.get(key)
 		if (frameId !== undefined) {
 			cancelAnimationFrame(frameId)

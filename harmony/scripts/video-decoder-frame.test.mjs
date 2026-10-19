@@ -12,6 +12,9 @@ test('QuickJS receives owned RGBA bytes and frame metadata without base64', () =
   const fixture = fileURLToPath(new URL('./fixtures/video-decoder-frame.cpp', import.meta.url))
   const sourcePatch = process.env.DIMINA_QUICKJS_PATCH ?? path.join(root, 'third_party/quickjs/patches/bridge-data.patch')
   try {
+    if (process.env.DIMINA_VIDEO_FRAME_HEADER) {
+      fs.copyFileSync(process.env.DIMINA_VIDEO_FRAME_HEADER, path.join(directory, 'video_decoder_frame.h'))
+    }
     const source = fs.readFileSync(path.join(root, 'harmony/dimina/src/main/cpp/js_thread.cpp'), 'utf8')
     const register = source.match(/void registerFunc\(JSContext \*ctx,[\s\S]*?\n}/)?.[0]
     const construct = source.match(/JSEngine \*newEngine = new JSEngine\(appIndex,[\s\S]*?\n    }, debuggerAddress\);/)?.[0]
@@ -42,7 +45,7 @@ cmake_minimum_required(VERSION 3.22)
 project(video_frame_test C CXX)
 include("${root}/cmake/DiminaQuickJS.cmake")
 add_executable(video_frame "${fixture}")
-target_include_directories(video_frame PRIVATE "${root}/harmony/dimina/src/main/cpp" "${directory}")
+target_include_directories(video_frame PRIVATE "${directory}" "${root}/harmony/dimina/src/main/cpp")
 target_compile_features(video_frame PRIVATE cxx_std_17)
 dimina_configure_quickjs(video_frame ENABLE_DEBUGGER OFF SOURCE_PATCH "${sourcePatch}")
 `)

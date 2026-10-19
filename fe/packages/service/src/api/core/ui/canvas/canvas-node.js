@@ -9,6 +9,7 @@ import {
 	uuid,
 } from '@dimina/common'
 import colorNames from 'color-name'
+import { RetiredBufferReferences } from './retired-buffer-references'
 import hostEnv from '@/core/host-env'
 import message from '@/core/message'
 import router from '@/core/router'
@@ -95,6 +96,27 @@ const WEBGL_SNAPSHOT_ENABLED = [
 
 const webglCapabilitiesByBridge = new Map()
 const canvasNodesByBridge = new Map()
+// Visibility is tracked independently: appShow must not resume a covered page.
+let canvasFrameAppVisible = true
+const hiddenCanvasFramePages = new Set()
+function updateCanvasFrameVisibility(bridgeId) {
+	const groups = bridgeId === undefined ? canvasNodesByBridge.values() : [canvasNodesByBridge.get(bridgeId) || []]
+	for (const nodes of groups) {
+		for (const node of nodes) {
+			for (const stream of [...node.frameSubscriptions]) {
+				if (!canvasFrameAppVisible || hiddenCanvasFramePages.has(node.bridgeId)) stream.suspend()
+				else {
+					try { stream.resume() } catch (error) { console.error('[canvas] frame stream resume failed:', error) }
+				}
+			}
+		}
+	}
+}
+message.on('appHide', () => { canvasFrameAppVisible = false; updateCanvasFrameVisibility() })
+message.on('appShow', () => { canvasFrameAppVisible = true; updateCanvasFrameVisibility() })
+message.on('pageHide', ({ bridgeId }) => { hiddenCanvasFramePages.add(bridgeId); updateCanvasFrameVisibility(bridgeId) })
+message.on('pageShow', ({ bridgeId }) => { hiddenCanvasFramePages.delete(bridgeId); updateCanvasFrameVisibility(bridgeId) })
+
 let miniGameScreenCanvas = null
 let miniGameImageCanvas = null
 
@@ -638,7 +660,7 @@ class CanvasResource {
 					const value = target[prop]
 					return typeof value === 'function' ? value.bind(target) : value
 				}
-				if (typeof prop === 'symbol') {
+				if (typeof prop === 'symbol' || prop === 'then') {
 					return undefined
 				}
 				return (...args) => {
@@ -1136,6 +1158,8 @@ class WebGLRenderingContextProxy {
 		}
 		this.capabilities = null
 		this.resources = new Map()
+		this.retiredBufferResources = new RetiredBufferReferences(this.canvas.supportsSyncQueries && contextType === 'webgl')
+		this.pendingBufferCreations = new Set()
 		this.extensions = new Map()
 		this.properties = new Map()
 		this.state = new Map()
@@ -1275,11 +1299,12 @@ class WebGLRenderingContextProxy {
 			if (query.error) this.queryErrors.set(query.key, query.error)
 			else this.queryResults.set(query.key, this.deserializeFeedbackValue(query.value))
 		}
+		if (Array.isArray(feedback.retiredBuffers)) this.retireBufferReferences(feedback.retiredBuffers)
 	}
 
 	deserializeFeedbackValue(value) {
 		if (value?.__canvasResourceId) {
-			return this.resources.get(value.__canvasResourceId) || null
+			return this.resources.get(value.__canvasResourceId) || this.retiredBufferResources.get(value.__canvasResourceId) || null
 		}
 		if (Array.isArray(value)) {
 			return value.map(item => this.deserializeFeedbackValue(item))
@@ -1292,6 +1317,18 @@ class WebGLRenderingContextProxy {
 			return result
 		}
 		return deserializeCanvasValue(value)
+	}
+
+	retireBufferReferences(ids) {
+		for (const id of Array.isArray(ids) ? ids : []) {
+			const resource = this.resources.get(id)
+			if (resource?.resourceType !== 'buffer' || !resource.deleted || resource.canvas !== this.canvas) continue
+			if (!this.retiredBufferResources.remember(id, resource)) continue
+			this.resources.delete(id)
+			for (const pname of [WEBGL_CONSTANTS.ARRAY_BUFFER_BINDING, WEBGL_CONSTANTS.ELEMENT_ARRAY_BUFFER_BINDING]) {
+				if (this.state.get(pname) === resource) this.state.set(pname, null)
+			}
+		}
 	}
 
 	queueError(error) {
@@ -1377,6 +1414,85 @@ class WebGLRenderingContextProxy {
 		const value = this.queryResults.has(key) ? this.queryResults.get(key) : fallback
 		if (this.canvas.supportsSyncQueries) this.queryResults.delete(key)
 		return value
+	}
+
+
+	// Private pipeline capability. The public createBuffer() stays synchronous.
+	get [Symbol.for('dimina.canvas.createBufferAsync')]() {
+		if (!this.canvas.supportsSyncQueries || this.canvas.disposed || this.creationFailed
+			|| getWebGLCapabilities(this.canvas.bridgeId)?.asyncBufferCreation !== true) return undefined
+		return this.prepareBufferAsync.bind(this)
+	}
+
+	prepareBufferAsync() {
+		if (this.canvas.disposed) return Promise.reject(new Error('canvas node disposed'))
+		if (this.pendingBufferCreations.size >= 64) {
+			return Promise.reject(Object.assign(new Error('canvas buffer preparation exceeds budget'), { code: 'CANVAS_BUFFER_PREPARE_BUSY' }))
+		}
+		const resultId = makeResourceId('webgl_buffer')
+		let resource = new CanvasResource(this.canvas, resultId, 'buffer', {})
+		this.resources.set(resultId, resource)
+		this.pendingBufferCreations.add(resultId)
+		return new Promise((resolve, reject) => {
+			let settled = false, callbackId, timer, fail
+			const lost = () => fail?.(new Error('WebGL context changed during buffer preparation'))
+			const cleanup = () => {
+				clearTimeout(timer)
+				this.pendingBufferCreations.delete(resultId)
+				this.canvas.removeEventListener('webglcontextlost', lost)
+				this.canvas.removeEventListener('webglcontextrestored', lost)
+			}
+			fail = (reason) => {
+				if (settled) return
+				settled = true
+				cleanup()
+				this.canvas.removeCallback(callbackId)
+				this.resources.delete(resultId)
+				// Creation and deletion use the same FIFO, including a late allocation.
+				if (!this.canvas.disposed) {
+					try {
+						sendCanvasMessage(this.canvas.bridgeId, 'canvasNodeFlush', {
+							nodeId: this.canvas.nodeId,
+							operations: [{ op: 'contextCall', contextId: this.contextId, method: 'deleteBuffer', args: serializeCanvasArgs([resource]) }],
+							...(this.canvas.supportsDeferredGLErrors ? { deferErrorFeedback: true } : {}),
+						})
+					}
+					catch { /* Disposal or transport closure already releases the owner. */ }
+				}
+				reject(reason || new Error('canvas node disposed'))
+				resource = null
+				resolve = null
+				reject = null
+				fail = null
+			}
+			this.canvas.addEventListener('webglcontextlost', lost)
+			this.canvas.addEventListener('webglcontextrestored', lost)
+			timer = setTimeout(() => fail?.(new Error('canvas buffer preparation timed out')), 4500)
+			try {
+				this.canvas.enqueueOperation({
+					op: 'contextCall', contextId: this.contextId,
+					method: 'createBuffer', args: [], resultId, feedback: 'resource',
+				})
+				callbackId = this.canvas.flushOperations((feedback) => {
+					if (settled) return
+					const metadata = feedback?.contexts?.[this.contextId]?.resources?.find(item => item.resourceId === resultId)?.metadata
+					if (typeof metadata?.created !== 'boolean') {
+						fail?.(new Error('canvas buffer feedback missing'))
+						return
+					}
+					settled = true
+					cleanup()
+					if (!metadata.created) this.resources.delete(resultId)
+					resolve(metadata.created ? resource : null)
+					// Drop the shared scope's Promise/owner cycle after settlement.
+					resource = null
+					resolve = null
+					reject = null
+					fail = null
+				}, fail)
+			}
+			catch (error) { fail?.(error) }
+		})
 	}
 
 	createResource(method, args, resourceType) {
@@ -1753,6 +1869,7 @@ export class CanvasNode {
 		this.pendingStateFeedbacks = new Map()
 		this.stateFeedbackByProperty = new Map()
 		this.rafCallbacks = new Map()
+		this.frameSubscriptions = new Set()
 		this.pendingOperations = []
 		this.flushScheduled = false
 		this.presentationPending = false
@@ -1991,6 +2108,65 @@ export class CanvasNode {
 		onDispose?.(reason)
 	}
 
+	get [Symbol.for('dimina.canvas.subscribeAnimationFrame')]() {
+		if (!this.supportsSyncQueries || this.disposed || getWebGLCapabilities(this.bridgeId)?.animationFrameStream !== 1) return undefined
+		return this.subscribeFrameStream.bind(this)
+	}
+
+	subscribeFrameStream(fn) {
+		if (this.disposed) throw new Error('canvas node is disposed')
+		if (!isFunction(fn)) throw new TypeError('frame subscriber must be a function')
+		if (this.frameSubscriptions.size >= 32) throw new Error('canvas frame subscriptions exceed budget')
+		const stream = { requestId: null, sequence: 0, timestamp: -Infinity, active: true }
+		let callbackId
+		stream.suspend = () => {
+			const requestId = stream.requestId
+			// Invalidate before crossing the bridge: in-flight ticks belong to the old generation.
+			stream.requestId = null
+			if (requestId !== null && !this.disposed) {
+				try { sendCanvasMessage(this.bridgeId, 'canvasNodeCancelAnimationFrame', { nodeId: this.nodeId, requestId }) } catch {}
+			}
+		}
+		stream.resume = () => {
+			if (!stream.active || stream.requestId !== null || this.disposed || !canvasFrameAppVisible || hiddenCanvasFramePages.has(this.bridgeId)) return
+			stream.requestId = canvasRafSerial++
+			stream.sequence = 0
+			try {
+				this.flushOperations()
+				sendCanvasMessage(this.bridgeId, 'canvasNodeSubscribeAnimationFrame', {
+					nodeId: this.nodeId, requestId: stream.requestId, callback: callbackId, version: 1,
+				})
+			}
+			catch (error) { this.removeCallback(callbackId); throw error }
+		}
+		callbackId = callback.store((tick) => {
+			if (!stream.active || this.disposed || !canvasFrameAppVisible || hiddenCanvasFramePages.has(this.bridgeId)
+				|| !tick || tick.requestId !== stream.requestId || !Number.isSafeInteger(tick.sequence)
+				|| tick.sequence <= stream.sequence || !Number.isFinite(tick.timestamp) || tick.timestamp <= stream.timestamp) return
+			stream.sequence = tick.sequence
+			stream.timestamp = tick.timestamp
+			// Release a bounded credit before user work, including a callback that throws or pauses.
+			try {
+				sendCanvasMessage(this.bridgeId, 'canvasNodeAcknowledgeAnimationFrame', {
+					nodeId: this.nodeId, requestId: stream.requestId, sequence: tick.sequence,
+				})
+			}
+			catch (error) { this.removeCallback(callbackId); throw error }
+			fn(tick.timestamp)
+		}, true)
+		// Only this resource coordinator runs in the background; it never delivers user ticks there.
+		callback.allowInBackground(callbackId)
+		this.frameSubscriptions.add(stream)
+		this.pendingCallbacks.set(callbackId, () => {
+			if (!stream.active) return
+			stream.active = false
+			stream.suspend()
+			this.frameSubscriptions.delete(stream)
+		})
+		stream.resume()
+		return () => this.removeCallback(callbackId)
+	}
+
 	requestAnimationFrame(fn) {
 		const requestId = canvasRafSerial++
 		const callbackId = this.storeCallback((timestamp) => {
@@ -2086,6 +2262,9 @@ export class CanvasNode {
 			this.removeCallback(callbackId, reason)
 		}
 		this.rafCallbacks.clear()
+		for (const context of this.contextsById.values()) {
+			if (context.contextType === 'webgl') context.retiredBufferResources?.dispose?.()
+		}
 		this.pendingOperations = []
 		this.presentationPending = false
 		this.pendingTypedArrayUpdates.clear()
@@ -2168,6 +2347,10 @@ export class CanvasNode {
 		return globalThis.DiminaServiceBridge?.canvasSyncSupported === true
 	}
 
+	get tracksRetiredBuffers() {
+		return this.supportsSyncQueries && [...this.contextsById.values()].some(context => context.contextType === 'webgl' && context.retiredBufferResources?.enabled === true)
+	}
+
 	get supportsDeferredGLErrors() {
 		return this.supportsSyncQueries && getWebGLCapabilities(this.bridgeId)?.deferredGLErrors === true
 	}
@@ -2185,7 +2368,8 @@ export class CanvasNode {
 				bridgeId: this.bridgeId,
 				params: {
 					nodeId: this.nodeId, operations, feedback: true,
-					...(this.supportsDeferredGLErrors ? { deferErrorFeedback: true } : {}),
+					...(this.tracksRetiredBuffers ? { trackRetiredBuffers: 1 } : {}),
+				...(this.supportsDeferredGLErrors ? { deferErrorFeedback: true } : {}),
 				},
 			},
 		})
@@ -2198,7 +2382,7 @@ export class CanvasNode {
 		this.applyFlushFeedback(feedback)
 	}
 
-	flushOperations() {
+	flushOperations(onFeedback, onDispose) {
 		this.flushScheduled = false
 		if (this.pendingOperations.length === 0 && !this.presentationPending) {
 			return
@@ -2219,7 +2403,7 @@ export class CanvasNode {
 			|| (operation.feedback && operation.feedback !== 'state' && operation.feedback !== 'stateSnapshot')
 			|| operation.typedArrayUpdateId)
 		let feedback
-		if (needsDurableFeedback || stateKeys.length > 0) {
+		if (onFeedback || needsDurableFeedback || stateKeys.length > 0) {
 			if (!needsDurableFeedback) {
 				for (const key of stateKeys) {
 					const previousId = this.stateFeedbackByProperty.get(key)
@@ -2233,7 +2417,8 @@ export class CanvasNode {
 			feedback = this.storeCallback((result) => {
 				this.releaseStateFeedback(feedback)
 				this.applyFlushFeedback(result)
-			})
+				onFeedback?.(result)
+			}, onDispose)
 			if (!needsDurableFeedback) {
 				const ownedKeys = new Set(stateKeys)
 				this.pendingStateFeedbacks.set(feedback, ownedKeys)
@@ -2245,6 +2430,7 @@ export class CanvasNode {
 				nodeId: this.nodeId,
 				operations,
 				feedback,
+				...(this.tracksRetiredBuffers ? { trackRetiredBuffers: 1 } : {}),
 				...(this.supportsDeferredGLErrors ? { deferErrorFeedback: true } : {}),
 			})
 		}
@@ -2253,6 +2439,7 @@ export class CanvasNode {
 			for (const operation of operations) this.removeCallback(operation.callback, error)
 			throw error
 		}
+		return feedback
 	}
 }
 
@@ -2394,6 +2581,7 @@ export function disposeCanvasNodes(bridgeId) {
 		}
 	}
 	canvasNodesByBridge.delete(bridgeId)
+	hiddenCanvasFramePages.delete(bridgeId)
 	webglCapabilitiesByBridge.delete(bridgeId)
 	if (miniGameScreenCanvas?.bridgeId === bridgeId) miniGameScreenCanvas = null
 	if (miniGameImageCanvas?.bridgeId === bridgeId) miniGameImageCanvas = null

@@ -1,6 +1,7 @@
 #include "video_decoder_control.h"
 #include "video_decoder_pixels.h"
 #include "video_decoder_headers.h"
+#include "canvas_prepared_pixels.h"
 #include <algorithm>
 #include <array>
 #include <atomic>

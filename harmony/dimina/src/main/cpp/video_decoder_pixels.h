@@ -19,6 +19,26 @@ struct NV12PixelLayout {
 };
 
 namespace detail {
+// These are the same double expressions used by the scalar formula. Each
+// input byte has only 256 possible levels; keep FMA color conversion unchanged.
+struct NV12Levels {
+    double luma[256], chroma[256];
+    uint32_t neutralRGBA[256];
+    explicit NV12Levels(bool fullRange) {
+        const double scale = fullRange ? 1.0 : 255.0 / 224;
+        for (int index = 0; index < 256; ++index) {
+            const double value = index;
+            luma[index] = fullRange ? value : (value - 16) * 255.0 / 219;
+            chroma[index] = (value - 128.0) * scale;
+            const auto gray = uint32_t(std::max(0.0, std::min(255.0, luma[index])));
+            neutralRGBA[index] = 0xff000000u | gray * 0x010101u;
+        }
+    }
+};
+inline const NV12Levels &Levels(bool fullRange) {
+    static const NV12Levels full(true), limited(false);
+    return fullRange ? full : limited;
+}
 inline uint8_t PixelByte(double value) {
     return uint8_t(std::max(0.0, std::min(255.0, value)));
 }
@@ -59,7 +79,7 @@ inline void ConvertNV12Pixels(const uint8_t *bytes, NV12PixelLayout layout, uint
     const auto gU = vdupq_n_f64(layout.bt709 ? 0.1873 : 0.3441);
     const auto gV = vdupq_n_f64(layout.bt709 ? 0.4681 : 0.7141);
     const auto bU = vdupq_n_f64(layout.bt709 ? 1.8556 : 1.772);
-    const double scale = layout.fullRange ? 1.0 : 255.0 / 224;
+    const auto &levels = detail::Levels(layout.fullRange);
     for (int y = 0; y < layout.height; ++y) {
         const int sy = y + layout.top;
         const uint8_t *ys = bytes + size_t(sy) * layout.stride + layout.left;
@@ -72,14 +92,16 @@ inline void ConvertNV12Pixels(const uint8_t *bytes, NV12PixelLayout layout, uint
             ++x; uvs += 2;
         }
         for (; x + 1 < layout.width; x += 2, uvs += 2) {
-            float64x2_t yy {double(ys[x]), double(ys[x + 1])};
-            if (!layout.fullRange) {
-                yy = vsubq_f64(yy, vdupq_n_f64(16));
-                yy = vmulq_n_f64(yy, 255);
-                yy = vdivq_f64(yy, vdupq_n_f64(219));
+            // Neutral chroma contributes exactly zero in both color matrices.
+            // Reuse the same normalized luma byte for all three channels.
+            if (uvs[0] == 128 && uvs[1] == 128) {
+                const uint32x2_t gray {levels.neutralRGBA[ys[x]], levels.neutralRGBA[ys[x + 1]]};
+                vst1_u8(out + x * 4, vreinterpret_u8_u32(gray));
+                continue;
             }
-            const auto u = vdupq_n_f64((uvs[0] - 128.0) * scale);
-            const auto v = vdupq_n_f64((uvs[1] - 128.0) * scale);
+            const float64x2_t yy {levels.luma[ys[x]], levels.luma[ys[x + 1]]};
+            const auto u = vdupq_n_f64(levels.chroma[uvs[0]]);
+            const auto v = vdupq_n_f64(levels.chroma[uvs[1]]);
             // Preserve the original double FMA order, especially both green
             // subtraction steps. Separately rounded products change bytes.
             const auto red = vfmaq_f64(yy, rV, v);

@@ -21,6 +21,40 @@ int main() {
     JSContext *ctx = JS_NewContext(runtime);
     int result = 0;
     {
+        // Packet storage shares the RGBA ArrayBuffer lifetime and must count
+        // against the same QuickJS budget, including its reserved capacity.
+        std::vector<uint8_t> bytes(65536, 1);
+        for (size_t i = 0; i < bytes.size() / 2; i++) bytes[i] = uint8_t((i * 37 + i / 4) % 251);
+        auto packet = dimina::canvas::PrepareCanvasPixels(bytes.data(), bytes.size());
+        if (!packet) return 1;
+        const size_t packetCapacity = packet->packed.capacity();
+        const uint8_t *original = bytes.data();
+        std::weak_ptr<const dimina::canvas::PreparedCanvasPixels> lifetime = packet;
+        VideoDecoderFrame frame {128, 128, 0, std::move(bytes), false, "", std::move(packet)};
+        JSMemoryUsage before, after;
+        JS_ComputeMemoryUsage(runtime, &before);
+        JSValue value = VideoDecoderFrameToJS(ctx, std::move(frame));
+        JSValue data = JS_GetPropertyStr(ctx, value, "data");
+        size_t length = 0;
+        uint8_t *owned = JS_GetArrayBuffer(ctx, &length, data);
+        JS_ComputeMemoryUsage(runtime, &after);
+        if (owned != original || length != 65536 || lifetime.expired() ||
+            after.malloc_size - before.malloc_size < int64_t(length + packetCapacity + sizeof(OwnedVideoPixels))) result = 1;
+        if (!dimina::canvas::PreparedCanvasRegistry::Find(owned, length)) result = 1;
+        if (owned) {
+            owned[17] ^= 1;
+            if (dimina::canvas::PreparedCanvasRegistry::Find(owned, length)) result = 1;
+            owned[17] ^= 1;
+            if (!dimina::canvas::PreparedCanvasRegistry::Find(owned, length)) result = 1;
+        }
+        JS_FreeValue(ctx, value);
+        if (lifetime.expired()) result = 1; // The separately retained buffer owns it.
+        JS_DetachArrayBuffer(ctx, data);
+        if (!lifetime.expired() || dimina::canvas::PreparedCanvasRegistry::Find(original, length)) result = 1;
+        JS_FreeValue(ctx, data);
+        if (result) std::cerr << "prepared frame ownership, mutation validation or memory accounting failed\n";
+    }
+    {
         // A large real RGBA payload must remain owned after the decoder packet
         // and its source storage are released, with no base64 representation.
         std::vector<uint8_t> pixels(720 * 1080 * 4);

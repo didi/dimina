@@ -106,6 +106,139 @@ class ArrayBufferImage {
 }
 
 let PAGModule;
+class AsyncFrameBuffers {
+  constructor() {
+    this.players = new WeakMap();
+    this.executing = null;
+    this.prefetchAtBegin = true;
+  }
+  begin(player) {
+    let state = this.players.get(player);
+    if (!state) { state = { context: null, count: 0, runs: new Set(), next: null, cancelled: false }; this.players.set(player, state); }
+    const run = { player, state, context: state.context, buffers: [], used: 0, count: 0,
+      seenContext: null, multipleContexts: false, closed: false };
+    const eligible = state.runs.size < 16;
+    state.runs.add(run);
+    const cancelled = new Promise((_, reject) => { run.cancel = reject; });
+    const allocations = [];
+    try {
+      const allocate = state.context && state.context[Symbol.for('dimina.canvas.createBufferAsync')];
+      if (eligible && player.videoReaders.length && typeof allocate === "function" && state.count > 0 && state.count <= 4) {
+        const ticket = state.next || this.request(state);
+        state.next = null;
+        run.ticket = ticket;
+        run.context = ticket.context;
+        allocations.push(ticket.promise.then(buffer => {
+          if (ticket.invalid) { this.releaseTicket(ticket); throw new Error('WebGL context changed before prepared buffer use'); }
+          if (run.closed) { if (buffer) this.release(run.context, buffer); }
+          else run.buffers[0] = buffer;
+        }).catch(error => { if (error?.code !== 'CANVAS_BUFFER_PREPARE_BUSY') throw error; }));
+        // Only one idle future object; active runs own their separate current tickets.
+        if (this.prefetchAtBegin) state.next = this.request(state);
+      } else if (state.next) {
+        this.releaseTicket(state.next); state.next = null;
+      }
+    } catch (error) { allocations.push(Promise.reject(error)); }
+    run.prepared = Promise.race([Promise.all(allocations), cancelled]);
+    return run;
+  }
+  request(state) {
+    const ticket = {context:state.context, closed:false, hasValue:false, value:null};
+    const canvas=ticket.context.canvas;
+    if (typeof canvas?.addEventListener === 'function') {
+      ticket.canvas=canvas;
+      ticket.changed=()=>{ticket.invalid=true;};
+      canvas.addEventListener('webglcontextlost',ticket.changed);
+      canvas.addEventListener('webglcontextrestored',ticket.changed);
+    }
+    try {
+      const allocate = state.context[Symbol.for('dimina.canvas.createBufferAsync')];
+      const allocation=allocate.call(state.context);
+      ticket.promise = Promise.resolve(allocation).then(buffer => {
+        ticket.hasValue = true;
+        if (ticket.closed) { if (buffer) this.release(ticket.context, buffer); return null; }
+        ticket.value = buffer;
+        return buffer;
+      });
+    } catch (error) { ticket.promise = Promise.reject(error); }
+    ticket.promise.catch(() => {});
+    return ticket;
+  }
+  detachTicket(ticket) {
+    if (!ticket?.canvas || !ticket.changed) return;
+    ticket.canvas.removeEventListener('webglcontextlost',ticket.changed);
+    ticket.canvas.removeEventListener('webglcontextrestored',ticket.changed);
+    ticket.changed=null;
+  }
+  releaseTicket(ticket) {
+    if (ticket.closed) return;
+    this.detachTicket(ticket);
+    ticket.closed = true;
+    if (ticket.hasValue && ticket.value) this.release(ticket.context, ticket.value);
+    ticket.value = null;
+  }
+  enter(run) {
+    if (!run || run.closed) throw new Error("PAG buffer preparation was cancelled");
+    if (this.executing) throw new Error("PAG Wasm flushes must run in sequence");
+    this.executing = run;
+  }
+  leave(run) {
+    if (this.executing === run) this.executing = null;
+  }
+  create(context) {
+    const run = this.executing;
+    if (!run || run.closed) return context.createBuffer();
+    run.count++;
+    if (run.seenContext && run.seenContext !== context) run.multipleContexts = true;
+    run.seenContext = context;
+    if (context === run.context && run.used < run.buffers.length) {
+      if (run.ticket?.invalid) throw new Error('WebGL context changed before prepared buffer use');
+      this.detachTicket(run.ticket);
+      return run.buffers[run.used++];
+    }
+    return context.createBuffer();
+  }
+  release(context, buffer) {
+    try { context.deleteBuffer(buffer); } catch { /* A disposed owner already releases its resources. */ }
+  }
+  end(run) {
+    if (!run || run.closed) return;
+    const state = run.state;
+    if (this.executing === run) this.executing = null;
+    state.runs.delete(run);
+    // A no-op says nothing about the next changed frame's GL context.
+    // Preserve the last observed allocation pattern across empty Wasm work.
+    if (run.count > 0 || run.multipleContexts) {
+      state.context = run.multipleContexts ? null : run.seenContext;
+      state.count = run.count;
+    }
+    run.closed = true;
+    this.detachTicket(run.ticket);
+    run.cancel(new Error("PAG buffer preparation was cancelled"));
+    const unused = run.buffers.slice(run.used);
+    run.buffers = [];
+    for (const buffer of unused) if (buffer) this.release(run.context, buffer);
+    const valid=!state.cancelled && !run.failed && state.count > 0 && state.count <= 4
+        && run.player.videoReaders.length && state.context
+        && typeof state.context[Symbol.for('dimina.canvas.createBufferAsync')] === 'function';
+    if (state.next && (!valid || state.next.context !== state.context)) {
+      this.releaseTicket(state.next); state.next=null;
+    }
+    if (valid && !state.runs.size && !state.next) state.next=this.request(state);
+
+  }
+  cancel(player) {
+    const state = this.players.get(player);
+    if (state) {
+      state.cancelled = true;
+      if (state.next) { this.releaseTicket(state.next); state.next = null; }
+      for (const run of [...state.runs]) this.end(run);
+    }
+    this.players.delete(player);
+  }
+}
+const asyncFrameBuffers = new AsyncFrameBuffers();
+
 const setPAGModule = (module) => {
   PAGModule = module;
 };
@@ -141,21 +274,36 @@ var __decorateClass$g = (decorators, target, key, kind) => {
 var __async$a = (__this, __arguments, generator) => {
   return new Promise((resolve, reject) => {
     var fulfilled = (value) => {
+      if (!step) return;
       try {
         step(generator.next(value));
       } catch (e) {
+        step = null;
         reject(e);
       }
     };
     var rejected = (value) => {
+      if (!step) return;
       try {
         step(generator.throw(value));
       } catch (e) {
+        step = null;
         reject(e);
       }
     };
-    var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected);
-    step((generator = generator.apply(__this, __arguments)).next());
+    var step = (x) => {
+      if (x.done) {
+        step = null;
+        return resolve(x.value);
+      }
+      return Promise.resolve(x.value).then(fulfilled, rejected);
+    };
+    try {
+      step((generator = generator.apply(__this, __arguments)).next());
+    } catch (e) {
+      step = null;
+      reject(e);
+    }
   });
 };
 const BUFFER_MAX_SIZE = 6;
@@ -177,10 +325,12 @@ const frameDataOptions2FrameData = (id, options) => {
   };
 };
 let VideoReader = class {
-  constructor(mp4Data, width, height, frameRate, staticTimeRanges) {
+  constructor(mp4Data, width, height, frameRate, staticTimeRanges, player = PAGModule.currentPlayer) {
     this.isSought = false;
     this.isPlaying = false;
     this.isDestroyed = false;
+    this.loopWarmPrefetch = true;
+    this.loopWarm = null;
     this.player = null;
     this.error = null;
     this.frameDataBuffers = [];
@@ -202,15 +352,20 @@ let VideoReader = class {
       // Prefetch can finish before the player consumes the last buffered frames.
       // Keep their indices; prepare() seeks when playback actually wraps around.
       this.clearFrameDataLoop();
+      if (this.loopWarm) {
+        if (this.loopWarm.seekCompleted && !this.loopWarm.frames.length) {
+          this.failLoopWarm(this.loopWarm,new Error('decoder ended before first loop frame'));
+        }
+      } else if (this.canWarmLoop() && this.frameDataBuffers.length > 0) this.startLoopWarm();
     });
     this.videoDecoderPromise = this.videoDecoder.start({ source: this.mp4Path, mode: 1 }).then(() => {
       this.startGetFrameDataLoop();
     });
-    this.linkPlayer(PAGModule.currentPlayer);
+    this.linkPlayer(player);
   }
-  static create(mp4Data, width, height, frameRate, staticTimeRanges) {
+  static create(mp4Data, width, height, frameRate, staticTimeRanges, player = PAGModule.currentPlayer) {
     return __async$a(this, null, function* () {
-      return new VideoReader(mp4Data, width, height, frameRate, staticTimeRanges);
+      return new VideoReader(mp4Data, width, height, frameRate, staticTimeRanges, player);
     });
   }
   prepare(targetFrame) {
@@ -221,6 +376,20 @@ let VideoReader = class {
       yield this.videoDecoderPromise;
       if (this.isDestroyed)
         return;
+      if (this.loopWarm && !this.canWarmLoop()) this.cancelLoopWarm();
+      if (this.loopWarm && targetFrame < this.currentFrame) {
+        const warm=this.loopWarm;
+        if (!warm.frames.length) this.isSought=true;
+        yield warm.ready;
+        if (this.isDestroyed) return;
+        if (this.loopWarm === warm) {
+          if (warm.error) throw warm.error;
+          this.clearLoopWarmTimer(warm);
+          this.loopWarm=null;
+          this.frameDataBuffers=warm.frames;
+          this.bufferIndex=warm.nextIndex;
+        }
+      }
       if (this.frameDataBuffers.length > 0) {
         const index = this.frameDataBuffers.findIndex((frameData) => frameData.id === targetFrame);
         if (index !== -1) {
@@ -271,6 +440,7 @@ let VideoReader = class {
   onDestroy() {
     // Dimina vendored fix: destroyVerify blocks helper calls once isDestroyed is set.
     this.clearFrameDataLoop();
+    this.cancelLoopWarm();
     this.isDestroyed = true;
     if (this.getFrameDataResolve) {
       this.getFrameDataResolve({ id: -1, data: new ArrayBuffer(0), width: 0, height: 0 });
@@ -287,7 +457,7 @@ let VideoReader = class {
   }
   getFrameData() {
     return new Promise((resolve) => {
-      if (this.frameDataBuffers.length <= BUFFER_MIN_SIZE && !this.getFrameDataLooping) {
+      if (this.frameDataBuffers.length <= BUFFER_MIN_SIZE && !this.getFrameDataLooping && !this.loopWarm) {
         this.startGetFrameDataLoop();
       }
       if (this.frameDataBuffers.length === 0) {
@@ -295,6 +465,8 @@ let VideoReader = class {
         return;
       }
       const res = this.frameDataBuffers.shift();
+      if (this.canWarmLoop() && this.frameDataBuffers.length<=BUFFER_MIN_SIZE && !this.getFrameDataLooping && !this.loopWarm) this.startGetFrameDataLoop();
+
       if (!res) {
         this.getFrameDataResolve = resolve;
         return;
@@ -303,6 +475,7 @@ let VideoReader = class {
     });
   }
   startGetFrameDataLoop() {
+    if (this.loopWarm) return;
     this.getFrameDataLooping = true;
     this.getFrameDataLoopTimer = setInterval(() => {
       this.getFrameDataLoop();
@@ -311,7 +484,7 @@ let VideoReader = class {
   getFrameDataLoop() {
     if (this.isDestroyed)
       return;
-    if (this.seeking)
+    if (this.seeking || this.loopWarm)
       return;
     if (!this.videoDecoder) {
       this.clearFrameDataLoop();
@@ -333,6 +506,61 @@ let VideoReader = class {
       }
       this.bufferIndex += 1;
     }
+  }
+  canWarmLoop() {
+    return this.loopWarmPrefetch && typeof this.player?.__diminaLoopPrefetchAllowed === 'function'
+      && this.player.__diminaLoopPrefetchAllowed();
+  }
+  startLoopWarm() {
+    if (this.isDestroyed || this.loopWarm || !this.canWarmLoop()) return;
+    const warm={frames:[],nextIndex:0,timer:null,error:null,seekCompleted:false};
+    warm.ready=new Promise(resolve=>{warm.resolve=resolve;});
+    this.loopWarm=warm;
+    try {
+      Promise.resolve(this.videoDecoder.seek(0)).then(()=>{
+        if (this.isDestroyed || this.loopWarm !== warm) return;
+        warm.seekCompleted=true;
+        warm.timer=setInterval(()=>this.pollLoopWarm(warm),GET_FRAME_DATA_INTERVAL);
+        this.pollLoopWarm(warm);
+      }).catch(error=>{
+        if (!this.isDestroyed && this.loopWarm === warm) this.failLoopWarm(warm,error);
+      });
+    } catch (error) { this.failLoopWarm(warm,error); }
+  }
+  pollLoopWarm(warm) {
+    if (this.isDestroyed || this.loopWarm !== warm || warm.error || warm.frames.length >= 1) return;
+    try {
+      const options=this.videoDecoder.getFrameData();
+      if (!options || warm.error) return;
+      // The lookahead budget must not reject a frame the normal decoder supports.
+      // Drop this optional prefix and let prepare() seek the real wrap position.
+      if (options.data.byteLength > 8 * 1024 * 1024) {
+        this.loopWarmPrefetch = false;
+        this.cancelLoopWarm();
+        return;
+      }
+      const frame=frameDataOptions2FrameData(warm.nextIndex,options);
+      warm.frames.push(frame);warm.nextIndex++;
+      this.clearLoopWarmTimer(warm);
+      warm.resolve(true);
+    } catch (error) { this.failLoopWarm(warm,error); }
+  }
+  clearLoopWarmTimer(warm) {
+    if (warm?.timer) {clearInterval(warm.timer);warm.timer=null;}
+  }
+  failLoopWarm(warm,error) {
+    if (this.isDestroyed || this.loopWarm !== warm) return;
+    warm.error=error instanceof Error ? error : new Error(String(error));
+    this.clearLoopWarmTimer(warm);
+    warm.resolve(false);
+  }
+  cancelLoopWarm() {
+    const warm=this.loopWarm;
+    if (!warm) return;
+    this.loopWarm=null;
+    this.clearLoopWarmTimer(warm);
+    warm.frames=[];
+    warm.resolve(false);
   }
   clearFrameDataLoop() {
     if (this.getFrameDataLoopTimer) {
@@ -1292,21 +1520,36 @@ var __decorateClass$e = (decorators, target, key, kind) => {
 var __async$9 = (__this, __arguments, generator) => {
   return new Promise((resolve, reject) => {
     var fulfilled = (value) => {
+      if (!step) return;
       try {
         step(generator.next(value));
       } catch (e) {
+        step = null;
         reject(e);
       }
     };
     var rejected = (value) => {
+      if (!step) return;
       try {
         step(generator.throw(value));
       } catch (e) {
+        step = null;
         reject(e);
       }
     };
-    var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected);
-    step((generator = generator.apply(__this, __arguments)).next());
+    var step = (x) => {
+      if (x.done) {
+        step = null;
+        return resolve(x.value);
+      }
+      return Promise.resolve(x.value).then(fulfilled, rejected);
+    };
+    try {
+      step((generator = generator.apply(__this, __arguments)).next());
+    } catch (e) {
+      step = null;
+      reject(e);
+    }
   });
 };
 let PAGView$1 = class {
@@ -1440,6 +1683,11 @@ let PAGView$1 = class {
   }
   setRepeatCount(repeatCount) {
     this.repeatCount = repeatCount < 0 ? 0 : repeatCount - 1;
+    const gl=this.canvasElement?.getContext('webgl');
+    const supported=typeof gl?.[Symbol.for('dimina.canvas.createBufferAsync')] === 'function';
+    this.player.__diminaLoopPrefetchAllowed=()=>supported && this.isPlaying && !this.isDestroyed
+      && (this.repeatCount<0 || this.repeatedTimes<this.repeatCount);
+
   }
   getProgress() {
     return this.player.getProgress();
@@ -1723,21 +1971,36 @@ var __decorateClass$d = (decorators, target, key, kind) => {
 var __async$8 = (__this, __arguments, generator) => {
   return new Promise((resolve, reject) => {
     var fulfilled = (value) => {
+      if (!step) return;
       try {
         step(generator.next(value));
       } catch (e) {
+        step = null;
         reject(e);
       }
     };
     var rejected = (value) => {
+      if (!step) return;
       try {
         step(generator.throw(value));
       } catch (e) {
+        step = null;
         reject(e);
       }
     };
-    var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected);
-    step((generator = generator.apply(__this, __arguments)).next());
+    var step = (x) => {
+      if (x.done) {
+        step = null;
+        return resolve(x.value);
+      }
+      return Promise.resolve(x.value).then(fulfilled, rejected);
+    };
+    try {
+      step((generator = generator.apply(__this, __arguments)).next());
+    } catch (e) {
+      step = null;
+      reject(e);
+    }
   });
 };
 function isOffscreenCanvas(canvas) {
@@ -1805,13 +2068,23 @@ let PAGView = class extends PAGView$1 {
       if (!this.isPlaying || this.isDestroyed)
         return;
       this.setTimer();
-      if (this.flushingNextFrame)
+      if (this.flushingNextFrame) {
+        this.flushPending = true;
         return;
+      }
       try {
         this.flushingNextFrame = true;
+        this.flushPending = false;
         yield this.flushNextFrame(force);
+        // Coalesce only real RAF requests received while the current flush waited.
+        // One extra turn keeps play() bounded and the existing RAF chain active.
+        if (this.flushPending && this.isPlaying && !this.isDestroyed) {
+          this.flushPending = false;
+          yield this.flushNextFrame(false);
+        }
         this.flushingNextFrame = false;
       } catch (e) {
+        this.flushPending = false;
         this.flushingNextFrame = false;
         if (e.message !== "The play() request was interrupted because the document was hidden!") {
           this.clearTimer();
@@ -1856,11 +2129,22 @@ let PAGView = class extends PAGView$1 {
     return Date.now();
   }
   setTimer() {
+    if (this.frameStreamCancel) return;
+    const subscribe = this.canvasElement[Symbol.for('dimina.canvas.subscribeAnimationFrame')];
+    if (this.player.videoReaders.length && typeof subscribe === 'function') {
+      this.timer = null;
+      this.frameStreamCancel = subscribe(() => this.flushLoop());
+      return;
+    }
     this.timer = this.canvasElement.requestAnimationFrame(() => {
       this.flushLoop();
     });
   }
   clearTimer() {
+    this.flushPending = false;
+    const cancel = this.frameStreamCancel;
+    this.frameStreamCancel = null;
+    if (cancel) cancel();
     if (this.timer) {
       this.canvasElement.cancelAnimationFrame(this.timer);
       this.timer = null;
@@ -2338,21 +2622,36 @@ var __decorateClass$9 = (decorators, target, key, kind) => {
 var __async$7 = (__this, __arguments, generator) => {
   return new Promise((resolve, reject) => {
     var fulfilled = (value) => {
+      if (!step) return;
       try {
         step(generator.next(value));
       } catch (e) {
+        step = null;
         reject(e);
       }
     };
     var rejected = (value) => {
+      if (!step) return;
       try {
         step(generator.throw(value));
       } catch (e) {
+        step = null;
         reject(e);
       }
     };
-    var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected);
-    step((generator = generator.apply(__this, __arguments)).next());
+    var step = (x) => {
+      if (x.done) {
+        step = null;
+        return resolve(x.value);
+      }
+      return Promise.resolve(x.value).then(fulfilled, rejected);
+    };
+    try {
+      step((generator = generator.apply(__this, __arguments)).next());
+    } catch (e) {
+      step = null;
+      reject(e);
+    }
   });
 };
 let PAGFile$1 = class extends PAGComposition {
@@ -2447,21 +2746,36 @@ var __decorateClass$8 = (decorators, target, key, kind) => {
 var __async$6 = (__this, __arguments, generator) => {
   return new Promise((resolve, reject) => {
     var fulfilled = (value) => {
+      if (!step) return;
       try {
         step(generator.next(value));
       } catch (e) {
+        step = null;
         reject(e);
       }
     };
     var rejected = (value) => {
+      if (!step) return;
       try {
         step(generator.throw(value));
       } catch (e) {
+        step = null;
         reject(e);
       }
     };
-    var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected);
-    step((generator = generator.apply(__this, __arguments)).next());
+    var step = (x) => {
+      if (x.done) {
+        step = null;
+        return resolve(x.value);
+      }
+      return Promise.resolve(x.value).then(fulfilled, rejected);
+    };
+    try {
+      step((generator = generator.apply(__this, __arguments)).next());
+    } catch (e) {
+      step = null;
+      reject(e);
+    }
   });
 };
 let PAGFile = class extends PAGFile$1 {
@@ -2489,21 +2803,36 @@ var __decorateClass$7 = (decorators, target, key, kind) => {
 var __async$5 = (__this, __arguments, generator) => {
   return new Promise((resolve, reject) => {
     var fulfilled = (value) => {
+      if (!step) return;
       try {
         step(generator.next(value));
       } catch (e) {
+        step = null;
         reject(e);
       }
     };
     var rejected = (value) => {
+      if (!step) return;
       try {
         step(generator.throw(value));
       } catch (e) {
+        step = null;
         reject(e);
       }
     };
-    var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected);
-    step((generator = generator.apply(__this, __arguments)).next());
+    var step = (x) => {
+      if (x.done) {
+        step = null;
+        return resolve(x.value);
+      }
+      return Promise.resolve(x.value).then(fulfilled, rejected);
+    };
+    try {
+      step((generator = generator.apply(__this, __arguments)).next());
+    } catch (e) {
+      step = null;
+      reject(e);
+    }
   });
 };
 let PAGImage$1 = class {
@@ -2604,21 +2933,36 @@ var __decorateClass$6 = (decorators, target, key, kind) => {
 var __async$4 = (__this, __arguments, generator) => {
   return new Promise((resolve, reject) => {
     var fulfilled = (value) => {
+      if (!step) return;
       try {
         step(generator.next(value));
       } catch (e) {
+        step = null;
         reject(e);
       }
     };
     var rejected = (value) => {
+      if (!step) return;
       try {
         step(generator.throw(value));
       } catch (e) {
+        step = null;
         reject(e);
       }
     };
-    var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected);
-    step((generator = generator.apply(__this, __arguments)).next());
+    var step = (x) => {
+      if (x.done) {
+        step = null;
+        return resolve(x.value);
+      }
+      return Promise.resolve(x.value).then(fulfilled, rejected);
+    };
+    try {
+      step((generator = generator.apply(__this, __arguments)).next());
+    } catch (e) {
+      step = null;
+      reject(e);
+    }
   });
 };
 let PAGFont$1 = class {
@@ -2667,21 +3011,36 @@ PAGFont$1 = __decorateClass$6([
 var __async$3 = (__this, __arguments, generator) => {
   return new Promise((resolve, reject) => {
     var fulfilled = (value) => {
+      if (!step) return;
       try {
         step(generator.next(value));
       } catch (e) {
+        step = null;
         reject(e);
       }
     };
     var rejected = (value) => {
+      if (!step) return;
       try {
         step(generator.throw(value));
       } catch (e) {
+        step = null;
         reject(e);
       }
     };
-    var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected);
-    step((generator = generator.apply(__this, __arguments)).next());
+    var step = (x) => {
+      if (x.done) {
+        step = null;
+        return resolve(x.value);
+      }
+      return Promise.resolve(x.value).then(fulfilled, rejected);
+    };
+    try {
+      step((generator = generator.apply(__this, __arguments)).next());
+    } catch (e) {
+      step = null;
+      reject(e);
+    }
   });
 };
 class PAGFont extends PAGFont$1 {
@@ -2706,25 +3065,41 @@ var __decorateClass$5 = (decorators, target, key, kind) => {
 var __async$2 = (__this, __arguments, generator) => {
   return new Promise((resolve, reject) => {
     var fulfilled = (value) => {
+      if (!step) return;
       try {
         step(generator.next(value));
       } catch (e) {
+        step = null;
         reject(e);
       }
     };
     var rejected = (value) => {
+      if (!step) return;
       try {
         step(generator.throw(value));
       } catch (e) {
+        step = null;
         reject(e);
       }
     };
-    var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected);
-    step((generator = generator.apply(__this, __arguments)).next());
+    var step = (x) => {
+      if (x.done) {
+        step = null;
+        return resolve(x.value);
+      }
+      return Promise.resolve(x.value).then(fulfilled, rejected);
+    };
+    try {
+      step((generator = generator.apply(__this, __arguments)).next());
+    } catch (e) {
+      step = null;
+      reject(e);
+    }
   });
 };
 let VideoReaderManager = class {
-  constructor(wasmIns) {
+  constructor(wasmIns, player) {
+    this.player = player;
     this.videoIDs = [];
     this.isDestroyed = false;
     this.videoReaderMap = /* @__PURE__ */ new Map();
@@ -2740,9 +3115,9 @@ let VideoReaderManager = class {
   static HasVideo(wasmIns) {
     return PAGModule._videoInfoManager._HasVideo(wasmIns);
   }
-  static make(wasmIns) {
+  static make(wasmIns, player) {
     return __async$2(this, null, function* () {
-      const videoManage = new VideoReaderManager(wasmIns);
+      const videoManage = new VideoReaderManager(wasmIns, player);
       yield videoManage.createVideoReader();
       return videoManage;
     });
@@ -2758,7 +3133,8 @@ let VideoReaderManager = class {
             this.wasmIns._getWidthByID(id),
             this.wasmIns._getHeightByID(id),
             this.wasmIns._getFrameRateByID(id),
-            this.wasmIns._getStaticTimeRangesByID(id)
+            this.wasmIns._getStaticTimeRangesByID(id),
+            this.player
           ));
           yield (_a = this.videoReaderMap.get(id)) == null ? void 0 : _a.prepare(0, this.wasmIns._getPlaybackRateByID(id));
         }
@@ -2818,21 +3194,36 @@ var __decorateClass$4 = (decorators, target, key, kind) => {
 var __async$1 = (__this, __arguments, generator) => {
   return new Promise((resolve, reject) => {
     var fulfilled = (value) => {
+      if (!step) return;
       try {
         step(generator.next(value));
       } catch (e) {
+        step = null;
         reject(e);
       }
     };
     var rejected = (value) => {
+      if (!step) return;
       try {
         step(generator.throw(value));
       } catch (e) {
+        step = null;
         reject(e);
       }
     };
-    var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected);
-    step((generator = generator.apply(__this, __arguments)).next());
+    var step = (x) => {
+      if (x.done) {
+        step = null;
+        return resolve(x.value);
+      }
+      return Promise.resolve(x.value).then(fulfilled, rejected);
+    };
+    try {
+      step((generator = generator.apply(__this, __arguments)).next());
+    } catch (e) {
+      step = null;
+      reject(e);
+    }
   });
 };
 let PAGPlayer = class {
@@ -2854,32 +3245,41 @@ let PAGPlayer = class {
   }
   flush() {
     return __async$1(this, null, function* () {
-      PAGModule.currentPlayer = this;
-      yield this.prepareVideoFrame();
-      return PAGModule.webAssemblyQueue.exec(() => __async$1(this, null, function* () {
-        const res = yield this.wasmIns._flush();
-        PAGModule.currentPlayer = null;
-        return res;
-      }), this.wasmIns);
+      const run = asyncFrameBuffers.begin(this);
+      try {
+        yield Promise.all([this.prepareVideoFrame(), run.prepared]);
+        return yield PAGModule.webAssemblyQueue.exec(() => __async$1(this, null, function* () {
+          // Preparation can overlap another player; bind ownership on queue entry.
+          PAGModule.currentPlayer = this;
+          asyncFrameBuffers.enter(run);
+          try { return yield this.wasmIns._flush(); }
+          finally { asyncFrameBuffers.leave(run); PAGModule.currentPlayer = null; }
+        }), this.wasmIns);
+      } catch (error) { run.failed = true; throw error; } finally { asyncFrameBuffers.end(run); }
     });
   }
   flushInternal(callback) {
     return __async$1(this, null, function* () {
-      PAGModule.currentPlayer = this;
-      yield this.prepareVideoFrame();
-      const res = yield PAGModule.webAssemblyQueue.exec(() => __async$1(this, null, function* () {
-        const res2 = yield this.wasmIns._flush();
-        PAGModule.currentPlayer = null;
-        callback(res2);
-        return res2;
-      }), this.wasmIns);
-      for (const videoReader of this.videoReaders) {
-        const error = yield videoReader.getError();
-        if (error !== null) {
-          console.warn("[PAGPlayer] VideoReader error:", error);
+      const run = asyncFrameBuffers.begin(this);
+      try {
+        yield Promise.all([this.prepareVideoFrame(), run.prepared]);
+        const res = yield PAGModule.webAssemblyQueue.exec(() => __async$1(this, null, function* () {
+          // Preparation can overlap another player; bind ownership on queue entry.
+          PAGModule.currentPlayer = this;
+          asyncFrameBuffers.enter(run);
+          try {
+            const res2 = yield this.wasmIns._flush();
+            PAGModule.currentPlayer = null;
+            callback(res2);
+            return res2;
+          } finally { asyncFrameBuffers.leave(run); PAGModule.currentPlayer = null; }
+        }), this.wasmIns);
+        for (const videoReader of this.videoReaders) {
+          const error = yield videoReader.getError();
+          if (error !== null) console.warn("[PAGPlayer] VideoReader error:", error);
         }
-      }
-      return res;
+        return res;
+      } catch (error) { run.failed = true; throw error; } finally { asyncFrameBuffers.end(run); }
     });
   }
   duration() {
@@ -3001,6 +3401,7 @@ let PAGPlayer = class {
     }), this.wasmIns);
   }
   destroy() {
+    asyncFrameBuffers.cancel(this);
     this.destroyVideoReaderManager();
     this.wasmIns.delete();
     this.isDestroyed = true;
@@ -3020,7 +3421,7 @@ let PAGPlayer = class {
       if (PAGModule._useSoftwareDecoder !== void 0 && !PAGModule._useSoftwareDecoder) {
         if (this.pagComposition !== null) {
           if (this.videoReaderManager === null && VideoReaderManager.HasVideo((_a = this.pagComposition) == null ? void 0 : _a.wasmIns)) {
-            this.videoReaderManager = yield VideoReaderManager.make((_b = this.pagComposition) == null ? void 0 : _b.wasmIns);
+            this.videoReaderManager = yield VideoReaderManager.make((_b = this.pagComposition) == null ? void 0 : _b.wasmIns, this);
             PAGModule.videoReaderManager = this.videoReaderManager;
           }
           if (this.videoReaderManager !== null) {
@@ -3492,21 +3893,36 @@ const binding = (module) => {
 var __async = (__this, __arguments, generator) => {
   return new Promise((resolve, reject) => {
     var fulfilled = (value) => {
+      if (!step) return;
       try {
         step(generator.next(value));
       } catch (e) {
+        step = null;
         reject(e);
       }
     };
     var rejected = (value) => {
+      if (!step) return;
       try {
         step(generator.throw(value));
       } catch (e) {
+        step = null;
         reject(e);
       }
     };
-    var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected);
-    step((generator = generator.apply(__this, __arguments)).next());
+    var step = (x) => {
+      if (x.done) {
+        step = null;
+        return resolve(x.value);
+      }
+      return Promise.resolve(x.value).then(fulfilled, rejected);
+    };
+    try {
+      step((generator = generator.apply(__this, __arguments)).next());
+    } catch (e) {
+      step = null;
+      reject(e);
+    }
   });
 };
 class WebAssemblyQueue {
@@ -8343,7 +8759,7 @@ var PAGInit$1 = (() => {
     }
     function __glGenObject(n, buffers, createFunction, objectTable) {
       for (var i2 = 0; i2 < n; i2++) {
-        var buffer2 = GLctx[createFunction]();
+        var buffer2 = createFunction === "createBuffer" ? asyncFrameBuffers.create(GLctx) : GLctx[createFunction]();
         var id = buffer2 && GL.getNewId(objectTable);
         if (buffer2) {
           buffer2.name = id;

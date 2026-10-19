@@ -1,6 +1,38 @@
 --- a/quickjs.c
 +++ b/quickjs.c
-@@ -49946,6 +49946,16 @@
+@@ -340,6 +340,7 @@
+     struct list_head tmp_obj_list; /* used during GC */
+     JSGCPhaseEnum gc_phase : 8;
+     size_t malloc_gc_threshold;
++    BOOL malloc_gc_threshold_manual;
+     struct list_head weakref_list; /* list of JSWeakRefHeader.link */
+ #ifdef DUMP_LEAKS
+     struct list_head string_list; /* list of JSString.link */
+@@ -1794,6 +1795,7 @@
+         JS_RunGC(rt);
+         rt->malloc_gc_threshold = rt->malloc_ctx.malloc_state.malloc_size +
+             (rt->malloc_ctx.malloc_state.malloc_size >> 1);
++        rt->malloc_gc_threshold_manual = FALSE;
+     }
+ }
+
+@@ -2081,6 +2083,7 @@
+     rt->malloc_ctx.mf = *mf;
+     rt->malloc_ctx.malloc_state = ms;
+     rt->malloc_gc_threshold = 256 * 1024;
++    rt->malloc_gc_threshold_manual = FALSE;
+
+     init_list_head(&rt->context_list);
+     init_list_head(&rt->gc_obj_list);
+@@ -2227,6 +2230,7 @@
+ void JS_SetGCThreshold(JSRuntime *rt, size_t gc_threshold)
+ {
+     rt->malloc_gc_threshold = gc_threshold;
++    rt->malloc_gc_threshold_manual = TRUE;
+ }
+
+ #define malloc(s) malloc_is_forbidden(s)
+@@ -49946,6 +49950,16 @@
      if (string_buffer_putc8(b, '\"'))
          goto fail;
      for(i = 0; i < p->len; ) {
@@ -17,7 +49,7 @@
          c = string_getc(p, &i);
          switch(c) {
          case '\t':
-@@ -56853,6 +56863,61 @@
+@@ -56853,6 +56867,82 @@
                                          (uint8_t *)buf,
                                          js_array_buffer_free, NULL,
                                          TRUE);
@@ -39,6 +71,14 @@
 +    JSOwnedArrayBufferData *data = opaque;
 +    rt->malloc_ctx.malloc_state.malloc_size -= data->charged_bytes;
 +    rt->malloc_ctx.malloc_state.malloc_count--;
++    /* A collection may include a transient external allocation in its next
++       budget. After release, cap it by the collector's existing 1.5x formula
++       for current usage; this can only advance a later collection. */
++    const size_t live_bytes = rt->malloc_ctx.malloc_state.malloc_size;
++    const size_t half = live_bytes >> 1;
++    const size_t budget = live_bytes > SIZE_MAX - half ? SIZE_MAX : live_bytes + half;
++    if (!rt->malloc_gc_threshold_manual && rt->malloc_gc_threshold > budget)
++        rt->malloc_gc_threshold = budget;
 +    data->free_func(rt, data->opaque, ptr);
 +    js_free_rt(rt, data);
 +}
@@ -51,33 +91,46 @@
 +    JSMallocState *state = &rt->malloc_ctx.malloc_state;
 +    JSOwnedArrayBufferData *data;
 +    JSValue result;
++    const size_t previous_gc_threshold = rt->malloc_gc_threshold;
++    const BOOL previous_gc_manual = rt->malloc_gc_threshold_manual;
 +    if (!buf || !free_func || len > INT32_MAX || charged_bytes < len)
 +        return JS_ThrowRangeError(ctx, "invalid owned ArrayBuffer");
 +    if (charged_bytes > SIZE_MAX - state->malloc_size)
 +        return JS_ThrowOutOfMemory(ctx);
-+    js_trigger_gc(rt, charged_bytes);
++    /* Include the incoming allocation when GC computes its next threshold.
++       Charging after GC can immediately trigger another full collection while
++       constructing the ArrayBuffer object. Roll back if adoption fails. */
++    state->malloc_size += charged_bytes;
++    state->malloc_count++;
++    js_trigger_gc(rt, 0);
++    if (state->malloc_size > state->malloc_limit) {
++        JS_ThrowOutOfMemory(ctx);
++        goto fail_charge;
++    }
 +    data = js_malloc(ctx, sizeof(*data));
 +    if (!data)
-+        return JS_EXCEPTION;
-+    if (state->malloc_size > state->malloc_limit ||
-+        charged_bytes > state->malloc_limit - state->malloc_size) {
-+        js_free(ctx, data);
-+        return JS_ThrowOutOfMemory(ctx);
-+    }
++        goto fail_charge;
 +    data->charged_bytes = charged_bytes;
 +    data->free_func = free_func;
 +    data->opaque = opaque;
-+    state->malloc_size += charged_bytes;
-+    state->malloc_count++;
 +    result = JS_NewArrayBuffer(ctx, buf, len, js_owned_array_buffer_free, data, FALSE);
 +    if (JS_IsException(result)) {
-+        state->malloc_size -= charged_bytes;
-+        state->malloc_count--;
 +        js_free(ctx, data);
++        goto fail_charge;
 +    }
 +    return result;
++fail_charge:
++    state->malloc_size -= charged_bytes;
++    state->malloc_count--;
++    /* A rejected large buffer must not suppress later collections below the
++       unchanged hard memory limit. Preserve a lower threshold set by GC. */
++    if (rt->malloc_gc_threshold > previous_gc_threshold) {
++        rt->malloc_gc_threshold = previous_gc_threshold;
++        rt->malloc_gc_threshold_manual = previous_gc_manual;
++    }
++    return JS_EXCEPTION;
  }
- 
+
  static JSValue js_array_buffer_constructor0(JSContext *ctx, JSValueConst new_target,
 --- a/quickjs.h
 +++ b/quickjs.h
@@ -91,4 +144,4 @@
 +                              JSFreeArrayBufferDataFunc *free_func, void *opaque);
  void JS_DetachArrayBuffer(JSContext *ctx, JSValueConst obj);
  uint8_t *JS_GetArrayBuffer(JSContext *ctx, size_t *psize, JSValueConst obj);
- 
+
