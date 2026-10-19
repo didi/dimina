@@ -430,6 +430,7 @@ static JSValue publish(JSContext *ctx, JSValueConst this_val, int argc, JSValueC
         std::shared_ptr<dimina::canvas::UiChannel> channel;
         if (renderTarget) channel = dimina::canvas::FindUiChannel(currentEngine->getAppIndex(), webViewId);
         if (channel) {
+            channel->BindFrameEvents(currentEngine->frameMessageSink(), webViewId);
             auto packet = dimina::canvas::SerializeCanvasBody(ctx, argv[1], channel->IsBinary());
             if (!channel->Publish(std::move(packet.json), std::move(packet.buffers)))
                 return throwNativeError(ctx, "canvas UI channel is unavailable");
@@ -880,8 +881,26 @@ static JSValue js_decode_array_buffer(JSContext *ctx, JSValueConst, int argc, JS
 }
 
 
+static JSValue js_display_frame_control(JSContext *ctx,JSValueConst,int argc,JSValueConst *argv){
+    try{
+        const auto integer=[&](int index,double max){double n=-1;if(index>=argc||!JS_IsNumber(argv[index])||JS_ToFloat64(ctx,&n,argv[index])<0||!std::isfinite(n)||n<0||n>max||std::floor(n)!=n)throw std::runtime_error("invalid native display argument");return n;};
+        const int op=static_cast<int>(integer(0,3)),page=static_cast<int>(integer(1,2147483647));
+        std::shared_ptr<dimina::canvas::UiChannel> channel;
+        for(const auto &entry:engineMap)if(entry.second->getContext()==ctx){channel=dimina::canvas::FindUiChannel(entry.second->getAppIndex(),page);break;}
+        if(!channel)return JS_FALSE;
+        if(op==0)return JS_NewBool(ctx,channel->DisplayFrames(0,"",0,"",0));
+        if(argc<4||!JS_IsString(argv[2]))throw std::runtime_error("invalid native display node");
+        const auto node=dimina::bridge::encodeString(dimina::bridge::readString(ctx,argv[2]));
+        const auto request=static_cast<uint64_t>(integer(3,9007199254740991.0));
+        std::string callback;uint64_t sequence=0;
+        if(op==1){if(argc<5||!JS_IsString(argv[4]))throw std::runtime_error("invalid native display callback");callback=dimina::bridge::encodeString(dimina::bridge::readString(ctx,argv[4]));}
+        if(op==2)sequence=static_cast<uint64_t>(integer(4,9007199254740991.0));
+        return JS_NewBool(ctx,channel->DisplayFrames(op,node,request,callback,sequence));
+    }catch(const std::exception &error){return throwNativeError(ctx,error.what());}
+}
 void initBridges(JSContext *ctx, const char* virtualFilePrefix, int owner) {
     JSValue diminaServiceBridge = JS_NewObject(ctx);
+    JS_SetPropertyStr(ctx,diminaServiceBridge,"displayFrameControl",JS_NewCFunction(ctx,js_display_frame_control,"displayFrameControl",5));
     JS_SetPropertyStr(ctx, diminaServiceBridge, "canvasSyncSupported", JS_TRUE);
     JS_SetPropertyStr(ctx, diminaServiceBridge, "canvasBinarySupported", JS_TRUE);
     JS_SetPropertyStr(ctx, diminaServiceBridge, "fileBinarySupported", JS_TRUE);

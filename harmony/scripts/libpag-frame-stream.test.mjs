@@ -50,3 +50,19 @@ test('failed subscription does not replay through a different scheduling path', 
   const f = fixture(); f.view.canvasElement[key] = () => { throw Error('closed') };
   assert.throws(() => f.view.setTimer(), /closed/); assert.equal(f.stats().ordinary, 0); assert.equal(f.stats().flushes, 0);
 });
+
+const displayKey=Symbol.for('dimina.canvas.subscribeDisplayFrame')
+test('video playback prefers real native display callbacks when explicitly available',()=>{
+ const f=fixture();let callback,cancelled=0
+ f.view.canvasElement[displayKey]=fn=>{callback=fn;return()=>cancelled++}
+ f.view.setTimer();f.view.setTimer();assert.equal(f.stats().subscriptions,0);assert.equal(f.stats().ordinary,0);assert.equal(f.stats().flushes,0)
+ callback(12345678.125);assert.equal(f.stats().flushes,1);f.view.clearTimer();f.view.clearTimer();assert.equal(cancelled,1)
+})
+test('native display failure selects browser frames only before native delivery begins',()=>{
+ const f=fixture();f.view.canvasElement[displayKey]=()=>{const e=Error('unavailable');e.code='NATIVE_DISPLAY_UNAVAILABLE';throw e}
+ f.view.setTimer();assert.equal(f.stats().subscriptions,1);assert.equal(f.stats().flushes,0);f.tick(17.25);assert.equal(f.stats().flushes,1);f.view.clearTimer()
+ const g=fixture();g.view.canvasElement[displayKey]=()=>{throw Error('unexpected')};assert.throws(()=>g.view.setTimer(),/unexpected/);assert.equal(g.stats().subscriptions,0)
+})
+test('nonvideo playback never starts the native hardware clock',()=>{
+ const f=fixture(true,false);f.view.canvasElement[displayKey]=()=>{throw Error('nonvideo native clock must not run')};f.view.setTimer();assert.equal(f.stats().ordinary,1);f.view.clearTimer()
+})

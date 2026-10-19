@@ -111,10 +111,11 @@ class AsyncFrameBuffers {
     this.players = new WeakMap();
     this.executing = null;
     this.prefetchAtBegin = true;
+    this.prefetchAhead = 2;
   }
   begin(player) {
     let state = this.players.get(player);
-    if (!state) { state = { context: null, count: 0, runs: new Set(), next: null, cancelled: false }; this.players.set(player, state); }
+    if (!state) { state = { context: null, count: 0, runs: new Set(), next: null, afterNext: null, cancelled: false }; this.players.set(player, state); }
     const run = { player, state, context: state.context, buffers: [], used: 0, count: 0,
       seenContext: null, multipleContexts: false, closed: false };
     const eligible = state.runs.size < 16;
@@ -125,7 +126,8 @@ class AsyncFrameBuffers {
       const allocate = state.context && state.context[Symbol.for('dimina.canvas.createBufferAsync')];
       if (eligible && player.videoReaders.length && typeof allocate === "function" && state.count > 0 && state.count <= 4) {
         const ticket = state.next || this.request(state);
-        state.next = null;
+        state.next = state.afterNext;
+        state.afterNext = null;
         run.ticket = ticket;
         run.context = ticket.context;
         allocations.push(ticket.promise.then(buffer => {
@@ -133,14 +135,24 @@ class AsyncFrameBuffers {
           if (run.closed) { if (buffer) this.release(run.context, buffer); }
           else run.buffers[0] = buffer;
         }).catch(error => { if (error?.code !== 'CANVAS_BUFFER_PREPARE_BUSY') throw error; }));
-        // Only one idle future object; active runs own their separate current tickets.
-        if (this.prefetchAtBegin) state.next = this.request(state);
-      } else if (state.next) {
-        this.releaseTicket(state.next); state.next = null;
+        // Keep at most two idle objects; each active run owns its current ticket.
+        if (this.prefetchAtBegin) this.prefetch(state);
+      } else {
+        this.clearPending(state);
       }
     } catch (error) { allocations.push(Promise.reject(error)); }
     run.prepared = Promise.race([Promise.all(allocations), cancelled]);
     return run;
+  }
+  prefetch(state) {
+    if (!state.next) state.next = this.request(state);
+    if (this.prefetchAhead > 1 && !state.afterNext) state.afterNext = this.request(state);
+  }
+  clearPending(state) {
+    for (const key of ['next', 'afterNext']) {
+      if (state[key]) this.releaseTicket(state[key]);
+      state[key] = null;
+    }
   }
   request(state) {
     const ticket = {context:state.context, closed:false, hasValue:false, value:null};
@@ -221,17 +233,19 @@ class AsyncFrameBuffers {
     const valid=!state.cancelled && !run.failed && state.count > 0 && state.count <= 4
         && run.player.videoReaders.length && state.context
         && typeof state.context[Symbol.for('dimina.canvas.createBufferAsync')] === 'function';
-    if (state.next && (!valid || state.next.context !== state.context)) {
-      this.releaseTicket(state.next); state.next=null;
+    for (const key of ['next', 'afterNext']) {
+      if (state[key] && (!valid || state[key].context !== state.context)) {
+        this.releaseTicket(state[key]); state[key] = null;
+      }
     }
-    if (valid && !state.runs.size && !state.next) state.next=this.request(state);
+    if (valid && !state.runs.size) this.prefetch(state);
 
   }
   cancel(player) {
     const state = this.players.get(player);
     if (state) {
       state.cancelled = true;
-      if (state.next) { this.releaseTicket(state.next); state.next = null; }
+      this.clearPending(state);
       for (const run of [...state.runs]) this.end(run);
     }
     this.players.delete(player);
@@ -2130,6 +2144,16 @@ let PAGView = class extends PAGView$1 {
   }
   setTimer() {
     if (this.frameStreamCancel) return;
+    const display = this.canvasElement[Symbol.for('dimina.canvas.subscribeDisplayFrame')];
+    if (this.player.videoReaders.length && typeof display === 'function') {
+      try {
+        this.timer = null;
+        this.frameStreamCancel = display(() => this.flushLoop());
+        return;
+      } catch (error) {
+        if (error.code !== 'NATIVE_DISPLAY_UNAVAILABLE') throw error;
+      }
+    }
     const subscribe = this.canvasElement[Symbol.for('dimina.canvas.subscribeAnimationFrame')];
     if (this.player.videoReaders.length && typeof subscribe === 'function') {
       this.timer = null;

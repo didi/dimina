@@ -21,6 +21,7 @@ public:
     bool executeJavaScript(const std::string &code, const std::string &sourceUrl);
     void executeMessage(dimina::bridge::Value message);
     void destroyEngine();
+    dimina::bridge::NativeMessageSink::Receiver frameMessageSink() { return core->nativeMessages.Get(); }
     
     std::function<void(JSContext *ctx)> registerFunc;
     

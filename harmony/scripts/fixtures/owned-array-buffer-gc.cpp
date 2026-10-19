@@ -93,5 +93,24 @@ int main() {
  value=JS_Eval(ctx,successSource,sizeof(successSource)-1,"gc-after-successful-adoption-release",JS_EVAL_TYPE_GLOBAL);
  assert(!JS_IsException(value) && "successful transient adoption must not suppress later cycle collection below the memory limit");
  JS_FreeValue(ctx,value);JS_FreeValue(ctx,filler);JS_FreeContext(ctx);JS_FreeRuntime(rt);
- std::puts("POST_SUCCESS_RELEASE_CYCLE_COLLECTION_PASS");return 0;
+ std::puts("POST_SUCCESS_RELEASE_CYCLE_COLLECTION_PASS");
+ // Real frame payloads repeatedly return to the same footprint. A completed
+ // allocation must not erase the budget learned from their bounded peak.
+ rt=JS_NewRuntime();ctx=JS_NewContext(rt);JS_SetMemoryLimit(rt,256*1024*1024);JS_SetGCThreshold(rt,0);
+ std::vector<JSValue> warmFrames;
+ for(int i=0;i<4;i++) {
+  VideoDecoderFrame frame;frame.width=1024;frame.height=2048;frame.pixels.resize(8*1024*1024,181);
+  value=VideoDecoderFrameToJS(ctx,std::move(frame));assert(!JS_IsException(value));warmFrames.push_back(value);
+ }
+ for(auto heldFrame:warmFrames)JS_FreeValue(ctx,heldFrame);warmFrames.clear();
+ std::puts("BEGIN_STEADY_FRAMES");std::fflush(stdout);
+ for(int i=0;i<64;i++) {
+  VideoDecoderFrame frame;frame.width=1024;frame.height=2048;frame.pixels.resize(8*1024*1024,193);
+  value=VideoDecoderFrameToJS(ctx,std::move(frame));assert(!JS_IsException(value));
+  JSValue data=JS_GetPropertyStr(ctx,value,"data");size_t length=0;
+  const uint8_t *bytes=JS_GetArrayBuffer(ctx,&length,data);assert(length==8*1024*1024&&bytes[length-1]==193);
+  JS_FreeValue(ctx,data);JS_FreeValue(ctx,value);
+ }
+ std::puts("END_STEADY_FRAMES");std::fflush(stdout);
+ JS_FreeContext(ctx);JS_FreeRuntime(rt);return 0;
 }

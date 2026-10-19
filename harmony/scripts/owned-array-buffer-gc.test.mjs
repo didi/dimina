@@ -41,6 +41,9 @@ dimina_configure_quickjs(owned_gc ENABLE_DEBUGGER ${debug ? 'ON' : 'OFF'} SOURCE
       assert.equal(frame.split('\n').filter(line => line.startsWith('GC:')).length, 1, 'one complete frame conversion must not collect for each result object and buffer')
       assert.ok(run.stdout.includes('POST_FAILURE_CYCLE_COLLECTION_PASS'))
       assert.ok(run.stdout.includes('POST_SUCCESS_RELEASE_CYCLE_COLLECTION_PASS'))
+      const steady = run.stdout.split('BEGIN_STEADY_FRAMES\n')[1]?.split('END_STEADY_FRAMES')[0]
+      assert.ok(steady !== undefined, 'fixture must exercise complete steady frame conversions')
+      assert.equal(steady.split('\n').filter(line => line.startsWith('GC:')).length, 0, 'fixed-size frames within the learned bounded peak must not force collection on every allocation')
       const manual = run.stdout.split('BEGIN_MANUAL_POLICY\n').slice(1).map(value => value.split('END_MANUAL_POLICY')[0])
       assert.equal(manual.length, 3)
       for (const scope of manual) assert.equal(scope.split('\n').filter(line => line.startsWith('GC:')).length, 0, 'owned buffer release must preserve explicit GC thresholds')

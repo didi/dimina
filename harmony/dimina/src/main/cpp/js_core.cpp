@@ -20,11 +20,18 @@ static int shouldCancelDebuggerWait(void *opaque) {
 
 // 构造函数
 JSCore::JSCore() : rt(nullptr), ctx(nullptr), js_loop(nullptr), starting(false), running(false), closing(false) {
-    // 初始化其他成员变量
+    nativeMessages.Bind([this](dimina::bridge::NativeMessageSink::Packet packet) {
+        std::lock_guard<std::mutex> lock(queueMutex);
+        if (closing.load() || !handlesReady.load() || jsTaskQueue.size() >= 256) return false;
+        auto value = std::make_shared<dimina::bridge::Value>(std::move(packet.message));
+        jsTaskQueue.push({"", "", std::move(value), std::move(packet.alive)});
+        return uv_async_send(&eval_handle) == 0;
+    });
 }
 
 // 析构函数
 JSCore::~JSCore() {
+    nativeMessages.Close();
     OHWarn("core JSCore::~JSCore()");
     // 清理资源，释放内存
     if (ctx) {
@@ -213,6 +220,7 @@ void JSCore::destroy_cb_impl(uv_async_t *handle) {
     thread::id this_id = this_thread::get_id();
     OHWarn("core destroy begin %{public}d", this_id);
 
+    nativeMessages.Close();
     running = false;
     closing = true;
     handlesReady = false;
@@ -291,6 +299,7 @@ void JSCore::check_cb_impl(uv_check_t *handle) {
             return;
         }
     }
+    if (task.messageAlive && (closing.load() || !task.messageAlive())) return;
     if (task.message) {
         dimina::bridge::OwnedJSValue result(ctx, dimina::bridge::deliverMessage(ctx, *task.message));
         if (JS_IsException(result.value)) {

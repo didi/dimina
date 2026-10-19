@@ -64,6 +64,7 @@ void JSEngine::executeMessage(dimina::bridge::Value message) {
 
 // 停止引擎
 void JSEngine::destroyEngine() {
+    if (core) core->nativeMessages.Close();
     closing = true;
     if (core) {
         core->closing.store(true);

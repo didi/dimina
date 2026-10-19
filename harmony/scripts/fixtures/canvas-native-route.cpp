@@ -1,5 +1,10 @@
 #include "canvas_ui_route.h"
 #include <web/arkweb_interface.h>
+#include <native_vsync/native_vsync.h>
+// The portable ArkWeb router fixture has no hardware display.
+extern "C" OH_NativeVSync* OH_NativeVSync_Create(const char*,unsigned int){return nullptr;}
+extern "C" void OH_NativeVSync_Destroy(OH_NativeVSync*){}
+extern "C" int OH_NativeVSync_RequestFrame(OH_NativeVSync*,OH_NativeVSync_FrameCallback,void*){return -1;}
 #include <cassert>
 #include <cstring>
 #include <thread>

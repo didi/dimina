@@ -8,6 +8,7 @@
 #define DIMINA_HARMONYOS_JS_CORE_H
 
 #include "quickjs.h"
+#include "../../../../../native/bridge/native_message_sink.hpp"
 #include "napi/native_api.h"
 #include <atomic>
 #include <mutex>
@@ -28,6 +29,7 @@ extern "C" {
 
 class JSCore {
 public:
+    dimina::bridge::NativeMessageSink nativeMessages;
     JSCore();
     ~JSCore();
     
@@ -35,6 +37,7 @@ public:
         std::string code;
         std::string sourceUrl;
         std::shared_ptr<dimina::bridge::Value> message;
+        std::function<bool()> messageAlive;
     };
 
     bool executeJavaScript(const std::string &code, const std::string &sourceUrl);

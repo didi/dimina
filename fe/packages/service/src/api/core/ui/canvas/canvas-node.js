@@ -2113,18 +2113,27 @@ export class CanvasNode {
 		return this.subscribeFrameStream.bind(this)
 	}
 
-	subscribeFrameStream(fn) {
+    get [Symbol.for('dimina.canvas.subscribeDisplayFrame')]() {
+        if (!this.supportsSyncQueries || this.disposed || typeof globalThis.DiminaServiceBridge?.displayFrameControl !== 'function') return undefined
+        try { if (globalThis.DiminaServiceBridge.displayFrameControl(0, this.bridgeId) !== true) return undefined }
+        catch { return undefined }
+        return fn => this.subscribeFrameStream(fn, true)
+    }
+
+	subscribeFrameStream(fn, nativeDisplay = false) {
 		if (this.disposed) throw new Error('canvas node is disposed')
 		if (!isFunction(fn)) throw new TypeError('frame subscriber must be a function')
 		if (this.frameSubscriptions.size >= 32) throw new Error('canvas frame subscriptions exceed budget')
 		const stream = { requestId: null, sequence: 0, timestamp: -Infinity, active: true }
+        const displayControl = (op, request, value) => globalThis.DiminaServiceBridge.displayFrameControl(op, this.bridgeId, this.nodeId, request, value)
+        const displayFailure = () => Object.assign(new Error('Native display subscription is unavailable'), { code: 'NATIVE_DISPLAY_UNAVAILABLE' })
 		let callbackId
 		stream.suspend = () => {
 			const requestId = stream.requestId
 			// Invalidate before crossing the bridge: in-flight ticks belong to the old generation.
 			stream.requestId = null
 			if (requestId !== null && !this.disposed) {
-				try { sendCanvasMessage(this.bridgeId, 'canvasNodeCancelAnimationFrame', { nodeId: this.nodeId, requestId }) } catch {}
+				try { if (nativeDisplay) displayControl(3, requestId); else sendCanvasMessage(this.bridgeId, 'canvasNodeCancelAnimationFrame', { nodeId: this.nodeId, requestId }) } catch {}
 			}
 		}
 		stream.resume = () => {
@@ -2133,23 +2142,27 @@ export class CanvasNode {
 			stream.sequence = 0
 			try {
 				this.flushOperations()
-				sendCanvasMessage(this.bridgeId, 'canvasNodeSubscribeAnimationFrame', {
-					nodeId: this.nodeId, requestId: stream.requestId, callback: callbackId, version: 1,
-				})
+                if (nativeDisplay) {
+                    if (displayControl(1, stream.requestId, callbackId) !== true) throw displayFailure()
+                } else sendCanvasMessage(this.bridgeId, 'canvasNodeSubscribeAnimationFrame', {
+                    nodeId: this.nodeId, requestId: stream.requestId, callback: callbackId, version: 1,
+                })
 			}
 			catch (error) { this.removeCallback(callbackId); throw error }
 		}
 		callbackId = callback.store((tick) => {
 			if (!stream.active || this.disposed || !canvasFrameAppVisible || hiddenCanvasFramePages.has(this.bridgeId)
-				|| !tick || tick.requestId !== stream.requestId || !Number.isSafeInteger(tick.sequence)
+				|| !tick || (nativeDisplay && tick.clock !== 'monotonic') || tick.requestId !== stream.requestId || !Number.isSafeInteger(tick.sequence)
 				|| tick.sequence <= stream.sequence || !Number.isFinite(tick.timestamp) || tick.timestamp <= stream.timestamp) return
 			stream.sequence = tick.sequence
 			stream.timestamp = tick.timestamp
 			// Release a bounded credit before user work, including a callback that throws or pauses.
 			try {
-				sendCanvasMessage(this.bridgeId, 'canvasNodeAcknowledgeAnimationFrame', {
-					nodeId: this.nodeId, requestId: stream.requestId, sequence: tick.sequence,
-				})
+                if (nativeDisplay) {
+                    if (displayControl(2, stream.requestId, tick.sequence) !== true) throw displayFailure()
+                } else sendCanvasMessage(this.bridgeId, 'canvasNodeAcknowledgeAnimationFrame', {
+                    nodeId: this.nodeId, requestId: stream.requestId, sequence: tick.sequence,
+                })
 			}
 			catch (error) { this.removeCallback(callbackId); throw error }
 			fn(tick.timestamp)

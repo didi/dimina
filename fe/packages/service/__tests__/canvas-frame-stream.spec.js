@@ -89,3 +89,42 @@ it('throwing user work still returns its credit and remains cancellable', () => 
   const n = node(), cancel = n[key](() => { throw Error('user') }), s = start()
   expect(() => tick(s, 1, 17)).toThrow('user'); expect(messages('canvasNodeAcknowledgeAnimationFrame')).toHaveLength(1); cancel()
 })
+
+const displayKey=Symbol.for('dimina.canvas.subscribeDisplayFrame')
+function displayNative(){const fn=vi.fn(()=>true);globalThis.DiminaServiceBridge.displayFrameControl=fn;return fn}
+function nativeStart(fn){return fn.mock.calls.filter(c=>c[0]===1).at(-1)}
+function nativeTick(s,seq,stamp,clock='monotonic'){callback.invoke(s[4],{requestId:s[3],sequence:seq,timestamp:stamp,clock})}
+it('offers native display only with an available scoped native controller',()=>{
+ const n=node();expect(n[displayKey]).toBeUndefined();const native=displayNative()
+ try{native.mockReturnValue(false);expect(n[displayKey]).toBeUndefined();native.mockImplementation(()=>{throw Error('unavailable')});expect(n[displayKey]).toBeUndefined();native.mockReturnValue(true);expect(typeof n[displayKey]).toBe('function')}
+ finally{delete globalThis.DiminaServiceBridge.displayFrameControl}
+})
+it('acknowledges native display before user work and preserves actual monotonic timestamps',()=>{
+ const n=node(),native=displayNative(),seen=[];let cancel
+ try{cancel=n[displayKey](ts=>seen.push([ts,native.mock.calls.filter(c=>c[0]===2).length]));const start=nativeStart(native);expect(start[1]).toBe(bridgeId);expect(start[2]).toBe(n.nodeId);expect(messages('canvasNodeSubscribeAnimationFrame')).toHaveLength(0)
+ nativeTick(start,1,123456.125,'performance');nativeTick(start,1,123456.125);nativeTick(start,1,123456.5);nativeTick(start,2,123455);nativeTick(start,2,123472.75)
+ expect(seen).toEqual([[123456.125,1],[123472.75,2]])}
+ finally{cancel?.();delete globalThis.DiminaServiceBridge.displayFrameControl}
+})
+it('native hide/show uses a new generation and cannot replay old hardware pulses',()=>{
+ const n=node(),native=displayNative(),seen=[];let cancel
+ try{cancel=n[displayKey](ts=>seen.push(ts));const first=nativeStart(native);nativeTick(first,1,1000);event('appHide');nativeTick(first,2,1017);expect(seen).toEqual([1000]);expect(native.mock.calls.filter(c=>c[0]===3)).toHaveLength(1)
+ event('appShow');const next=nativeStart(native);expect(next[3]).not.toBe(first[3]);nativeTick(first,3,1034);nativeTick(next,1,1051);expect(seen).toEqual([1000,1051])}
+ finally{cancel?.();delete globalThis.DiminaServiceBridge.displayFrameControl}
+})
+it('native page hiding and disposal release owned callbacks and prevent restart',()=>{
+ const n=node(),native=displayNative(),fn=vi.fn();let cancel
+ try{event('pageHide',{bridgeId});cancel=n[displayKey](fn);expect(native.mock.calls.filter(c=>c[0]===1)).toHaveLength(0);event('pageShow',{bridgeId});const start=nativeStart(native);n.dispose();nativeTick(start,1,1000);event('appShow');expect(fn).not.toHaveBeenCalled();expect(n.frameSubscriptions.size).toBe(0);expect(callback.callbacks[start[4]]).toBeUndefined()}
+ finally{cancel?.();delete globalThis.DiminaServiceBridge.displayFrameControl}
+})
+it('native subscribe and ACK failures clear ownership without replaying browser work',()=>{
+ const n=node(),native=displayNative();let cancel
+ try{native.mockImplementation(op=>op!==1);expect(()=>n[displayKey](()=>{})).toThrow('Native display');expect(n.frameSubscriptions.size).toBe(0);expect(messages('canvasNodeSubscribeAnimationFrame')).toHaveLength(0)
+ native.mockReturnValue(true);cancel=n[displayKey](()=>{throw Error('must not run after failed ACK')});const start=nativeStart(native);native.mockImplementation(op=>op!==2);expect(()=>nativeTick(start,1,1000)).toThrow('Native display');expect(n.frameSubscriptions.size).toBe(0);expect(messages('canvasNodeSubscribeAnimationFrame')).toHaveLength(0)}
+ finally{cancel?.();delete globalThis.DiminaServiceBridge.displayFrameControl}
+})
+it('throwing native subscriber still releases credit and can cancel once',()=>{
+ const n=node(),native=displayNative();let cancel
+ try{cancel=n[displayKey](()=>{throw Error('user')});const start=nativeStart(native);expect(()=>nativeTick(start,1,1000)).toThrow('user');expect(native.mock.calls.filter(c=>c[0]===2)).toHaveLength(1);cancel();cancel();expect(native.mock.calls.filter(c=>c[0]===3)).toHaveLength(1)}
+ finally{cancel?.();delete globalThis.DiminaServiceBridge.displayFrameControl}
+})

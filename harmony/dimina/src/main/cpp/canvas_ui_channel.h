@@ -1,5 +1,6 @@
 #pragma once
 #include <chrono>
+#include "../../../../../native/bridge/native_message_sink.hpp"
 #include <condition_variable>
 #include <cstring>
 #include <functional>
@@ -115,6 +116,43 @@ public:
         legacyChosen_ = true;
         return drain();
     }
+    using DisplayControl=std::function<bool(int,const std::string&,uint64_t,const std::string&,uint64_t)>;
+    void BindDisplayControl(DisplayControl control){std::lock_guard<std::mutex> lock(mutex_);displayControl_=std::move(control);}
+    bool DisplayFrames(int op,const std::string &node,uint64_t request,const std::string &callback,uint64_t sequence){
+        DisplayControl control;{std::lock_guard<std::mutex> lock(mutex_);if(closed_||!binary_||!frameReceiver_)return false;control=displayControl_;}
+        return control&&control(op,node,request,callback,sequence);
+    }
+    void BindFrameEvents(dimina::bridge::NativeMessageSink::Receiver receive, int page) {
+        std::lock_guard<std::mutex> guard(mutex_);
+        if (!closed_ && !frameReceiver_) { frameReceiver_ = std::move(receive); framePage_ = page; }
+    }
+    bool DeliverFrameEvent(std::string callback, uint64_t request, uint64_t sequence, double timestamp,
+                           std::function<bool()> alive) {
+        dimina::bridge::NativeMessageSink::Receiver receiver;
+        int page;
+        { std::lock_guard<std::mutex> guard(mutex_);
+          if (closed_ || !binary_ || !frameReceiver_) return false;
+          receiver = frameReceiver_; page = framePage_;
+        }
+        using V = dimina::bridge::Value;
+        const auto number = [](double n) { V v; v.kind = V::Number; v.number = n; return v; };
+        const auto string = [](std::u16string s) { V v; v.kind = V::String; v.string = std::move(s); return v; };
+        V args; args.kind = V::Object;
+        args.object.emplace_back(u"requestId", number(request));
+        args.object.emplace_back(u"sequence", number(sequence));
+        args.object.emplace_back(u"timestamp", number(timestamp));
+        args.object.emplace_back(u"clock", string(u"monotonic"));
+        V body; body.kind = V::Object;
+        body.object.emplace_back(u"bridgeId", number(page));
+        body.object.emplace_back(u"id", string(dimina::bridge::decodeString(callback.data(), callback.size())));
+        body.object.emplace_back(u"args", std::move(args));
+        V message; message.kind = V::Object;
+        message.object.emplace_back(u"type", string(u"triggerCallback"));
+        message.object.emplace_back(u"target", string(u"service"));
+        message.object.emplace_back(u"body", std::move(body));
+        const bool accepted = receiver({std::move(message), std::move(alive)});
+        return accepted;
+    }
     bool SendScript(std::string script) {
         bool failed = false;
         {
@@ -204,6 +242,9 @@ private:
     }
     const std::string token_;
     Submit submit_;
+    DisplayControl displayControl_;
+    dimina::bridge::NativeMessageSink::Receiver frameReceiver_;
+    int framePage_ = -1;
     std::function<void()> retire_;
     mutable std::mutex mutex_;
     bool closed_ = false, binary_ = false, legacyChosen_ = false, nativeChosen_ = false;

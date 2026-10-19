@@ -49,7 +49,7 @@
          c = string_getc(p, &i);
          switch(c) {
          case '\t':
-@@ -56853,6 +56867,82 @@
+@@ -56853,6 +56867,83 @@
                                          (uint8_t *)buf,
                                          js_array_buffer_free, NULL,
                                          TRUE);
@@ -71,12 +71,13 @@
 +    JSOwnedArrayBufferData *data = opaque;
 +    rt->malloc_ctx.malloc_state.malloc_size -= data->charged_bytes;
 +    rt->malloc_ctx.malloc_state.malloc_count--;
-+    /* A collection may include a transient external allocation in its next
-+       budget. After release, cap it by the collector's existing 1.5x formula
-+       for current usage; this can only advance a later collection. */
++    /* Retain the learned automatic budget after a transient allocation.
++       Only cap it when it would consume the remaining hard-limit headroom;
++       leave half of that headroom available for subsequent JS allocations. */
 +    const size_t live_bytes = rt->malloc_ctx.malloc_state.malloc_size;
-+    const size_t half = live_bytes >> 1;
-+    const size_t budget = live_bytes > SIZE_MAX - half ? SIZE_MAX : live_bytes + half;
++    const size_t limit = rt->malloc_ctx.malloc_state.malloc_limit;
++    const size_t headroom = limit > live_bytes ? limit - live_bytes : 0;
++    const size_t budget = live_bytes + (headroom >> 1);
 +    if (!rt->malloc_gc_threshold_manual && rt->malloc_gc_threshold > budget)
 +        rt->malloc_gc_threshold = budget;
 +    data->free_func(rt, data->opaque, ptr);

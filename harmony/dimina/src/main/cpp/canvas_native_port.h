@@ -1,5 +1,6 @@
 #pragma once
 #include "canvas_ui_channel.h"
+#include "native_display_clock.h"
 #include <web/arkweb_interface.h>
 #include <deque>
 #include <atomic>
@@ -18,6 +19,7 @@ class NativeCanvasPort : public std::enable_shared_from_this<NativeCanvasPort> {
     const std::string tag, token;
     const uintptr_t routeId;
     std::weak_ptr<UiChannel> channel;
+    std::shared_ptr<NativeDisplayClock> displayClock;
     ArkWeb_ControllerAPI *controller;
     ArkWeb_WebMessagePortAPI *portAPI;
     ArkWeb_WebMessageAPI *messageAPI;
@@ -126,7 +128,11 @@ public:
         do {
             if (previous == std::numeric_limits<uintptr_t>::max()) return nullptr;
         } while (!nextRoute.compare_exchange_weak(previous, previous + 1, std::memory_order_relaxed));
-        return std::shared_ptr<NativeCanvasPort>(new NativeCanvasPort(std::move(tag), previous + 1, owner, c, p, m));
+        auto clock=NativeDisplayClock::CreateUI(tag+".display",owner);
+        std::weak_ptr<NativeDisplayClock> weak=clock;
+        owner->BindDisplayControl([weak](int op,const std::string &node,uint64_t request,const std::string &callback,uint64_t sequence){auto live=weak.lock();return live&&live->Control(op,node,request,callback,sequence);});
+        auto self=std::shared_ptr<NativeCanvasPort>(new NativeCanvasPort(std::move(tag),previous+1,owner,c,p,m));
+        self->displayClock=std::move(clock);return self;
     }
     bool ConnectUI() {
         {
@@ -159,8 +165,9 @@ public:
         closed = true; ready = false; queuedBytes = 0;
         return std::move(queued);
     }
-    void Stop() { StopAndTakePending(); }
+    void Stop() { if(displayClock)displayClock->Stop();StopAndTakePending(); }
     void DisposeUI() {
+        if(displayClock)displayClock->DisposeUI();
         ArkWeb_WebMessagePortPtr *retired = nullptr; size_t retiredCount = 0;
         {
             std::lock_guard<std::mutex> guard(mutex);

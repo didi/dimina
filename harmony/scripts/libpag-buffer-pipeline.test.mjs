@@ -42,6 +42,9 @@ function compiledFixture() {
   return{p,buffers,context,created,deleted,order,currentOwner:compiled.currentOwner,configureModule:compiled.setModule};
 }
 function fixture() {
+  const f=baseFixture(); f.buffers.prefetchAhead=1; return f;
+}
+function baseFixture() {
   if (process.env.DIMINA_PIPELINE_BUNDLE) return compiledFixture();
   const sandbox=vm.createContext({Promise,Symbol,console,__async:asyncGenerator,__async$1:asyncGenerator,__async$2:asyncGenerator});
   vm.runInContext(source.slice(helperStart,helperEnd)+source.slice(queueStart,queueEnd)+
@@ -57,8 +60,8 @@ const tick=()=>new Promise(setImmediate);
 function deferred(){let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b});return {promise,resolve,reject}}
 const key=Symbol.for('dimina.canvas.createBufferAsync');
 
-function preparedFixture(){
- const f=fixture(),requests=[],listeners=new Map();
+function preparedFixture(depth=1){
+ const f=fixture();f.buffers.prefetchAhead=depth;const requests=[],listeners=new Map();
  f.context.canvas={addEventListener(type,fn){if(!listeners.has(type))listeners.set(type,new Set());listeners.get(type).add(fn)},removeEventListener(type,fn){listeners.get(type)?.delete(fn)}};
  f.context[key]=()=>{const value=deferred();requests.push(value);f.order.push('request-'+requests.length);return value.promise};
  return Object.assign(f,{requests,listeners,emit(type){for(const fn of [...(listeners.get(type)||[])])fn()},listenerCount(){return [...listeners.values()].reduce((n,set)=>n+set.size,0)}});
@@ -211,4 +214,39 @@ test('hardware preparation passes its player through the real manager and reader
  assert.equal(owners.length,1);assert.equal(owners[0]===f.p,true,'hardware reader ownership must not depend on the active Wasm global');
  assert.equal(f.currentOwner()===active,true,'hardware preparation must leave the active Wasm owner intact');
  f.p.destroy();
+});
+
+
+test('two idle tickets cover a delayed replacement ACK without waiting for a current allocation',async()=>{
+ const f=preparedFixture(2);await f.p.flush();assert.equal(f.requests.length,2);
+ f.requests[0].resolve({id:501});f.requests[1].resolve({id:502});await tick();
+ assert.deepEqual(await f.p.flush(),{id:501});assert.equal(f.requests.length,3);
+ assert.deepEqual(await f.p.flush(),{id:502});assert.equal(f.requests.length,4);
+ assert.equal(f.created.length,1,'both real prepared objects must be consumed before the delayed replacement ACK');
+ const state=f.buffers.players.get(f.p);assert.ok(state.next&&state.afterNext);assert.equal(state.runs.size,0);
+ f.p.destroy();f.requests[2].resolve({id:503});f.requests[3].resolve({id:504});await tick();
+ assert.deepEqual(ids(f.deleted),[503,504]);assert.equal(f.listenerCount(),0);
+});
+test('two idle is the bounded default for actual player buffering',()=>{
+ assert.equal(baseFixture().buffers.prefetchAhead,2);
+});
+for(const action of ['destroy','videoFailure','noVideo','capabilityRemoved','contextChanged','contextLoss'])test('two future tickets release all actual objects after '+action,async()=>{
+ const f=preparedFixture(2);await f.p.flush();assert.equal(f.requests.length,2);
+ if(action==='destroy'){f.p.destroy();}
+ else if(action==='videoFailure') {f.p.prepareVideoFrame=async()=>{throw Error('video failed')};await assert.rejects(f.p.flush(),/video failed/);}
+ else if(action==='contextLoss') {f.emit('webglcontextlost');const run=f.p.flush();f.requests[0].resolve({id:510});await assert.rejects(run,/context changed/);}
+ else if(action==='noVideo'){f.p.videoReaders=[];await f.p.flush();}
+ else if(action==='capabilityRemoved'){delete f.context[key];await f.p.flush();}
+ else {f.p.wasmIns._flush=()=>f.buffers.create({createBuffer:()=>({id:999})});const run=f.p.flush();f.requests[0].resolve({id:510});assert.deepEqual(await run,{id:999});}
+ for(let i=0;i<f.requests.length;i++)f.requests[i].resolve({id:510+i});await tick();
+ assert.deepEqual(ids(f.deleted),Array.from({length:f.requests.length},(_,i)=>510+i));assert.equal(f.listenerCount(),0);f.p.destroy();
+});
+test('two future tickets preserve independent owners across overlapping runs and keep the active limit',async()=>{
+ const f=preparedFixture(2);await f.p.flush();const runs=Array.from({length:17},()=>f.p.flush());
+ assert.equal(f.requests.length,18);
+ for(let i=0;i<18;i++)f.requests[i].resolve({id:600+i});
+ const actual=await Promise.all(runs);assert.equal(actual.length,17);assert.equal(new Set(actual).size,17);
+ const state=f.buffers.players.get(f.p);assert.equal(state.runs.size,0);assert.ok(state.next&&state.afterNext);
+ assert.equal(f.requests.length,20);f.p.destroy();f.requests[18].resolve({id:618});f.requests[19].resolve({id:619});await tick();
+ assert.deepEqual(ids(f.deleted),[616,617,618,619]);assert.equal(f.listenerCount(),0);
 });
