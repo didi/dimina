@@ -31,11 +31,13 @@ dimina_configure_quickjs(buffer_lifetime ENABLE_DEBUGGER OFF SOURCE_PATCH "${roo
 })
 after(() => { if (directory) rmSync(directory, { recursive: true, force: true }) })
 for (const mode of ['flush', 'internal']) {
-  test(`real QuickJS releases actual PAG Player/Queue scheduling callbacks before GC: ${mode}`, () => {
-    const canvas = process.env.DIMINA_ASYNC_BUFFER_SOURCE ?? join(root, 'fe/packages/service/src/api/core/ui/canvas/canvas-node.js')
-    const player = process.env.DIMINA_LIBPAG_SOURCE ?? join(root, 'examples/miniprogram/base/miniprogram_npm/libpag-miniprogram/index.js')
-    const result = spawnSync(executable, [canvas, player, mode], { encoding: 'utf8', timeout: 10000 })
-    assert.equal(result.status, 0, result.stderr || result.stdout || result.error?.message)
-    assert.match(result.stdout, /PASS actual PAG schedulers release callbacks before cycle GC/)
-  })
+  for (const lookahead of ['single', 'default']) {
+    test(`real QuickJS releases actual PAG Player/Queue scheduling callbacks before GC: ${mode}, ${lookahead} lookahead`, () => {
+      const canvas = process.env.DIMINA_ASYNC_BUFFER_SOURCE ?? join(root, 'fe/packages/service/src/api/core/ui/canvas/canvas-node.js')
+      const player = process.env.DIMINA_LIBPAG_SOURCE ?? join(root, 'examples/miniprogram/base/miniprogram_npm/libpag-miniprogram/index.js')
+      const result = spawnSync(executable, [canvas, player, mode, lookahead], { encoding: 'utf8', timeout: 10000 })
+      assert.equal(result.status, 0, result.stderr || result.stdout || result.error?.message)
+      assert.match(result.stdout, /PASS actual PAG schedulers release callbacks before cycle GC/)
+    })
+  }
 }

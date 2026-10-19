@@ -25,9 +25,11 @@ static void Eval(JSContext *ctx, const std::string &source) {
     JS_FreeValue(ctx, result);
 }
 int main(int argc, char **argv) {
-    assert(argc == 4);
+    assert(argc == 5);
     const std::string mode = argv[3];
     assert(mode == "flush" || mode == "internal");
+    const std::string lookahead = argv[4];
+    assert(lookahead == "single" || lookahead == "default");
     JSRuntime *rt = JS_NewRuntime();
     JSContext *ctx = JS_NewContext(rt);
     // Fixture only: prove refcount release without relying on a later cycle GC.
@@ -72,6 +74,7 @@ int main(int argc, char **argv) {
     Eval(ctx,"globalThis.schedulerRefs=[];");Eval(ctx,schedulers);
     Eval(ctx,"let PAGModule={currentPlayer:null,webAssemblyQueue:new WebAssemblyQueue};const asyncFrameBuffers=new AsyncFrameBuffers;class ActualPlayer {"+player.substr(methods,methodsEnd-methods)+"}");
     Eval(ctx, "const mode='success';const invokeMode='" + mode + "';");
+    Eval(ctx, "const singleLookahead=" + std::string(lookahead == "single" ? "true" : "false") + ";");
     Eval(ctx, R"JS(
 function assert(ok, message) { if (!ok) throw Error(message); }
 let serial=0, callbackSerial=0;
@@ -98,14 +101,20 @@ gl.createBuffer=function(){const value=new CanvasResource(canvas,'ordinary_'+ser
 gl.deleteBuffer=buffer=>{buffer.markDeleted();gl.resources.delete(buffer.__canvasResourceId)};
 gl[Symbol.for('dimina.canvas.createBufferAsync')]=function(){const promise=this.prepareBufferAsync();promiseRefs.push(new WeakRef(promise));return promise};
 const buffers=asyncFrameBuffers, player=new ActualPlayer();
+assert(buffers.prefetchAhead===2,'default buffer lookahead changed');
+if(singleLookahead) buffers.prefetchAhead=1;
+const allocationRounds=2048, expectedLookahead=singleLookahead?1:2;
 player.videoReaders=[{getError(){return null}}];player.prepareVideoFrame=()=>Promise.resolve();
 player.wasmIns={_flush(){const buffer=buffers.create(gl);if(buffer)gl.deleteBuffer(buffer);return true}};
 globalThis.done=false;
 async function perform() {
-    for(let i=0;i<2048;i++) {
+    for(let i=0;i<allocationRounds;i++) {
         const result=await (invokeMode==='flush'?player.flush():player.flushInternal(()=>{}));
         assert(result===true,'actual queued flush result changed');
     }
+    const state=buffers.players.get(player);
+    assert(state.runs.size===0&&[state.next,state.afterNext].filter(Boolean).length===expectedLookahead,
+        'idle buffer lookahead bound changed');
     buffers.cancel(player);await Promise.resolve();await Promise.resolve();globalThis.done=true;
 }
 async function semantics(){
@@ -129,7 +138,11 @@ perform();semantics();
     assert(result == 0);
     Eval(ctx, R"JS(
 assert(done&&semanticsDone,'allocation tasks or async semantics did not complete');assert(PAGModule.webAssemblyQueue.queue.length===0&&!PAGModule.webAssemblyQueue.executing,'actual queue not idle');
-assert(promiseRefs.length===2048,'actual async allocations changed');
+// The first flush creates its buffer synchronously. Subsequent flushes consume
+// one async allocation each; the idle lookahead is also allocated and cancelled.
+const expectedAllocations=allocationRounds-1+expectedLookahead;
+assert(promiseRefs.length===expectedAllocations,
+    'actual async allocations changed: expected '+expectedAllocations+', received '+promiseRefs.length);
 assert(gl.pendingBufferCreations.size===0&&timers.size===0,'settled task retained a pending request or timer');
 assert([...events.values()].every(listeners=>listeners.size===0),'settled task retained listeners');
 assert(promiseRefs.every(reference=>reference.deref()===undefined),'completed allocations kept their Promise until GC');

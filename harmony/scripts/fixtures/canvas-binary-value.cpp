@@ -11,7 +11,11 @@ using namespace dimina::canvas;
 using dimina::bridge::OwnedJSValue;
 struct FreeDeleter {void operator()(char *p)const{std::free(p);}};
 using OwnedCStr=std::unique_ptr<char,FreeDeleter>;
-struct JSEngine {JSContext *ctx;bool closing=false;JSContext *getContext(){return ctx;}int getAppIndex(){return 9;}};
+struct JSEngine {
+ JSContext *ctx;bool closing=false;dimina::bridge::NativeMessageSink nativeMessages;
+ JSContext *getContext(){return ctx;}int getAppIndex(){return 9;}
+ dimina::bridge::NativeMessageSink::Receiver frameMessageSink(){return nativeMessages.Get();}
+};
 std::map<int,JSEngine *> engineMap;
 struct OnMessageData {std::string str;int appIndex=0,type=0,webViewId=0;};
 std::vector<std::unique_ptr<OnMessageData>> legacy;
@@ -32,6 +36,8 @@ void clear(JSContext *ctx){assert(JS_HasException(ctx));JS_FreeValue(ctx,JS_GetE
 int main(int argc,char **argv){
  JSRuntime *rt=JS_NewRuntime();JSContext *ctx=JS_NewContext(rt);JSEngine engine{ctx};engineMap[9]=&engine;
  {
+  std::vector<dimina::bridge::NativeMessageSink::Packet> frames;
+  engine.nativeMessages.Bind([&](auto packet){frames.push_back(std::move(packet));return true;});
   std::vector<std::unique_ptr<UiCommand>> sent;
   current=std::make_shared<UiChannel>("page",[&](auto command){sent.push_back(std::move(command));return true;},[]{});
   current->ActivateBinary([]{return true;});
@@ -73,7 +79,13 @@ int main(int argc,char **argv){
     new DataView(compressed.packed).getUint32(0,true)===(0x80000000+data.length/4)&&
     new DataView(compressed.packed).getUint32(4,true)===0x2a2a2a2a&&old.encoding==='rle32-v1'&&typeof old.base64==='string';
   })())JS"));assert(JS_ToBool(ctx,compatibility.value));
+  assert(!current->DeliverFrameEvent("tick",71,1,12.5,[]{return true;}));
   JSValue args[]={JS_NewInt32(ctx,3),input.value};OwnedJSValue result(ctx,publish(ctx,JS_UNDEFINED,2,args));assert(!JS_IsException(result.value)&&sent.size()==1&&legacy.empty());
+  assert(current->DeliverFrameEvent("tick",71,1,12.5,[]{return true;}));
+  assert(frames.size()==1&&frames[0].alive());
+  const auto &frameBody=frames[0].message.object[2].second;
+  assert(frameBody.object[0].second.number==3&&frameBody.object[1].second.string==u"tick");
+  engine.nativeMessages.Close();assert(!current->DeliverFrameEvent("tick",71,2,13.5,[]{return true;}));
   auto wire=sent[0]->packet;assert(wire.size()>=4 && "async publish must carry binary pixel bytes");uint32_t length=0;for(int i=0;i<4;i++)length|=uint32_t(wire[i])<<(8*i);assert(wire.size()==4+length+131072);
   OwnedJSValue mutation(ctx,eval(ctx,"pixels.fill(33)"));
   for(size_t i=0;i<131072;i++)assert(wire[4+length+i]==i%251);

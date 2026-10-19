@@ -32,7 +32,10 @@ int main(){
  failure=true;assert(!next->Control(1,"node",73,"tick",0));assert(!next->Control(0,"",0,"",0));next->DisposeUI();next.reset();assert(destroyed==2);
  failure=false;queue.clear();auto multi=NativeDisplayClock::CreateUI("multi",page);
  assert(multi->Control(1,"a",81,"tick-a",0));assert(multi->Control(1,"b",82,"tick-b",0));
- for(int i=1;i<=4;i++)tick(2000000000LL+i*16666667LL);assert(queue.size()==8&&live->callback==nullptr);
+ for(int i=1;i<=4;i++){
+  tick(2000000000LL+i*16666667LL);
+ }
+ assert(queue.size()==8&&live->callback==nullptr);
  assert(multi->Control(2,"b",82,"",2));tick(2200000000LL);assert(queue.size()==9);tick(2216666667LL);assert(queue.size()==10&&live->callback==nullptr);
  multi->DisposeUI();multi.reset();assert(destroyed==3);
  std::cout<<"PASS hardware-only delivery, four credits, ACK validation, same-key generations, no idle wakes, cancel, stale lifetime and failures\n";
