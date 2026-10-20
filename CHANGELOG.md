@@ -1,5 +1,24 @@
 # Changelog
 
+## [v1.8.0] 2026-10-20
+
+### 优化
+
+- 原生三端的文件与视频帧桥接支持二进制数据传输，减少大文件和 RGBA 像素的 JSON / Base64 转换。
+- Canvas 像素传输新增原生二进制通道和 RLE32 压缩，优化 WebGL 纹理上传与 libpag 播放链路；不支持二进制通道的容器保留兼容路径。
+- Android 视频解码增加原生 YUV 转 RGBA；iOS 优化 BGRA 通道转换，并按指定范围读取文件，补齐二进制写入的 `offset` / `length` 参数（#359）。
+- HarmonyOS 完善视频解码器能力检查、NV12 输出、seek 与缓冲区生命周期，并为视频 PAG 增加原生显示时钟调度。
+
+### 修复
+
+- 修复 WebGL 扩展中的 ASTC 纹理常量采集，以及小游戏 Canvas 帧呈现问题（#358）。
+- 修复 Android 从最近任务恢复小程序时，Intent 使用 BootClassLoader 反序列化 `MiniProgram` 导致的崩溃（#361）。
+
+### 兼容性
+
+- Android、iOS 和 HarmonyOS SDK 版本统一升级到 1.8.0，高德地图可选适配器与核心 SDK 使用相同版本。
+- 编译器保持 1.2.2，JSSDK 为 1.0.72；使用新版二进制传输与播放优化时，需同步更新原生 SDK、Service 和 Render 产物。
+
 ## [v1.7.7] 2026-10-08
 
 ### 新增
