@@ -42,6 +42,7 @@ include_directories(
 
 # Explicitly list source files for better control
 file(GLOB sources
+        CONFIGURE_DEPENDS
         ${NATIVERENDER_ROOT_PATH}/*.cpp
 )
 

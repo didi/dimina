@@ -35,7 +35,7 @@ Harmony 的新版原生 SDK 直接在所属逻辑线程创建帧的 `ArrayBuffer
 
 Android、iOS 的新版原生 SDK 也以二进制交付视频帧：Android 将独立的 RGBA `ByteArray` 通过原生值桥接转为 `ArrayBuffer`，iOS 将 RGBA `Data` 在所属 JS 线程转为 `ArrayBuffer`。两端均省去像素的 Base64 编解码，Android 同时省去帧结果的 JSON 字符串序列化。需配套支持二进制帧的 Service；旧原生容器的 Base64 返回格式仍由 Service 兼容。
 
-Android 的 YUV 转换复用平面步幅和相邻像素的色度计算，保留裁切、BT.601 / BT.709、全范围 / 有限范围的原有字节结果；iOS 使用 Accelerate 交换 BGRA 通道，正确处理源行填充并保留 alpha。解码器仍最多预取两帧，已返回的缓冲区在后续取帧、seek、stop 和 remove 后保持独立有效。
+Android 的 YUV 转换在 C++ 中同步读取解码器的直接缓冲区，复用平面步幅和相邻像素的色度计算，保留裁切、BT.601 / BT.709、全范围 / 有限范围的原有字节结果。JNI 校验 position、limit、步幅和最后一个采样位置，输出独立的 RGBA 字节；非直接缓冲区保留 Kotlin 路径。iOS 使用 Accelerate 交换 BGRA 通道，正确处理源行填充并保留 alpha。解码器仍最多预取两帧，已返回的缓冲区在后续取帧、seek、stop 和 remove 后保持独立有效。
 
 支持 `on` / `off` 多监听及 `start`、`stop`、`seek`、`ended` 事件。`ended` 在最后一帧取出后、下一次取帧时触发一次；`seek` 或重新 `start` 后可再次触发。暂不发送 `bufferchange`。原生解码器内部最多预取两帧；Web 在两帧就绪后暂停提交输入，浏览器解码重排和异步像素复制合计最多保留八个输出帧。每个小程序最多保留四个解码器；单帧不超过 2,097,152 像素，单边不超过 4096。超过限制会报错，不会隐式缩放。`remove` 立即使对象失效，未完成的控制操作不能恢复该对象。小程序销毁或重启时资源也会释放；Web 页面卸载也会移除所属解码器。
 
@@ -51,6 +51,14 @@ Android 的 YUV 转换复用平面步幅和相邻像素的色度计算，保留�
 | iPhone 14 Pro / iOS 27.0.1 | 两轮约 3.66 / 3.50 FPS | 两轮约 273.84 / 255.71 FPS |
 
 Android 用真实 MediaCodec 和 QuickJS 原生桥；iOS 用真实 AVAssetReader、JavaScriptCore 和随包 Service SDK，两组均为 Release 优化、启用测试所需的 DEBUG 编译条件，每帧在 JS 任务间让出 2 ms。iOS 用同一解码器 seek 后测量第二轮，检查返回缓冲区在 stop / remove 后仍有效。移除二进制交付的旧路径在原生字节类型断言处失败，恢复后通过。Android 的 359 项单元测试、2 项真机回归、Service 的 11 项视频接口回归，以及 iOS 真机 7 项 XCTest 和 4 组像素校验通过；iOS 像素转换另通过独立主机 Address Sanitizer 检查。其他机型、编码及完整 PAG 场景的持续播放性能需分别验证。
+
+### Android Debug 像素转换
+
+2026-10-19，在 PLK110 / Android 16 上，解码测试的 CPU 采样中约 89% 开销位于 Kotlin 逐像素转换及其 `DirectByteBuffer.get`、边界检查、`coerceIn` 和属性访问。将该循环移到现有原生库后，仍保留 `android:debuggable=true`、WebView 远程调试和原有调试配置。使用双精度运算并禁止浮点乘加收缩，保持已有像素的截断和舍入结果；原生端不保留解码器缓冲区地址。
+
+不挂 CPU 采样的前后对照中，720×1080 取帧吞吐从 13.25 FPS 提升到 149.00 / 150.22 FPS，前 8 帧预热，总计 120 帧；Release 的同一路径为 151.55 FPS。完整视频 PAG 使用真实 libpag 4.5.85 和官方 `video.pag`，预热 2 秒后各采样约 10 秒：本轮旧 Kotlin Debug 路径为 3.00 FPS（此前不同轮次为 6.90–7.80 FPS），原生转换的两轮 Debug 为 25.05 / 25.00 FPS。0% / 50% / 90% 进度的已呈现画布像素哈希与旧路径一致。此处为完成的 `PAG.flush`，尚未验收长期连续源帧和物理上屏帧率。
+
+Debug / Release 各 359 项单元测试通过；Debug 的 7 项真机回归及 Release 的 5 项像素与解码回归通过。JNI 用例逐字节比较原 Kotlin 算法，覆盖只读及切片缓冲区、非零 position、平面及交错色度、奇数裁切、颜色范围、无效步幅、截短平面、所有权和堆缓冲区回退。主机原生回归的 360 组颜色、布局及所有权校验和非法元数据检查通过 Address Sanitizer / UndefinedBehaviorSanitizer；入口为 `native/media/tests`。完整 PAG 测试保持屏幕唤醒并检查 WebView 前台焦点，避免把后台暂停计入性能数据。
 
 ## Web 支持范围
 

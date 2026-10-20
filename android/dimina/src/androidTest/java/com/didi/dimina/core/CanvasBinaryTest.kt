@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.webkit.WebView
+import android.view.WindowManager
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -55,6 +56,7 @@ class CanvasBinaryTest {
         ActivityScenario.launch<LoadingTestActivity>(Intent(context, LoadingTestActivity::class.java)).use { scenario ->
             try {
                 scenario.onActivity { activity ->
+                    activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                     web = createWebView(activity, { loaded.countDown() }, "canvas-binary-test")
                     activity.setContentView(web)
                     val parent = DiminaActivity()
@@ -165,6 +167,7 @@ class CanvasBinaryTest {
                         var measured = ""
                         while (measured.isEmpty() && System.currentTimeMillis() < pagDeadline) {
                             Thread.sleep(500)
+                            scenario.onActivity { assertTrue("PAG performance requires a foreground WebView", web.hasWindowFocus()) }
                             measured = core.evaluate("globalThis.__pagCanvasResult || ''").stringValue ?: ""
                         }
                         val pag = JSONObject(measured)

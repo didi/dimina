@@ -4,9 +4,11 @@ on:
   push:
     paths:
       - 'android/**'
+      - 'native/media/**'
   pull_request:
     paths:
       - 'android/**'
+      - 'native/media/**'
   workflow_dispatch:
 
 jobs:
@@ -49,6 +51,12 @@ jobs:
       - name: Run unit tests
         working-directory: ./android
         run: ./gradlew testDebugUnitTest --no-daemon --parallel
+
+      - name: Verify native video pixels
+        run: |
+          cmake -S native/media/tests -B "$RUNNER_TEMP/dimina-media-tests" -DCMAKE_BUILD_TYPE=Release
+          cmake --build "$RUNNER_TEMP/dimina-media-tests" --parallel 2
+          ctest --test-dir "$RUNNER_TEMP/dimina-media-tests" --output-on-failure
         
       - name: Verify optional AMap publication
         working-directory: ./android

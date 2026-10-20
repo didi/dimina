@@ -1,8 +1,24 @@
 package com.didi.dimina.api.media
 
+import com.didi.dimina.engine.qjs.NativeVideoPixels
 import java.nio.ByteBuffer
 
 internal data class VideoPlane(val buffer: ByteBuffer, val rowStride: Int, val pixelStride: Int)
+
+internal fun decodedVideoFrameRgba(width: Int, height: Int, left: Int, top: Int,
+    planes: Array<VideoPlane>, fullRange: Boolean, bt709: Boolean): ByteArray {
+    require(planes.size == 3) { "expected three YUV planes" }
+    // Image.Plane buffers are direct. Retain the portable path for other inputs.
+    if (!planes.all { it.buffer.isDirect }) return videoFrameRgba(width, height, left, top, planes, fullRange, bt709)
+    val layout = IntArray(12)
+    planes.forEachIndexed { index, plane ->
+        val offset = index * 4
+        layout[offset] = plane.buffer.position(); layout[offset + 1] = plane.buffer.limit()
+        layout[offset + 2] = plane.rowStride; layout[offset + 3] = plane.pixelStride
+    }
+    return NativeVideoPixels.rgba(width, height, left, top, planes[0].buffer, planes[1].buffer, planes[2].buffer,
+        layout, fullRange, bt709)
+}
 
 /** Convert a cropped flexible YUV420 image into independently owned RGBA bytes. */
 internal fun videoFrameRgba(width: Int, height: Int, left: Int, top: Int,

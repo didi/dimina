@@ -138,6 +138,8 @@ JSSDK 资源 73 与配套原生 SDK 将 Harmony 的 `rle32-v1` 编码器移到 `
 
 2026-10-19 使用随包真实 libpag 4.5.85 与官方 `video.pag`（720×1080、25 FPS），每组预热 2 秒、测量约 10 秒。对照在相同视频解码优化及播放器上关闭 `encodeCanvasArrayBuffer`，其余实现保持一致，因此该数据衡量纹理编码与交付路径的收益，不是两个发布版本的整体对比。iPhone 14 Pro / iOS 27.0.1 的 Release 优化测试包关闭诊断日志，最终对照为 1.35 → 24.90 FPS。PLK110 / Android 16 的两轮 Release 对照为 2.49 → 24.80、2.30 → 24.80 FPS；此前 Debug 测试包的三轮对照为 1.51 → 6.90、1.50 → 7.50、1.56 → 7.80 FPS，不能用来代表 Release 性能。两端每轮三处进度的已呈现画布像素哈希均与各自对照一致，且有非透明内容，另保留了 iPhone 真机画面截图。上述帧率是成功完成的 `PAG.flush`，尚未验证长期连续源帧、持续 25 FPS 或物理上屏帧率。
 
+后续将 Android 的 YUV→RGBA 像素计算移入原生库，保留 `android:debuggable=true` 和 WebView 调试。PLK110 / Android 16 的两轮 Debug PAG 采样为 25.05 / 25.00 FPS，三处进度像素与旧路径一致；详细对照和边界检查见[视频解码的 Debug 优化](./VideoDecoder.md#android-debug-像素转换)。上述早期 Debug 帧率属于保留 Kotlin 像素计算的版本。
+
 Service 902 项、Render 332 项、共用原生编码及序列化 17 项、Android Debug / Release 各 359 项单元测试及各 6 项真机测试、iOS 所选原生及 WebGL 回归、iOS 独立包资源检查通过，共用编码器通过 Address Sanitizer。真机回归覆盖可压缩及不可压缩纹理、提交后修改源数据、异步上传后的大块及小块读回、WebGL1 / 2、上下文恢复及页面资源归属。两端延迟交付后连续提交 512 次上传的用例在加入背压前均因队列预算耗尽失败，修复后通过。Android 禁用二进制载荷选择后，同一用例在 `binary` 断言失败，像素仍正确；iOS 为资源交付增加可控延迟并禁用 FIFO 后，在 `ordered` 断言失败，恢复 FIFO 后通过。Android 还修复了 JNI 将未提供的对象字段转换为 null 的问题：保留 JSON 的缺省字段语义，数组中的空值和显式 null 保持原样；否则默认文件读取会变成文本或零字节，导致 PAG 加载失败。真实 JNI 用例在旧实现的缺省字段断言处失败，修复后通过。
 
 ## Web Canvas 与视频

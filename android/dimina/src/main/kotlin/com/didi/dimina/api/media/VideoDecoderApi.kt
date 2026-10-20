@@ -274,7 +274,7 @@ class VideoDecoderApi : BaseApiHandler() {
             val bt709 = outputFormat?.let { it.containsKey(MediaFormat.KEY_COLOR_STANDARD) &&
                 it.getInteger(MediaFormat.KEY_COLOR_STANDARD) == MediaFormat.COLOR_STANDARD_BT709 } == true
             val planes = image.planes.map { VideoPlane(it.buffer, it.rowStride, it.pixelStride) }.toTypedArray()
-            val pixels = videoFrameRgba(width, height, crop.left, crop.top, planes, fullRange, bt709)
+            val pixels = decodedVideoFrameRgba(width, height, crop.left, crop.top, planes, fullRange, bt709)
             return JSONObject().put("width", width).put("height", height).put("pts", pts)
                 .put("pkPts", pts)
                 // The native value bridge copies these owned bytes into an
