@@ -14,7 +14,8 @@ extension DMPUIIntegrationTests {
         @Test(arguments: ["webgl", "webgl2"], [false, true])
         func shaderQueriesKeepThePreviousFrameVisible(contextType: String, preserveDrawingBuffer: Bool) async throws {
             DMPResourceManager.prepareSdk()
-            let app = DMPApp(appConfig: DMPAppConfig(appName: "WebGL frame regression", appId: "webgl-frame-test"), appIndex: -1)
+            let owner = "webgl-frame-\(UUID().uuidString)"
+            let app = DMPApp(appConfig: DMPAppConfig(appName: "WebGL frame regression", appId: owner), appIndex: -1)
             let service = DMPService(app: app)
             let render = DMPRender(app: app)
             app.service = service
@@ -49,7 +50,7 @@ extension DMPUIIntegrationTests {
             await service.evaluateScript("modDefine('game', function () {});")
             await service.postMessage(data: DMPMap([
                 "type": "loadResource",
-                "body": ["appId": "webgl-frame-test", "bridgeId": view.getWebViewId(), "pagePath": "game", "runtimeType": "game",
+                "body": ["appId": owner, "bridgeId": view.getWebViewId(), "pagePath": "game", "runtimeType": "game",
                          "hostEnv": ["systemInfo": ["windowWidth": 256, "windowHeight": 256, "pixelRatio": 1]]],
             ]))
             let engine = service.getEngine()
@@ -153,7 +154,8 @@ extension DMPUIIntegrationTests {
 
         @Test func bundledSDKQueriesDrawsAndRecoversOnWebKit() async throws {
             DMPResourceManager.prepareSdk()
-            let app = DMPApp(appConfig: DMPAppConfig(appName: "WebGL regression", appId: "webgl-test"), appIndex: -1)
+            let owner = "webgl-\(UUID().uuidString)"
+            let app = DMPApp(appConfig: DMPAppConfig(appName: "WebGL regression", appId: owner), appIndex: -1)
             let service = DMPService(app: app)
             let render = DMPRender(app: app)
             app.service = service
@@ -186,7 +188,7 @@ extension DMPUIIntegrationTests {
             await service.evaluateScript("modDefine('game', function () {});")
             await service.postMessage(data: DMPMap([
                 "type": "loadResource",
-                "body": ["appId": "webgl-test", "bridgeId": view.getWebViewId(), "pagePath": "game", "runtimeType": "game",
+                "body": ["appId": owner, "bridgeId": view.getWebViewId(), "pagePath": "game", "runtimeType": "game",
                          "hostEnv": ["systemInfo": ["windowWidth": 256, "windowHeight": 256, "pixelRatio": 1]]],
             ]))
             let report = try await evaluate(service, Self.queryAndDraw)
@@ -304,17 +306,25 @@ extension DMPUIIntegrationTests {
         }
 
         @Test func bundledVideoPAGCanvasTransportComparison() async throws {
-            let fixture = "wxbaf4b47de04f1d8a"
             let owner = "pag-canvas-\(UUID().uuidString)"
             DMPResourceManager.prepareSdk()
-            let resources = try #require(DMPResourceManager.jsappBundle?.resourcePath)
-            let archive = (resources as NSString).appendingPathComponent("\(fixture)/\(fixture).zip")
-            #expect(DMPSandboxManager.initBundleDirectoryForApp(appId: owner))
-            #expect(DMPFileUtil.unzipFile(at: archive, to: DMPSandboxManager.appBundlePath(owner)))
+            try #require(DMPSandboxManager.initBundleDirectoryForApp(appId: owner))
             defer {
                 VideoDecoderStore.dispose(owner: owner)
                 try? FileManager.default.removeItem(atPath: DMPSandboxManager.appBundlePath(owner))
             }
+            // These resources are copied from tracked example sources into the
+            // test bundle; no locally compiled mini-program ZIP is required.
+            let resources = Bundle(for: WebGLTestResources.self)
+            let assets = URL(fileURLWithPath: DMPSandboxManager.appBundlePath(owner))
+                .appendingPathComponent("main/pages/libpag/assets", isDirectory: true)
+            try FileManager.default.createDirectory(at: assets, withIntermediateDirectories: true)
+            for filename in ["libpag.wasm.br", "video.pag"] {
+                let source = try #require(resources.url(forResource: filename, withExtension: nil))
+                try FileManager.default.copyItem(at: source, to: assets.appendingPathComponent(filename))
+            }
+            let libraryURL = try #require(resources.url(forResource: "index", withExtension: "js"))
+            let library = try String(contentsOf: libraryURL, encoding: .utf8)
             let app = DMPApp(appConfig: DMPAppConfig(appName: "PAG Canvas benchmark", appId: owner), appIndex: -1)
             app.container = DMPContainer(app: app)
             _ = FileAPI(app: app)
@@ -341,8 +351,6 @@ extension DMPUIIntegrationTests {
             try await navigation.load(view)
             webView.navigationDelegate = view
             await service.loadFile(path: DMPSandboxManager.sdkServicePath())
-            let libraryPath = (DMPSandboxManager.appBundlePath(owner) as NSString).appendingPathComponent("miniprogram_npm/libpag-miniprogram/index.js")
-            let library = try String(contentsOfFile: libraryPath, encoding: .utf8)
             await service.evaluateScript("modDefine('pag-benchmark', function(require,module,exports){\(library)\n});modDefine('game',function(){});")
             await service.postMessage(data: DMPMap(["type": "loadResource", "body": [
                 "appId": owner, "bridgeId": view.getWebViewId(), "pagePath": "game", "runtimeType": "game",
@@ -514,6 +522,8 @@ extension DMPUIIntegrationTests {
         """
     }
 }
+
+private final class WebGLTestResources {}
 
 @MainActor
 private final class NavigationReady: NSObject, WKNavigationDelegate {

@@ -134,11 +134,18 @@ tasks.named("preBuild") {
     dependsOn("copySharedJssdkToAssets")
 }
 
-// Reuse the shipped PAG fixture without checking a second binary into tests.
-val copyCanvasTestFixture by tasks.registering(Copy::class) {
-    from("${rootProject.projectDir}/../shared/jsapp/wxbaf4b47de04f1d8a/wxbaf4b47de04f1d8a.zip")
+// Test assets come from tracked sources, independently of any mini-program ID
+// or locally compiled mini-program ZIP. Sync also removes obsolete generated assets.
+val copyCanvasTestFixture by tasks.registering(Sync::class) {
+    val example = "${rootProject.projectDir}/../examples/miniprogram/base"
+    from("$example/miniprogram_npm/libpag-miniprogram/index.js") { into("pag") }
+    from("$example/pages/libpag/assets") {
+        include("libpag.wasm.br", "video.pag")
+        into("pag")
+    }
     into("${projectDir}/src/androidTest/assets/generated")
+    preserve { include(".gitignore") }
 }
-tasks.matching { it.name == "mergeDebugAndroidTestAssets" }.configureEach {
+tasks.matching { it.name.startsWith("merge") && it.name.endsWith("AndroidTestAssets") }.configureEach {
     dependsOn(copyCanvasTestFixture)
 }

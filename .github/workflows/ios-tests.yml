@@ -2,9 +2,9 @@ name: iOS Tests
 
 on:
   push:
-    paths: ['iOS/**', 'shared/**', 'native/wasm/**', 'third_party/wamr/**', 'Package.swift', 'scripts/package-ios-amap.py', 'scripts/tests/**', '.github/workflows/ios-tests.yml']
+    paths: ['iOS/**', 'shared/**', 'native/wasm/**', 'third_party/wamr/**', 'Package.swift', 'scripts/package-ios-amap.py', 'scripts/tests/**', 'examples/miniprogram/base/miniprogram_npm/libpag-miniprogram/index.js', 'examples/miniprogram/base/pages/libpag/assets/libpag.wasm.br', 'examples/miniprogram/base/pages/libpag/assets/video.pag', '.github/workflows/ios-tests.yml']
   pull_request:
-    paths: ['iOS/**', 'shared/**', 'native/wasm/**', 'third_party/wamr/**', 'Package.swift', 'scripts/package-ios-amap.py', 'scripts/tests/**', '.github/workflows/ios-tests.yml']
+    paths: ['iOS/**', 'shared/**', 'native/wasm/**', 'third_party/wamr/**', 'Package.swift', 'scripts/package-ios-amap.py', 'scripts/tests/**', 'examples/miniprogram/base/miniprogram_npm/libpag-miniprogram/index.js', 'examples/miniprogram/base/pages/libpag/assets/libpag.wasm.br', 'examples/miniprogram/base/pages/libpag/assets/video.pag', '.github/workflows/ios-tests.yml']
   workflow_dispatch:
 
 jobs:

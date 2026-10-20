@@ -5,10 +5,16 @@ on:
     paths:
       - 'android/**'
       - 'native/media/**'
+      - 'examples/miniprogram/base/miniprogram_npm/libpag-miniprogram/index.js'
+      - 'examples/miniprogram/base/pages/libpag/assets/libpag.wasm.br'
+      - 'examples/miniprogram/base/pages/libpag/assets/video.pag'
   pull_request:
     paths:
       - 'android/**'
       - 'native/media/**'
+      - 'examples/miniprogram/base/miniprogram_npm/libpag-miniprogram/index.js'
+      - 'examples/miniprogram/base/pages/libpag/assets/libpag.wasm.br'
+      - 'examples/miniprogram/base/pages/libpag/assets/video.pag'
   workflow_dispatch:
 
 jobs:

@@ -33,6 +33,7 @@ class CanvasBinaryTest {
     private fun verify(legacy: Boolean) {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
+        val appId = "canvas-${UUID.randomUUID()}"
         Dimina.init(context, Dimina.DiminaConfig.Builder().build())
         StoreUtils.initialize(context)
         val oldVersion = VersionUtils.getJSVersion()
@@ -57,12 +58,12 @@ class CanvasBinaryTest {
             try {
                 scenario.onActivity { activity ->
                     activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                    web = createWebView(activity, { loaded.countDown() }, "canvas-binary-test")
+                    web = createWebView(activity, { loaded.countDown() }, appId)
                     activity.setContentView(web)
                     val parent = DiminaActivity()
                     ContextWrapper::class.java.getDeclaredMethod("attachBaseContext", Context::class.java)
                         .apply { isAccessible = true }.invoke(parent, context)
-                    bridge = Bridge(BridgeOptions(PathInfo("game", null), 1001, core, web, true, "main", "canvas-binary-test", "game", emptyList(),
+                    bridge = Bridge(BridgeOptions(PathInfo("game", null), 1001, core, web, true, "main", appId, "game", emptyList(),
                         MergedPageConfig("", "#fff", "black", "#fff", "custom", false, emptyMap())), parent)
                     page = Bridge::class.java.getDeclaredField("id").apply { isAccessible = true }.get(bridge) as String
                     bridge.init()
@@ -74,9 +75,9 @@ class CanvasBinaryTest {
                     assertTrue(changed.await(5, TimeUnit.SECONDS))
                 }
                 assertNotEquals(com.didi.dimina.engine.qjs.JSValue.Type.ERROR, core.evaluateFromFile(File(sdkRoot, "main/assets/service.js").path).type)
-                core.evaluate("modDefine('game', function() {}); DiminaServiceBridge.onMessage({type:'loadResource',body:{bridgeId:'$page',appId:'canvas-binary-test',pagePath:'game',runtimeType:'game',hostEnv:{systemInfo:{windowWidth:256,windowHeight:256,pixelRatio:1}}}})")
+                core.evaluate("modDefine('game', function() {}); DiminaServiceBridge.onMessage({type:'loadResource',body:{bridgeId:'$page',appId:'$appId',pagePath:'game',runtimeType:'game',hostEnv:{systemInfo:{windowWidth:256,windowHeight:256,pixelRatio:1}}}})")
                 scenario.onActivity { web.postMessage(JSONObject().put("type", "loadResource").put("body", JSONObject()
-                    .put("bridgeId", page).put("appId", "canvas-binary-test").put("root", "main").put("pagePath", "game").put("runtimeType", "game").put("baseUrl", PathUtils.WEBVIEW_JSAPP_BASE_URL)).toString()) }
+                    .put("bridgeId", page).put("appId", appId).put("root", "main").put("pagePath", "game").put("runtimeType", "game").put("baseUrl", PathUtils.WEBVIEW_JSAPP_BASE_URL)).toString()) }
                 val create = core.evaluate("""
                     (()=>{try{globalThis.canvas=wx.createOffscreenCanvas({type:'webgl',width:256,height:256});
                     globalThis.gl=canvas.getContext('webgl'); return !!gl && gl.getError()===0}catch(e){return String(e)}})()
@@ -136,17 +137,15 @@ class CanvasBinaryTest {
                     }
                 }
                 if (!legacy && InstrumentationRegistry.getArguments().getString("pag") == "true") {
-                    val appRoot = File(context.filesDir, "jsapp/canvas-binary-test").apply { mkdirs() }
+                    val appRoot = File(context.filesDir, "jsapp/$appId").apply { mkdirs() }
                     try {
-                        ZipInputStream(instrumentation.context.assets.open("generated/wxbaf4b47de04f1d8a.zip")).use { zip ->
-                            while (true) {
-                                val entry = zip.nextEntry ?: break
-                                val file = File(appRoot, entry.name)
-                                require(file.canonicalPath.startsWith(appRoot.canonicalPath + File.separator))
-                                if (entry.isDirectory) file.mkdirs() else { file.parentFile!!.mkdirs(); file.outputStream().use { zip.copyTo(it) } }
+                        val assets = File(appRoot, "main/pages/libpag/assets").apply { mkdirs() }
+                        for (name in listOf("libpag.wasm.br", "video.pag")) {
+                            instrumentation.context.assets.open("generated/pag/$name").use { input ->
+                                File(assets, name).outputStream().use { input.copyTo(it) }
                             }
                         }
-                        val library = File(appRoot, "miniprogram_npm/libpag-miniprogram/index.js").readText()
+                        val library = instrumentation.context.assets.open("generated/pag/index.js").bufferedReader().use { it.readText() }
                         core.invoke("canvas-pixels") {
                             val done = CountDownLatch(1)
                             var value: String? = null
@@ -178,8 +177,8 @@ class CanvasBinaryTest {
                         assertEquals(hashes.getJSONArray(0).toString(), hashes.getJSONArray(1).toString())
                     } finally {
                         appRoot.deleteRecursively()
-                        PathUtils.appUserRoot(context, "canvas-binary-test").deleteRecursively()
-                        PathUtils.appTempRoot(context, "canvas-binary-test").deleteRecursively()
+                        PathUtils.appUserRoot(context, appId).deleteRecursively()
+                        PathUtils.appTempRoot(context, appId).deleteRecursively()
                     }
                 }
             } finally {

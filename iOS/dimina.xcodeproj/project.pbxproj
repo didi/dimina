@@ -18,6 +18,9 @@
 		44A000002609170000000001 /* LoadingSequenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44A000002609170000000002 /* LoadingSequenceTests.swift */; };
 		A35800000000000000000001 /* WebGLBridgeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A35800000000000000000002 /* WebGLBridgeTests.swift */; };
 		A35800000000000000000003 /* DMPUIIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A35800000000000000000004 /* DMPUIIntegrationTests.swift */; };
+		A35800000000000000000005 /* index.js in Resources */ = {isa = PBXBuildFile; fileRef = A35800000000000000000006 /* index.js */; };
+		A35800000000000000000007 /* libpag.wasm.br in Resources */ = {isa = PBXBuildFile; fileRef = A35800000000000000000008 /* libpag.wasm.br */; };
+		A35800000000000000000009 /* video.pag in Resources */ = {isa = PBXBuildFile; fileRef = A3580000000000000000000A /* video.pag */; };
 		4AAB204EFEBA61F955A67553 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 69C73737CB86CC434E8DE5B7 /* Foundation.framework */; };
 		4F8C9A102F23000100000001 /* DMPWebResourceLoaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F8C9A102F23000100000002 /* DMPWebResourceLoaderTests.swift */; };
 		7500C22DE15B570EC7A4FD2B /* DMPWebSocketValidationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAB6B466B43575C7978B1BAD /* DMPWebSocketValidationTests.swift */; };
@@ -60,6 +63,9 @@
 		44A000002609170000000002 /* LoadingSequenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoadingSequenceTests.swift; sourceTree = "<group>"; };
 		A35800000000000000000002 /* WebGLBridgeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebGLBridgeTests.swift; sourceTree = "<group>"; };
 		A35800000000000000000004 /* DMPUIIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DMPUIIntegrationTests.swift; sourceTree = "<group>"; };
+		A35800000000000000000006 /* index.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = index.js; path = "../examples/miniprogram/base/miniprogram_npm/libpag-miniprogram/index.js"; sourceTree = SOURCE_ROOT; };
+		A35800000000000000000008 /* libpag.wasm.br */ = {isa = PBXFileReference; lastKnownFileType = file; name = libpag.wasm.br; path = ../examples/miniprogram/base/pages/libpag/assets/libpag.wasm.br; sourceTree = SOURCE_ROOT; };
+		A3580000000000000000000A /* video.pag */ = {isa = PBXFileReference; lastKnownFileType = file; name = video.pag; path = ../examples/miniprogram/base/pages/libpag/assets/video.pag; sourceTree = SOURCE_ROOT; };
 		4F8C9A102F23000100000002 /* DMPWebResourceLoaderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DMPWebResourceLoaderTests.swift; sourceTree = "<group>"; };
 		5D995E363EB06797E5E3DB0D /* diminaTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = diminaTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		61DD3E623362F9D7264941CD /* DMPUtilPathTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DMPUtilPathTests.swift; sourceTree = "<group>"; };
@@ -173,6 +179,9 @@
 				44A000002609170000000002 /* LoadingSequenceTests.swift */,
 				A35800000000000000000002 /* WebGLBridgeTests.swift */,
 				A35800000000000000000004 /* DMPUIIntegrationTests.swift */,
+				A35800000000000000000006 /* index.js */,
+				A35800000000000000000008 /* libpag.wasm.br */,
+				A3580000000000000000000A /* video.pag */,
 				61DD3E623362F9D7264941CD /* DMPUtilPathTests.swift */,
 			);
 			path = diminaTests;
@@ -328,6 +337,9 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A35800000000000000000005 /* index.js in Resources */,
+				A35800000000000000000007 /* libpag.wasm.br in Resources */,
+				A35800000000000000000009 /* video.pag in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
