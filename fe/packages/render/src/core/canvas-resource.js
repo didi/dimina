@@ -13,7 +13,11 @@ export function createCanvasResourceReceiver(target, flush) {
 		const response = await target.fetch(url, { cache: 'no-store' })
 		const { command, buffers } = reader.read(await response.arrayBuffer())
 		if (generation !== expected) throw Error('canvas page replaced')
-		if (!Number.isSafeInteger(command.deadline) || Date.now() >= command.deadline) throw Error('canvas packet expired')
+		// A synchronous query can expire while its caller waits. An admitted
+		// publication has no waiting caller: keep it in FIFO order even after a
+		// long queue wait. Native bounds its execution time when the job starts.
+		if (!Number.isSafeInteger(command.deadline)
+			|| (command.type === 'canvas' && Date.now() >= command.deadline)) throw Error('canvas packet expired')
 		const body = reader.restore(command.body, buffers)
 		if (command.type === 'canvas') return flush(body)
 		if (command.type === 'publish') { target.DiminaRenderBridge.onMessage(body); return null }

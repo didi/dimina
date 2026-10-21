@@ -270,6 +270,45 @@ extension DMPUIIntegrationTests {
             try #require(pressure["error"] == nil, "Delayed uploads must apply backpressure without dropping commands: \(pressure)")
             #expect(pressure["size"] as? Int == 1024, "\(pressure)")
             #expect(pressure["errorCode"] as? Int == 0, "\(pressure)")
+
+            // Every upload finishes within its execution timeout, but the FIFO
+            // as a whole takes longer than a query deadline. Already admitted
+            // publications must survive that queue wait and still present.
+            _ = try await webView.callAsyncJavaScript("""
+                const receive=globalThis.__undelayedCanvasResource;
+                const delayed=async url=>{await new Promise(resolve=>setTimeout(resolve,250));return receive(url)};
+                delayed.cancel=()=>receive.cancel();globalThis.__diminaCanvasResource=delayed;return true;
+                """, arguments: [:], in: nil, in: .page)
+            let queued = try await evaluate(service, """
+                const gl=globalThis.__webgl;
+                globalThis.queuedBuffer=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,queuedBuffer);
+                for(let i=0;i<24;i++){
+                    gl.bufferData(gl.ARRAY_BUFFER,new Uint8Array(1024).fill(i),gl.DYNAMIC_DRAW);
+                    gl.canvas.flushOperations();
+                }
+                gl.clearColor(1,0,1,1);gl.clear(gl.COLOR_BUFFER_BIT);gl.canvas.flushOperations();
+                return {queued:true};
+                """)
+            try #require(queued["queued"] as? Bool == true, "\(queued)")
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                // A FIFO barrier observes completion without starting a new
+                // synchronous query deadline while the uploads are queued.
+                view.executeJavaScript("true") { _, error in
+                    if let error { continuation.resume(throwing: error) }
+                    else { continuation.resume() }
+                }
+            }
+            #expect(view.canvasBinaryError == nil)
+            try await waitForPresentation(webView)
+            let queuedPixel = try await snapshotCenter(webView, label: "queued-publications")
+            #expect(queuedPixel == [255, 0, 255, 255], "\(queuedPixel)")
+            print("WEBGL_QUEUED_PUBLICATIONS=\(queuedPixel)")
+            let drained = try await evaluate(service, """
+                const size=__webgl.getBufferParameter(__webgl.ARRAY_BUFFER,__webgl.BUFFER_SIZE);
+                __webgl.deleteBuffer(queuedBuffer);return {size,errorCode:__webgl.getError()};
+                """)
+            #expect(drained["size"] as? Int == 1024, "\(drained)")
+            #expect(drained["errorCode"] as? Int == 0, "\(drained)")
             _ = try await webView.callAsyncJavaScript("globalThis.__diminaCanvasResource=globalThis.__undelayedCanvasResource;return true", arguments: [:], in: nil, in: .page)
 
             // Explicit context loss uses the real WebKit extension. Wait for Service's
