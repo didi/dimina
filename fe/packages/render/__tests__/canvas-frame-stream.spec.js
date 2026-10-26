@@ -26,7 +26,7 @@ it('bounds delivery at four unacknowledged real ticks and resumes with a new RAF
 })
 it('ignores forged, future, duplicate and non-integer credits', () => {
   start(); for (let i = 1; i <= 4; i++) tick(i * 17)
-  for (const seq of [0, -1, 1.5, NaN, 5, Infinity]) ack(seq)
+  for (const seq of [0, -1, 1.5, Number.NaN, 5, Infinity]) ack(seq)
   ack(4, 'other'); expect(queue.size).toBe(0); ack(2); tick(90); tick(107); ack(2)
   expect(queue.size).toBe(0)
 })

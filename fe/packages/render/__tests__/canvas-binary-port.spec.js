@@ -57,7 +57,7 @@ describe('native Canvas binary wire protocol', () => {
 
 	it('returns a query error without replaying a failed operation or losing later replies', () => {
 		const f = harness()
-		f.flush.mockImplementationOnce(() => { throw Error('real runtime failure') })
+		f.flush.mockImplementationOnce(() => { throw new Error('real runtime failure') })
 		f.channel.receive(packet('canvas', 1))
 		expect(f.replies[1]).toBe('!page:1\nError: real runtime failure')
 		f.channel.receive(packet('canvas', 2))
@@ -81,7 +81,7 @@ describe('native Canvas binary wire protocol', () => {
 	})
 
 	it('disables the native handshake when the page evaluator is blocked', () => {
-		const target = { eval: () => { throw Error('CSP') }, addEventListener: vi.fn() }
+		const target = { eval: () => { throw new Error('CSP') }, addEventListener: vi.fn() }
 		const channel = new CanvasBinaryPort(target, vi.fn())
 		expect(channel.connect('page')).toBe(false)
 		expect(target.addEventListener).not.toHaveBeenCalled()
@@ -107,8 +107,8 @@ describe('native Canvas binary wire protocol', () => {
 		trailing.set(new Uint8Array(packet()))
 		const invalid = packet()
 		new Uint8Array(invalid)[4] = 0xFF
-		for (const input of [trailing.buffer, invalid, packet('canvas', 1, nested), packet('canvas', 1, { data: Array(262144).fill(null) }),
-			packet('canvas', 1, {}, [], { byteLengths: Array(4097).fill(0) }), packet('canvas', 1, {}, [], { byteLengths: [-1] })]) {
+		for (const input of [trailing.buffer, invalid, packet('canvas', 1, nested), packet('canvas', 1, { data: Array.from({ length: 262144 }, () => null) }),
+			packet('canvas', 1, {}, [], { byteLengths: Array.from({ length: 4097 }, () => 0) }), packet('canvas', 1, {}, [], { byteLengths: [-1] })]) {
 			const f = harness()
 			f.channel.receive(input)
 			expect(f.flush).not.toHaveBeenCalled()
@@ -122,7 +122,7 @@ describe('native Canvas binary wire protocol', () => {
 		expect(f.flush).toHaveBeenCalledOnce()
 		expect(f.replies.at(-1)).toMatch(/^error\npage\n.*duplicate/)
 		const g = harness()
-		g.target.DiminaRenderBridge.onMessage.mockImplementationOnce(() => { throw Error('publication failed') })
+		g.target.DiminaRenderBridge.onMessage.mockImplementationOnce(() => { throw new Error('publication failed') })
 		g.channel.receive(packet('publish'))
 		expect(g.port.close).toHaveBeenCalledOnce()
 		expect(g.replies.at(-1)).toContain('publication failed')

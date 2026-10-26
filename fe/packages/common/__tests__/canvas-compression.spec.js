@@ -38,7 +38,7 @@ describe('validated RLE prefixes', () => {
 		const encoded = packet({ run: true, count: 3, bytes: [0, 0, 0, 255] }, { count: 1, bytes: [9, 10, 11, 12] })
 		expect(inspectCanvasRle32Tail(encoded, 16).tailWords).toBe(0)
 	})
-	it.each([-4, 2, 20, NaN, '4'])('rejects an invalid prefix size %j', (size) => {
+	it.each([-4, 2, 20, Number.NaN, '4'])('rejects an invalid prefix size %j', (size) => {
 		const encoded = packet({ run: true, count: 4, bytes: [0, 0, 0, 255] })
 		expect(() => decodeCanvasRle32Prefix(encoded, 16, size)).toThrow(/prefix/)
 	})
@@ -94,7 +94,7 @@ describe('rle32 canvas decoder', () => {
 		expect(decodeCanvasRle32(new ArrayBuffer(0), 0).byteLength).toBe(0)
 	})
 
-	it.each([-4, 1, 3, 4.5, NaN, Infinity, MAX_CANVAS_IMAGE_BYTES + 4, '4'])('rejects invalid declared capacity %j', (size) => {
+	it.each([-4, 1, 3, 4.5, Number.NaN, Infinity, MAX_CANVAS_IMAGE_BYTES + 4, '4'])('rejects invalid declared capacity %j', (size) => {
 		expect(() => decodeCanvasRle32(new ArrayBuffer(0), size)).toThrow(/byteLength/)
 	})
 

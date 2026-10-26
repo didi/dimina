@@ -209,12 +209,12 @@ describe('synchronous Canvas band consumption', () => {
 			expect(borrowed.some(byte => byte !== 0)).toBe(false)
 			expect(Buffer.from(owned.buffer).equals(expected)).toBe(true)
 		}
-		expect([...offset.subarray(0, 3), ...offset.subarray(-3)]).toEqual(Array(6).fill(0xAB))
+		expect([...offset.subarray(0, 3), ...offset.subarray(-3)]).toEqual(Array.from({ length: 6 }, () => 0xAB))
 	})
 	it('clears scratch on consumer exceptions, rejects reentry and accepts the next upload', async () => {
 		vi.resetModules()
 		const { consumeLargeCanvasRleBand: consume } = await import('../src/core/canvas-decode-fast')
-		const input = packet(), failure = Error('driver upload failed'), nested = vi.fn()
+		const input = packet(), failure = new Error('driver upload failed'), nested = vi.fn()
 		let borrowed
 		expect(() => consume(input.base64, total, width, height, 240, input.tail, band => {
 			borrowed = band.pixels
@@ -234,7 +234,7 @@ describe('synchronous Canvas band consumption', () => {
 		corrupt[corrupt.length - 2]++
 		expect(consume(new Uint8Array(corrupt.buffer), total, width, height, 240, input.tail, callback)).toBeNull()
 		expect(callback).not.toHaveBeenCalled()
-		vi.stubGlobal('WebAssembly', { Module: vi.fn(() => { throw Error('SIMD unavailable') }) })
+		vi.stubGlobal('WebAssembly', { Module: vi.fn(() => { throw new Error('SIMD unavailable') }) })
 		vi.resetModules()
 		;({ consumeLargeCanvasRleBand: consume } = await import('../src/core/canvas-decode-fast'))
 		expect(consume(input.base64, total, width, height, 240, input.tail, callback)).toBeNull()
@@ -246,7 +246,7 @@ describe('synchronous Canvas band consumption', () => {
 		vi.stubGlobal('WebAssembly', { Module: Native.Module, Instance: class {
 			constructor(module) {
 				exports = new Native.Instance(module).exports
-				this.exports = { ...exports, decode_base64: length => { exports.decode_base64(length); throw Error('decoder failed') } }
+				this.exports = { ...exports, decode_base64: length => { exports.decode_base64(length); throw new Error('decoder failed') } }
 			}
 		} })
 		vi.resetModules()

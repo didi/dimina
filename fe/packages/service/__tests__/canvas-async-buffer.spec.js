@@ -133,7 +133,7 @@ it('bounds outstanding private requests', async () => {
 })
 it('rejects transport failure without leaving callbacks or uncaught cleanup tasks', async () => {
   const { gl, node } = create()
-  globalThis.DiminaServiceBridge.publish.mockImplementationOnce(() => { throw Error('transport gone') })
+  globalThis.DiminaServiceBridge.publish.mockImplementationOnce(() => { throw new Error('transport gone') })
   await expect(allocate(gl)).rejects.toThrow('transport gone')
   await Promise.resolve()
   expect(gl.pendingBufferCreations.size).toBe(0)
@@ -167,7 +167,7 @@ it('keeps a settled result when the bridge throws after synchronously delivering
   const { gl } = create()
   globalThis.DiminaServiceBridge.publish.mockImplementationOnce((_type, request) => {
     ack(request.body.params)
-    throw Error('transport failed after delivery')
+    throw new Error('transport failed after delivery')
   })
   const result = await allocate(gl)
   expect(result).toMatchObject({ resourceType: 'buffer' })

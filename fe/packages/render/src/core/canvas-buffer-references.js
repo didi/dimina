@@ -53,7 +53,7 @@ export class CanvasBufferReferences {
 			const value = args[0]
 			// Unusual WebIDL coercions can execute user code. Keep conservative
 			// ownership instead of coercing them a second time for bookkeeping.
-			if (!Number.isInteger(value) || value < 0 || value > 0xffffffff) this.invalidate()
+			if (!Number.isInteger(value) || value < 0 || value > 0xFFFFFFFF) this.invalidate()
 		}
 	}
 

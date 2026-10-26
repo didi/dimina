@@ -828,7 +828,7 @@ describe('synchronous borrowed band upload', () => {
 		f.call('pixelStorei', GL.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true)
 		f.upload(frame(width, height, 200), width, height)
 		let borrowed
-		f.gl.texSubImage2D.mockImplementationOnce((...args) => { borrowed = args[8]; throw Error('upload failed') })
+		f.gl.texSubImage2D.mockImplementationOnce((...args) => { borrowed = args[8]; throw new Error('upload failed') })
 		const args = fullArgs(rleWire(width, height, 240), width, height)
 		expect(() => f.helper.invokeRleUpload(f.gl, args)).toThrow('upload failed')
 		expect(borrowed.some(byte => byte !== 0)).toBe(false)

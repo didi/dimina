@@ -5,7 +5,7 @@ import runtime from '../src/core/runtime.js'
 function descriptor(type = 'Uint8Array') {
 	const data = new ArrayBuffer(20)
 	const view = new DataView(data)
-	for (const [index, word] of [0x80000003, 0x3f800000, 2, 0x7fc000a5, 0xffffffff].entries()) {
+	for (const [index, word] of [0x80000003, 0x3F800000, 2, 0x7FC000A5, 0xFFFFFFFF].entries()) {
 		view.setUint32(index * 4, word, true)
 	}
 	return { __canvasTypedArray: type, base64: Buffer.from(data).toString('base64'),
@@ -15,10 +15,10 @@ function descriptor(type = 'Uint8Array') {
 describe('compressed canvas arguments', () => {
 	it('preserves float bit patterns and DataView bytes when constructing renderer views', () => {
 		const floats = runtime.resolveCanvasArg(descriptor('Float32Array'))
-		expect([...new Uint32Array(floats.buffer)]).toEqual([0x3f800000, 0x3f800000, 0x3f800000, 0x7fc000a5, 0xffffffff])
+		expect([...new Uint32Array(floats.buffer)]).toEqual([0x3F800000, 0x3F800000, 0x3F800000, 0x7FC000A5, 0xFFFFFFFF])
 		const view = runtime.resolveCanvasArg(descriptor('DataView'))
 		expect(view.byteLength).toBe(20)
-		expect(view.getUint32(12, true)).toBe(0x7fc000a5)
+		expect(view.getUint32(12, true)).toBe(0x7FC000A5)
 	})
 
 	it('executes a following GL query after the exact decompressed upload', () => {

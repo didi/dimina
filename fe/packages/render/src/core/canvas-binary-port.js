@@ -43,28 +43,28 @@ export class CanvasBinaryPort {
 
 	read(data) {
 		if (typeof data === 'string') {
-			if (data.length > MAX_BYTES) throw Error('canvas packet budget exceeded')
+			if (data.length > MAX_BYTES) throw new Error('canvas packet budget exceeded')
 			const command = JSON.parse(data)
 			if (!command || !['script', 'legacy'].includes(command.type) || typeof command.script !== 'string')
-				throw Error('invalid canvas script')
+				throw new Error('invalid canvas script')
 			return { command, buffers: [] }
 		}
 		if (!(data instanceof ArrayBuffer) || data.byteLength < 4 || data.byteLength > MAX_BYTES)
-			throw Error('invalid canvas binary packet')
+			throw new Error('invalid canvas binary packet')
 		const length = new DataView(data).getUint32(0, true)
-		if (length > data.byteLength - 4) throw Error('invalid canvas binary header')
+		if (length > data.byteLength - 4) throw new Error('invalid canvas binary header')
 		const command = JSON.parse(this.decoder.decode(new Uint8Array(data, 4, length)))
 		if (!command || !['canvas', 'publish'].includes(command.type) || !Array.isArray(command.byteLengths)
-			|| command.byteLengths.length > MAX_BUFFERS) throw Error('invalid canvas buffer lengths')
+			|| command.byteLengths.length > MAX_BUFFERS) throw new Error('invalid canvas buffer lengths')
 		let offset = 4 + length
 		const buffers = []
 		for (const size of command.byteLengths) {
 			if (!Number.isSafeInteger(size) || size < 0 || size > data.byteLength - offset)
-				throw Error('invalid canvas buffer size')
+				throw new Error('invalid canvas buffer size')
 			buffers.push(new Uint8Array(data, offset, size))
 			offset += size
 		}
-		if (offset !== data.byteLength) throw Error('trailing canvas packet bytes')
+		if (offset !== data.byteLength) throw new Error('trailing canvas packet bytes')
 		return { command, buffers }
 	}
 
@@ -72,30 +72,30 @@ export class CanvasBinaryPort {
 		const used = new Set()
 		let nodes = 0
 		const visit = (value, depth) => {
-			if (++nodes > MAX_NODES || depth > MAX_DEPTH) throw Error('canvas value exceeds budget')
+			if (++nodes > MAX_NODES || depth > MAX_DEPTH) throw new Error('canvas value exceeds budget')
 			if (!value || typeof value !== 'object') return value
 			if (Object.hasOwn(value, '__canvasBinaryIndex')) {
 				const index = value.__canvasBinaryIndex
 				if (Object.keys(value).length !== 1 || !Number.isSafeInteger(index) || index < 0
-					|| index >= buffers.length || used.has(index)) throw Error('invalid canvas buffer reference')
+					|| index >= buffers.length || used.has(index)) throw new Error('invalid canvas buffer reference')
 				used.add(index)
 				return buffers[index]
 			}
 			for (const key of Object.keys(value)) value[key] = visit(value[key], depth + 1)
 			return value
 		}
-		if (!body || typeof body !== 'object' || Array.isArray(body)) throw Error('invalid canvas body')
+		if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error('invalid canvas body')
 		const result = visit(body, 0)
-		if (used.size !== buffers.length) throw Error('unreferenced canvas buffer')
+		if (used.size !== buffers.length) throw new Error('unreferenced canvas buffer')
 		return result
 	}
 
 	requestId(id) {
-		if (typeof id !== 'string' || !id.startsWith(this.token + ':')) throw Error('invalid canvas request ID')
+		if (typeof id !== 'string' || !id.startsWith(this.token + ':')) throw new Error('invalid canvas request ID')
 		const text = id.slice(this.token.length + 1)
 		const sequence = Number(text)
 		if (!/^[1-9]\d*$/.test(text) || !Number.isSafeInteger(sequence) || sequence <= this.sequence)
-			throw Error('duplicate or invalid canvas request ID')
+			throw new Error('duplicate or invalid canvas request ID')
 		this.sequence = sequence
 		return id
 	}
@@ -115,7 +115,7 @@ export class CanvasBinaryPort {
 			id = this.requestId(command.requestId)
 			if (command.type !== 'legacy') body = this.restore(command.body, packet.buffers)
 			if (command.type === 'canvas' || (command.type === 'publish' && command.ack === true)) {
-				if (!Number.isSafeInteger(command.deadline)) throw Error('invalid canvas deadline')
+				if (!Number.isSafeInteger(command.deadline)) throw new Error('invalid canvas deadline')
 				if (Date.now() >= command.deadline) { this.reply(id, '', 'canvas query timed out'); return }
 			}
 		}
@@ -127,7 +127,7 @@ export class CanvasBinaryPort {
 				return
 			}
 			const result = command.type === 'legacy' ? this.target.eval(command.script) : JSON.stringify(this.flush(body))
-			if (typeof result !== 'string') throw Error('invalid canvas feedback')
+			if (typeof result !== 'string') throw new Error('invalid canvas feedback')
 			this.reply(id, result)
 		}
 		catch (error) {

@@ -51,7 +51,7 @@ it('needs no FinalizationRegistry to retain a caller-held proxy', () => {
 })
 it('retains the strong owner if weak allocation fails', () => {
   const { gl } = context(), buffer = gl.createBuffer()
-  vi.stubGlobal('WeakRef', class { constructor() { throw Error('weak allocation failed') } })
+  vi.stubGlobal('WeakRef', class { constructor() { throw new Error('weak allocation failed') } })
   expect(() => { gl.deleteBuffer(buffer); ack(gl) }).not.toThrow()
   expect(gl.resources.get(buffer.__canvasResourceId)).toBe(buffer)
   expect(gl.retiredBufferResources.entries.size).toBe(0)

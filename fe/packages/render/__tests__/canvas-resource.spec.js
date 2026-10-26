@@ -49,10 +49,10 @@ it('keeps admitted publications ordered after their original query deadline', as
 })
 it('propagates resource and GL failures without replay', async () => {
 	const f = harness(packet('canvas', [1]))
-	f.flush.mockImplementation(() => { throw Error('actual driver failure') })
+	f.flush.mockImplementation(() => { throw new Error('actual driver failure') })
 	await expect(f.receive(url)).rejects.toThrow('actual driver failure')
 	expect(f.flush).toHaveBeenCalledOnce()
-	f.target.fetch.mockRejectedValue(Error('page disposed'))
+	f.target.fetch.mockRejectedValue(new Error('page disposed'))
 	await expect(f.receive(url)).rejects.toThrow('page disposed')
 	expect(f.flush).toHaveBeenCalledOnce()
 })

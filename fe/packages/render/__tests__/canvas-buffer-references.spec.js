@@ -5,9 +5,9 @@ import message from '../src/core/message.js'
 function driver() {
   const arrays = new Map([[null, new Map()]]), buffers = new Set()
   const gl = { MAX_VERTEX_ATTRIBS: 0x8869, ARRAY_BUFFER: 0x8892, ELEMENT_ARRAY_BUFFER: 0x8893,
-    ELEMENT_ARRAY_BUFFER_BINDING: 0x8895, VERTEX_ATTRIB_ARRAY_BUFFER_BINDING: 0x889f,
+    ELEMENT_ARRAY_BUFFER_BINDING: 0x8895, VERTEX_ATTRIB_ARRAY_BUFFER_BINDING: 0x889F,
     current: null, array: null, failPointer: false, failDelete: false, errorReads: 0,
-    getParameter(p) { if (p === this.MAX_VERTEX_ATTRIBS) return 8; if (p === 0x85b5) return this.current; if (p === this.ELEMENT_ARRAY_BUFFER_BINDING) return arrays.get(this.current).get('element') || null; return 0 },
+    getParameter(p) { if (p === this.MAX_VERTEX_ATTRIBS) return 8; if (p === 0x85B5) return this.current; if (p === this.ELEMENT_ARRAY_BUFFER_BINDING) return arrays.get(this.current).get('element') || null; return 0 },
     getVertexAttrib(i) { return arrays.get(this.current).get(i) || null },
     getError() { this.errorReads++; return 0 },
     createBuffer() { const value = { deleted: false }; buffers.add(value); return value },
@@ -16,7 +16,7 @@ function driver() {
     vertexAttribPointer(i) { if (!this.array || this.failPointer) return; arrays.get(this.current).set(i >>> 0, this.array) },
     deleteBuffer(buffer) { if (!buffers.has(buffer) || buffer.deleted || this.failDelete) return; buffer.deleted = true; if (this.array === buffer) this.array = null; for (const [key, value] of arrays.get(this.current)) if (value === buffer) arrays.get(this.current).delete(key) },
   }
-  const ext = { VERTEX_ARRAY_BINDING_OES: 0x85b5,
+  const ext = { VERTEX_ARRAY_BINDING_OES: 0x85B5,
     createVertexArrayOES() { const vao = { deleted: false }; arrays.set(vao, new Map()); return vao },
     bindVertexArrayOES(vao) { if (!vao?.deleted) gl.current = vao },
     deleteVertexArrayOES(vao) { if (!vao || !arrays.has(vao) || vao.deleted) return; vao.deleted = true; if (gl.current === vao) gl.current = null },
