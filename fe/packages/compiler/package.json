@@ -48,7 +48,7 @@
 		"@vue/shared": "^3.5.43",
 		"autoprefixer": "^10.6.1",
 		"cheerio": "^1.2.0",
-		"chokidar": "^4.0.3",
+		"chokidar": "^6.0.0",
 		"commander": "^14.0.3",
 		"cssnano": "^9.8.0",
 		"esbuild": "^0.28.2",
