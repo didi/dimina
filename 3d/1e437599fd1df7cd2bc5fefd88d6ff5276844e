@@ -1,0 +1,49 @@
+fe/packages/service/__tests__/canvas-frame-stream.spec.js
+  43ad66db7752b2dd 40,80,83,89,99,123,128
+fe/packages/render/__tests__/canvas-compression.spec.js
+  43ad66db7752b2dd 8,18,21
+fe/packages/common/__tests__/canvas-decode-fast.spec.js
+  43ad66db7752b2dd 212,217,237,249
+fe/packages/common/__tests__/canvas-compression.spec.js
+  43ad66db7752b2dd 41,97
+fe/packages/render/__tests__/canvas-resource.spec.js
+  43ad66db7752b2dd 52,55
+fe/packages/render/__tests__/canvas-texture-upload.spec.js
+  43ad66db7752b2dd 831
+fe/packages/render/src/core/canvas-buffer-references.js
+  43ad66db7752b2dd 56
+fe/packages/render/src/core/canvas-resource.js
+  43ad66db7752b2dd 12,15,20,24
+fe/packages/render/__tests__/canvas-frame-stream.spec.js
+  43ad66db7752b2dd 29
+fe/packages/service/__tests__/retired-buffer-resources.spec.js
+  43ad66db7752b2dd 54
+fe/packages/service/__tests__/canvas-async-buffer.spec.js
+  43ad66db7752b2dd 136,170
+fe/packages/render/__tests__/canvas-buffer-references.spec.js
+  43ad66db7752b2dd 8,10,19
+fe/packages/render/__tests__/canvas-binary-port.spec.js
+  43ad66db7752b2dd 60,84,110-111,125
+fe/packages/render/src/core/canvas-binary-port.js
+  43ad66db7752b2dd 46,49,53,55,58,63,67,75,80,87,89,94,98,118,130
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "3d1e437599fd1df7cd2bc5fefd88d6ff5276844e",
+  "prompts": {
+    "43ad66db7752b2dd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1777e-93e8-7812-bea4-b4db08bf911b",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 54,
+      "total_deletions": 54,
+      "accepted_lines": 51,
+      "overriden_lines": 0
+    }
+  }
+}
