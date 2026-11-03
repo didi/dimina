@@ -37,7 +37,7 @@ export function extractDependencies(expression, paths = false) {
 			lang: 'js',
 		}).program
 
-		visitExpressionAst(ast, null, dependencies, paths)
+		visitExpressionAst(ast, null, dependencies, paths, code)
 	} catch (error) {
 		// AST 解析失败时回退到空数组
 		console.warn('[expression-parser] AST 解析失败，表达式:', expression, '错误:', error.message)
@@ -57,26 +57,39 @@ function staticMemberPath(node) {
 	return typeof key === 'string' || typeof key === 'number' ? [...path, key] : null
 }
 
-function visitExpressionAst(node, parent, dependencies, paths) {
+function runtimeMemberPath(node, source, visitKey) {
+	if (node.type === 'Identifier') return KEYWORDS.has(node.name) ? null : [JSON.stringify(node.name)]
+	if (node.type === 'ChainExpression') return runtimeMemberPath(node.expression, source, visitKey)
+	if (node.type !== 'MemberExpression') return null
+	const path = runtimeMemberPath(node.object, source, visitKey)
+	if (!path) return null
+	if (!node.computed) return [...path, JSON.stringify(node.property.name)]
+	visitKey(node.property)
+	return [...path, source.slice(node.property.start, node.property.end)]
+}
+
+function visitExpressionAst(node, parent, dependencies, paths, source) {
 	if (!node || typeof node !== 'object') {
 		return
 	}
 
 	if (node.type === 'Identifier') {
-		collectIdentifier(node, parent, dependencies, paths)
+		collectIdentifier(node, parent, dependencies, paths, source)
 		return
 	}
 
 	// 处理成员表达式，确保只提取根对象，并跳过子节点避免重复处理属性名
 	if (node.type === 'MemberExpression') {
 		if (paths) {
-			const path = staticMemberPath(node)
+			const path = paths === 'runtime'
+				? runtimeMemberPath(node, source, key => visitExpressionAst(key, node, dependencies, paths, source))
+				: staticMemberPath(node)
 			if (path) {
 				dependencies.add(JSON.stringify(path))
 			}
 			else {
-				visitExpressionAst(node.object, node, dependencies, paths)
-				if (node.computed) visitExpressionAst(node.property, node, dependencies, paths)
+				visitExpressionAst(node.object, node, dependencies, paths, source)
+				if (node.computed) visitExpressionAst(node.property, node, dependencies, paths, source)
 			}
 			return
 		}
@@ -98,11 +111,11 @@ function visitExpressionAst(node, parent, dependencies, paths) {
 
 		if (Array.isArray(value)) {
 			for (const child of value) {
-				visitExpressionAst(child, node, dependencies, paths)
+				visitExpressionAst(child, node, dependencies, paths, source)
 			}
 		}
 		else {
-			visitExpressionAst(value, node, dependencies, paths)
+			visitExpressionAst(value, node, dependencies, paths, source)
 		}
 	}
 }
@@ -125,7 +138,7 @@ function collectIdentifier(node, parent, dependencies, paths) {
 		return
 	}
 
-	dependencies.add(paths ? JSON.stringify([name]) : name)
+	dependencies.add(paths ? JSON.stringify([paths === 'runtime' ? JSON.stringify(name) : name]) : name)
 }
 
 /**

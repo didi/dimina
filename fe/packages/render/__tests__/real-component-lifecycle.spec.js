@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 describe('compiled page lifecycle with repeated real components', () => {
 	const pagePath = 'pages/real-lifecycle/index'
 	const componentPath = '/components/real-lifecycle-probe/index'
+	const nestedPath = '/components/nested-probe/index'
 	let projectDir
 	let outputDir
 	let originalTargetPath
@@ -39,6 +40,7 @@ describe('compiled page lifecycle with repeated real components', () => {
 		outputDir = path.join(projectDir, 'dist')
 		process.env.TARGET_PATH = outputDir
 		globalThis.__realComponentLifecycleLogs = []
+		globalThis.__realComponentPropertyLogs = []
 		document.body.innerHTML = ''
 		vi.spyOn(console, 'log').mockImplementation(() => {})
 	})
@@ -56,6 +58,7 @@ describe('compiled page lifecycle with repeated real components', () => {
 			renderLoader.staticModules = {}
 		}
 		delete globalThis.__realComponentLifecycleLogs
+		delete globalThis.__realComponentPropertyLogs
 		delete globalThis.__extraInfo
 		delete globalThis.modDefine
 		delete globalThis.modRequire
@@ -76,12 +79,18 @@ describe('compiled page lifecycle with repeated real components', () => {
 		writeProjectFile(`${pagePath}.json`, JSON.stringify({
 			usingComponents: {
 				'lifecycle-probe': componentPath,
+				'nested-probe': nestedPath,
 			},
 		}))
 		writeProjectFile(`${pagePath}.wxml`, `
 			<view>
-				<lifecycle-probe instance-id="probe-a" />
-				<lifecycle-probe instance-id="probe-b" />
+				<lifecycle-probe wx:for="{{rows}}" wx:for-item="row" wx:for-index="position"
+					wx:key="id" instance-id="{{row.id}}" mixed="{{row.value * 10 + offset + position * 0}}"
+					picked="{{row.values[selected]}}" />
+				<view wx:for="{{groups}}" wx:key="id">
+					<nested-probe wx:for="{{item.rows}}" wx:key="id" label="{{item.id}}"
+						value="{{item.value + index}}" />
+				</view>
 			</view>
 		`)
 		writeProjectFile(`${pagePath}.js`, `
@@ -89,6 +98,13 @@ describe('compiled page lifecycle with repeated real components', () => {
 				globalThis.__realComponentLifecycleLogs.push({ scope: 'page', event })
 			}
 			Page({
+				data: {
+					rows: [{ id: 'probe-a', value: 1, values: [5, 6] }, { id: 'probe-b', value: 2, values: [7, 8] }],
+					offset: 0,
+					selected: 0,
+					groups: [{ id: 'g-a', rows: [{ id: 'nested-a', value: 1 }] },
+						{ id: 'g-b', rows: [{ id: 'nested-b', value: 2 }] }],
+				},
 				onLoad() { recordPage('onLoad') },
 				onShow() { recordPage('onShow') },
 				onReady() { recordPage('onReady') },
@@ -109,7 +125,20 @@ describe('compiled page lifecycle with repeated real components', () => {
 				})
 			}
 			Component({
-				properties: { instanceId: String },
+				properties: {
+					instanceId: String,
+					mixed: { type: Number, observer(value, old) {
+						globalThis.__realComponentPropertyLogs.push([this.data.instanceId, 'mixed', value, old])
+					} },
+					picked: { type: Number, observer(value, old) {
+						globalThis.__realComponentPropertyLogs.push([this.data.instanceId, 'picked', value, old])
+					} },
+				},
+				observers: {
+					'mixed, picked'(mixed, picked) {
+						globalThis.__realComponentPropertyLogs.push([this.data.instanceId, 'data', mixed, picked])
+					},
+				},
 				lifetimes: {
 					created() { recordComponent(this, 'created') },
 					attached() { recordComponent(this, 'attached') },
@@ -125,6 +154,17 @@ describe('compiled page lifecycle with repeated real components', () => {
 			})
 		`)
 
+		writeProjectFile('components/nested-probe/index.json', JSON.stringify({ component: true }))
+		writeProjectFile('components/nested-probe/index.wxml', '<view>{{label}}:{{value}}</view>')
+		writeProjectFile('components/nested-probe/index.js', `
+			Component({
+				properties: { label: String, value: Number },
+				observers: {
+					value(value) { globalThis.__realComponentPropertyLogs.push([this.data.label, 'nested', value]) },
+				},
+			})
+		`)
+
 		const { getPages, storeInfo } = await import('../../compiler/src/env.js')
 		const { compileJS } = await import('../../compiler/src/core/logic-compiler.js')
 		const { compileML } = await import('../../compiler/src/core/view-compiler.js')
@@ -136,8 +176,6 @@ describe('compiled page lifecycle with repeated real components', () => {
 			path.join(outputDir, 'main/pages_real-lifecycle_index.js'),
 			'utf8',
 		)
-		expect(compiledView).toContain('"instance-id":"probe-a"')
-		expect(compiledView).toContain('"instance-id":"probe-b"')
 
 		globalThis.DiminaServiceBridge = {
 			invoke: vi.fn(),
@@ -172,7 +210,7 @@ describe('compiled page lifecycle with repeated real components', () => {
 			filename: path.join(outputDir, 'main/pages_real-lifecycle_index.js'),
 		})
 
-		for (const modulePath of [componentPath, pagePath]) {
+		for (const modulePath of [componentPath, nestedPath, pagePath]) {
 			const module = logicModules.find(candidate => candidate.path === modulePath)
 			expect(module, `missing compiled logic module ${modulePath}`).toBeDefined()
 			evaluateLogicModule(module)
@@ -200,6 +238,51 @@ describe('compiled page lifecycle with repeated real components', () => {
 		expect(mountedComponents).toHaveLength(2)
 		expect(new Set(mountedComponents.map(instance => instance.__id__)).size).toBe(2)
 		expect(mountedComponents.map(instance => instance.properties.instanceId).sort()).toEqual(['probe-a', 'probe-b'])
+
+		const page = Object.values(serviceRuntime.instances[bridgeId]).find(instance => instance.is === pagePath)
+		const propertyLogs = globalThis.__realComponentPropertyLogs
+		const setData = data => new Promise(resolve => page.setData(data, resolve))
+		propertyLogs.length = 0
+		await setData({ 'rows[0].note': 'unrelated', 'rows[0].values[1]': 9 })
+		expect(propertyLogs).toEqual([])
+		await setData({ 'rows[0].value': 1, 'rows[0].values[0]': 5 })
+		expect(propertyLogs).toEqual([['probe-a', 'data', 10, 5]])
+
+		propertyLogs.length = 0
+		await Promise.all([setData({ offset: 1 }), setData({ offset: 2 }), setData({ offset: 2 })])
+		expect(propertyLogs).toEqual([
+			['probe-a', 'data', 11, 5], ['probe-a', 'mixed', 11, 10],
+			['probe-b', 'data', 21, 7], ['probe-b', 'mixed', 21, 20],
+			['probe-a', 'data', 12, 5], ['probe-a', 'mixed', 12, 11],
+			['probe-b', 'data', 22, 7], ['probe-b', 'mixed', 22, 21],
+			['probe-a', 'data', 12, 5], ['probe-b', 'data', 22, 7],
+		])
+
+		propertyLogs.length = 0
+		await setData({ 'rows[1].value': 3, selected: 1 })
+		expect(propertyLogs).toEqual([
+			['probe-a', 'data', 12, 9], ['probe-a', 'picked', 9, 5],
+			['probe-b', 'data', 32, 8], ['probe-b', 'mixed', 32, 22], ['probe-b', 'picked', 8, 7],
+		])
+
+		propertyLogs.length = 0
+		const [a, b] = page.data.rows
+		await Promise.all([setData({ rows: [b, a] }), setData({ 'rows[0].value': 3 })])
+		expect(propertyLogs).toEqual([
+			['probe-b', 'data', 32, 8], ['probe-a', 'data', 12, 9], ['probe-b', 'data', 32, 8],
+		])
+
+		propertyLogs.length = 0
+		const [groupA, groupB] = page.data.groups
+		await Promise.all([
+			setData({ groups: [groupB, groupA] }),
+			setData({ 'groups[0].rows[0].value': 3 }),
+			setData({ 'groups[0].rows[0].value': 3 }),
+		])
+		expect(propertyLogs).toEqual([
+			['nested-b', 'nested', 2], ['nested-a', 'nested', 1],
+			['nested-b', 'nested', 3], ['nested-b', 'nested', 3],
+		])
 
 		globalThis.DiminaServiceBridge.onMessage({ type: 'pageHide', body: { bridgeId } })
 		globalThis.DiminaServiceBridge.onMessage({

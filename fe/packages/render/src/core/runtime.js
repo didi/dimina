@@ -46,6 +46,7 @@ import { WebGLFramePresentation } from './webgl-frame-presentation'
 import { resolveCanvasExportSize } from './canvas-export-limits'
 import { createMiniProgramSlots } from './slots'
 import { invokeMapContext } from './map-context'
+import { initializeTemplateBinding, PropertyBindingBucket, resolveTemplateBinding } from './template-binding'
 
 const COMPONENT_HOST_ATTRIBUTE = 'data-dd-component-host'
 const STYLE_ISOLATION_ATTRIBUTE = 'data-dd-style-isolation'
@@ -307,6 +308,15 @@ export function normalizeStaticBooleanAttributes(propertySchemas, values, vnode)
 	return normalizedValues
 }
 
+function renderTemplateList(source, renderItem, cache, index) {
+	if (renderItem.length !== 3) return renderList(source, renderItem, cache, index)
+	// The compiler reserves a third parameter to keep an outer loop index
+	// visible when an inner loop shadows it. Vue only supplies it for objects.
+	return renderList(source, (item, key, position, cached) => (
+		renderItem(item, key, position ?? key, cached)
+	), cache, index)
+}
+
 // Keep these aliases in sync with @vue/compiler-core helperNameMap/aliasHelper output.
 const VUE_RUNTIME_HELPERS = {
 	_Fragment: Fragment,
@@ -320,7 +330,7 @@ const VUE_RUNTIME_HELPERS = {
 	_normalizeClass: normalizeClass,
 	_normalizeStyle: normalizeStyle,
 	_openBlock: openBlock,
-	_renderList: renderList,
+	_renderList: renderTemplateList,
 	_renderSlot: renderSlot,
 	_resolveComponent: resolveComponent,
 	_resolveDirective: resolveDirective,
@@ -671,6 +681,7 @@ class Runtime {
 		this.preInitUpdates = new Map()
 		this.objectPropertySnapshots = new WeakMap()
 		this.propertyAssignments = new Map()
+		this.propertyAssignmentOrder = 0
 		this.intersectionObservers = new Map()
 		this.mediaQueryObservers = new Map()
 		this.componentAnimations = new Map()
@@ -1325,8 +1336,15 @@ class Runtime {
 					const bindingOwnerId = that.moduleIds.get(vueInstance.vnode.ctx?.proxy) || parentId
 					const registerAssignments = bindings => that.registerPropertyAssignments(
 						bindingOwnerId, moduleId, module.propertySchemas, bindings, (assignment) => {
-							pendingAssignments.push(assignment)
-							triggerRef(assignmentRevision)
+							if (assignment.replay && pendingAssignments.length === 0) {
+								const updates = Object.fromEntries(assignment.values)
+								previousNormalizedProps = { ...previousNormalizedProps, ...updates }
+								publishPropertyUpdates(updates, assignment.names)
+							}
+							else {
+								pendingAssignments.push(assignment)
+								triggerRef(assignmentRevision)
+							}
 						},
 					)
 					let unregisterAssignments = registerAssignments(vnodeBinding?.value)
@@ -1364,7 +1382,9 @@ class Runtime {
 								body: {
 									bridgeId,
 									moduleId,
-									propBindings, // 传递从指令中读取的绑定信息
+									propBindings: propBindings && Object.fromEntries(
+									Object.entries(propBindings).map(([name, { read, resolvePaths, scopes, scopeNames, ...binding }]) => [name, binding]),
+								),
 									eventPath,
 								},
 							})
@@ -1423,7 +1443,7 @@ class Runtime {
 							},
 						})
 						if (assigned.length) {
-							that.notifyPropertyAssignments(moduleId, assigned.map(name => [name]), undefined, data)
+							that.notifyPropertyAssignments(moduleId, assigned.map(name => [name]), undefined, data, true)
 						}
 					}
 
@@ -1531,7 +1551,7 @@ class Runtime {
 						paths.push(path)
 					}
 				}
-				if (paths) this.notifyPropertyAssignments(moduleId, paths, synced, captureData)
+				if (paths) this.notifyPropertyAssignments(moduleId, paths, synced, setupData, !!captureData)
 			}
 			let cursor = 0
 			for (const [start, end, synced] of ranges || []) {
@@ -1555,31 +1575,42 @@ class Runtime {
 		const ownerBindings = this.propertyAssignments.get(ownerId) || new Map()
 		const registrations = []
 		const propertyOrder = new Map()
-		const notifyInTemplateOrder = (entries, captureData) => {
+		const registrationOrder = this.propertyAssignmentOrder++
+		const notifyInTemplateOrder = (entries, data, capture) => {
 			const names = [...entries.keys()].sort((a, b) => propertyOrder.get(a) - propertyOrder.get(b))
+			const replay = [...entries.values()].some(({ entry }) => entry.binding.renderOnly || (capture && entry.binding.read))
 			let values
-			if (captureData) {
+			if (capture || replay) {
 				values = new Map()
-				for (const [name, entry] of entries) {
-					if (!entry.readPath) continue
-					const value = resolvePropertyValue(entry.schema, get(captureData, entry.readPath))
-					if (isScalarProperty(value)) values.set(name, value)
+				for (const name of names) {
+					const { entry, resolved } = entries.get(name)
+					try {
+						if (!resolved && !entry.binding.read && !entry.readPath) continue
+						const raw = resolved ? resolved.read() : entry.binding.read ? entry.binding.read() : get(data, entry.readPath)
+						const value = resolvePropertyValue(entry.schema, raw)
+						if (isScalarProperty(value)) values.set(name, value)
+					}
+					catch {
+						// Vue's render remains the fallback if a binding cannot be evaluated here.
+					}
 				}
 			}
-			notify({ names, values })
+			notify({ names, values, replay: replay && values.size === names.length })
 		}
 		for (const [name, binding] of Object.entries(bindings)) {
 			const prop = Object.hasOwn(schemas, name) ? name : toCamelCase(name)
 			if (!Object.hasOwn(schemas, prop)) continue
 			propertyOrder.set(prop, propertyOrder.size)
 			const [readPath] = propertyBindingPaths({ expression: binding.expression })
-			for (const path of propertyBindingPaths(binding)) {
+			const paths = binding.renderOnly ? (binding.renderRoots || []).map(root => [root]) : propertyBindingPaths(binding)
+			initializeTemplateBinding(binding, this.setupData.get(ownerId))
+			for (const path of paths) {
 				let entries = ownerBindings.get(path[0])
 				if (!entries) {
-					entries = new Set()
+					entries = new PropertyBindingBucket()
 					ownerBindings.set(path[0], entries)
 				}
-				const entry = { moduleId, prop, path, readPath, schema: schemas[prop], notify: notifyInTemplateOrder }
+				const entry = { moduleId, prop, path, readPath, binding, schema: schemas[prop], registrationOrder, notify: notifyInTemplateOrder }
 				entries.add(entry)
 				registrations.push(entry)
 			}
@@ -1592,29 +1623,77 @@ class Runtime {
 				const root = entry.path[0]
 				const entries = ownerBindings.get(root)
 				entries.delete(entry)
-				if (entries.size === 0) ownerBindings.delete(root)
+				if (entries.entries.size === 0) ownerBindings.delete(root)
 			}
 			if (ownerBindings.size === 0) this.propertyAssignments.delete(ownerId)
 		}
 	}
 
-	notifyPropertyAssignments(ownerId, paths, synced, captureData) {
+	notifyPropertyAssignments(ownerId, paths, synced, data, capture) {
 		const ownerBindings = this.propertyAssignments.get(ownerId)
 		if (!ownerBindings) return
-		const affected = new Map()
+		let affected
+		let resolvedBindings
+		let keyIndexes
 		for (const path of paths) {
-			for (const entry of ownerBindings.get(path[0]) || []) {
-				const { moduleId, prop, notify } = entry
-				if (synced?.[moduleId]?.includes(prop) || !propertyBindingPathMatches(entry.path, path)) continue
-				let names = affected.get(notify)
-				if (!names) {
-					names = new Map()
-					affected.set(notify, names)
+			const bucket = ownerBindings.get(path[0])
+			if (!bucket) continue
+			for (const entry of bucket.candidates(path)) {
+				const { moduleId, prop, notify, binding } = entry
+				if (synced?.[moduleId]?.includes(prop)) continue
+				let resolved
+				if (binding.renderOnly) {
+					resolvedBindings ||= new Map()
+					keyIndexes ||= new WeakMap()
+					if (!resolvedBindings.has(binding)) {
+						try {
+							resolvedBindings.set(binding, resolveTemplateBinding(binding, data, keyIndexes))
+						}
+						catch {
+							resolvedBindings.set(binding, undefined)
+						}
+					}
+					resolved = resolvedBindings.get(binding)
+					if (!resolved) continue
+					if (entry.row !== undefined) bucket.move(entry, resolved.order[0])
+					const pathMatched = resolved.paths.some(dep => propertyBindingPathMatches(dep, path))
+					const indexMatched = resolved.indexPaths.some(dep => path.length <= dep.length && propertyBindingPathMatches(dep, path))
+					if (!pathMatched && !indexMatched) continue
 				}
-				names.set(prop, entry)
+				else if (!propertyBindingPathMatches(entry.path, path)) continue
+
+				affected ||= new Map()
+				let match = affected.get(notify)
+				if (!match) {
+					match = { notify, entries: new Map(), order: [], registrationOrder: entry.registrationOrder }
+					affected.set(notify, match)
+				}
+				if (resolved?.order.length) {
+					match.order = resolved.order
+					match.loopGroup = binding.scopes[0].group
+				}
+				match.entries.set(prop, { entry, resolved })
 			}
 		}
-		for (const [notify, entries] of affected) notify(entries, captureData)
+		if (!affected) return
+		const ordered = [...affected.values()]
+		const groupOrders = new Map()
+		for (const match of ordered) {
+			if (!match.loopGroup) continue
+			const first = groupOrders.get(match.loopGroup) ?? match.registrationOrder
+			groupOrders.set(match.loopGroup, Math.min(first, match.registrationOrder))
+		}
+		ordered.sort((a, b) => {
+			if (!a.loopGroup || a.loopGroup !== b.loopGroup) {
+				return (groupOrders.get(a.loopGroup) ?? a.registrationOrder)
+					- (groupOrders.get(b.loopGroup) ?? b.registrationOrder)
+			}
+			for (let i = 0; i < Math.min(a.order.length, b.order.length); i++) {
+				if (a.order[i] !== b.order[i]) return a.order[i] - b.order[i]
+			}
+			return a.registrationOrder - b.registrationOrder
+		})
+		for (const { notify, entries } of ordered) notify(entries, data, capture)
 	}
 
 	snapshotObjectProperty(value) {

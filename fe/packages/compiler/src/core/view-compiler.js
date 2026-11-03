@@ -12,7 +12,7 @@ import { checkTemplateCompatibility, getTemplateDirectiveName, takeCompatibility
 import { toMiniProgramModuleId } from '../common/path-utils.js'
 import { collectAssets, getAbsolutePath, isCollectableImageAsset, resolveAssetSourcePath, tagWhiteList, transformRpx } from '../common/utils.js'
 import { getAppId, getComponent, getContentByPath, getDependencyGraph, getTargetPath, getTemplateExts, getViewScriptExts, getViewScriptTags, getWorkPath, resetStoreInfo } from '../env.js'
-import { parseBindings } from '../common/expression-parser.js'
+import { extractDependencies, parseBindings } from '../common/expression-parser.js'
 import { concatSourcemap, createLineSourcemap, mergeSourcemap, remapSourcemap } from './sourcemap.js'
 
 /**
@@ -1260,7 +1260,7 @@ function toCompileTemplate(isComponent, path, components, componentPlaceholder, 
 	const res = []
 
 	normalizeTemplateDom($, $.root(), components)
-	transHtmlTag($.html(), res, components, componentPlaceholder)
+	transHtmlTag($.html(), res, components, componentPlaceholder, path)
 
 	return {
 		tpl: res.join(''),
@@ -1290,7 +1290,7 @@ function transTagTemplate($, templateModule, path, components, componentPlacehol
 		transAsses($, templateContent.find('image'), path, graphOwnerPath)
 		const res = []
 		normalizeTemplateDom($, templateContent, components)
-		transHtmlTag(templateContent.html(), res, components, componentPlaceholder)
+		transHtmlTag(templateContent.html(), res, components, componentPlaceholder, `${path}#${name}`)
 
 		templateModule.push({
 			path: `tpl-${name}`,
@@ -1441,19 +1441,35 @@ function normalizeTemplateSyntax(html, components) {
 	return $.html()
 }
 
-function transHtmlTag(html, res, components, componentPlaceholder) {
-	const attrsList = []
+function transHtmlTag(html, res, components, componentPlaceholder, templateId) {
+	const tagStack = []
+	const scopes = []
+	const tokens = []
+	let loopId = 0
 	const parser = new htmlparser2.Parser(
 		{
 			onopentag(tag, attrs) {
-				attrsList.push(attrs)
-				res.push(transTag({ isStart: true, tag, attrs, components, componentPlaceholder }))
+				const scope = getBindingLoopScope(attrs)
+				tagStack.push({ attrs, scope })
+				if (scope) {
+					scope.id = loopId++
+					scope.group = `${templateId}:${scope.id}`
+					for (const outer of scopes) {
+						if (scope.item === outer.index || scope.index === outer.index) {
+							outer.captureIndex = `__diminaForIndex${outer.id}`
+						}
+					}
+					scopes.push(scope)
+				}
+				tokens.push({ isStart: true, tag, attrs, components, componentPlaceholder, scopes: [...scopes], scope })
 			},
 			ontext(text) {
-				res.push(transformTextInterpolation(text))
+				tokens.push(transformTextInterpolation(text))
 			},
 			onclosetag(tag) {
-				res.push(transTag({ tag, attrs: attrsList.pop(), components }))
+				const { attrs, scope } = tagStack.pop()
+				if (scope) scopes.pop()
+				tokens.push({ tag, attrs, components })
 			},
 			onerror(error) {
 				console.error(error)
@@ -1464,6 +1480,7 @@ function transHtmlTag(html, res, components, componentPlaceholder) {
 
 	parser.write(html)
 	parser.end()
+	for (const token of tokens) res.push(typeof token === 'string' ? token : transTag(token))
 }
 
 /**
@@ -1504,7 +1521,7 @@ function transTag(opts) {
 	}
 
 	let tagRes
-	const propsAry = isStart ? getProps(attrs, tag, components) : []
+	const propsAry = isStart ? getProps(attrs, tag, components, opts.scopes, opts.scope) : []
 	// 多 slot 支持，目前在组件定义时的选项中 multipleSlots 未生效
 	const multipleSlots = attrs?.slot
 	if (attrs?.slot) {
@@ -1583,7 +1600,7 @@ function generateSlotDirective(slotValue) {
  * @param {*} tag
  * @param {*} components - 组件映射，用于判断是否为自定义组件
  */
-function getProps(attrs, tag, components) {
+function getProps(attrs, tag, components, scopes, scope) {
 	const attrsList = []
 	const isCustomComponent = Boolean(components && components[tag])
 	// 用于记录属性绑定关系：{ 子组件属性名: 父组件数据路径 }
@@ -1632,7 +1649,7 @@ function getProps(attrs, tag, components) {
 		else if (templateDirective === 'for' || templateDirective === 'for-items') {
 			attrsList.push({
 				name: 'v-for',
-				value: parseForExp(value, attrs),
+				value: parseForExp(value, attrs, scope?.captureIndex),
 			})
 		}
 		else if (templateDirective === 'for-item' || templateDirective === 'for-index') {
@@ -1804,7 +1821,7 @@ function getProps(attrs, tag, components) {
 			// 解析表达式，生成包含依赖信息的绑定对象
 			const parsedBindings = parseBindings(validBindings)
 			// 使用动态绑定 + HTML 实体转义，Vue 会自动解码并解析为对象
-			const bindingsJson = JSON.stringify(parsedBindings)
+			const bindingsJson = serializePropertyBindings(parsedBindings, scopes)
 			const escapedJson = bindingsJson.replace(/"/g, '&quot;')
 			propsRes.push(`v-c-prop-bindings="${escapedJson}"`)
 		}
@@ -1814,6 +1831,59 @@ function getProps(attrs, tag, components) {
 	}
 
 	return propsRes
+}
+
+function getBindingLoopScope(attrs) {
+	const forAttr = getDirectiveAttributeNames(attrs, [':for', ':for-items'])[0]
+	if (!forAttr) return
+	const source = parseSafeBraceExp(attrs[forAttr]).trim().replace(/\?\.(?=\[)/g, '').replace(/\?\./g, '.')
+	const keyAttr = getDirectiveAttributeNames(attrs, [':key'])[0]
+	const key = attrs[keyAttr]
+	return {
+		item: getForItemName(attrs),
+		index: getForIndexName(attrs),
+		source: /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*|\[\d+\])*$/.test(source) ? source.match(/[\w$]+/g) : null,
+		key: /^[A-Za-z_$][\w$]*$/.test(key) || key === '*this' ? key : undefined,
+	}
+}
+
+function serializePropertyBindings(bindings, scopes = []) {
+	const names = [...new Set(scopes.flatMap(({ item, index }) => [item, index]))]
+	const supportedScope = scopes.every(scope => scope.source)
+	const aliasRoots = new Map()
+	if (supportedScope) {
+		for (const scope of scopes) {
+			const root = scope.source[0]
+			const ownerRoot = aliasRoots.get(root) || root
+			aliasRoots.set(scope.item, ownerRoot)
+			aliasRoots.set(scope.index, ownerRoot)
+		}
+	}
+	return '{' + Object.entries(bindings).map(([name, binding]) => {
+		const usesAlias = binding.dependencies.some(dep => names.includes(dep))
+		if (usesAlias && !supportedScope) {
+			return `${JSON.stringify(name)}:${JSON.stringify({ ...binding, renderOnly: true })}`
+		}
+
+		const scopedBinding = scopes.length > 0 && supportedScope
+		if (!scopedBinding && binding.isSimple) return `${JSON.stringify(name)}:${JSON.stringify(binding)}`
+		const paths = extractDependencies(binding.expression, 'runtime')
+		const dynamic = paths.some(path => path.some(part => !/^("(?:[^"\\]|\\.)*"|\d+)$/.test(part)))
+		const renderOnly = scopedBinding || dynamic
+		const metadata = renderOnly
+			? { ...binding, renderOnly, renderRoots: [...new Set(binding.dependencies.map(dep => aliasRoots.get(dep) || dep))] }
+			: binding
+		const params = scopedBinding ? names.join(',') : ''
+		const scoped = scopedBinding ? scopes.map((scope, position) => {
+			const { item, index, source, key, group, captureIndex } = scope
+			const shadowed = scopes.slice(position + 1).some(inner => inner.item === item || inner.index === item)
+			const keyValue = key === '*this' ? item : key ? `${item}?.[${JSON.stringify(key)}]` : 'undefined'
+			const descriptor = { item, indexName: index, source, group, key, readKey: Boolean(key && shadowed) }
+			return `{...${JSON.stringify(descriptor)},index:${captureIndex || index},keyValue:${shadowed ? 'undefined' : keyValue}}`
+		}) : []
+		return `${JSON.stringify(name)}:{...${JSON.stringify(metadata)}, scopes:[${scoped.join(',')}],scopeNames:${JSON.stringify(scopedBinding ? names : [])},`
+			+ `read:(${params})=>(${binding.expression}), resolvePaths:(${params})=>[${paths.map(path => `[${path.join(',')}]`).join(',')}]}`
+	}).join(',') + '}'
 }
 
 function generateVModelTemplate(expression) {
@@ -2047,11 +2117,11 @@ function getForIndexName(attrs) {
  * @param {*} exp
  * @param {*} attrs
  */
-function parseForExp(exp, attrs) {
+function parseForExp(exp, attrs, captureIndex) {
 	const item = getForItemName(attrs)
 	const index = getForIndexName(attrs)
 	const listVariableName = parseSafeBraceExp(exp)
-	return `(${item}, ${index}) in ${listVariableName}`
+	return `(${item}, ${index}${captureIndex ? `, ${captureIndex}` : ''}) in ${listVariableName}`
 }
 
 // 使用正则表达式匹配{{}}内的内容，并放入第一个分组

@@ -591,7 +591,15 @@ export function syncUpdateChildrenProps(parent, allInstances, changedData, chang
 		let needsRender = false
 		for (const [name, bindingInfo] of Object.entries(bindings)) {
 			const propName = Object.hasOwn(childProperties, name) ? name : toCamelCase(name)
-			if (!Object.hasOwn(childProperties, propName) || !hasDependencyChanged(bindingInfo, changedPaths)) continue
+			if (!Object.hasOwn(childProperties, propName)) continue
+			if (bindingInfo.renderOnly) {
+				if (changedPaths.some(path => bindingInfo.renderRoots?.includes(path[0]))) {
+					needsRender = true
+					break
+				}
+				continue
+			}
+			if (!hasDependencyChanged(bindingInfo, changedPaths)) continue
 
 			const value = evaluateExpression(bindingInfo, parent.data)
 			if (value === unevaluatedBinding) {
