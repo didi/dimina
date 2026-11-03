@@ -18,7 +18,9 @@ before(() => {
   const fixture = fileURLToPath(new URL('./fixtures/video-decoder-pixels.cpp', import.meta.url))
   const compiler = process.env.CXX ?? 'c++'
   const flags = ['-std=c++17', '-O3', '-Wall', '-Wextra', '-Werror']
-  if (process.arch === 'arm64') flags.push('-march=armv8-a')
+  // Match the ARM64 NEON FMA order. Use non-fused arithmetic for the portable scalar fixture.
+  if (process.arch === 'arm64') flags.push('-march=armv8-a', '-ffp-contract=fast')
+  else flags.push('-ffp-contract=off')
   const compile = spawnSync(compiler, [...flags, '-I', directory, '-I', native, fixture, '-o', executable], {
     encoding: 'utf8', timeout: 30000,
   })

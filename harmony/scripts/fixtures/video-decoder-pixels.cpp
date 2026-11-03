@@ -135,20 +135,14 @@ uint64_t Shapes() {
 }
 
 uint64_t Golden() {
-    // Read the sample at runtime so the reference and converters use the same
-    // floating-point evaluation as the exhaustive test.
-    const volatile uint8_t y = 35, u = 135, v = 21;
-    const std::array<uint8_t, 6> source {y, y, y, y, u, v};
+    const std::array<uint8_t, 6> source {35, 35, 35, 35, 135, 21};
+    // The fixture enables contraction for ARM64 NEON and disables it for the portable scalar path.
+    const uint8_t green = neonEnabled ? 108 : 109;
+    const std::array<uint8_t, 16> expected {0, green, 47, 255, 0, green, 47, 255,
+                                           0, green, 47, 255, 0, green, 47, 255};
     const NV12PixelLayout layout {2, 2, 2, 0, 0, true, false, 4};
     std::array<uint8_t, 16> original {}, scalar {}, actual {};
     Reference(source.data(), layout, original.data());
-    std::array<uint8_t, 16> expected {0, 108, 47, 255, 0, 108, 47, 255, 0, 108, 47, 255, 0, 108, 47, 255};
-    if (!neonEnabled) {
-        // The unchanged scalar expression may be non-fused on other platforms.
-        const auto green = original[1];
-        Require(green == 108 || green == 109, "unexpected non-ARM original golden byte");
-        for (size_t index = 1; index < expected.size(); index += 4) expected[index] = green;
-    }
     ConvertNV12PixelsScalar(source.data(), layout, scalar.data());
     ConvertNV12Pixels(source.data(), layout, actual.data());
     Equal(original.data(), expected.data(), expected.size(), "fixed original golden");
