@@ -1,0 +1,39 @@
+harmony/dimina/src/main/ets/DPages/DMPPageContainer.ets
+  25d40473a3512e57 186
+harmony/dimina/src/main/ets/Components/DMPCapsuleButton.ets
+  25d40473a3512e57 10,88
+iOS/dimina/DiminaKit/App/DMPObjectiveC.swift
+  25d40473a3512e57 120-124
+docs/Host-Package-Management.md
+  25d40473a3512e57 83-90
+iOS/dimina/DiminaKit/App/DMPAppManager.swift
+  25d40473a3512e57 405-407
+android/dimina/src/main/kotlin/com/didi/dimina/Dimina.kt
+  25d40473a3512e57 5-6,58,75-84,219-220
+harmony/dimina/src/main/ets/DApp/DMPAppManager.ets
+  25d40473a3512e57 306-309
+android/dimina/src/main/kotlin/com/didi/dimina/ui/container/DiminaActivity.kt
+  25d40473a3512e57 1916,2322,2340
+iOS/dimina/DiminaKit/Navigator/DMPNavigator.swift
+  25d40473a3512e57 124
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "e6aea0d8f4c8fb1874aea0f3d6fc604df6cc4894",
+  "prompts": {
+    "25d40473a3512e57": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a10c-a12f-7b40-b07a-ccd963508132",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 34,
+      "total_deletions": 6,
+      "accepted_lines": 6542,
+      "overriden_lines": 0
+    }
+  }
+}
