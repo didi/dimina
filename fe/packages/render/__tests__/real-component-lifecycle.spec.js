@@ -154,7 +154,11 @@ describe('compiled page lifecycle with repeated real components', () => {
 					},
 				},
 				lifetimes: {
-					moved() { globalThis.__realRelationLogs.push(['child moved', this.data.instanceId]) },
+					moved() {
+						const [parent] = this.getRelationNodes('../relation-parent/index')
+						globalThis.__realRelationLogs.push(['child moved', this.data.instanceId,
+							parent.getRelationNodes('../real-lifecycle-probe/index').map(node => node.data.instanceId)])
+					},
 					created() { recordComponent(this, 'created') },
 					attached() {
 						recordComponent(this, 'attached')
@@ -296,6 +300,7 @@ describe('compiled page lifecycle with repeated real components', () => {
 		])
 		relationLogs.length = 0
 		const firstUpdateMessage = window.DiminaRenderBridge.publish.mock.calls.length
+		const firstServiceUpdateMessage = globalThis.DiminaServiceBridge.publish.mock.calls.length
 
 		const page = Object.values(serviceRuntime.instances[bridgeId]).find(instance => instance.is === pagePath)
 		const relationParent = Object.values(serviceRuntime.instances[bridgeId]).find(instance => instance.is === relationParentPath)
@@ -332,6 +337,8 @@ describe('compiled page lifecycle with repeated real components', () => {
 		expect(relationLogs).toEqual([])
 		const updateMessages = window.DiminaRenderBridge.publish.mock.calls.slice(firstUpdateMessage)
 		expect(updateMessages.some(([payload]) => JSON.parse(payload).type === 'mT')).toBe(false)
+		const serviceMessages = globalThis.DiminaServiceBridge.publish.mock.calls.slice(firstServiceUpdateMessage)
+		expect(serviceMessages.some(([, msg]) => msg.type === 'triggerCallback')).toBe(false)
 		const [a, b] = page.data.rows
 		await Promise.all([setData({ rows: [b, a] }), setData({ 'rows[0].value': 3 })])
 		expect(propertyLogs).toEqual([
@@ -339,10 +346,49 @@ describe('compiled page lifecycle with repeated real components', () => {
 		])
 
 		expect(relationLogs).toEqual([
-			['child moved', 'probe-b'],
+			['child moved', 'probe-b', ['probe-b', 'probe-a']],
 			['parent changed', 'probe-b', ['probe-b', 'probe-a']],
 			['child changed', 'probe-b'],
 		])
+		relationLogs.length = 0
+
+		const c = { id: 'probe-c', value: 4, values: [0, 0] }
+		const d = { id: 'probe-d', value: 5, values: [0, 0] }
+		const originalRows = [a, b, c, d]
+		await setData({ rows: originalRows })
+		const relationKey = '../real-lifecycle-probe/index'
+		await vi.waitFor(() => expect(relationParent.getRelationNodes(relationKey)).toHaveLength(4))
+		relationLogs.length = 0
+
+		await setData({ rows: [d, b, a, c] })
+		expect(relationLogs).toEqual([
+			['child moved', 'probe-d', ['probe-d', 'probe-a', 'probe-b', 'probe-c']],
+			['parent changed', 'probe-d', ['probe-d', 'probe-a', 'probe-b', 'probe-c']],
+			['child changed', 'probe-d'],
+			['child moved', 'probe-b', ['probe-d', 'probe-b', 'probe-a', 'probe-c']],
+			['parent changed', 'probe-b', ['probe-d', 'probe-b', 'probe-a', 'probe-c']],
+			['child changed', 'probe-b'],
+		])
+		expect(relationParent.getRelationNodes(relationKey).map(node => node.data.instanceId))
+			.toEqual(['probe-d', 'probe-b', 'probe-a', 'probe-c'])
+
+		relationLogs.length = 0
+		await setData({ rows: [d, b, a, c] })
+		expect(relationLogs).toEqual([])
+
+		await setData({ rows: originalRows })
+		relationLogs.length = 0
+		await setData({ rows: [c, d, a, b] })
+		expect(relationLogs).toEqual([
+			['child moved', 'probe-c', ['probe-c', 'probe-a', 'probe-b', 'probe-d']],
+			['parent changed', 'probe-c', ['probe-c', 'probe-a', 'probe-b', 'probe-d']],
+			['child changed', 'probe-c'],
+			['child moved', 'probe-d', ['probe-c', 'probe-d', 'probe-a', 'probe-b']],
+			['parent changed', 'probe-d', ['probe-c', 'probe-d', 'probe-a', 'probe-b']],
+			['child changed', 'probe-d'],
+		])
+
+		await setData({ rows: [b, a] })
 		relationLogs.length = 0
 
 		propertyLogs.length = 0
@@ -371,7 +417,8 @@ describe('compiled page lifecycle with repeated real components', () => {
 			['parent detached'],
 		])
 
-		const logs = globalThis.__realComponentLifecycleLogs
+		const initialComponentIds = new Set(mountedComponents.map(instance => instance.__id__))
+		const logs = globalThis.__realComponentLifecycleLogs.filter(log => log.scope !== 'component' || initialComponentIds.has(log.instance))
 		const created = logs.filter(log => log.scope === 'component' && log.event === 'created')
 		expect(created).toHaveLength(2)
 		expect(new Set(created.map(log => log.instance)).size).toBe(2)

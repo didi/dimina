@@ -1,4 +1,4 @@
-import { callback as callbackRegistry, isFunction } from '@dimina/common'
+import { callback as callbackRegistry, isFunction, mayContainDataFunctionReferences } from '@dimina/common'
 import { parseDataPath } from './data-update'
 import { encodeDataFunctions } from './data-function'
 import message from './message'
@@ -14,6 +14,7 @@ function getQueue(bridgeId) {
 			updates: [],
 			byModuleId: new Map(),
 			callbackIds: [],
+			hasDataFunctions: false,
 		})
 	}
 
@@ -53,17 +54,20 @@ function snapshotUpdate(data, changes = []) {
 			const path = parseDataPath(key)
 			return path ? [{ path, value }] : []
 		})
-	const snapshot = JSON.parse(JSON.stringify(encodeDataFunctions({ data, changes: normalizedChanges })))
-	return {
-		data: snapshot.data || {},
-		changes: (snapshot.changes || []).filter(change => Object.prototype.hasOwnProperty.call(change, 'value')),
-	}
+	const json = JSON.stringify(encodeDataFunctions(normalizedChanges))
+	const ordered = JSON.parse(json).filter(change => Object.hasOwn(change, 'value'))
+	// Render applies only the ordered changes when they are present.
+	if (ordered.length) return [{ changes: ordered }, mayContainDataFunctionReferences(json)]
+
+	const fallback = JSON.stringify(encodeDataFunctions(data ?? {}))
+	return [{ data: JSON.parse(fallback) || {}, changes: [] }, mayContainDataFunctionReferences(fallback)]
 }
 
 export function enqueueUpdate(bridgeId, moduleId, data, callbackId, changes = [], syncedChildren) {
 	const queue = getQueue(bridgeId)
 	const update = queue.byModuleId.get(moduleId)
-	const snapshot = snapshotUpdate(data, changes)
+	const [snapshot, hasDataFunctions] = snapshotUpdate(data, changes)
+	queue.hasDataFunctions ||= hasDataFunctions
 	if (syncedChildren && snapshot.changes.length) {
 		const start = update?.changes.length || 0
 		// Ranges keep separate setData calls distinct after the per-module queue is merged.
@@ -75,8 +79,9 @@ export function enqueueUpdate(bridgeId, moduleId, data, callbackId, changes = []
 	}
 
 	if (update) {
-		Object.assign(update.data, snapshot.data)
 		update.changes.push(...snapshot.changes)
+		if (update.changes.length) delete update.data
+		else Object.assign(update.data, snapshot.data)
 		if (snapshot.propertyAssignments) {
 			update.propertyAssignments ||= []
 			update.propertyAssignments.push(...snapshot.propertyAssignments)
@@ -109,11 +114,12 @@ export function flushUpdates(bridgeId) {
 		return
 	}
 
-	const updates = queue.updates
+	const { updates, hasDataFunctions } = queue
 	const callbackIds = queue.callbackIds
 	queue.updates = []
 	queue.byModuleId = new Map()
 	queue.callbackIds = []
+	queue.hasDataFunctions = false
 	queue.scheduled = false
 
 	message.send({
@@ -123,8 +129,9 @@ export function flushUpdates(bridgeId) {
 			bridgeId,
 			updates,
 			callbackIds,
+			hasDataFunctions,
 		},
-	})
+	}, true)
 }
 
 export function resetUpdateQueues() {

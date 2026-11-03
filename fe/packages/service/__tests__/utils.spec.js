@@ -612,12 +612,10 @@ describe('syncUpdateChildrenProps', () => {
 			},
 		}
 
-		syncUpdateChildrenProps(parent, {
-			'child-1': child,
-		}, {
-			show: true,
-			name: 'fade',
+		const instances = new Proxy({ 'child-1': child }, {
+			ownKeys() { throw new Error('binding sync must not scan the page instances') },
 		})
+		syncUpdateChildrenProps(parent, instances, { show: true, name: 'fade' })
 
 		expect(child.tO).toHaveBeenCalledWith({
 			show: true,

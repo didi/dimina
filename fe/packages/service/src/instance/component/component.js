@@ -650,9 +650,7 @@ export class Component {
 		}
 		
 		if (relationNodes.length < 2) return [...relationNodes]
-		return [...relationNodes].sort((a, b) => (
-			(a.__renderOrder__ ?? Infinity) - (b.__renderOrder__ ?? Infinity)
-		))
+		return runtime.orderRelationNodes(this.bridgeId, relationNodes)
 	}
 
 	/**

@@ -8,7 +8,7 @@ import { decodeDataFunctions, encodeDataFunctions } from './data-function'
 // Resource/lifecycle control must remain live while business work is suspended.
 const controlMessages = new Set([
 	'appHide', 'appShow', 'stackHide', 'stackShow', 'pageHide', 'pageShow', 'pageUnload',
-	'mU', 'flushCallbacks', 'hostEnvUpdate', 'loadResource', 'resourceLoaded',
+	'mU', 'mT', 'flushCallbacks', 'hostEnvUpdate', 'loadResource', 'resourceLoaded',
 	'pageAttached', 'pageReady', 'mC', 'mA', 'mR', 'canvasCapabilities', 'canvasContextEvent', 'canvasTransfer', 'canvasTransferredDispose', 'resourceLoadFailed',
 ])
 
@@ -33,7 +33,7 @@ class Message {
 	handleMsg(msg) {
 		try {
 			const decodedMsg = decodeDataFunctions(msg)
-			console.log('[service] receive msg: ', decodedMsg.type)
+			if (import.meta.env.DEV) console.log('[service] receive msg: ', decodedMsg.type)
 			const { type, body } = decodedMsg
 			const deliver = () => {
 				try { this.event.emit(type, body) }
@@ -60,21 +60,21 @@ class Message {
 	}
 
 	// 逻辑层透过容器层中转向渲染层发送消息
-	send(msg) {
+	send(msg, encoded = false) {
 		if (isWebWorker) {
-			Message.prototype.send = function (msg) {
-				const encodedMsg = encodeDataFunctions(msg)
+			Message.prototype.send = function (msg, encoded = false) {
+				const encodedMsg = encoded ? msg : encodeDataFunctions(msg)
 				encodedMsg.method = 'publish'
 				globalThis.postMessage(encodedMsg)
 			}
 		}
 		else {
-			Message.prototype.send = function (msg) {
-				const encodedMsg = encodeDataFunctions(msg)
+			Message.prototype.send = function (msg, encoded = false) {
+				const encodedMsg = encoded ? msg : encodeDataFunctions(msg)
 				return DiminaServiceBridge.publish(encodedMsg.body.bridgeId || '', encodedMsg)
 			}
 		}
-		return this.send(msg)
+		return this.send(msg, encoded)
 	}
 
 	// 逻辑层向容器层发送消息

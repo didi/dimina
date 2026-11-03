@@ -1,4 +1,4 @@
-import { isFunction } from '@dimina/common'
+import { isFunction, LinkedOrder } from '@dimina/common'
 import { emitAppHide, emitAppShow, reportAppError } from './app-events'
 import { invokeSafely } from './safe-callback'
 import { App } from '../instance/app/app'
@@ -15,6 +15,7 @@ function compareRenderOrder(a, b) {
 
 class Runtime {
 	constructor() {
+		this.replayingMoveOrders = new Map()
 		this.app = undefined
 		this.defaultApp = {}
 		this.appLaunchOptions = {}
@@ -252,24 +253,69 @@ class Runtime {
 		}
 	}
 
-	moduleTreeUpdated({ bridgeId, nodes, moved }) {
+	orderRelationNodes(bridgeId, nodes) {
+		const order = this.replayingMoveOrders.get(bridgeId)
+		if (!order) return [...nodes].sort(compareRenderOrder)
+		const remaining = new Map(nodes.map(node => [node.__id__, node]))
+		const ordered = []
+		for (const id of order) {
+			if (!remaining.has(id)) continue
+			ordered.push(remaining.get(id))
+			remaining.delete(id)
+			if (!remaining.size) return ordered
+		}
+		return [...ordered, ...remaining.values()]
+	}
+
+	clearChildPropBindings(bridgeId, instance) {
+		if (!instance.__propBindingParentId__) return
+		const parent = this.instances[bridgeId]?.[instance.__propBindingParentId__]
+		if (parent?.__childPropsBindings__) delete parent.__childPropsBindings__[instance.__id__]
+		instance.__propBindingParentId__ = undefined
+	}
+
+	moduleTreeUpdated({ bridgeId, nodes, moved, moveSteps }) {
 		const instances = this.instances[bridgeId]
 		if (!instances) return
+		const replay = moveSteps?.length ? new LinkedOrder(
+			Object.values(instances).filter(instance => instance.__renderOrder__ !== undefined)
+				.sort(compareRenderOrder).map(instance => instance.__id__),
+		) : undefined
 		const movedIds = new Set(moved)
 		for (const { moduleId, parentId, order } of nodes) {
 			const instance = instances[moduleId]
 			if (!instance || moduleId === parentId) continue
 			instance.__renderOrder__ = order
 			if (parentId && instances[parentId] && instance.__parentId__ !== parentId) {
+				this.clearChildPropBindings(bridgeId, instance)
 				instance.__parentId__ = parentId
 				if (instance.__componentAttached__) movedIds.add(moduleId)
 			}
 		}
-		if (movedIds.size === 0) return
-		for (const instance of this.getInstancesInTreeOrder(bridgeId, { postOrder: true })) {
-			if (instance.__componentAttached__ && movedIds.has(instance.__id__)) {
-				instance.componentMoved()
+		if (!replay && movedIds.size === 0) return
+		const postOrder = this.getInstancesInTreeOrder(bridgeId, { postOrder: true })
+		if (replay) {
+			const postIndex = new Map(postOrder.map((instance, index) => [instance.__id__, index]))
+			const previousReplay = this.replayingMoveOrders.get(bridgeId)
+			this.replayingMoveOrders.set(bridgeId, replay)
+			try {
+				for (const { ids, beforeId } of moveSteps) {
+					for (const id of ids) {
+						replay.insertBefore(id, beforeId)
+						movedIds.delete(id)
+					}
+					for (const id of [...ids].sort((a, b) => postIndex.get(a) - postIndex.get(b))) {
+						if (instances[id]?.__componentAttached__) instances[id].componentMoved()
+					}
+				}
 			}
+			finally {
+				if (previousReplay) this.replayingMoveOrders.set(bridgeId, previousReplay)
+				else this.replayingMoveOrders.delete(bridgeId)
+			}
+		}
+		for (const instance of postOrder) {
+			if (instance.__componentAttached__ && movedIds.has(instance.__id__)) instance.componentMoved()
 		}
 	}
 
@@ -350,6 +396,7 @@ class Runtime {
 				}
 				// 将编译器提供的绑定关系存储到父组件
 				parent.__childPropsBindings__[moduleId] = propBindings
+				instance.__propBindingParentId__ = instance.__parentId__
 			}
 		}
 
@@ -440,6 +487,7 @@ class Runtime {
 				instance.componentDetached()
 			}
 		}
+		this.clearChildPropBindings(bridgeId, instance)
 		delete this.instances[bridgeId][moduleId]
 	}
 

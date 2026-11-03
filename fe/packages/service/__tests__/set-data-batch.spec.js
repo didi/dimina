@@ -39,6 +39,8 @@ describe('setData update batching', () => {
 		await Promise.resolve()
 
 		expect(sentMessages).toHaveLength(1)
+		expect(sentMessages[0].body.updates[0]).not.toHaveProperty('data')
+		expect(sentMessages[0].body.hasDataFunctions).toBe(false)
 		expect(sentMessages[0]).toMatchObject({
 			type: 'ub',
 			target: 'render',
@@ -48,10 +50,10 @@ describe('setData update batching', () => {
 				updates: [
 					{
 						moduleId: page.__id__,
-						data: {
-							count: 1,
-							name: 'dimina',
-						},
+						changes: [
+							{ path: ['count'], value: 1 },
+							{ path: ['name'], value: 'dimina' },
+						],
 						propertyAssignments: [[0, 1], [1, 2]],
 					},
 				],
@@ -114,17 +116,15 @@ describe('setData update batching', () => {
 				updates: [
 					{
 						moduleId: component.__id__,
-						data: {
-							count: 1,
-							name: 'dimina',
-						},
+						changes: [
+							{ path: ['count'], value: 1 },
+							{ path: ['name'], value: 'dimina' },
+						],
 						propertyAssignments: [[0, 2, { [child.__id__]: ['count'] }]],
 					},
 					{
 						moduleId: child.__id__,
-						data: {
-							count: 1,
-						},
+						changes: [{ path: ['count'], value: 1 }],
 						propertyAssignments: [[0, 1]],
 					},
 				],
@@ -221,7 +221,7 @@ describe('setData update batching', () => {
 				callbackIds: [expect.any(String)],
 				updates: [{
 					moduleId: component.__id__,
-					data: { currentIndex: 0 },
+					changes: [{ path: ['currentIndex'], value: 0 }],
 				}],
 			},
 		})

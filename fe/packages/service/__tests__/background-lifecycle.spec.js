@@ -62,3 +62,19 @@ it('preserves business state derived by Promise callbacks before the API complet
 	expect(app.globalData.hidden).toBe(false)
 	expect(app.globalData.completedPhase).toBe('ready')
 })
+
+it('applies topology before mount acknowledgements while business work is suspended', async () => {
+	vi.resetModules()
+	vi.useFakeTimers()
+	const service = (await import('../src/index')).default
+	const runtime = (await import('../src/core/runtime')).default
+	const order = []
+	runtime.app = { appHide() {}, appShow() {} }
+	vi.spyOn(runtime, 'moduleTreeUpdated').mockImplementation(() => order.push('tree'))
+	vi.spyOn(runtime, 'moduleAttached').mockImplementation(() => order.push('attached'))
+	vi.spyOn(runtime, 'moduleReady').mockImplementation(() => order.push('ready'))
+
+	service.message.handleMsg({ type: 'appHide', body: {} })
+	for (const type of ['mT', 'mA', 'mR']) service.message.handleMsg({ type, body: {} })
+	expect(order).toEqual(['tree', 'attached', 'ready'])
+})

@@ -534,6 +534,7 @@ function hasDependencyChanged(bindingInfo, changedPaths) {
 }
 
 const unevaluatedBinding = Symbol('unevaluated property binding')
+const bindingEvaluators = new WeakMap()
 
 /**
  * 计算表达式的新值
@@ -553,11 +554,14 @@ function evaluateExpression(bindingInfo, parentData) {
 	
 	// 复杂表达式：创建一个安全的求值环境
 	try {
-		// 创建一个函数来安全地计算表达式
-		// 将父组件数据作为作用域
-		// eslint-disable-next-line no-new-func
-		const func = new Function('data', `with(data) { return ${bindingInfo.expression} }`)
-		return func(parentData)
+		let evaluator = bindingEvaluators.get(bindingInfo)
+		if (evaluator?.expression !== bindingInfo.expression) {
+			// eslint-disable-next-line no-new-func
+			const evaluate = new Function('data', `with(data) { return ${bindingInfo.expression} }`)
+			evaluator = { expression: bindingInfo.expression, evaluate }
+			bindingEvaluators.set(bindingInfo, evaluator)
+		}
+		return evaluator.evaluate(parentData)
 	} catch (error) {
 		console.warn('[service] 计算表达式失败:', bindingInfo.expression, error)
 		return unevaluatedBinding
@@ -574,19 +578,15 @@ function evaluateExpression(bindingInfo, parentData) {
  */
 export function syncUpdateChildrenProps(parent, allInstances, changedData, changes) {
 	if (!parent.__childPropsBindings__) return []
-	const children = Object.values(allInstances || {})
+	const bindingsByChild = Object.entries(parent.__childPropsBindings__)
+	if (!bindingsByChild.length) return []
 	const syncedChildren = []
 	const changedPaths = changes?.map(change => change.path) || Object.keys(changedData).map(parseDataPath).filter(Boolean)
-	
-	// 遍历所有子组件
-	for (const child of children) {
-		// 只处理当前组件/页面的直接子组件
-		if (child.__parentId__ !== parent.__id__ || !isChildComponent(child, parent.__id__, children)) {
-			continue
-		}
 
+	for (const [childId, bindings] of bindingsByChild) {
+		const child = allInstances?.[childId]
+		if (child?.__parentId__ !== parent.__id__) continue
 		const childProperties = child.__info__?.properties || {}
-		const bindings = parent.__childPropsBindings__[child.__id__] || {}
 		const updateData = {}
 		let needsRender = false
 		for (const [name, bindingInfo] of Object.entries(bindings)) {

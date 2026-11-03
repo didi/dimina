@@ -14,7 +14,10 @@ class Message {
 		}
 		// window.DiminaRenderBridge 是容器提供，容器调用此方法给视图层发消息
 		window.DiminaRenderBridge.onMessage = (msg) => {
-			const decodedMsg = decodeDataFunctions(msg)
+			// The Service queue already detached and encoded this data at enqueue time.
+			const decodedMsg = msg.type === 'ub' && msg.body?.hasDataFunctions === false
+				? msg
+				: decodeDataFunctions(msg)
 			if (__DEV__) console.log('[system]', '[render]', 'receive msg: ', decodedMsg)
 			const { type, body } = decodedMsg
 			this.event.emit(type, body)

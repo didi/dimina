@@ -46,6 +46,7 @@ import { CanvasBufferReferences } from './canvas-buffer-references'
 import { WebGLFramePresentation } from './webgl-frame-presentation'
 import { resolveCanvasExportSize } from './canvas-export-limits'
 import { createMiniProgramSlots } from './slots'
+import { planKeyedRelationMoves } from './keyed-relation-moves'
 import { invokeMapContext } from './map-context'
 import { initializeTemplateBinding, PropertyBindingBucket, resolveTemplateBinding } from './template-binding'
 
@@ -1172,41 +1173,57 @@ class Runtime {
 
 	handleRenderedMoves(bridgeId, records) {
 		const removed = new Set()
-		const added = new Set()
 		for (const record of records) {
-			for (const node of record.removedNodes) if (node.nodeType === Node.ELEMENT_NODE) removed.add(node)
-			for (const node of record.addedNodes) if (node.nodeType === Node.ELEMENT_NODE) added.add(node)
+			for (const node of record.removedNodes) {
+				// Empty text nodes are the boundary markers of Vue fragments.
+				if (node.nodeType === Node.ELEMENT_NODE || node.nodeValue === '') removed.add(node)
+			}
 		}
+		if (!removed.size) return
+		const movedNodes = new Set()
+		const affectedParents = new Set()
+		for (const record of records) {
+			for (const node of record.addedNodes) {
+				if (!removed.has(node) || !node.isConnected) continue
+				movedNodes.add(node)
+				affectedParents.add(record.target)
+			}
+		}
+		if (!movedNodes.size) return
 
-		if (!removed.size || !added.size) return
 		const tree = this.renderedTrees.get(bridgeId)
 		if (!tree) return
 		const moved = new Set()
 		const collect = (node) => {
 			for (const id of this.moduleRootIds.get(node) || []) if (tree.nodes.has(id)) moved.add(id)
 		}
-		for (const node of removed) {
-			if (!added.has(node) || !node.isConnected) continue
+		for (const node of movedNodes) {
+			if (node.nodeType !== Node.ELEMENT_NODE) continue
 			collect(node)
 			node.querySelectorAll(`[${COMPONENT_HOST_ATTRIBUTE}]`).forEach(collect)
 		}
-		if (moved.size) this.publishRenderedTree(bridgeId, moved)
+		const recordsByParent = new Map()
+		for (const parent of affectedParents) {
+			if (parent.querySelector?.(`[${COMPONENT_HOST_ATTRIBUTE}]`)) recordsByParent.set(parent, [])
+		}
+		if (!moved.size && !recordsByParent.size) return
+		for (const record of records) recordsByParent.get(record.target)?.push(record)
+		this.publishRenderedTree(bridgeId, moved, recordsByParent)
 	}
 
-	publishRenderedTree(bridgeId, moved) {
+	publishRenderedTree(bridgeId, moved, recordsByParent) {
 		const tree = this.renderedTrees.get(bridgeId)
 		if (!tree) return
 		if (!moved) {
 			const records = tree.observer.takeRecords()
 			if (records.length) this.handleRenderedMoves(bridgeId, records)
 		}
-		if (!tree.dirty && !moved?.size) return
-		tree.dirty = false
+		if (!tree.dirty && !moved?.size && !recordsByParent) return
 		const nodes = [...tree.nodes].map(([moduleId, record]) => {
 			const { roots } = record
 			const root = roots.find(element => element.isConnected)
 			const parentId = this.getRenderParentModuleId(roots, moduleId, record.parentId) || record.parentId
-			return { moduleId, root, parentId }
+			return { moduleId, root, parentId, previousOrder: record.order }
 		})
 		nodes.sort((a, b) => {
 			if (a.root === b.root) return 0
@@ -1214,6 +1231,16 @@ class Runtime {
 			const position = a.root.compareDocumentPosition(b.root)
 			return position & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1
 		})
+		let moveSteps
+		if (recordsByParent?.size) {
+			const page = this.instance.get(this.pageId)?.$
+			const roots = page ? [page.subTree] : nodes.map(({ moduleId }) => this.instance.get(moduleId)?.$?.subTree)
+			const plan = planKeyedRelationMoves(roots, recordsByParent, nodes, this.moduleIds)
+			for (const id of plan.covered) moved.delete(id)
+			moveSteps = plan.steps
+		}
+		if (!tree.dirty && !moved?.size && !moveSteps?.length) return
+		tree.dirty = false
 		message.send({
 			type: 'mT',
 			target: 'service',
@@ -1224,6 +1251,7 @@ class Runtime {
 					return { moduleId, parentId, order }
 				}),
 				moved: moved ? [...moved] : [],
+				moveSteps,
 			},
 		})
 	}

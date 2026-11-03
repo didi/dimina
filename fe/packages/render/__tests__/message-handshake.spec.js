@@ -59,4 +59,22 @@ describe('render message handshake', () => {
 			list: [reference],
 		})
 	})
+
+	it('skips decoding detached plain batches and still hydrates legacy and function batches', async () => {
+		globalThis.window = { DiminaRenderBridge: {} }
+		const message = (await import('../src/core/message')).default
+		const received = vi.fn()
+		message.on('ub', received)
+
+		const plain = { hasDataFunctions: false, updates: [{ changes: [{ path: ['label'], value: 'hello' }] }] }
+		window.DiminaRenderBridge.onMessage({ type: 'ub', body: plain })
+		expect(received.mock.calls[0][0]).toBe(plain)
+
+		const updates = [{ changes: [{ path: ['fn'], value: createDataFunctionReference('queued-fn') }] }]
+		window.DiminaRenderBridge.onMessage({ type: 'ub', body: { updates } })
+		window.DiminaRenderBridge.onMessage({ type: 'ub', body: { updates, hasDataFunctions: true } })
+		const legacy = received.mock.calls[1][0].updates[0].changes[0].value
+		expect(legacy).toBeTypeOf('function')
+		expect(received.mock.calls[2][0].updates[0].changes[0].value).toBe(legacy)
+	})
 })

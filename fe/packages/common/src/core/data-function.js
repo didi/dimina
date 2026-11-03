@@ -1,6 +1,11 @@
 const DATA_FUNCTION_REFERENCE_KEY = '__dimina_data_function_reference__'
 const DATA_FUNCTION_REFERENCE_VERSION = 1
 
+// A false result guarantees the JSON snapshot has no encoded functions.
+export function mayContainDataFunctionReferences(json) {
+	return json.includes(DATA_FUNCTION_REFERENCE_KEY)
+}
+
 export function createDataFunctionReference(id) {
 	return {
 		[DATA_FUNCTION_REFERENCE_KEY]: id,

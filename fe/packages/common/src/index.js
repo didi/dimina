@@ -24,6 +24,7 @@ export {
 export {
 	createDataFunctionReference,
 	getDataFunctionReferenceId,
+	mayContainDataFunctionReferences,
 	isDataFunctionReference,
 	transformDataFunctions,
 } from './core/data-function'
@@ -65,3 +66,4 @@ export { decodeCanvasRle32, inspectCanvasRle32Tail, decodeCanvasRle32Prefix, dec
 export { decodeLargeCanvasRleBand, consumeLargeCanvasRleBand } from './core/canvas-decode-fast'
 
 export { propertyBindingPathMatches, propertyBindingPaths } from './core/property-bindings'
+export { LinkedOrder } from './core/linked-order'

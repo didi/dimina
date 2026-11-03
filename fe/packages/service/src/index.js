@@ -52,7 +52,7 @@ class Service {
 			}
 			const data = await runtime.triggerEvent({ bridgeId, moduleId, methodName, event })
 			// 如果自定义事件有返回值，则将逻辑层执行结果透传给渲染层
-			if (data !== undefined) {
+			if (success && data !== undefined) {
 				this.message.send({
 					type: 'triggerCallback',
 					target: 'render',

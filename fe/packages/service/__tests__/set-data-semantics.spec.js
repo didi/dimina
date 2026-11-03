@@ -77,18 +77,20 @@ describe('Skyline/exparser setData semantics', () => {
 		expect(page.data.item.createdAt).toBeInstanceOf(Date)
 		expect(page.data.item.method).toBe(source.method)
 
+		page.data.item.left.value = 7
 		await Promise.resolve()
 		const update = sentMessages[0].body.updates[0]
-		expect(update.data.item).toMatchObject({
+		const [{ value: item }] = update.changes
+		expect(item).toMatchObject({
 			left: { value: 1 },
 			right: { value: 1 },
 			createdAt: '2025-01-02T03:04:05.000Z',
 		})
-		expect(isDataFunctionReference(update.data.item.method)).toBe(true)
-		expect(resolveDataFunction(getDataFunctionReferenceId(update.data.item.method))).toBe(source.method)
+		expect(isDataFunctionReference(item.method)).toBe(true)
+		expect(resolveDataFunction(getDataFunctionReferenceId(item.method))).toBe(source.method)
 	})
 
-	it('keeps direct and array function assignments in both data and change records', async () => {
+	it('keeps direct and array function assignments in ordered change records', async () => {
 		const page = makePage()
 		const fn = () => 'value'
 
@@ -99,9 +101,9 @@ describe('Skyline/exparser setData semantics', () => {
 
 		await Promise.resolve()
 		const update = sentMessages[0].body.updates[0]
-		const fnReference = update.data.fn
+		const fnReference = update.changes[0].value
 		expect(isDataFunctionReference(fnReference)).toBe(true)
-		expect(update.data.list[0]).toEqual(fnReference)
+		expect(sentMessages[0].body.hasDataFunctions).toBe(true)
 		expect(update.changes).toEqual([
 			{ path: ['fn'], value: fnReference },
 			{ path: ['list'], value: [fnReference] },
@@ -138,7 +140,10 @@ describe('Skyline/exparser setData semantics', () => {
 		expect(page.data).toEqual({ count: 2, mirrored: 2 })
 
 		await Promise.resolve()
-		expect(sentMessages[0].body.updates[0].data).toEqual({ count: 2, mirrored: 2 })
+		expect(sentMessages[0].body.updates[0].changes).toEqual([
+			{ path: ['count'], value: 2 },
+			{ path: ['mirrored'], value: 2 },
+		])
 	})
 
 	it('requires a deep wildcard for descendant assignments but observes ancestor replacement', () => {
