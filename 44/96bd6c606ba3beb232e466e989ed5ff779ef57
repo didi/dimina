@@ -1,0 +1,35 @@
+fe/packages/render/src/core/runtime.js
+  25d40473a3512e57 49,311-319,333,684,1339-1347,1385-1387,1446,1554,1578-1579,1581,1583,1585-1595,1598,1605-1607,1610,1613,1626,1632,1635-1637,1639-1673,1675,1678-1696
+fe/packages/render/__tests__/real-component-lifecycle.spec.js
+  25d40473a3512e57 11,43,61,82,87-93,101-107,128-141,157-167,213,242-285
+fe/packages/compiler/src/common/expression-parser.js
+  25d40473a3512e57 40,60-71,77,84-86,91-92,114,118,141
+fe/packages/render/__tests__/template-binding.spec.js
+  25d40473a3512e57 1-44
+fe/packages/compiler/src/core/view-compiler.js
+  25d40473a3512e57 15,1263,1293,1444-1448,1452-1464,1467,1470-1472,1483,1524,1603,1652,1824,1836-1888,2120,2124
+fe/packages/service/src/core/utils.js
+  25d40473a3512e57 594-602
+fe/packages/render/src/core/template-binding.js
+  25d40473a3512e57 1-149
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "4496bd6c606ba3beb232e466e989ed5ff779ef57",
+  "prompts": {
+    "25d40473a3512e57": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a10c-a12f-7b40-b07a-ccd963508132",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 533,
+      "total_deletions": 87,
+      "accepted_lines": 6747,
+      "overriden_lines": 0
+    }
+  }
+}
