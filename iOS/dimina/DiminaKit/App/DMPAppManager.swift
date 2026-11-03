@@ -402,6 +402,9 @@ public class DMPAppManager {
     /// Configure before launching mini programs. Defaults to the standard capsule UI.
     public var showCapsule: Bool = true
 
+    /// Fill color for the capsule, including alpha. Set on the main thread before launching mini programs.
+    public var capsuleBackgroundColor: UIColor = .white
+
     /// Controls only the default mini-program launch overlay, not business loading dialogs.
     public var showLaunchLoading: Bool = true
 

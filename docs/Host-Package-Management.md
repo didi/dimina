@@ -80,6 +80,14 @@ const info = await manager.installMiniProgram('demo', zipPath)
 
 胶囊默认显示。这是 SDK 全局启动配置，应在创建小程序页面前设置，不作为运行中动态显隐 API。隐藏后，使用默认导航栏的栈底页面会显示返回箭头，点击返回宿主（由其他小程序打开时返回上一个小程序）；子页面仍返回上一页。自定义导航栏页面需由宿主或业务提供退出入口，可使用既有 `closeMiniProgram` 或 `hideMiniProgram`。该配置只隐藏胶囊，不隐藏导航栏，不改变页面的系统安全区或 `getMenuButtonBoundingClientRect` 几何结果。
 
+### 胶囊背景色
+
+宿主可在首次启动小程序前设置全局胶囊底色，默认不透明白色。下面三种写法都使用约 50% 不透明度的白色。透明度作用于填充色，图标、边框和点击区域保持原有行为。
+
+- Android 在初始化 SDK 的 `DiminaConfig.Builder` 上调用 `.setCapsuleBackgroundColor(0x80FFFFFF.toInt())`，参数是 ARGB 颜色整数。
+- iOS 在主线程设置 `DMPAppManager.sharedInstance().capsuleBackgroundColor = UIColor.white.withAlphaComponent(0.5)`。Objective-C 可在 `DMPObjCManager.shared` 上设置同名属性。
+- Harmony 设置 `DMPAppManager.sharedInstance().capsuleBackgroundColor = '#80FFFFFF'`，属性接受 ArkUI 的 `ResourceColor`。
+
 ### 默认启动页和 Android 多任务窗口
 
 在首次启动小程序前配置，默认均为 `true`：

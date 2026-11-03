@@ -183,6 +183,7 @@ export struct DMPPageContainer {
         DMPCapsuleButton({
           appIndex: this.appIndex,
           webViewId: this.webViewId,
+          fillColor: DMPAppManager.sharedInstance().capsuleBackgroundColor,
           onMoreClick: () => {
             this.showMiniProgramMenu()
           },

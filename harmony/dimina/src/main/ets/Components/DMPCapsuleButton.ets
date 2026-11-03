@@ -7,6 +7,7 @@ import { DMPMenuButtonLayout } from '../Utils/DMPMenuButtonLayout'
 export struct DMPCapsuleButton {
   @Prop appIndex: number
   @Prop webViewId: number
+  @Prop fillColor: ResourceColor
   onMoreClick?: () => void
   onCloseClick?: () => void
 
@@ -84,15 +85,11 @@ export struct DMPCapsuleButton {
     .height(DMPMenuButtonLayout.capsuleHeight)
     .borderRadius(DMPMenuButtonLayout.capsuleHeight / 2)
     .border({ width: 0.5, color: this.getBorderColor() })
-    .backgroundColor(this.getBackgroundColor())
+    .backgroundColor(this.fillColor)
   }
 
   private getForegroundColor(): string {
     return '#1f1f1f'
-  }
-
-  private getBackgroundColor(): string {
-    return '#ffffff'
   }
 
   private getBorderColor(): string {

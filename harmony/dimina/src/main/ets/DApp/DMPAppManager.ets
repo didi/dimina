@@ -303,6 +303,10 @@ export class DMPAppManager {
 
   // Configure before launching. A hidden capsule requires a host-provided exit action.
   public showCapsule: boolean = true
+
+  // Capsule fill color, including alpha. Configure before launching mini programs.
+  public capsuleBackgroundColor: ResourceColor = Color.White
+
   public showLaunchLoading: boolean = true
 
   isExistsApp(appId: string): boolean {

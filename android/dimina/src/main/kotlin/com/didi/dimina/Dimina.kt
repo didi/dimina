@@ -2,6 +2,8 @@ package com.didi.dimina
 
 import android.app.Activity
 import android.content.Context
+import android.graphics.Color
+import androidx.annotation.ColorInt
 import androidx.annotation.MainThread
 import com.didi.dimina.api.ext.ExtModuleHandler
 import com.didi.dimina.bean.MiniProgram
@@ -53,6 +55,7 @@ class Dimina private constructor(context: Context) {
     // 配置类
     class DiminaConfig private constructor(builder: Builder) {
         val showCapsule: Boolean = builder.showCapsule
+        @ColorInt val capsuleBackgroundColor: Int = builder.capsuleBackgroundColor
         val enableMultiTask: Boolean = builder.enableMultiTask
         val showLaunchLoading: Boolean = builder.showLaunchLoading
         val debugMode: Boolean = builder.debugMode
@@ -68,6 +71,16 @@ class Dimina private constructor(context: Context) {
 
             var showCapsule: Boolean = true
             fun setShowCapsule(show: Boolean): Builder { showCapsule = show; return this }
+
+            @ColorInt
+            internal var capsuleBackgroundColor: Int = Color.WHITE
+                private set
+
+            /** Sets the capsule fill to an ARGB color. Configure before [Dimina.init]. */
+            fun setCapsuleBackgroundColor(@ColorInt color: Int): Builder {
+                capsuleBackgroundColor = color
+                return this
+            }
 
             var debugMode: Boolean = false
             internal var apiNamespaces: MutableList<String> = mutableListOf()
@@ -202,6 +215,9 @@ class Dimina private constructor(context: Context) {
     fun shouldShowLaunchLoading(): Boolean = config.showLaunchLoading
 
     fun shouldShowCapsule(): Boolean = config.showCapsule
+
+    @ColorInt
+    internal fun getCapsuleBackgroundColor(): Int = config.capsuleBackgroundColor
 
     /** Queries installed disk contents, not whether a runtime is currently alive. */
     fun isExistsApp(appId: String): Boolean = getAppVersionInfo(appId) != null

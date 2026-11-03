@@ -1913,6 +1913,7 @@ class DiminaActivity : ComponentActivity() {
                     )
                 }
                 MiniProgramCapsuleButton(
+                    backgroundColor = Color(Dimina.getInstance().getCapsuleBackgroundColor()),
                     onMoreClick = {
                         showMiniProgramMenu.value = true
                     },
@@ -2318,6 +2319,7 @@ class DiminaActivity : ComponentActivity() {
 
     @Composable
     private fun MiniProgramCapsuleButton(
+        backgroundColor: Color,
         onMoreClick: () -> Unit,
         onCloseClick: () -> Unit,
         modifier: Modifier = Modifier
@@ -2335,7 +2337,7 @@ class DiminaActivity : ComponentActivity() {
                 )
                 .shadow(1.dp, shape, clip = false)
                 .clip(shape)
-                .background(Color.White)
+                .background(backgroundColor)
                 .border(BorderStroke(0.5.dp, borderColor), shape)
         ) {
             Row(

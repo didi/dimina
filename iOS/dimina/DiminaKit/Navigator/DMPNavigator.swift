@@ -121,7 +121,7 @@ public class DMPNavigator: NSObject {
         let capsuleView = UIView()
         capsuleView.translatesAutoresizingMaskIntoConstraints = false
         capsuleView.accessibilityIdentifier = "dimina.navigation.capsule"
-        capsuleView.backgroundColor = .white
+        capsuleView.backgroundColor = DMPAppManager.sharedInstance().capsuleBackgroundColor
         capsuleView.layer.cornerRadius = DMPMenuButtonLayout.capsuleSize.height / 2
         capsuleView.layer.borderWidth = 0.5
         capsuleView.layer.borderColor = UIColor(
