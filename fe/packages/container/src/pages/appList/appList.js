@@ -29,8 +29,6 @@ export class AppList {
 		this.appList = []
 		this.filteredAppList = []
 		this.searchKeyword = ''
-		this.appListScroller = null
-		this.appNavigation = null
 	}
 
 	viewDidLoad() {
@@ -38,7 +36,6 @@ export class AppList {
 
 		this.createAppList()
 		this.bindSearchEvent()
-		this.bindListScrollEvent()
 		this.bindOpenMiniApp()
 	}
 
@@ -91,27 +88,10 @@ export class AppList {
 		}
 	}
 
-	bindListScrollEvent() {
-		this.appListScroller = this.el.querySelector('.dimina-app__mini-used-list')
-		this.appNavigation = this.el.querySelector('.dimina-app-navigation')
-		this.appListScroller.addEventListener('scroll', () => {
-			this.updateNavigationVisibility()
-		}, { passive: true })
-		this.updateNavigationVisibility()
-	}
-
-	updateNavigationVisibility() {
-		this.appNavigation?.classList.toggle(
-			'dimina-app-navigation--visible',
-			this.appListScroller?.scrollTop > 0,
-		)
-	}
-
 	onPresentOut() { }
 
 	onPresentIn() {
 		this.parent.updateStatusBarColor('black')
-		this.updateNavigationVisibility()
 	}
 
 	renderFilteredAppList() {
@@ -164,7 +144,6 @@ export class AppList {
 		})
 
 		list.replaceChildren(fragment)
-		this.updateNavigationVisibility()
 	}
 
 	setListState(text) {

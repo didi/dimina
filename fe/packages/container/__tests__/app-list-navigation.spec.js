@@ -17,7 +17,6 @@ import { AppList } from '../src/pages/appList/appList.js'
 describe('app list navigation', () => {
 	let page
 	let list
-	let navigation
 
 	beforeEach(() => {
 		getAppList.mockClear()
@@ -26,7 +25,6 @@ describe('app list navigation', () => {
 		page.parent = { updateStatusBarColor: vi.fn() }
 		page.viewDidLoad()
 		list = page.el.querySelector('.dimina-app__mini-used-list')
-		navigation = page.el.querySelector('.dimina-app-navigation')
 	})
 
 	it('opens list entries without requesting destruction of retained apps', async () => {
@@ -39,29 +37,9 @@ describe('app list navigation', () => {
 		expect(options.destroy).not.toBe(true)
 	})
 
-	it('reveals the navigation after the list leaves its top edge', () => {
-		expect(navigation.classList.contains('dimina-app-navigation--visible')).toBe(false)
-
-		list.scrollTop = 24
-		list.dispatchEvent(new Event('scroll'))
-
-		expect(navigation.classList.contains('dimina-app-navigation--visible')).toBe(true)
-	})
-
-	it('hides the navigation again when the list returns to the top', () => {
-		list.scrollTop = 24
-		list.dispatchEvent(new Event('scroll'))
-		list.scrollTop = 0
-		list.dispatchEvent(new Event('scroll'))
-
-		expect(navigation.classList.contains('dimina-app-navigation--visible')).toBe(false)
-	})
-
-	it('restores the navigation state when the list page is presented again', () => {
-		list.scrollTop = 24
+	it('restores the status bar color when the list page is presented again', () => {
 		page.onPresentIn()
 
-		expect(navigation.classList.contains('dimina-app-navigation--visible')).toBe(true)
 		expect(page.parent.updateStatusBarColor).toHaveBeenCalledWith('black')
 	})
 })

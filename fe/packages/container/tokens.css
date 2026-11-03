@@ -7,8 +7,9 @@
 	--color-rule-muted: oklch(24% 0.02 258 / 0.06);
 	--color-accent: oklch(58% 0.2 256);
 	--color-focus: oklch(52% 0.21 256);
+	--color-stage-glow: oklch(94.5% 0.026 256);
+	--color-orbit: oklch(58% 0.2 256 / 0.25);
 	--color-device-island: oklch(19% 0.008 258);
-	--color-transparent: oklch(0% 0 0 / 0);
 
 	--font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Microsoft YaHei", sans-serif;
 	--font-body: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Microsoft YaHei", sans-serif;
@@ -23,11 +24,8 @@
 	--space-3xl: 3rem;
 	--space-4xl: 4rem;
 
-	--text-xs: 0.5625rem;
 	--text-sm: 0.75rem;
 	--text-body: 0.875rem;
-	--text-title: clamp(1.75rem, 2.75vi, 2.65rem);
-	--text-vertical: clamp(1.5625rem, 2.6vi, 2.4375rem);
 
 	--ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 	--ease-in: cubic-bezier(0.7, 0, 0.84, 0);
@@ -35,8 +33,6 @@
 	--dur-short: 140ms;
 	--dur-medium: 240ms;
 
-	--rule-hairline: 1px;
-	--radius-orbit: 50%;
 	--size-logo: 7.25rem;
 	--size-hit: 2.75rem;
 	--shadow-device: 0 2.5rem 5rem oklch(24% 0.02 258 / 0.2), 0 0.5rem 1.5rem oklch(24% 0.02 258 / 0.08);

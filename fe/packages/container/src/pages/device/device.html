@@ -1,81 +1,81 @@
 
 <main class="device-stage">
-	<div class="device-stage__rules" aria-hidden="true"></div>
-
 	<header class="device-stage__header">
 		<img class="device-stage__logo" alt="星河 Dimina">
 		<nav class="device-stage__nav" aria-label="项目链接">
 			<a href="https://github.com/didi/dimina" target="_blank" rel="noreferrer">GitHub ↗</a>
-			<a href="./" aria-current="page">在线体验</a>
 		</nav>
 	</header>
 
-	<div class="device-stage__vertical-title" aria-hidden="true">
-		<span>星河小程序</span>
-		<small>DIMINA / WEB</small>
-	</div>
-	<div class="device-stage__orbit" aria-hidden="true">
-		<span class="device-stage__orbit-light"></span>
-	</div>
-
-	<div class="device-stage__device">
-		<!-- 手机本体 -->
-		<div id="iphone">
-			<!-- 手机屏幕 -->
-			<div class="iphone__screen">
-				<div class="iphone__screen-sleep-mask"></div>
-				<div class="iphone__status-bar">
-					<div class="status-bar__left">
-						<span class="status-bar__time"></span>
-					</div>
-					<div class="status-bar__right">
-						<!-- 信号强度 -->
-						<svg class="status-bar__signal" viewBox="0 0 20 12" aria-hidden="true">
-							<rect x="1" y="7" width="3" height="4" rx="1" fill="currentColor" />
-							<rect x="6" y="5" width="3" height="6" rx="1" fill="currentColor" />
-							<rect x="11" y="3" width="3" height="8" rx="1" fill="currentColor" />
-							<rect x="16" y="1" width="3" height="10" rx="1" fill="currentColor" />
-						</svg>
-						<!-- WiFi -->
-						<svg class="status-bar__wifi" viewBox="0 0 20 14" aria-hidden="true">
-							<path d="M1.2 3.8C6.15-.15 13.85-.15 18.8 3.8l-1.55 1.7C13.25 2.35 6.75 2.35 2.75 5.5L1.2 3.8Z" fill="currentColor" />
-							<path d="M4.75 7.25c2.9-2.35 7.6-2.35 10.5 0l-1.6 1.65c-2-1.55-5.3-1.55-7.3 0l-1.6-1.65Z" fill="currentColor" />
-							<circle cx="10" cy="11.65" r="1.35" fill="currentColor" />
-						</svg>
-						<!-- 电池 -->
-						<svg class="status-bar__battery" width="25" height="13" viewBox="0 0 25 13" fill="none">
-							<rect x="0.75" y="0.75" width="20" height="11.5" rx="2.2" stroke="currentColor" stroke-width="1" />
-							<rect x="2.5" y="2.5" width="16.5" height="8" rx="1.3" fill="currentColor" />
-							<rect x="22" y="4.25" width="2" height="4.5" rx="1" fill="currentColor" />
-						</svg>
-					</div>
-				</div>
-				<div class="iphone__screen_dynamic-island">
-					<span><img
-							src="https://img.shields.io/github/stars/didi/dimina?style=flat&logo=github&labelColor=5d4de3&color=6e6e78"
-							alt="GitHub stars"></span>
-				</div>
-				<div class="iphone__apps"></div>
-			</div>
-
-			<!-- 电源键 -->
-			<button class="power-btn" type="button" aria-label="电源键" aria-pressed="false"></button>
-		</div>
-	</div>
-
 	<section class="device-stage__statement">
-		<h1>一套小程序代码<br>在四个平台真实运行</h1>
-		<p>同一份小程序语义，由 Android、iOS、Harmony 与 Web 容器共同承接。</p>
+		<span class="device-stage__eyebrow">DIMINA / WEB DEMO</span>
+		<h1>一份小程序<br>在<span>四个平台</span>运行</h1>
+		<p>用熟悉的小程序语法开发，运行在 Android、iOS、Harmony 和 Web。打开右侧示例，试试组件和交互。</p>
 	</section>
 
-	<div class="device-stage__folio" aria-hidden="true">LIVE DEMO</div>
+	<section class="device-stage__preview" aria-label="小程序实时预览">
+		<div class="device-stage__preview-label" aria-hidden="true">
+			<span>实时预览</span>
+			<span>WEB RUNTIME</span>
+		</div>
+		<div class="device-stage__orbit" aria-hidden="true">
+			<span class="device-stage__orbit-light"></span>
+		</div>
+
+		<div class="device-stage__device">
+			<!-- 手机本体 -->
+			<div id="iphone">
+				<!-- 手机屏幕 -->
+				<div class="iphone__screen">
+					<div class="iphone__screen-sleep-mask"></div>
+					<div class="iphone__status-bar">
+						<div class="status-bar__left">
+							<span class="status-bar__time"></span>
+						</div>
+						<div class="status-bar__right">
+							<!-- 蜂窝信号 -->
+							<svg class="status-bar__signal" viewBox="0 0 20 12" fill="currentColor" aria-hidden="true">
+								<rect x="0.5" y="8" width="3.5" height="3.5" rx="0.9" />
+								<rect x="5.7" y="5.8" width="3.5" height="5.7" rx="0.9" />
+								<rect x="10.8" y="3.1" width="3.5" height="8.4" rx="0.9" />
+								<rect x="16" y="0.5" width="3.5" height="11" rx="0.9" />
+							</svg>
+							<!-- Wi-Fi -->
+							<svg class="status-bar__wifi" viewBox="0 0 18 14" aria-hidden="true">
+								<path d="M1.5 4.6a11.8 11.8 0 0 1 15 0M4.8 8.3a6.5 6.5 0 0 1 8.4 0"
+									fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />
+								<circle cx="9" cy="12.2" r="1.15" fill="currentColor" />
+							</svg>
+							<!-- 电池 -->
+							<svg class="status-bar__battery" width="25" height="13" viewBox="0 0 25 13" fill="none">
+								<rect x="0.75" y="0.75" width="20" height="11.5" rx="2.2" stroke="currentColor" stroke-width="1" />
+								<rect x="2.5" y="2.5" width="16.5" height="8" rx="1.3" fill="currentColor" />
+								<rect x="22" y="4.25" width="2" height="4.5" rx="1" fill="currentColor" />
+							</svg>
+						</div>
+					</div>
+					<div class="iphone__screen_dynamic-island">
+						<span><img
+								src="https://img.shields.io/github/stars/didi/dimina?style=flat&logo=github&labelColor=5d4de3&color=6e6e78"
+								alt="GitHub stars"></span>
+					</div>
+					<div class="iphone__apps"></div>
+				</div>
+
+				<!-- 电源键 -->
+				<button class="power-btn" type="button" aria-label="电源键" aria-pressed="false"></button>
+			</div>
+		</div>
+
+	</section>
+
 	<footer class="device-stage__footer">
 		<p>滴滴开源跨端小程序框架</p>
 		<ul aria-label="支持平台">
 			<li class="is-current">Web</li>
-			<li><a href="https://github.com/didi/dimina/blob/HEAD/android/README.md" target="_blank" rel="noreferrer">Android</a></li>
-			<li><a href="https://github.com/didi/dimina/blob/HEAD/iOS/README.md" target="_blank" rel="noreferrer">iOS</a></li>
-			<li><a href="https://github.com/didi/dimina/blob/HEAD/harmony/dimina/README.md" target="_blank" rel="noreferrer">Harmony</a></li>
+			<li><a href="https://github.com/didi/dimina/blob/HEAD/android/README.md" target="_blank" rel="noreferrer">Android 接入文档</a></li>
+			<li><a href="https://github.com/didi/dimina/blob/HEAD/iOS/README.md" target="_blank" rel="noreferrer">iOS 接入文档</a></li>
+			<li><a href="https://github.com/didi/dimina/blob/HEAD/harmony/dimina/README.md" target="_blank" rel="noreferrer">Harmony 接入文档</a></li>
 		</ul>
 	</footer>
 </main>
