@@ -1,0 +1,35 @@
+fe/packages/service/__tests__/lifecycle-order.spec.js
+  25d40473a3512e57 406
+fe/packages/service/src/index.js
+  25d40473a3512e57 211-214
+fe/packages/render/src/core/runtime.js
+  25d40473a3512e57 24,680,1104,1106,1110,1119-1230,1342,1424,1454,1469-1470,1472-1474,1476,1482-1492,1495-1500,1506-1507
+fe/packages/service/src/instance/component/component.js
+  25d40473a3512e57 1,58,64,169-170,180-183,186-198,201-202,206,209-243,248-250,565-567,569,652-655,998,1016,1019,1024
+fe/packages/service/src/core/runtime.js
+  25d40473a3512e57 12-15,195,217,255-275,316,369-370,374,387-391,410-411,414,683-684
+fe/packages/render/__tests__/real-component-lifecycle.spec.js
+  25d40473a3512e57 12,45,64,86,91,95,148-155,157,159-170,181-204,261,290-299,301-305,332-334,341-347,368-372
+fe/packages/service/__tests__/relations.spec.js
+  25d40473a3512e57 478-520
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "78686c097fc7406d290527eb9e5b36438529b46e",
+  "prompts": {
+    "25d40473a3512e57": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a10c-a12f-7b40-b07a-ccd963508132",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 393,
+      "total_deletions": 322,
+      "accepted_lines": 6635,
+      "overriden_lines": 0
+    }
+  }
+}
