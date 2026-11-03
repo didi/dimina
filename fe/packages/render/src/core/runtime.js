@@ -21,6 +21,7 @@ import {
 	onMounted,
 	onScopeDispose,
 	onUnmounted,
+	onUpdated,
 	openBlock,
 	provide,
 	reactive,
@@ -676,6 +677,7 @@ class Runtime {
 		this.instance = new Map()
 		this.moduleIds = new WeakMap()
 		this.moduleRootIds = new WeakMap()
+		this.renderedTrees = new Map()
 		this.setupData = new Map()
 		this.initializedModules = new Set()
 		this.preInitUpdates = new Map()
@@ -1099,18 +1101,131 @@ class Runtime {
 		}
 	}
 
-	getRenderParentModuleId(roots, moduleId) {
+	getRenderParentModuleId(roots, moduleId, preferredParentId) {
 		for (const root of roots) {
+			if (this.moduleRootIds.get(root)?.includes(preferredParentId)) return preferredParentId
 			let element = root.parentElement
 			while (element) {
 				const moduleIds = this.moduleRootIds.get(element) || []
-				const parentId = moduleIds.slice().reverse().find(id => id !== moduleId)
+				const parentId = moduleIds.includes(preferredParentId) ? preferredParentId : moduleIds.find(id => id !== moduleId)
 				if (parentId) {
 					return parentId
 				}
 				element = element.parentElement
 			}
 		}
+	}
+
+	registerRenderedComponent(bridgeId, moduleId, roots, parentId) {
+		let tree = this.renderedTrees.get(bridgeId)
+		if (!tree) {
+			const observer = new MutationObserver(records => this.handleRenderedMoves(bridgeId, records))
+			observer.observe(document.body, { childList: true, subtree: true })
+			tree = { nodes: new Map(), observer, dirty: false, mounted: [] }
+			this.renderedTrees.set(bridgeId, tree)
+		}
+		tree.nodes.set(moduleId, { roots, parentId })
+		tree.dirty = true
+	}
+
+	unregisterRenderedComponent(bridgeId, moduleId) {
+		const tree = this.renderedTrees.get(bridgeId)
+		if (!tree) return
+		tree.nodes.delete(moduleId)
+		if (tree.nodes.size === 0) {
+			tree.observer.disconnect()
+			this.renderedTrees.delete(bridgeId)
+		}
+	}
+
+	queueRenderedMount(bridgeId, moduleId, getReadyBody) {
+		const tree = this.renderedTrees.get(bridgeId)
+		tree.mounted.push({ moduleId, getReadyBody })
+		if (tree.mounted.length > 1) return
+		nextTick(() => {
+			if (this.renderedTrees.get(bridgeId) !== tree) return
+			this.publishRenderedTree(bridgeId)
+			const mounted = tree.mounted.splice(0).filter(({ moduleId }) => tree.nodes.has(moduleId))
+			// Each DOM commit attaches the full subtree before acknowledging layout.
+			for (const { moduleId } of mounted) {
+				const record = tree.nodes.get(moduleId)
+				if (!record) continue
+				const { roots, parentId } = record
+				const renderedParent = this.getRenderParentModuleId(roots, moduleId, parentId)
+				message.send({
+					type: 'mA',
+					target: 'service',
+					body: { bridgeId, moduleId, parentId: renderedParent || parentId },
+				})
+			}
+			mounted.sort((a, b) => (tree.nodes.get(a.moduleId)?.order ?? Infinity) - (tree.nodes.get(b.moduleId)?.order ?? Infinity))
+			for (const { moduleId, getReadyBody } of mounted) {
+				if (!tree.nodes.has(moduleId)) continue
+				message.send({
+					type: 'mR',
+					target: 'service',
+					body: { bridgeId, moduleId, ...getReadyBody() },
+				})
+			}
+		})
+	}
+
+	handleRenderedMoves(bridgeId, records) {
+		const removed = new Set()
+		const added = new Set()
+		for (const record of records) {
+			for (const node of record.removedNodes) if (node.nodeType === Node.ELEMENT_NODE) removed.add(node)
+			for (const node of record.addedNodes) if (node.nodeType === Node.ELEMENT_NODE) added.add(node)
+		}
+
+		if (!removed.size || !added.size) return
+		const tree = this.renderedTrees.get(bridgeId)
+		if (!tree) return
+		const moved = new Set()
+		const collect = (node) => {
+			for (const id of this.moduleRootIds.get(node) || []) if (tree.nodes.has(id)) moved.add(id)
+		}
+		for (const node of removed) {
+			if (!added.has(node) || !node.isConnected) continue
+			collect(node)
+			node.querySelectorAll(`[${COMPONENT_HOST_ATTRIBUTE}]`).forEach(collect)
+		}
+		if (moved.size) this.publishRenderedTree(bridgeId, moved)
+	}
+
+	publishRenderedTree(bridgeId, moved) {
+		const tree = this.renderedTrees.get(bridgeId)
+		if (!tree) return
+		if (!moved) {
+			const records = tree.observer.takeRecords()
+			if (records.length) this.handleRenderedMoves(bridgeId, records)
+		}
+		if (!tree.dirty && !moved?.size) return
+		tree.dirty = false
+		const nodes = [...tree.nodes].map(([moduleId, record]) => {
+			const { roots } = record
+			const root = roots.find(element => element.isConnected)
+			const parentId = this.getRenderParentModuleId(roots, moduleId, record.parentId) || record.parentId
+			return { moduleId, root, parentId }
+		})
+		nodes.sort((a, b) => {
+			if (a.root === b.root) return 0
+			if (!a.root || !b.root) return a.root ? -1 : 1
+			const position = a.root.compareDocumentPosition(b.root)
+			return position & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1
+		})
+		message.send({
+			type: 'mT',
+			target: 'service',
+			body: {
+				bridgeId,
+				nodes: nodes.map(({ moduleId, parentId }, order) => {
+					tree.nodes.get(moduleId).order = order
+					return { moduleId, parentId, order }
+				}),
+				moved: moved ? [...moved] : [],
+			},
+		})
 	}
 
 	collectCustomEventPath(root, targetModuleId) {
@@ -1224,6 +1339,7 @@ class Runtime {
 					})
 					const vueParentId = that.getParentModuleId(vueInstance)
 					const parentId = vueParentId || parentInfo.id
+					const ownerId = that.moduleIds.get(vueInstance.vnode.ctx?.proxy) || parentId
 					const pageInfo = inject(path, null)
 					// Slot content keeps the lexical event owner from the component that
 					// declared it, even when Vue renders it below a different component.
@@ -1305,6 +1421,7 @@ class Runtime {
 							isCustomTabBar: customTabBar === true,
 							pageId,
 							parentId,
+							ownerId,
 							eventAttr,
 							targetInfo: {
 								dataset: getDataAttributes(attrs, deepToRaw),
@@ -1333,9 +1450,8 @@ class Runtime {
 					const assignmentRevision = shallowRef()
 					const bindingDirective = vueInstance.appContext.directives['c-prop-bindings']
 					const vnodeBinding = vueInstance.vnode.dirs?.find(binding => binding.dir === bindingDirective)
-					const bindingOwnerId = that.moduleIds.get(vueInstance.vnode.ctx?.proxy) || parentId
 					const registerAssignments = bindings => that.registerPropertyAssignments(
-						bindingOwnerId, moduleId, module.propertySchemas, bindings, (assignment) => {
+						ownerId, moduleId, module.propertySchemas, bindings, (assignment) => {
 							if (assignment.replay && pendingAssignments.length === 0) {
 								const updates = Object.fromEntries(assignment.values)
 								previousNormalizedProps = { ...previousNormalizedProps, ...updates }
@@ -1350,52 +1466,45 @@ class Runtime {
 					let unregisterAssignments = registerAssignments(vnodeBinding?.value)
 					onScopeDispose(() => unregisterAssignments?.())
 
-					onMounted(() => {
+					let registeredRoots
+					const registerRoots = () => {
 						const roots = collectVNodeRootElements(vueInstance.subTree)
+						if (roots.length === registeredRoots?.length && roots.every((root, i) => root === registeredRoots[i])) return
+						that.unregisterModuleRoots(moduleId, registeredRoots || [])
+						registeredRoots = roots
 						that.registerModuleRoots(moduleId, roots)
+						that.registerRenderedComponent(bridgeId, moduleId, roots, parentId)
 						for (const root of roots) {
 							root.setAttribute(COMPONENT_HOST_ATTRIBUTE, '')
 							root.setAttribute(STYLE_ISOLATION_ATTRIBUTE, styleIsolation)
 							addStyleHostToken(root, id)
 						}
+					}
+					onUpdated(() => {
+						if (registeredRoots?.length === 1 && registeredRoots[0] === instance.$el) return
+						registerRoots()
+						if (that.renderedTrees.get(bridgeId)?.dirty) {
+							nextTick(() => that.publishRenderedTree(bridgeId))
+						}
+					})
+
+					onMounted(() => {
+						registerRoots()
 						const propBindings = vnodeBinding?.value || instance.$el?._propBindings
 						unregisterAssignments ||= registerAssignments(propBindings)
-						nextTick(() => {
-							// Slot content keeps its lexical Vue parent, while mini-program
-							// relations follow the rendered component tree. Resolve the
-							// physical parent after every mounted hook has registered roots.
-							const renderParentId = that.getRenderParentModuleId(roots, moduleId)
-							message.send({
-								type: 'mA',
-								target: 'service',
-								body: {
-									bridgeId,
-									moduleId,
-									parentId: renderParentId || parentId,
-								},
-							})
-							const eventPath = that.collectCustomEventPath(instance.$el, moduleId)
-
-							message.send({
-								type: 'mR',
-								target: 'service',
-								body: {
-									bridgeId,
-									moduleId,
-									propBindings: propBindings && Object.fromEntries(
-									Object.entries(propBindings).map(([name, { read, resolvePaths, scopes, scopeNames, ...binding }]) => [name, binding]),
-								),
-									eventPath,
-								},
-							})
-						})
+						that.queueRenderedMount(bridgeId, moduleId, () => ({
+							propBindings: propBindings && Object.fromEntries(
+								Object.entries(propBindings).map(([name, { read, resolvePaths, scopes, scopeNames, ...binding }]) => [name, binding]),
+							),
+							eventPath: that.collectCustomEventPath(instance.$el, moduleId),
+						}))
 					})
 
 					let unregisterFormControl
 					onUnmounted(() => {
 						unregisterFormControl?.()
-						const roots = collectVNodeRootElements(vueInstance.subTree)
-						that.unregisterModuleRoots(moduleId, roots)
+						that.unregisterModuleRoots(moduleId, registeredRoots || [])
+						that.unregisterRenderedComponent(bridgeId, moduleId)
 						message.send({
 							type: 'mU',
 							target: 'service',

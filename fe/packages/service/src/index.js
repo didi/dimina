@@ -208,6 +208,10 @@ class Service {
 			runtime.moduleAttached(msg)
 		})
 
+		this.message.on('mT', (msg) => {
+			runtime.moduleTreeUpdated(msg)
+		})
+
 		this.message.on('mR', (msg) => {
 			// 在组件在视图层布局完成后执行
 			runtime.moduleReady(msg)

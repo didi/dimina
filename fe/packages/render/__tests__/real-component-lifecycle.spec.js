@@ -9,6 +9,7 @@ describe('compiled page lifecycle with repeated real components', () => {
 	const pagePath = 'pages/real-lifecycle/index'
 	const componentPath = '/components/real-lifecycle-probe/index'
 	const nestedPath = '/components/nested-probe/index'
+	const relationParentPath = '/components/relation-parent/index'
 	let projectDir
 	let outputDir
 	let originalTargetPath
@@ -41,6 +42,7 @@ describe('compiled page lifecycle with repeated real components', () => {
 		process.env.TARGET_PATH = outputDir
 		globalThis.__realComponentLifecycleLogs = []
 		globalThis.__realComponentPropertyLogs = []
+		globalThis.__realRelationLogs = []
 		document.body.innerHTML = ''
 		vi.spyOn(console, 'log').mockImplementation(() => {})
 	})
@@ -59,6 +61,7 @@ describe('compiled page lifecycle with repeated real components', () => {
 		}
 		delete globalThis.__realComponentLifecycleLogs
 		delete globalThis.__realComponentPropertyLogs
+		delete globalThis.__realRelationLogs
 		delete globalThis.__extraInfo
 		delete globalThis.modDefine
 		delete globalThis.modRequire
@@ -80,13 +83,16 @@ describe('compiled page lifecycle with repeated real components', () => {
 			usingComponents: {
 				'lifecycle-probe': componentPath,
 				'nested-probe': nestedPath,
+				'relation-parent': relationParentPath,
 			},
 		}))
 		writeProjectFile(`${pagePath}.wxml`, `
 			<view>
+				<relation-parent>
 				<lifecycle-probe wx:for="{{rows}}" wx:for-item="row" wx:for-index="position"
 					wx:key="id" instance-id="{{row.id}}" mixed="{{row.value * 10 + offset + position * 0}}"
 					picked="{{row.values[selected]}}" />
+				</relation-parent>
 				<view wx:for="{{groups}}" wx:key="id">
 					<nested-probe wx:for="{{item.rows}}" wx:key="id" label="{{item.id}}"
 						value="{{item.value + index}}" />
@@ -139,17 +145,59 @@ describe('compiled page lifecycle with repeated real components', () => {
 						globalThis.__realComponentPropertyLogs.push([this.data.instanceId, 'data', mixed, picked])
 					},
 				},
+				relations: {
+					'../relation-parent/index': {
+						type: 'parent',
+						linked() { globalThis.__realRelationLogs.push(['child linked', this.data.instanceId]) },
+						linkChanged() { globalThis.__realRelationLogs.push(['child changed', this.data.instanceId]) },
+						unlinked() { globalThis.__realRelationLogs.push(['child unlinked', this.data.instanceId]) },
+					},
+				},
 				lifetimes: {
+					moved() { globalThis.__realRelationLogs.push(['child moved', this.data.instanceId]) },
 					created() { recordComponent(this, 'created') },
-					attached() { recordComponent(this, 'attached') },
-					ready() { recordComponent(this, 'ready') },
-					detached() { recordComponent(this, 'detached') },
+					attached() {
+						recordComponent(this, 'attached')
+						globalThis.__realRelationLogs.push(['child attached', this.data.instanceId])
+					},
+					ready() {
+						recordComponent(this, 'ready')
+						globalThis.__realRelationLogs.push(['child ready', this.data.instanceId])
+					},
+					detached() {
+						recordComponent(this, 'detached')
+						globalThis.__realRelationLogs.push(['child detached', this.data.instanceId])
+					},
 				},
 				pageLifetimes: {
 					show() { recordComponent(this, 'show') },
 					hide() { recordComponent(this, 'hide') },
 					resize() { recordComponent(this, 'resize') },
 					routeDone() { recordComponent(this, 'routeDone') },
+				},
+			})
+		`)
+
+		writeProjectFile('components/relation-parent/index.json', JSON.stringify({ component: true }))
+		writeProjectFile('components/relation-parent/index.wxml', '<view><slot /></view>')
+		writeProjectFile('components/relation-parent/index.js', `
+			const path = '../real-lifecycle-probe/index'
+			Component({
+				relations: {
+					[path]: {
+						type: 'child',
+						linked(child) { globalThis.__realRelationLogs.push(['parent linked', child.data.instanceId]) },
+						linkChanged(child) {
+							globalThis.__realRelationLogs.push(['parent changed', child.data.instanceId,
+								this.getRelationNodes(path).map(node => node.data.instanceId)])
+						},
+						unlinked(child) { globalThis.__realRelationLogs.push(['parent unlinked', child.data.instanceId]) },
+					},
+				},
+				lifetimes: {
+					attached() { globalThis.__realRelationLogs.push(['parent attached']) },
+					ready() { globalThis.__realRelationLogs.push(['parent ready', this.getRelationNodes(path).map(node => node.data.instanceId)]) },
+					detached() { globalThis.__realRelationLogs.push(['parent detached']) },
 				},
 			})
 		`)
@@ -210,7 +258,7 @@ describe('compiled page lifecycle with repeated real components', () => {
 			filename: path.join(outputDir, 'main/pages_real-lifecycle_index.js'),
 		})
 
-		for (const modulePath of [componentPath, nestedPath, pagePath]) {
+		for (const modulePath of [componentPath, nestedPath, relationParentPath, pagePath]) {
 			const module = logicModules.find(candidate => candidate.path === modulePath)
 			expect(module, `missing compiled logic module ${modulePath}`).toBeDefined()
 			evaluateLogicModule(module)
@@ -239,7 +287,22 @@ describe('compiled page lifecycle with repeated real components', () => {
 		expect(new Set(mountedComponents.map(instance => instance.__id__)).size).toBe(2)
 		expect(mountedComponents.map(instance => instance.properties.instanceId).sort()).toEqual(['probe-a', 'probe-b'])
 
+		const relationLogs = globalThis.__realRelationLogs
+		expect(relationLogs).toEqual([
+			['parent attached'],
+			['child attached', 'probe-a'], ['parent linked', 'probe-a'], ['child linked', 'probe-a'],
+			['child attached', 'probe-b'], ['parent linked', 'probe-b'], ['child linked', 'probe-b'],
+			['parent ready', ['probe-a', 'probe-b']], ['child ready', 'probe-a'], ['child ready', 'probe-b'],
+		])
+		relationLogs.length = 0
+		const firstUpdateMessage = window.DiminaRenderBridge.publish.mock.calls.length
+
 		const page = Object.values(serviceRuntime.instances[bridgeId]).find(instance => instance.is === pagePath)
+		const relationParent = Object.values(serviceRuntime.instances[bridgeId]).find(instance => instance.is === relationParentPath)
+		for (const child of mountedComponents) {
+			expect(child.selectOwnerComponent()).toBe(page)
+			expect(child.getRelationNodes('../relation-parent/index')).toEqual([relationParent])
+		}
 		const propertyLogs = globalThis.__realComponentPropertyLogs
 		const setData = data => new Promise(resolve => page.setData(data, resolve))
 		propertyLogs.length = 0
@@ -266,11 +329,21 @@ describe('compiled page lifecycle with repeated real components', () => {
 		])
 
 		propertyLogs.length = 0
+		expect(relationLogs).toEqual([])
+		const updateMessages = window.DiminaRenderBridge.publish.mock.calls.slice(firstUpdateMessage)
+		expect(updateMessages.some(([payload]) => JSON.parse(payload).type === 'mT')).toBe(false)
 		const [a, b] = page.data.rows
 		await Promise.all([setData({ rows: [b, a] }), setData({ 'rows[0].value': 3 })])
 		expect(propertyLogs).toEqual([
 			['probe-b', 'data', 32, 8], ['probe-a', 'data', 12, 9], ['probe-b', 'data', 32, 8],
 		])
+
+		expect(relationLogs).toEqual([
+			['child moved', 'probe-b'],
+			['parent changed', 'probe-b', ['probe-b', 'probe-a']],
+			['child changed', 'probe-b'],
+		])
+		relationLogs.length = 0
 
 		propertyLogs.length = 0
 		const [groupA, groupB] = page.data.groups
@@ -291,6 +364,12 @@ describe('compiled page lifecycle with repeated real components', () => {
 		})
 		globalThis.DiminaServiceBridge.onMessage({ type: 'pageRouteDone', body: { bridgeId } })
 		globalThis.DiminaServiceBridge.onMessage({ type: 'pageUnload', body: { bridgeId } })
+
+		expect(relationLogs).toEqual([
+			['child detached', 'probe-b'], ['parent unlinked', 'probe-b'], ['child unlinked', 'probe-b'],
+			['child detached', 'probe-a'], ['parent unlinked', 'probe-a'], ['child unlinked', 'probe-a'],
+			['parent detached'],
+		])
 
 		const logs = globalThis.__realComponentLifecycleLogs
 		const created = logs.filter(log => log.scope === 'component' && log.event === 'created')

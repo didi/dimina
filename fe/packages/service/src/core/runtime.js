@@ -9,6 +9,10 @@ import { PageModule } from '../instance/page/page-module'
 import loader from './loader'
 import router from './router'
 
+function compareRenderOrder(a, b) {
+	return (a.__renderOrder__ ?? Infinity) - (b.__renderOrder__ ?? Infinity)
+}
+
 class Runtime {
 	constructor() {
 		this.app = undefined
@@ -188,7 +192,7 @@ class Runtime {
 	 * @param {*} opts
 	 */
 	createInstance(opts) {
-		const { bridgeId, moduleId, path, query, eventAttr, pageId, parentId, properties, propertyNames, targetInfo, stackId, isCustomTabBar = false, deferInitialData = false, deferPageLoad = false } = opts
+		const { bridgeId, moduleId, path, query, eventAttr, pageId, parentId, ownerId, properties, propertyNames, targetInfo, stackId, isCustomTabBar = false, deferInitialData = false, deferPageLoad = false } = opts
 
 		const module = loader.getModuleByPath(path)
 		if (!module) {
@@ -210,6 +214,7 @@ class Runtime {
 				eventAttr,
 				pageId,
 				parentId,
+				ownerId,
 				properties,
 				propertyNames,
 				targetInfo,
@@ -244,6 +249,27 @@ class Runtime {
 		}
 		else {
 			console.error(`[service] ${module.type} instance is not exist.`)
+		}
+	}
+
+	moduleTreeUpdated({ bridgeId, nodes, moved }) {
+		const instances = this.instances[bridgeId]
+		if (!instances) return
+		const movedIds = new Set(moved)
+		for (const { moduleId, parentId, order } of nodes) {
+			const instance = instances[moduleId]
+			if (!instance || moduleId === parentId) continue
+			instance.__renderOrder__ = order
+			if (parentId && instances[parentId] && instance.__parentId__ !== parentId) {
+				instance.__parentId__ = parentId
+				if (instance.__componentAttached__) movedIds.add(moduleId)
+			}
+		}
+		if (movedIds.size === 0) return
+		for (const instance of this.getInstancesInTreeOrder(bridgeId, { postOrder: true })) {
+			if (instance.__componentAttached__ && movedIds.has(instance.__id__)) {
+				instance.componentMoved()
+			}
 		}
 	}
 
@@ -287,6 +313,7 @@ class Runtime {
 			const children = Object.values(this.instances[bridgeId] || {}).filter(child => (
 				child?.__parentId__ === moduleId && child.__componentAttachPending__
 			))
+			children.sort(compareRenderOrder)
 			for (const child of children) {
 				this.moduleAttached({ bridgeId, moduleId: child.__id__ })
 			}
@@ -339,16 +366,12 @@ class Runtime {
 				instance.__pendingReadyOpts__ = opts
 				return
 			}
-			const pendingChildren = Object.values(this.instances[bridgeId] || {}).some(child => (
-				child?.__isComponent__
-				&& child.__componentAttached__
-				&& !child.__componentReadied__
-				&& this.isDescendantInstance(child, instance, bridgeId)
-			))
-			if (pendingChildren) {
+			const parent = this.instances[bridgeId]?.[instance.__parentId__]
+			if (parent?.__isComponent__ && !parent.__componentReadied__) {
 				instance.__pendingReadyOpts__ = opts
 				return
 			}
+			delete instance.__pendingReadyOpts__
 			// Mark ready before invoking user code so re-entrant messages cannot
 			// dispatch the lifetime twice.
 			instance.__componentReadied__ = true
@@ -361,14 +384,11 @@ class Runtime {
 				this.checkAndCallPageReady(bridgeId, pageInstance.__id__)
 			}
 
-			let parent = this.instances[bridgeId]?.[instance.__parentId__]
-			while (parent?.__isComponent__) {
-				if (parent.__pendingReadyOpts__) {
-					const pendingReadyOpts = parent.__pendingReadyOpts__
-					delete parent.__pendingReadyOpts__
-					this.moduleReady(pendingReadyOpts)
-				}
-				parent = this.instances[bridgeId]?.[parent.__parentId__]
+			const children = Object.values(this.instances[bridgeId] || {})
+				.filter(child => child?.__parentId__ === moduleId && child.__pendingReadyOpts__)
+				.sort(compareRenderOrder)
+			for (const child of children) {
+				if (child.__pendingReadyOpts__) this.moduleReady(child.__pendingReadyOpts__)
 			}
 		}
 	}
@@ -387,13 +407,11 @@ class Runtime {
 		}
 
 		// mR can arrive before the page-root mounted acknowledgement. Release
-		// those ready callbacks only after onLoad/onShow, child before parent.
-		this.getInstancesInTreeOrder(bridgeId, { postOrder: true })
+		// those ready callbacks only after onLoad/onShow, parent before child.
+		this.getInstancesInTreeOrder(bridgeId)
 			.filter(instance => instance?.__isComponent__ && instance.__pendingReadyOpts__)
 			.forEach((instance) => {
-				const pendingReadyOpts = instance.__pendingReadyOpts__
-				delete instance.__pendingReadyOpts__
-				this.moduleReady(pendingReadyOpts)
+				if (instance.__pendingReadyOpts__) this.moduleReady(instance.__pendingReadyOpts__)
 			})
 	}
 
@@ -661,6 +679,9 @@ class Runtime {
 				roots.push(instance)
 			}
 		}
+
+		roots.sort(compareRenderOrder)
+		for (const children of childrenByParentId.values()) children.sort(compareRenderOrder)
 
 		const ordered = []
 		const visited = new Set()

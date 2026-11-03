@@ -402,8 +402,8 @@ describe('Skyline/exparser lifecycle ordering', () => {
 		expect(calls).toEqual([
 			'parent:attached',
 			'child:attached',
-			'child:ready',
 			'parent:ready',
+			'child:ready',
 		])
 	})
 

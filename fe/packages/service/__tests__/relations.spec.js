@@ -475,4 +475,47 @@ describe('组件间关系测试', () => {
 		expect(parentNodes[0]).toBe(parentComponent)
 		expect(childComponent.linkedParent).toBe(parentComponent)
 	})
+	test('uses the closest reciprocal ancestor and relinks after a rendered reparent', () => {
+		const bridgeId = 'closest-ancestor'
+		const calls = []
+		const make = (id, path, parentId, relations = {}) => {
+			const module = new ComponentModule({
+				relations,
+				lifetimes: { moved() { calls.push([id, 'moved']) } },
+			}, { component: true, path, usingComponents: {} })
+			const instance = new Component(module, {
+				bridgeId, moduleId: id, path, parentId, properties: {}, targetInfo: {},
+			})
+			runtime.instances[bridgeId][id] = instance
+			instance.init()
+			runtime.moduleAttached({ bridgeId, moduleId: id })
+			return instance
+		}
+		const callbacks = (id, type) => ({
+			type,
+			linked(target) { calls.push([id, 'linked', target.__id__]) },
+			unlinked(target) { calls.push([id, 'unlinked', target.__id__]) },
+		})
+		runtime.instances[bridgeId] = {}
+		const outer = make('outer', 'parent', undefined, { './leaf': callbacks('outer', 'descendant') })
+		const inner = make('inner', 'parent', 'outer', { './leaf': callbacks('inner', 'descendant') })
+		const other = make('other', 'parent', undefined, { './leaf': callbacks('other', 'descendant') })
+		const leaf = make('leaf', 'leaf', 'inner', { './parent': callbacks('leaf', 'ancestor') })
+		make('one-sided', 'leaf', 'outer')
+
+		expect(leaf.getRelationNodes('./parent')).toEqual([inner])
+		expect(outer.getRelationNodes('./leaf')).toEqual([])
+		expect(calls).toEqual([['inner', 'linked', 'leaf'], ['leaf', 'linked', 'inner']])
+
+		calls.length = 0
+		runtime.moduleTreeUpdated({ bridgeId, nodes: [{ moduleId: 'leaf', parentId: 'other', order: 1 }], moved: ['leaf'] })
+		expect(calls).toEqual([
+			['leaf', 'moved'],
+			['inner', 'unlinked', 'leaf'], ['leaf', 'unlinked', 'inner'],
+			['other', 'linked', 'leaf'], ['leaf', 'linked', 'other'],
+		])
+		expect(inner.getRelationNodes('./leaf')).toEqual([])
+		expect(leaf.getRelationNodes('./parent')).toEqual([other])
+	})
+
 })

@@ -1,4 +1,4 @@
-import { cloneDeep, isFunction, normalizePropertyDefinition, resolvePropertyValue } from '@dimina/common'
+import { cloneDeep, isFunction, normalizePropertyDefinition, parsePath, resolvePropertyValue } from '@dimina/common'
 import { createSelectorQuery } from '../../api/core/wxml/selector-query'
 import { createIntersectionObserver } from '../../api/core/wxml/intersection-observer'
 import { createMediaQueryObserver } from '../../api/core/wxml/media-query-observer'
@@ -55,11 +55,13 @@ export class Component {
 		this.__eventPath__ = null
 		this.__pageId__ = opts.pageId
 		this.__parentId__ = opts.parentId
+		this.__ownerId__ = opts.ownerId || opts.parentId
 		this.__isCustomTabBar__ = opts.isCustomTabBar === true
 		
 		// 初始化关系相关属性
 		this.__relations__ = new Map() // 存储关系节点
 		this.__relationPaths__ = new Map() // 存储关系路径映射
+		this.__parentRelationLinks__ = new Map()
 		
 		// 初始化 groupSetData 相关属性
 		this.__groupSetDataMode__ = false // 是否处于批量更新模式
@@ -164,7 +166,8 @@ export class Component {
 		// 遍历所有关系配置
 		for (const [relationPath] of Object.entries(relations)) {
 			// 解析关系路径，处理相对路径
-			const resolvedPath = this.#resolveRelationPath(relationPath)
+			const relative = relationPath.startsWith('./') || relationPath.startsWith('../')
+			const resolvedPath = relative ? parsePath(this.is, relationPath) : relationPath
 			this.__relationPaths__.set(relationPath, resolvedPath)
 			
 			// 初始化该关系的节点数组
@@ -174,211 +177,77 @@ export class Component {
 		}
 	}
 
-	/**
-	 * 解析关系路径，将相对路径转换为绝对路径
-	 */
-	#resolveRelationPath(relationPath) {
-		if (relationPath.startsWith('./')) {
-			// 相对路径，基于当前组件路径解析
-			const lastSlashIndex = this.is.lastIndexOf('/')
-			if (lastSlashIndex === -1) {
-				// 当前组件路径没有目录，直接返回去掉 ./ 的路径
-				return relationPath.substring(2)
-			}
-			const currentDir = this.is.substring(0, lastSlashIndex)
-			return `${currentDir}/${relationPath.substring(2)}`
-		} else if (relationPath.startsWith('../')) {
-			// 上级路径，基于当前组件路径解析
-			const pathParts = this.is.split('/')
-			const relationParts = relationPath.split('/')
-			
-			let currentParts = pathParts.slice(0, -1) // 去掉文件名
-			
-			for (const part of relationParts) {
-				if (part === '..') {
-					currentParts.pop()
-				} else if (part !== '.') {
-					currentParts.push(part)
+	#matchesRelation(path, config, target) {
+		if (config.target) return target.hasBehavior?.(config.target)
+		const resolved = this.__relationPaths__.get(path)
+		return target.is === resolved || target.is === (resolved.startsWith('/') ? resolved.slice(1) : `/${resolved}`)
+	}
+
+	#findParentRelation(path, config) {
+		const instances = runtime.instances[this.bridgeId]
+		const parentType = config.type === 'parent'
+		let parent = instances?.[this.__parentId__]
+		const visited = new Set()
+		while (parent && parent !== this && !visited.has(parent)) {
+			visited.add(parent)
+			if (parent instanceof Component && parent.__componentAttached__ && this.#matchesRelation(path, config, parent)) {
+				for (const [targetPath, targetConfig] of Object.entries(parent.__info__?.relations || {})) {
+					if (targetConfig.type === (parentType ? 'child' : 'descendant')
+						&& parent.#matchesRelation(targetPath, targetConfig, this)) {
+						return { parent, path: targetPath, config: targetConfig }
+					}
 				}
 			}
-			
-			return currentParts.join('/')
-		} else {
-			// 绝对路径或其他格式
-			return relationPath
+			if (parentType) break
+			parent = instances?.[parent.__parentId__]
 		}
 	}
 
-	/**
-	 * 检查组件关系并建立连接
-	 */
-	#checkAndLinkRelations() {
+	#updateParentRelations(detaching = false) {
 		const relations = this.__info__.relations
 		if (!relations) return
-
-		const allInstances = Object.values(runtime.instances[this.bridgeId] || {}).filter(instance => (
-			instance === this
-			|| !instance.__isComponent__
-			|| instance.__componentAttached__
-			|| instance.__componentAttaching__
-		))
-		
-		for (const [relationPath, relationConfig] of Object.entries(relations)) {
-			const { type, target } = relationConfig
-			const resolvedPath = this.__relationPaths__.get(relationPath)
-			
-			// 查找匹配的组件
-			const matchingComponents = allInstances.filter(instance => {
-				// 检查路径匹配
-				if (target) {
-					// 如果指定了 target behavior，检查组件是否具有该 behavior
-					return instance.hasBehavior && instance.hasBehavior(target)
-				} else {
-					// 检查路径匹配
-					return instance.is === resolvedPath || instance.is.endsWith(`/${resolvedPath}`)
+		const entries = Object.entries(relations)
+		for (const type of ['parent', 'ancestor']) {
+			for (const [path, config] of entries) {
+				if (config.type !== type) continue
+				const previous = this.__parentRelationLinks__.get(path)
+				const next = detaching ? undefined : this.#findParentRelation(path, config)
+				if (next && previous?.parent === next.parent && previous.path === next.path) {
+					this.#callRelationPair('linkChanged', config, next)
+					continue
 				}
-			})
-
-			// 根据关系类型过滤组件
-			const relatedComponents = matchingComponents.filter(instance => this.#checkRelationType(instance, type))
-
-			// 建立关系连接
-			for (const relatedComponent of relatedComponents) {
-				this.#linkRelation(relationPath, relatedComponent, relationConfig)
-			}
-		}
-		
-		// 通知其他组件重新检查关系（双向关系建立）
-		this.#notifyOthersToCheckRelations()
-	}
-
-	/**
-	 * 通知其他组件重新检查关系
-	 */
-	#notifyOthersToCheckRelations() {
-		const allInstances = Object.values(runtime.instances[this.bridgeId] || {})
-		
-		for (const instance of allInstances) {
-			if (instance !== this && instance._checkRelationsWithTarget) {
-				// 只检查与当前组件相关的关系
-				instance._checkRelationsWithTarget(this)
-			}
-		}
-	}
-
-	/**
-	 * 检查与特定目标组件的关系
-	 */
-	_checkRelationsWithTarget(targetInstance) {
-		const relations = this.__info__.relations
-		if (!relations) return
-		
-		for (const [relationPath, relationConfig] of Object.entries(relations)) {
-			const { type, target } = relationConfig
-			const resolvedPath = this.__relationPaths__.get(relationPath)
-			
-			// 检查目标组件是否匹配
-			let matches = false
-			if (target) {
-				matches = targetInstance.hasBehavior && targetInstance.hasBehavior(target)
-			} else {
-				matches = targetInstance.is === resolvedPath || targetInstance.is.endsWith(`/${resolvedPath}`)
-			}
-			
-			if (matches && this.#checkRelationType(targetInstance, type)) {
-				this.#linkRelation(relationPath, targetInstance, relationConfig)
+				this.__relations__.set(path, next ? [next.parent] : [])
+				if (next) {
+					this.__parentRelationLinks__.set(path, next)
+				}
+				else {
+					this.__parentRelationLinks__.delete(path)
+				}
+				if (previous) {
+					const stillLinked = [...this.__parentRelationLinks__.values()]
+						.some(link => link.parent === previous.parent && link.path === previous.path)
+					if (!stillLinked) {
+						const children = previous.parent.__relations__.get(previous.path)
+						const index = children.indexOf(this)
+						if (index !== -1) children.splice(index, 1)
+					}
+					this.#callRelationPair('unlinked', config, previous)
+				}
+				if (next) {
+					const children = next.parent.__relations__.get(next.path)
+					if (!children.includes(this)) children.push(this)
+					this.#callRelationPair('linked', config, next)
+				}
+				else if (!detaching) {
+					invokeSafely(this, config.linkFailed, [], 'relation linkFailed callback')
+				}
 			}
 		}
 	}
 
-	/**
-	 * 检查关系类型是否匹配
-	 */
-	#checkRelationType(targetInstance, relationType) {
-		const allInstances = Object.values(runtime.instances[this.bridgeId] || {})
-		
-		switch (relationType) {
-			case 'parent':
-				// 目标组件应该是当前组件的直接父组件
-				return targetInstance.__id__ === this.__parentId__
-				
-			case 'child':
-				// 目标组件应该是当前组件的直接子组件
-				return targetInstance.__parentId__ === this.__id__
-				
-			case 'ancestor':
-				// 目标组件应该是当前组件的祖先组件
-				return this.#isAncestor(targetInstance.__id__, this.__id__, allInstances)
-				
-			case 'descendant':
-				// 目标组件应该是当前组件的后代组件
-				return this.#isAncestor(this.__id__, targetInstance.__id__, allInstances)
-				
-			default:
-				return false
-		}
-	}
-
-	/**
-	 * 检查 ancestorId 是否是 descendantId 的祖先
-	 */
-	#isAncestor(ancestorId, descendantId, allInstances) {
-		let current = allInstances.find(instance => instance.__id__ === descendantId)
-		
-		while (current && current.__parentId__) {
-			if (current.__parentId__ === ancestorId) {
-				return true
-			}
-			current = allInstances.find(instance => instance.__id__ === current.__parentId__)
-		}
-		
-		return false
-	}
-
-	/**
-	 * 建立关系连接
-	 */
-	#linkRelation(relationPath, targetInstance, relationConfig) {
-		const relationNodes = this.__relations__.get(relationPath) || []
-		
-		// 检查是否已经建立了关系
-		if (relationNodes.includes(targetInstance)) {
-			return
-		}
-		
-		// 添加到关系节点列表
-		relationNodes.push(targetInstance)
-		this.__relations__.set(relationPath, relationNodes)
-		
-		// 调用 linked 生命周期函数
-		invokeSafely(this, relationConfig.linked, [targetInstance], 'relation linked callback')
-	}
-
-	/**
-	 * 移除关系连接
-	 */
-	#unlinkRelation(relationPath, targetInstance, relationConfig) {
-		const relationNodes = this.__relations__.get(relationPath) || []
-		const index = relationNodes.indexOf(targetInstance)
-		
-		if (index === -1) {
-			return
-		}
-		
-		// 从关系节点列表中移除
-		relationNodes.splice(index, 1)
-		this.__relations__.set(relationPath, relationNodes)
-		
-		// 调用 unlinked 生命周期函数
-		invokeSafely(this, relationConfig.unlinked, [targetInstance], 'relation unlinked callback')
-	}
-
-	/**
-	 * 处理关系变化
-	 */
-	#handleRelationChange(relationPath, targetInstance, relationConfig) {
-		// 调用 linkChanged 生命周期函数
-		invokeSafely(this, relationConfig.linkChanged, [targetInstance], 'relation linkChanged callback')
+	#callRelationPair(event, config, link) {
+		invokeSafely(link.parent, link.config[event], [this], `relation ${event} callback`)
+		invokeSafely(this, config[event], [link.parent], `relation ${event} callback`)
 	}
 
 	/**
@@ -693,13 +562,11 @@ export class Component {
 	 * 选取当前组件节点所在的组件实例（即组件的引用者），返回它的组件实例对象
 	 */
 	selectOwnerComponent() {
-		const children = Object.values(runtime.instances[this.bridgeId])
-		for (const item of children) {
-			if (item.id === this.__parentId__) {
-				return item
-			}
+		const owner = runtime.instances[this.bridgeId]?.[this.__ownerId__]
+		if (owner?.hasBehavior?.('wx://component-export') && owner.export) {
+			return owner.export()
 		}
-		return null
+		return owner || null
 	}
 
 	/**
@@ -782,8 +649,10 @@ export class Component {
 			return null
 		}
 		
-		// 返回节点数组的副本，避免外部修改
-		return [...relationNodes]
+		if (relationNodes.length < 2) return [...relationNodes]
+		return [...relationNodes].sort((a, b) => (
+			(a.__renderOrder__ ?? Infinity) - (b.__renderOrder__ ?? Infinity)
+		))
 	}
 
 	/**
@@ -1126,7 +995,7 @@ export class Component {
 		invokeSafely(this, this.attached, [], 'attached lifetime')
 		
 		// 建立组件间关系
-		this.#checkAndLinkRelations()
+		this.#updateParentRelations()
 	}
 
 	/**
@@ -1144,70 +1013,16 @@ export class Component {
 		invokeSafelyAll(this, this.__info__.behaviorLifetimes?.moved, [], 'moved lifetime')
 		invokeSafely(this, this.moved, [], 'moved lifetime')
 		
-		// 组件移动后，需要重新检查关系并触发 linkChanged
-		const relations = this.__info__.relations
-		if (relations) {
-			for (const [relationPath, relationConfig] of Object.entries(relations)) {
-				const relationNodes = this.__relations__.get(relationPath) || []
-				for (const node of relationNodes) {
-					this.#handleRelationChange(relationPath, node, relationConfig)
-				}
-			}
-		}
+		this.#updateParentRelations()
 	}
 
-	/**
-	 * 在组件实例被从页面节点树移除时执行
-	 */
+	/** Called after the component leaves the rendered tree. */
 	componentDetached() {
-		// exparser marks the node detached before invoking the lifetime, but keeps
-		// relation links visible until detached callbacks have completed.
 		this.__componentAttached__ = false
 		invokeSafelyAll(this, this.__info__.behaviorLifetimes?.detached, [], 'detached lifetime')
 		invokeSafely(this, this.detached, [], 'detached lifetime')
-
-		// Relation unlinked callbacks run after detached.
-		const relations = this.__info__.relations
-		if (relations) {
-			for (const [relationPath, relationConfig] of Object.entries(relations)) {
-				const relationNodes = this.__relations__.get(relationPath) || []
-				// 复制数组避免在迭代时修改
-				const nodesToUnlink = [...relationNodes]
-				for (const node of nodesToUnlink) {
-					this.#unlinkRelation(relationPath, node, relationConfig)
-				}
-			}
-		}
-		
-		// 通知其他组件移除对当前组件的引用
-		this.#notifyOthersToUnlinkThis()
-		
+		this.#updateParentRelations(true)
 		this.initd = false
-	}
-	
-	/**
-	 * 通知其他组件移除对当前组件的引用
-	 */
-	#notifyOthersToUnlinkThis() {
-		const allInstances = Object.values(runtime.instances[this.bridgeId] || {})
-		
-		for (const instance of allInstances) {
-			if (instance === this || !instance.__relations__) continue
-			
-			// 遍历其他组件的所有关系
-			for (const [relationPath, relationNodes] of instance.__relations__.entries()) {
-				const index = relationNodes.indexOf(this)
-				if (index !== -1) {
-					// 从关系节点列表中移除当前组件
-					relationNodes.splice(index, 1)
-					instance.__relations__.set(relationPath, relationNodes)
-					
-					// 调用 unlinked 生命周期函数
-					const relationConfig = instance.__info__.relations?.[relationPath]
-					invokeSafely(instance, relationConfig?.unlinked, [this], 'relation unlinked callback')
-				}
-			}
-		}
 	}
 
 	/**
