@@ -1,0 +1,38 @@
+harmony/dimina/src/main/ets/DApp/DMPAppManager.ets
+  25d40473a3512e57 308
+harmony/scripts/fixtures/video-decoder-pixels.cpp
+  25d40473a3512e57 138-144,148,155-156
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "55919bc6028634c0d34972a87f4bda1e5189551d",
+  "prompts": {
+    "25d40473a3512e57": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a10c-a12f-7b40-b07a-ccd963508132",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 68,
+      "total_deletions": 16,
+      "accepted_lines": 6577,
+      "overriden_lines": 0
+    },
+    "39e616666a77a0a2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a10c-7340-7383-9d94-98cdae582ad6",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 17,
+      "overriden_lines": 0
+    }
+  }
+}
