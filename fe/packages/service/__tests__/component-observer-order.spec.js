@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import runtime from '../src/core/runtime'
+import { syncUpdateChildrenProps } from '../src/core/utils'
 import { Component } from '../src/instance/component/component'
 import { ComponentModule } from '../src/instance/component/component-module'
 
@@ -417,4 +418,67 @@ describe('Component.tO observer ordering', () => {
 		expect(instance.data.visible).toBe(true)
 		expect(instance.watchVisible).toHaveBeenCalledWith(true, false, ['visible'])
 	})
+})
+
+it('runs same-value scalar data observers per assignment and consumes the Render echo once', () => {
+	const calls = []
+	const child = {
+		__id__: 'child',
+		__parentId__: 'parent',
+		__pendingSyncedProps__: {},
+		data: { count: 2, other: 1 },
+		tO: Component.prototype.tO,
+		__info__: {
+			observers: {
+				'count, other': (count, other) => calls.push(['data', count, other]),
+			},
+			properties: {
+				count: { observer: value => calls.push(['property:count', value]) },
+				other: { observer: value => calls.push(['property:other', value]) },
+			},
+		},
+	}
+	const parent = {
+		__id__: 'parent',
+		data: { item: { count: 2, label: 'sibling' }, other: 1 },
+		__childPropsBindings__: {
+			child: {
+				other: { expression: 'other', isSimple: true },
+				count: { expression: 'item.count', dependencyPaths: [['item', 'count']] },
+			},
+		},
+	}
+	const sync = data => syncUpdateChildrenProps(parent, { child }, data)
+	sync({ 'item.label': 'sibling' })
+	expect(calls).toEqual([])
+
+	sync({ 'item.count': 2 })
+	sync({ 'item.count': 2 })
+	child.tO({ count: 2 }) // Acknowledges the Service update without invoking observers.
+	expect(calls).toEqual([['data', 2, 1], ['data', 2, 1]])
+
+	calls.length = 0
+	child.__pendingSyncedProps__.count = 2
+	Component.prototype.tOAssigned.call(child, {
+		data: { count: 2, other: 3 },
+		assigned: ['count', 'other'],
+	})
+	expect(calls).toEqual([['data', 2, 3], ['property:other', 3]])
+
+	calls.length = 0
+	parent.data.item.count = 4
+	parent.data.other = 5
+	sync({ 'item.count': 4, other: 5 })
+	expect(calls).toEqual([['data', 4, 5], ['property:other', 5], ['property:count', 4]])
+
+	calls.length = 0
+	parent.__childPropsBindings__.child.count.expression = 'renderOnly(item.count)'
+	const warning = vi.spyOn(console, 'warn').mockImplementation(() => {})
+	try {
+		expect(sync({ 'item.count': 4, other: 5 })).toEqual([])
+		expect(calls).toEqual([])
+	}
+	finally {
+		warning.mockRestore()
+	}
 })

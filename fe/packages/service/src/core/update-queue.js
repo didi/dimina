@@ -60,17 +60,30 @@ function snapshotUpdate(data, changes = []) {
 	}
 }
 
-export function enqueueUpdate(bridgeId, moduleId, data, callbackId, changes = []) {
+export function enqueueUpdate(bridgeId, moduleId, data, callbackId, changes = [], syncedChildren) {
 	const queue = getQueue(bridgeId)
 	const update = queue.byModuleId.get(moduleId)
 	const snapshot = snapshotUpdate(data, changes)
+	if (syncedChildren && snapshot.changes.length) {
+		const start = update?.changes.length || 0
+		// Ranges keep separate setData calls distinct after the per-module queue is merged.
+		const assignment = [start, start + snapshot.changes.length]
+		if (syncedChildren.length) {
+			assignment.push(Object.fromEntries(syncedChildren.map(({ child, data }) => [child.__id__, Object.keys(data)])))
+		}
+		snapshot.propertyAssignments = [assignment]
+	}
 
 	if (update) {
 		Object.assign(update.data, snapshot.data)
 		update.changes.push(...snapshot.changes)
+		if (snapshot.propertyAssignments) {
+			update.propertyAssignments ||= []
+			update.propertyAssignments.push(...snapshot.propertyAssignments)
+		}
 	}
 	else {
-		const nextUpdate = { moduleId, data: snapshot.data, changes: snapshot.changes }
+		const nextUpdate = { moduleId, ...snapshot }
 		queue.byModuleId.set(moduleId, nextUpdate)
 		queue.updates.push(nextUpdate)
 	}

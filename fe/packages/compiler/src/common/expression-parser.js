@@ -22,7 +22,7 @@ const KEYWORDS = new Set([
  * @param {string} expression - 表达式字符串，如 "count || defaultValue" 或 "item.name"
  * @returns {Array<string>} - 依赖的变量名数组，如 ["count", "defaultValue"] 或 ["item"]
  */
-export function extractDependencies(expression) {
+export function extractDependencies(expression, paths = false) {
 	if (!expression || typeof expression !== 'string') {
 		return []
 	}
@@ -37,28 +37,49 @@ export function extractDependencies(expression) {
 			lang: 'js',
 		}).program
 
-		visitExpressionAst(ast, null, dependencies)
+		visitExpressionAst(ast, null, dependencies, paths)
 	} catch (error) {
 		// AST 解析失败时回退到空数组
 		console.warn('[expression-parser] AST 解析失败，表达式:', expression, '错误:', error.message)
 		return []
 	}
 
-	return Array.from(dependencies)
+	return paths ? Array.from(dependencies, path => JSON.parse(path)) : Array.from(dependencies)
 }
 
-function visitExpressionAst(node, parent, dependencies) {
+function staticMemberPath(node) {
+	if (node.type === 'Identifier') return KEYWORDS.has(node.name) ? null : [node.name]
+	if (node.type === 'ChainExpression') return staticMemberPath(node.expression)
+	if (node.type !== 'MemberExpression') return null
+	const path = staticMemberPath(node.object)
+	if (!path) return null
+	const key = node.computed ? node.property.value : node.property.name
+	return typeof key === 'string' || typeof key === 'number' ? [...path, key] : null
+}
+
+function visitExpressionAst(node, parent, dependencies, paths) {
 	if (!node || typeof node !== 'object') {
 		return
 	}
 
 	if (node.type === 'Identifier') {
-		collectIdentifier(node, parent, dependencies)
+		collectIdentifier(node, parent, dependencies, paths)
 		return
 	}
 
 	// 处理成员表达式，确保只提取根对象，并跳过子节点避免重复处理属性名
 	if (node.type === 'MemberExpression') {
+		if (paths) {
+			const path = staticMemberPath(node)
+			if (path) {
+				dependencies.add(JSON.stringify(path))
+			}
+			else {
+				visitExpressionAst(node.object, node, dependencies, paths)
+				if (node.computed) visitExpressionAst(node.property, node, dependencies, paths)
+			}
+			return
+		}
 		let root = node.object
 		while (root?.type === 'MemberExpression' || root?.type === 'ChainExpression') {
 			root = root.type === 'ChainExpression' ? root.expression : root.object
@@ -77,16 +98,16 @@ function visitExpressionAst(node, parent, dependencies) {
 
 		if (Array.isArray(value)) {
 			for (const child of value) {
-				visitExpressionAst(child, node, dependencies)
+				visitExpressionAst(child, node, dependencies, paths)
 			}
 		}
 		else {
-			visitExpressionAst(value, node, dependencies)
+			visitExpressionAst(value, node, dependencies, paths)
 		}
 	}
 }
 
-function collectIdentifier(node, parent, dependencies) {
+function collectIdentifier(node, parent, dependencies, paths) {
 	const name = node.name
 
 	// 跳过关键字和全局对象
@@ -104,7 +125,7 @@ function collectIdentifier(node, parent, dependencies) {
 		return
 	}
 
-	dependencies.add(name)
+	dependencies.add(paths ? JSON.stringify([name]) : name)
 }
 
 /**
@@ -188,7 +209,15 @@ export function parseBindings(bindings) {
 	const parsed = {}
 
 	for (const [propName, expression] of Object.entries(bindings)) {
-		parsed[propName] = parseExpression(expression)
+		const source = typeof expression === 'string' ? expression.trim() : ''
+		const dependencyPaths = extractDependencies(source, true)
+		const dependencies = [...new Set(dependencyPaths.map(path => path[0]))]
+		parsed[propName] = {
+			expression: source,
+			dependencies,
+			isSimple: !source || (dependencies.length === 1 && source === dependencies[0]),
+			dependencyPaths,
+		}
 	}
 
 	return parsed

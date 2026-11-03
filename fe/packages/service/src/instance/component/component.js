@@ -410,7 +410,7 @@ export class Component {
 		}
 
 		// 同步更新子组件的 properties，确保与微信小程序时序一致
-		const syncedChildren = syncUpdateChildrenProps(this, runtime.instances[this.bridgeId], update.changedData)
+		const syncedChildren = syncUpdateChildrenProps(this, runtime.instances[this.bridgeId], update.changedData, update.changes)
 
 		enqueueUpdate(
 			this.bridgeId,
@@ -418,10 +418,11 @@ export class Component {
 			update.changedData,
 			createUpdateCallback(this, update.callbacks),
 			update.changes,
+			syncedChildren,
 		)
 
 		syncedChildren.forEach(({ child, data }) => {
-			enqueueUpdate(this.bridgeId, child.__id__, data)
+			enqueueUpdate(this.bridgeId, child.__id__, data, undefined, [], [])
 		})
 
 		// exparser runs property observers after the data observer/update phase.
@@ -527,13 +528,19 @@ export class Component {
 	 * 触发观察者函数
 	 * triggerObserver
 	 */
-	tO(data) {
+	tOAssigned({ data, assigned }) {
+		return this.tO(data, assigned)
+	}
+
+	tO(data, assigned) {
 		const incomingData = typeof this.normalizePropertyValues === 'function'
 			? this.normalizePropertyValues(data, { applyFilter: false })
 			: data
 		const nextData = {}
 		const appliedData = {}
 		for (const [prop, incomingValue] of Object.entries(incomingData)) {
+			const explicitlyAssigned = assigned?.includes(prop)
+			if (explicitlyAssigned) delete this.__pendingSyncedProps__?.[prop]
 			if (
 				this.__pendingSyncedProps__
 				&& Object.prototype.hasOwnProperty.call(this.__pendingSyncedProps__, prop)
@@ -739,13 +746,13 @@ export class Component {
 				this.__groupSetDataBuffer__ = {}
 				this.__groupSetDataChanges__ = []
 				this.__groupSetDataCallbacks__ = []
-				const syncedChildren = syncUpdateChildrenProps(this, runtime.instances[this.bridgeId], bufferedData)
+				const syncedChildren = syncUpdateChildrenProps(this, runtime.instances[this.bridgeId], bufferedData, bufferedChanges)
 				
 				// 发送合并后的数据更新
-				enqueueUpdate(this.bridgeId, this.__id__, bufferedData, createUpdateCallback(this, bufferedCallbacks), bufferedChanges)
+				enqueueUpdate(this.bridgeId, this.__id__, bufferedData, createUpdateCallback(this, bufferedCallbacks), bufferedChanges, syncedChildren)
 
 				syncedChildren.forEach(({ child, data }) => {
-					enqueueUpdate(this.bridgeId, child.__id__, data)
+					enqueueUpdate(this.bridgeId, child.__id__, data, undefined, [], [])
 				})
 			}
 			else {

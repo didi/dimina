@@ -141,6 +141,7 @@ describe('expression-parser', () => {
 			const bindings = {
 				count2: 'count',
 				value: 'item.name',
+				parity: 'items[0].count % 2',
 				total: 'count + defaultValue'
 			}
 			const result = parseBindings(bindings)
@@ -150,6 +151,8 @@ describe('expression-parser', () => {
 			
 			expect(result.value.expression).toBe('item.name')
 			expect(result.value.isSimple).toBe(false)
+			expect(result.value.dependencyPaths).toEqual([['item', 'name']])
+			expect(result.parity.dependencyPaths).toEqual([['items', 0, 'count']])
 			
 			expect(result.total.expression).toBe('count + defaultValue')
 			expect(result.total.dependencies).toEqual(['count', 'defaultValue'])

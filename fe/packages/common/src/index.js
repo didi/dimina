@@ -63,3 +63,5 @@ export {
 export { arrayBufferToBase64, base64ToArrayBuffer } from './core/binary'
 export { decodeCanvasRle32, inspectCanvasRle32Tail, decodeCanvasRle32Prefix, decodeCanvasRle32PrefixWithTail } from './core/canvas-compression'
 export { decodeLargeCanvasRleBand, consumeLargeCanvasRleBand } from './core/canvas-decode-fast'
+
+export { propertyBindingPathMatches, propertyBindingPaths } from './core/property-bindings'

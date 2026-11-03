@@ -1,6 +1,7 @@
-import { arrayBufferToBase64, base64ToArrayBuffer, decodeCanvasRle32, CANVAS_ACTIVE_PROP, CANVAS_CONTRACT_CHANGE_EVENT, CANVAS_NODE_PROP, CANVAS_OWNER_PROP, canvasPixelBudgetError, deepEqual, getDataAttributes, normalizePropertyValues as normalizeMiniProgramPropertyValues, set, uuid } from '@dimina/common'
+import { arrayBufferToBase64, base64ToArrayBuffer, decodeCanvasRle32, CANVAS_ACTIVE_PROP, CANVAS_CONTRACT_CHANGE_EVENT, CANVAS_NODE_PROP, CANVAS_OWNER_PROP, canvasPixelBudgetError, cloneDeep, deepEqual, get, getDataAttributes, normalizePropertyValues as normalizeMiniProgramPropertyValues, propertyBindingPathMatches, propertyBindingPaths, resolvePropertyValue, set, toCamelCase, uuid } from '@dimina/common'
 import { Components, deepToRaw } from '@dimina/components'
 import {
+	computed,
 	createApp,
 	createBlock,
 	createCommentVNode,
@@ -13,10 +14,12 @@ import {
 	getCurrentInstance,
 	h,
 	inject,
+	isReactive,
 	nextTick,
 	normalizeClass,
 	normalizeStyle,
 	onMounted,
+	onScopeDispose,
 	onUnmounted,
 	openBlock,
 	provide,
@@ -26,8 +29,10 @@ import {
 	resolveComponent,
 	resolveDirective,
 	resolveDynamicComponent,
+	shallowRef,
 	Suspense,
 	toDisplayString,
+	triggerRef,
 	watch,
 	watchEffect,
 	withCtx,
@@ -61,6 +66,11 @@ function createTemplateData() {
 		},
 	})
 	return { data, templateData }
+}
+
+function isScalarProperty(value) {
+	const type = typeof value
+	return value === null || type === 'string' || type === 'number' || type === 'boolean'
 }
 
 function normalizeStyleIsolation(value) {
@@ -659,6 +669,8 @@ class Runtime {
 		this.setupData = new Map()
 		this.initializedModules = new Set()
 		this.preInitUpdates = new Map()
+		this.objectPropertySnapshots = new WeakMap()
+		this.propertyAssignments = new Map()
 		this.intersectionObservers = new Map()
 		this.mediaQueryObservers = new Map()
 		this.componentAnimations = new Map()
@@ -1225,7 +1237,7 @@ class Runtime {
 						module.propertySchemas,
 						normalizeStaticBooleanAttributes(
 							module.propertySchemas,
-							applyWxmlStyleProperty(module.propertySchemas, deepToRaw(props), vueInstance.vnode),
+							applyWxmlStyleProperty(module.propertySchemas, props, vueInstance.vnode),
 							vueInstance.vnode,
 						),
 						{
@@ -1236,6 +1248,19 @@ class Runtime {
 							warn: warning => console.warn('[system]', '[render]', warning),
 						},
 					)
+					const propertySnapshots = computed(() => {
+						const values = normalizeCurrentProperties()
+						const reactiveNames = new Set()
+						for (const [name, value] of Object.entries(values)) {
+							if (!isReactive(value)) {
+								values[name] = cloneDeep(value)
+								continue
+							}
+							values[name] = that.snapshotObjectProperty(value)
+							reactiveNames.add(name)
+						}
+						return { values, reactiveNames }
+					})
 
 					const externalClasses = []
 					for (const [k, v] of Object.entries(module.props ?? {})) {
@@ -1251,7 +1276,7 @@ class Runtime {
 					// 用原生 click 在这里派发的话，tap 会排在祖先的合成 tap 之后，后代 catchtap 拦不住祖先。
 					const eventAttr = normalizeEventAttributes(attrs)
 
-					const initialProperties = normalizeCurrentProperties()
+					const initialProperties = propertySnapshots.value.values
 					const propertyNames = Object.keys(module.propertySchemas || {}).filter(name => (
 						hasVNodeProp(vueInstance.vnode.props, name)
 						|| (name === 'style' && hasVNodeProp(vueInstance.vnode.props, WXML_STYLE_PROP))
@@ -1293,6 +1318,20 @@ class Runtime {
 					}
 					that._pendingSetups.set(moduleId, new Promise(r => (_resolvePending = r)))
 
+					const pendingAssignments = []
+					const assignmentRevision = shallowRef()
+					const bindingDirective = vueInstance.appContext.directives['c-prop-bindings']
+					const vnodeBinding = vueInstance.vnode.dirs?.find(binding => binding.dir === bindingDirective)
+					const bindingOwnerId = that.moduleIds.get(vueInstance.vnode.ctx?.proxy) || parentId
+					const registerAssignments = bindings => that.registerPropertyAssignments(
+						bindingOwnerId, moduleId, module.propertySchemas, bindings, (assignment) => {
+							pendingAssignments.push(assignment)
+							triggerRef(assignmentRevision)
+						},
+					)
+					let unregisterAssignments = registerAssignments(vnodeBinding?.value)
+					onScopeDispose(() => unregisterAssignments?.())
+
 					onMounted(() => {
 						const roots = collectVNodeRootElements(vueInstance.subTree)
 						that.registerModuleRoots(moduleId, roots)
@@ -1301,6 +1340,8 @@ class Runtime {
 							root.setAttribute(STYLE_ISOLATION_ATTRIBUTE, styleIsolation)
 							addStyleHostToken(root, id)
 						}
+						const propBindings = vnodeBinding?.value || instance.$el?._propBindings
+						unregisterAssignments ||= registerAssignments(propBindings)
 						nextTick(() => {
 							// Slot content keeps its lexical Vue parent, while mini-program
 							// relations follow the rendered component tree. Resolve the
@@ -1315,8 +1356,6 @@ class Runtime {
 									parentId: renderParentId || parentId,
 								},
 							})
-							// 从 DOM 元素读取属性绑定信息
-							const propBindings = instance.$el?._propBindings
 							const eventPath = that.collectCustomEventPath(instance.$el, moduleId)
 
 							message.send({
@@ -1362,52 +1401,75 @@ class Runtime {
 						})
 					}
 					let previousNormalizedProps = initialProperties
-					let isInitialPropsWatch = true
+					let propertiesBeforeInit = {}
+					Object.assign(data, cloneDeep(initialProperties))
+
+					const publishPropertyUpdates = (updates, assigned) => {
+						if (Object.keys(updates).length === 0) return
+
+						Object.assign(data, cloneDeep(updates))
+						if (propertiesBeforeInit) {
+							Object.assign(propertiesBeforeInit, updates)
+						}
+
+						message.send({
+							type: 't',
+							target: 'service',
+							body: {
+								bridgeId,
+								moduleId,
+								methodName: assigned.length ? 'tOAssigned' : 'tO',
+								event: assigned.length ? { data: updates, assigned } : updates,
+							},
+						})
+						if (assigned.length) {
+							that.notifyPropertyAssignments(moduleId, assigned.map(name => [name]), undefined, data)
+						}
+					}
 
 					watch(
-						() => deepToRaw(props),
-						() => {
-							const newProps = isInitialPropsWatch
-								? initialProperties
-								: normalizeCurrentProperties()
-							Object.assign(data, newProps)
-							if (isInitialPropsWatch) {
-								isInitialPropsWatch = false
-								return
-							}
-
-							const changedProps = Object.entries(newProps).reduce((acc, [key, value]) => {
-								if (!deepEqual(value, previousNormalizedProps[key])) {
-									acc[key] = value
+						[propertySnapshots, assignmentRevision],
+						([{ values: newProps, reactiveNames }]) => {
+							const assignments = pendingAssignments.splice(0)
+							const groups = assignments.map(() => ({ data: {}, assigned: new Set() }))
+							const latest = groups.at(-1) || { data: {} }
+							for (const [name, value] of Object.entries(newProps)) {
+								const previous = previousNormalizedProps[name]
+								// A new snapshot represents an object assignment, even when its contents are equal.
+								const changed = reactiveNames.has(name) ? value !== previous : !deepEqual(value, previous)
+								let assigned = false
+								if (assignments.length && isScalarProperty(value)) {
+									for (let i = assignments.length - 1; i >= 0; i--) {
+										const assignment = assignments[i]
+										if (!assignment.names.includes(name)) continue
+										const captured = assignment.values?.has(name)
+										if (changed && assigned && !captured) continue
+										groups[i].data[name] = captured ? assignment.values.get(name) : value
+										groups[i].assigned.add(name)
+										assigned = true
+									}
 								}
-								return acc
-							}, {})
+								if (changed && !assigned) latest.data[name] = value
+							}
 							previousNormalizedProps = newProps
-
-							if (Object.keys(changedProps).length === 0) {
+							if (groups.length === 0) {
+								publishPropertyUpdates(latest.data, [])
 								return
 							}
-
-							message.send({
-								type: 't',
-								target: 'service',
-								body: {
-									bridgeId,
-									moduleId,
-									methodName: 'tO', // triggerObserver
-									event: changedProps,
-								},
-							})
-						},
-						{
-							immediate: true,
+							for (const [index, group] of groups.entries()) {
+								const ordered = assignments[index].names.filter(name => group.assigned.has(name))
+								const data = { ...Object.fromEntries(ordered.map(name => [name, group.data[name]])), ...group.data }
+								publishPropertyUpdates(data, ordered)
+							}
 						},
 					)
 
 					const initData = await initDataPromise
 					that._pendingSetups.delete(moduleId)
 					_pendingResolve()
-					that.applyInitialData(moduleId, data, initData)
+					// The initial Service reply can still contain the props sent with mC.
+					that.applyInitialData(moduleId, data, { ...initData, ...cloneDeep(propertiesBeforeInit) })
+					propertiesBeforeInit = null
 					return templateData
 				},
 				render(...args) {
@@ -1450,14 +1512,34 @@ class Runtime {
 					set(setupData, key, data[key])
 				}
 			}
-			for (const change of changes) {
-				const rootKey = change.path[0]
-				if (!Object.prototype.hasOwnProperty.call(setupData, rootKey)) {
-					hasNewReactiveKey = true
+			const bindings = this.propertyAssignments.get(moduleId)
+			const ranges = bindings ? opts.propertyAssignments : undefined
+			const captureData = ranges?.length > 1 ? setupData : undefined
+			const applyChanges = (start, end, synced) => {
+				let paths
+				for (let i = start; i < end; i++) {
+					const { path, value } = changes[i]
+					const rootKey = path[0]
+					if (!Object.hasOwn(setupData, rootKey)) {
+						hasNewReactiveKey = true
+					}
+					set(setupData, path, value)
+					newKeys[rootKey] = setupData[rootKey]
+					this.invalidateObjectProperties(newKeys[rootKey], path)
+					if (bindings?.has(rootKey)) {
+						paths ||= []
+						paths.push(path)
+					}
 				}
-				set(setupData, change.path, change.value)
-				newKeys[rootKey] = setupData[rootKey]
+				if (paths) this.notifyPropertyAssignments(moduleId, paths, synced, captureData)
 			}
+			let cursor = 0
+			for (const [start, end, synced] of ranges || []) {
+				if (start > cursor) applyChanges(cursor, start)
+				applyChanges(start, end, synced)
+				cursor = end
+			}
+			if (cursor < changes.length) applyChanges(cursor, changes.length)
 			if (hasNewReactiveKey) {
 				this.refreshProxyAccess(moduleId, newKeys)
 			}
@@ -1466,6 +1548,103 @@ class Runtime {
 			console.warn('[system]', '[render]', `module ${moduleId} is not exist.`)
 		}
 		this.schedulePageReRender()
+	}
+
+	registerPropertyAssignments(ownerId, moduleId, schemas, bindings, notify) {
+		if (!bindings || !schemas) return
+		const ownerBindings = this.propertyAssignments.get(ownerId) || new Map()
+		const registrations = []
+		const propertyOrder = new Map()
+		const notifyInTemplateOrder = (entries, captureData) => {
+			const names = [...entries.keys()].sort((a, b) => propertyOrder.get(a) - propertyOrder.get(b))
+			let values
+			if (captureData) {
+				values = new Map()
+				for (const [name, entry] of entries) {
+					if (!entry.readPath) continue
+					const value = resolvePropertyValue(entry.schema, get(captureData, entry.readPath))
+					if (isScalarProperty(value)) values.set(name, value)
+				}
+			}
+			notify({ names, values })
+		}
+		for (const [name, binding] of Object.entries(bindings)) {
+			const prop = Object.hasOwn(schemas, name) ? name : toCamelCase(name)
+			if (!Object.hasOwn(schemas, prop)) continue
+			propertyOrder.set(prop, propertyOrder.size)
+			const [readPath] = propertyBindingPaths({ expression: binding.expression })
+			for (const path of propertyBindingPaths(binding)) {
+				let entries = ownerBindings.get(path[0])
+				if (!entries) {
+					entries = new Set()
+					ownerBindings.set(path[0], entries)
+				}
+				const entry = { moduleId, prop, path, readPath, schema: schemas[prop], notify: notifyInTemplateOrder }
+				entries.add(entry)
+				registrations.push(entry)
+			}
+		}
+		if (registrations.length === 0) return
+
+		this.propertyAssignments.set(ownerId, ownerBindings)
+		return () => {
+			for (const entry of registrations) {
+				const root = entry.path[0]
+				const entries = ownerBindings.get(root)
+				entries.delete(entry)
+				if (entries.size === 0) ownerBindings.delete(root)
+			}
+			if (ownerBindings.size === 0) this.propertyAssignments.delete(ownerId)
+		}
+	}
+
+	notifyPropertyAssignments(ownerId, paths, synced, captureData) {
+		const ownerBindings = this.propertyAssignments.get(ownerId)
+		if (!ownerBindings) return
+		const affected = new Map()
+		for (const path of paths) {
+			for (const entry of ownerBindings.get(path[0]) || []) {
+				const { moduleId, prop, notify } = entry
+				if (synced?.[moduleId]?.includes(prop) || !propertyBindingPathMatches(entry.path, path)) continue
+				let names = affected.get(notify)
+				if (!names) {
+					names = new Map()
+					affected.set(notify, names)
+				}
+				names.set(prop, entry)
+			}
+		}
+		for (const [notify, entries] of affected) notify(entries, captureData)
+	}
+
+	snapshotObjectProperty(value) {
+		let entry = this.objectPropertySnapshots.get(value)
+		if (!entry) {
+			const revision = shallowRef()
+			const snapshot = computed(() => {
+				// Track both reactive reads and explicit setData writes that keep the same value.
+				void revision.value
+				return cloneDeep(value)
+			})
+			entry = { revision, snapshot }
+			this.objectPropertySnapshots.set(value, entry)
+		}
+		return entry.snapshot.value
+	}
+
+	invalidateObjectProperties(value, path) {
+		// The assigned path dirties bound objects along that path. Sibling
+		// objects keep their cached snapshots.
+		for (let i = 1; value !== null && typeof value === 'object'; i++) {
+			const revision = this.objectPropertySnapshots.get(value)?.revision
+			if (revision) {
+				triggerRef(revision)
+			}
+			if (i >= path.length || !Object.hasOwn(value, path[i])) {
+				break
+			}
+			value = value[path[i]]
+		}
 	}
 
 	schedulePageReRender() {

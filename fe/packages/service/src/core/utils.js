@@ -1,4 +1,4 @@
-import { camelCaseToUnderscore, cloneDeep, deepEqual, get, isFunction, isNil, normalizePropertyDefinition, toCamelCase } from '@dimina/common'
+import { camelCaseToUnderscore, cloneDeep, deepEqual, get, isFunction, isNil, normalizePropertyDefinition, propertyBindingPathMatches, propertyBindingPaths, toCamelCase } from '@dimina/common'
 import { invokeDataObservers, invokePropertyChanges, parseDataPath } from './data-update'
 
 const queue = []
@@ -522,36 +522,18 @@ export function matchComponent(selector, item) {
 /**
  * 检查表达式的依赖是否发生变化
  * @param {object} bindingInfo 绑定信息对象（包含 expression, dependencies, isSimple）
- * @param {object} changedData 变化的数据
+ * @param {Array<Array<string | number>>} changedPaths 变化的数据路径
  * @returns {boolean} 是否有依赖变化
  */
-function hasDependencyChanged(bindingInfo, changedData) {
-	if (!bindingInfo || !Array.isArray(bindingInfo.dependencies)) {
-		return false
-	}
-	
-	// 检查任一依赖是否在 changedData 中
-	for (const dep of bindingInfo.dependencies) {
-		if (dep in changedData) {
-			return true
-		}
-		
-		// 检查嵌套路径，如 changedData 有 'item' 变化，则 'item.name' 也应更新
-		// 或者 changedData 有 'item.name' 变化，则依赖 'item' 的表达式也应更新
-		for (const changedKey of Object.keys(changedData)) {
-			// changedKey 是 dep 的子路径
-			if (changedKey.startsWith(dep + '.') || changedKey.startsWith(dep + '[')) {
-				return true
-			}
-			// dep 是 changedKey 的子路径
-			if (dep.startsWith(changedKey + '.') || dep.startsWith(changedKey + '[')) {
-				return true
-			}
-		}
-	}
-	
-	return false
+function hasDependencyChanged(bindingInfo, changedPaths) {
+	const paths = propertyBindingPaths(bindingInfo)
+	const dependencies = paths.length || bindingInfo.dependencyPaths ? paths : (bindingInfo.dependencies || []).map(name => [name])
+	return dependencies.some(dependency =>
+		changedPaths.some(path => propertyBindingPathMatches(dependency, path)),
+	)
 }
+
+const unevaluatedBinding = Symbol('unevaluated property binding')
 
 /**
  * 计算表达式的新值
@@ -578,7 +560,7 @@ function evaluateExpression(bindingInfo, parentData) {
 		return func(parentData)
 	} catch (error) {
 		console.warn('[service] 计算表达式失败:', bindingInfo.expression, error)
-		return undefined
+		return unevaluatedBinding
 	}
 }
 
@@ -590,42 +572,46 @@ function evaluateExpression(bindingInfo, parentData) {
  * @param {object} allInstances 所有组件实例对象（来自 runtime.instances[bridgeId]）
  * @param {object} changedData 父组件变化的数据（新值）
  */
-export function syncUpdateChildrenProps(parent, allInstances, changedData) {
+export function syncUpdateChildrenProps(parent, allInstances, changedData, changes) {
+	if (!parent.__childPropsBindings__) return []
 	const children = Object.values(allInstances || {})
 	const syncedChildren = []
+	const changedPaths = changes?.map(change => change.path) || Object.keys(changedData).map(parseDataPath).filter(Boolean)
 	
 	// 遍历所有子组件
 	for (const child of children) {
 		// 只处理当前组件/页面的直接子组件
-		if (!isChildComponent(child, parent.__id__, children) || child.__parentId__ !== parent.__id__) {
+		if (child.__parentId__ !== parent.__id__ || !isChildComponent(child, parent.__id__, children)) {
 			continue
 		}
 
-		// 检查子组件的每个 property 是否需要更新
 		const childProperties = child.__info__?.properties || {}
+		const bindings = parent.__childPropsBindings__[child.__id__] || {}
 		const updateData = {}
-		
-		// 使用编译器提供的绑定关系
-		for (const propName in childProperties) {
-			const bindingInfo = parent.__childPropsBindings__?.[child.__id__]?.[propName]
-			
-			if (!bindingInfo) {
-				continue
+		let needsRender = false
+		for (const [name, bindingInfo] of Object.entries(bindings)) {
+			const propName = Object.hasOwn(childProperties, name) ? name : toCamelCase(name)
+			if (!Object.hasOwn(childProperties, propName) || !hasDependencyChanged(bindingInfo, changedPaths)) continue
+
+			const value = evaluateExpression(bindingInfo, parent.data)
+			if (value === unevaluatedBinding) {
+				// Keep mixed bindings in one observer transaction. Render has
+				// access to template expressions that Service cannot evaluate.
+				needsRender = true
+				break
 			}
-			
-			// 检查依赖是否变化
-			if (hasDependencyChanged(bindingInfo, changedData)) {
-				// 重新计算表达式的值
-				// exparser deep-copies template expression results before assigning
-				// component properties, so parent and child never share an object.
-				const newValue = cloneDeep(evaluateExpression(bindingInfo, parent.data))
-				updateData[propName] = newValue
-			}
+			updateData[propName] = cloneDeep(value)
 		}
+		if (needsRender) continue
 
 		// 如果有数据需要更新，直接触发子组件 observers，确保属性驱动的行为在 service 侧即时生效
 		if (Object.keys(updateData).length > 0) {
 			const incomingData = child.normalizePropertyValues?.(updateData, { applyFilter: false }) || updateData
+			// This is a new assignment. A pending entry only acknowledges the
+			// asynchronous Render echo of a previous assignment.
+			for (const name of Object.keys(incomingData)) {
+				delete child.__pendingSyncedProps__?.[name]
+			}
 			const appliedData = child.tO?.(incomingData)
 			const normalizedData = appliedData || child.normalizePropertyValues?.(incomingData) || incomingData
 			child.__pendingSyncedProps__ = child.__pendingSyncedProps__ || {}

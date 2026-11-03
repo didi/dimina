@@ -52,6 +52,7 @@ describe('setData update batching', () => {
 							count: 1,
 							name: 'dimina',
 						},
+						propertyAssignments: [[0, 1], [1, 2]],
 					},
 				],
 			},
@@ -117,12 +118,14 @@ describe('setData update batching', () => {
 							count: 1,
 							name: 'dimina',
 						},
+						propertyAssignments: [[0, 2, { [child.__id__]: ['count'] }]],
 					},
 					{
 						moduleId: child.__id__,
 						data: {
 							count: 1,
 						},
+						propertyAssignments: [[0, 1]],
 					},
 				],
 			},

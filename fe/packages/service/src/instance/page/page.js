@@ -79,7 +79,7 @@ export class Page {
 		}
 
 		// 同步更新子组件的 properties，确保与微信小程序时序一致
-		const syncedChildren = syncUpdateChildrenProps(this, runtime.instances[this.bridgeId], update.changedData)
+		const syncedChildren = syncUpdateChildrenProps(this, runtime.instances[this.bridgeId], update.changedData, update.changes)
 
 		enqueueUpdate(
 			this.bridgeId,
@@ -87,10 +87,11 @@ export class Page {
 			update.changedData,
 			createUpdateCallback(this, update.callbacks),
 			update.changes,
+			syncedChildren,
 		)
 
 		syncedChildren.forEach(({ child, data }) => {
-			enqueueUpdate(this.bridgeId, child.__id__, data)
+			enqueueUpdate(this.bridgeId, child.__id__, data, undefined, [], [])
 		})
 	}
 
