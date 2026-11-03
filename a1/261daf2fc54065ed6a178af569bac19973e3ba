@@ -1,0 +1,59 @@
+fe/packages/render/src/core/message.js
+  25d40473a3512e57 17-20
+fe/packages/service/__tests__/set-data-semantics.spec.js
+  25d40473a3512e57 80,83-84,89-90,93,104,106,143-146
+fe/packages/service/__tests__/utils.spec.js
+  25d40473a3512e57 615-616,618
+fe/packages/service/src/instance/component/component.js
+  25d40473a3512e57 653
+fe/packages/common/src/core/linked-order.js
+  25d40473a3512e57 1-39
+fe/packages/common/src/core/data-function.js
+  25d40473a3512e57 4-8
+fe/packages/render/src/core/runtime.js
+  25d40473a3512e57 49,1177-1190,1192,1200-1201,1205-1211,1214,1221,1226,1234-1243,1254
+fe/packages/render/__tests__/real-component-lifecycle.spec.js
+  25d40473a3512e57 157-161,303,340-341,349,355-393,420-421
+fe/packages/service/src/core/runtime.js
+  25d40473a3512e57 1,18,256-277,280-283,290,295-310,312-318,399,490
+fe/packages/service/src/core/update-queue.js
+  25d40473a3512e57 1,17,57-63,69-70,83-84,117,122,132,134
+fe/packages/common/src/index.js
+  25d40473a3512e57 27,69
+fe/packages/render/src/core/keyed-relation-moves.js
+  25d40473a3512e57 1-143
+fe/packages/render/__tests__/keyed-relation-moves.spec.js
+  25d40473a3512e57 1-71
+fe/packages/service/__tests__/set-data-batch.spec.js
+  25d40473a3512e57 42-43,53-56,119-122,127,224
+fe/packages/service/src/index.js
+  25d40473a3512e57 55
+fe/packages/service/src/core/utils.js
+  25d40473a3512e57 537,557-564,581-582,586-588
+fe/packages/service/src/core/message.js
+  25d40473a3512e57 11,36,63,65-66,72-73,77
+fe/packages/service/__tests__/background-lifecycle.spec.js
+  25d40473a3512e57 65-80
+fe/packages/render/__tests__/message-handshake.spec.js
+  25d40473a3512e57 62-79
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "a1261daf2fc54065ed6a178af569bac19973e3ba",
+  "prompts": {
+    "25d40473a3512e57": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a10c-a12f-7b40-b07a-ccd963508132",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 511,
+      "total_deletions": 83,
+      "accepted_lines": 6752,
+      "overriden_lines": 0
+    }
+  }
+}
