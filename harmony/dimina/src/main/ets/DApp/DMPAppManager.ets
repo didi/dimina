@@ -305,7 +305,7 @@ export class DMPAppManager {
   public showCapsule: boolean = true
 
   // Capsule fill color, including alpha. Configure before launching mini programs.
-  public capsuleBackgroundColor: ResourceColor = Color.White
+  public capsuleBackgroundColor: ResourceColor = '#ffffff'
 
   public showLaunchLoading: boolean = true
 
