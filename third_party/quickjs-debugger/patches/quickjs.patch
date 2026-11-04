@@ -1,5 +1,5 @@
 diff --git a/quickjs.c b/quickjs.c
-index e3716a4..1c6540b 100644
+index 6dadfee..b82a916 100644
 --- a/quickjs.c
 +++ b/quickjs.c
 @@ -43,6 +43,7 @@
@@ -10,7 +10,7 @@ index e3716a4..1c6540b 100644
  #include "libregexp.h"
  #include "libunicode.h"
  #include "dtoa.h"
-@@ -388,6 +389,8 @@ struct JSRuntime {
+@@ -393,6 +394,8 @@ struct JSRuntime {
      int shape_hash_count; /* number of hashed shapes */
      JSShape **shape_hash;
      void *user_opaque;
@@ -19,7 +19,7 @@ index e3716a4..1c6540b 100644
  };
 
  struct JSClass {
-@@ -721,6 +724,7 @@ typedef struct JSFunctionBytecode {
+@@ -731,6 +734,7 @@ typedef struct JSFunctionBytecode {
          uint8_t *pc2line_buf;
          char *source;
      } debug;
@@ -27,7 +27,7 @@ index e3716a4..1c6540b 100644
  } JSFunctionBytecode;
 
  typedef struct JSBoundFunction {
-@@ -2404,6 +2408,8 @@ void JS_SetRuntimeInfo(JSRuntime *rt, const char *s)
+@@ -2461,6 +2465,8 @@ void JS_SetRuntimeInfo(JSRuntime *rt, const char *s)
 
  void JS_FreeRuntime(JSRuntime *rt)
  {
@@ -36,7 +36,7 @@ index e3716a4..1c6540b 100644
      struct list_head *el, *el1;
      int i;
 
-@@ -2621,6 +2627,8 @@ JSContext *JS_NewContextRaw(JSRuntime *rt)
+@@ -2681,6 +2687,8 @@ JSContext *JS_NewContextRaw(JSRuntime *rt)
          JS_FreeContext(ctx);
          return NULL;
      }
@@ -45,7 +45,7 @@ index e3716a4..1c6540b 100644
      return ctx;
  }
 
-@@ -2798,6 +2806,8 @@ void JS_FreeContext(JSContext *ctx)
+@@ -2861,6 +2869,8 @@ void JS_FreeContext(JSContext *ctx)
      }
  #endif
 
@@ -54,7 +54,7 @@ index e3716a4..1c6540b 100644
      js_free_modules(ctx, JS_FREE_MODULE_ALL);
 
      JS_FreeValue(ctx, ctx->global_obj);
-@@ -7358,6 +7368,7 @@ JSValue JS_Throw(JSContext *ctx, JSValue obj)
+@@ -7482,6 +7492,7 @@ JSValue JS_Throw(JSContext *ctx, JSValue obj)
      JS_FreeValue(ctx, rt->current_exception);
      rt->current_exception = obj;
      rt->current_exception_is_uncatchable = FALSE;
@@ -62,7 +62,7 @@ index e3716a4..1c6540b 100644
      return JS_EXCEPTION;
  }
 
-@@ -17760,7 +17771,7 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
+@@ -18217,7 +18228,7 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
 
  #if !DIRECT_DISPATCH
  #define SWITCH(pc)      switch (opcode = *pc++)
@@ -71,7 +71,7 @@ index e3716a4..1c6540b 100644
  #define DEFAULT         default
  #define BREAK           break
  #else
-@@ -17774,14 +17785,28 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
+@@ -18231,14 +18242,28 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
  #include "quickjs-opcode.h"
          [ OP_COUNT ... 255 ] = &&case_default
      };
@@ -103,7 +103,7 @@ index e3716a4..1c6540b 100644
  #endif
 
      if (js_poll_interrupts(caller_ctx))
-@@ -17875,6 +17900,8 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
+@@ -18332,6 +18357,8 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
          int call_argc;
          JSValue *call_argv;
 
@@ -112,7 +112,7 @@ index e3716a4..1c6540b 100644
          SWITCH(pc) {
          CASE(OP_push_i32):
              *sp++ = JS_NewInt32(ctx, get_u32(pc));
-@@ -36314,6 +36341,9 @@ static void free_function_bytecode(JSRuntime *rt, JSFunctionBytecode *b)
+@@ -37463,6 +37490,9 @@ static void free_function_bytecode(JSRuntime *rt, JSFunctionBytecode *b)
          JS_FreeAtomRT(rt, b->debug.filename);
          js_free_rt(rt, b->debug.pc2line_buf);
          js_free_rt(rt, b->debug.source);
@@ -122,7 +122,7 @@ index e3716a4..1c6540b 100644
      }
 
      remove_gc_object(&b->header);
-@@ -61422,3 +61452,262 @@ int JS_AddIntrinsicWeakRef(JSContext *ctx)
+@@ -65716,3 +65746,262 @@ int JS_AddIntrinsicWeakRef(JSContext *ctx)
      JS_FreeValue(ctx, obj);
      return 0;
  }

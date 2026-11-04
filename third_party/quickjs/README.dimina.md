@@ -4,6 +4,10 @@
 [`bellard/quickjs`](https://github.com/bellard/quickjs) at the commit recorded
 in `UPSTREAM_COMMIT`. Its license is preserved in `upstream/LICENSE`.
 
+The upstream `VERSION` is a release label; `UPSTREAM_COMMIT` identifies the
+exact snapshot. Experimental Temporal and Intl sources are included in the
+snapshot but are not enabled by the shared CMake configuration.
+
 Do not edit the snapshot in place. Android and Harmony consume it through
 `cmake/DiminaQuickJS.cmake`. Debugger-enabled builds copy only the required
 build inputs into the platform build directory and apply

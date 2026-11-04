@@ -1,6 +1,8 @@
+diff --git a/quickjs.c b/quickjs.c
+index 6dadfee..2445421 100644
 --- a/quickjs.c
 +++ b/quickjs.c
-@@ -340,6 +340,7 @@
+@@ -345,6 +345,7 @@ struct JSRuntime {
      struct list_head tmp_obj_list; /* used during GC */
      JSGCPhaseEnum gc_phase : 8;
      size_t malloc_gc_threshold;
@@ -8,7 +10,7 @@
      struct list_head weakref_list; /* list of JSWeakRefHeader.link */
  #ifdef DUMP_LEAKS
      struct list_head string_list; /* list of JSString.link */
-@@ -1794,6 +1795,7 @@
+@@ -1826,6 +1827,7 @@ static void js_trigger_gc(JSRuntime *rt, size_t size)
          JS_RunGC(rt);
          rt->malloc_gc_threshold = rt->malloc_ctx.malloc_state.malloc_size +
              (rt->malloc_ctx.malloc_state.malloc_size >> 1);
@@ -16,7 +18,7 @@
      }
  }
 
-@@ -2081,6 +2083,7 @@
+@@ -2116,6 +2118,7 @@ JSRuntime *JS_NewRuntime2(const JSMallocFunctions *mf, void *opaque)
      rt->malloc_ctx.mf = *mf;
      rt->malloc_ctx.malloc_state = ms;
      rt->malloc_gc_threshold = 256 * 1024;
@@ -24,7 +26,7 @@
 
      init_list_head(&rt->context_list);
      init_list_head(&rt->gc_obj_list);
-@@ -2227,6 +2230,7 @@
+@@ -2262,6 +2265,7 @@ void JS_SetMemoryLimit(JSRuntime *rt, size_t limit)
  void JS_SetGCThreshold(JSRuntime *rt, size_t gc_threshold)
  {
      rt->malloc_gc_threshold = gc_threshold;
@@ -32,7 +34,7 @@
  }
 
  #define malloc(s) malloc_is_forbidden(s)
-@@ -49946,6 +49950,16 @@
+@@ -52705,6 +52709,16 @@ static int JS_ToQuotedString(JSContext *ctx, StringBuffer *b, JSValueConst val1)
      if (string_buffer_putc8(b, '\"'))
          goto fail;
      for(i = 0; i < p->len; ) {
@@ -49,12 +51,10 @@
          c = string_getc(p, &i);
          switch(c) {
          case '\t':
-@@ -56853,6 +56867,83 @@
-                                         (uint8_t *)buf,
-                                         js_array_buffer_free, NULL,
+@@ -60694,6 +60708,83 @@ JSValue JS_NewArrayBufferCopy(JSContext *ctx, const uint8_t *buf, size_t len)
                                          TRUE);
-+}
-+
+ }
+
 +/* Embedding-owned buffers are charged to the runtime and GC budget. The
 +   caller retains ownership on failure; the finalizer owns it on success. */
 +typedef struct JSOwnedArrayBufferData {
@@ -130,12 +130,16 @@
 +        rt->malloc_gc_threshold_manual = previous_gc_manual;
 +    }
 +    return JS_EXCEPTION;
- }
-
- static JSValue js_array_buffer_constructor0(JSContext *ctx, JSValueConst new_target,
++}
++
+ BOOL JS_IsArrayBuffer(JSValueConst obj)
+ {
+     return JS_GetClassID(obj) == JS_CLASS_ARRAY_BUFFER;
+diff --git a/quickjs.h b/quickjs.h
+index e3fc629..ec8c63c 100644
 --- a/quickjs.h
 +++ b/quickjs.h
-@@ -872,6 +872,10 @@
+@@ -918,6 +918,10 @@ JSValue JS_NewArrayBuffer(JSContext *ctx, uint8_t *buf, size_t len,
                            JSFreeArrayBufferDataFunc *free_func, void *opaque,
                            JS_BOOL is_shared);
  JSValue JS_NewArrayBufferCopy(JSContext *ctx, const uint8_t *buf, size_t len);
@@ -145,4 +149,4 @@
 +                              JSFreeArrayBufferDataFunc *free_func, void *opaque);
  void JS_DetachArrayBuffer(JSContext *ctx, JSValueConst obj);
  uint8_t *JS_GetArrayBuffer(JSContext *ctx, size_t *psize, JSValueConst obj);
-
+ JS_BOOL JS_IsArrayBuffer(JSValueConst obj);
