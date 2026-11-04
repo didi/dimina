@@ -13,3 +13,4 @@ export { DMPDefaultVirtualFilePrefix, DMPVirtualFileConfig } from './src/main/et
 export { DMPMapProviders, DMPNativeMapProvider, DMPNativeMapHandle, DMPNativeMapEvents } from './src/main/ets/Map/DMPMapProvider';
 
 export { DMPMiniProgramVersionInfo } from './src/main/ets/Bundle/DMPRemoteUpdateManager';
+export { DMPHostFonts } from './src/main/ets/Render/DMPHostFonts';

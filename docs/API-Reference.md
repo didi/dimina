@@ -13,6 +13,8 @@
 
 > 本文档是编译器兼容性提示清单的唯一数据源。修改组件表或 API 表后，需要在 `fe/` 下运行 `pnpm --filter @dimina/compiler sync:compat` 生成对应 JS 文件；可运行 `pnpm --filter @dimina/compiler check:compat` 只读检查两者是否一致。
 
+宿主字库注册与字体加载的接入方法见[复用宿主 App 的字体](./Host-Fonts.md)。
+
 ## 语法兼容处理
 
 Dimina 的 render runtime 使用 Vue，但模板编译器和组件 runtime 会把以下行为统一为小程序语义：
@@ -296,6 +298,7 @@ DMPApp.init(context, { virtualFilePrefix: 'host-file://' })
 |               | offMenuButtonBoundingClientRectWeightChange | ✓ | ✓ | ✓ | ✓ |
 | 界面 - 自定义组件 | nextTick                       | ✓       | ✓   | ✓       | ✓   |
 | 界面 - 动画   | createAnimation                  | ✓       | ✓   | ✓       | ✓   |
+| 界面 - 字体   | loadFontFace                     | ✓       | ✓   | ✓       | ✓（网络字体） |
 | 界面 - Canvas | createCanvasContext              | ✓       | ✓   | ✓       | ✓   |
 |               | createOffscreenCanvas            | ✓       | ✓   | ✓       | ✓   |
 |               | createCanvas                     | ✓       | ✓   | ✓       | ✓   |

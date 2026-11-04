@@ -82,11 +82,40 @@ const info = await manager.installMiniProgram('demo', zipPath)
 
 ### 胶囊背景色
 
-宿主可在首次启动小程序前设置全局胶囊底色，默认不透明白色。下面三种写法都使用约 50% 不透明度的白色。透明度作用于填充色，图标、边框和点击区域保持原有行为。
+宿主可在首次启动小程序前设置全局胶囊底色，默认不透明白色。下面三种写法都使用约 50% 不透明度的白色。透明度作用于填充色，图标、边框和点击区域保持原有行为。Android 和 iOS 在填充色不透明时保留默认阴影；半透明或全透明时不绘制阴影，避免底色叠加变暗。
 
 - Android 在初始化 SDK 的 `DiminaConfig.Builder` 上调用 `.setCapsuleBackgroundColor(0x80FFFFFF.toInt())`，参数是 ARGB 颜色整数。
 - iOS 在主线程设置 `DMPAppManager.sharedInstance().capsuleBackgroundColor = UIColor.white.withAlphaComponent(0.5)`。Objective-C 可在 `DMPObjCManager.shared` 上设置同名属性。
 - Harmony 设置 `DMPAppManager.sharedInstance().capsuleBackgroundColor = '#80FFFFFF'`，属性接受 ArkUI 的 `ResourceColor`。
+
+### 胶囊图标颜色
+
+宿主可在首次启动小程序前设置全局 `capsuleIconColor`，同时作用于“更多”的三个圆点和“关闭”的圆环及中心圆点，默认是 `#1F1F1F`。图标颜色支持透明度，与胶囊背景色独立；边框、分隔线、尺寸和点击区域保持原有行为。透明图标仍可点击，宿主应按背景色选择可辨识的图标颜色。
+
+- Android 在 `DiminaConfig.Builder` 上调用 `.setCapsuleIconColor(0xFFFFFFFF.toInt())`，参数为 ARGB 颜色整数。
+- iOS 在主线程设置 `DMPAppManager.sharedInstance().capsuleIconColor = .white`；Objective-C 可通过 `DMPObjCManager.shared.capsuleIconColor` 设置 `UIColor`。
+- Harmony 设置 `DMPAppManager.sharedInstance().capsuleIconColor = '#ffffff'`，属性接受 ArkUI 的 `ResourceColor`。
+
+例如，深色胶囊搭配白色图标：
+
+```kotlin
+Dimina.init(this, Dimina.DiminaConfig.Builder()
+    .setCapsuleBackgroundColor(0xFF17202A.toInt())
+    .setCapsuleIconColor(0xFFFFFFFF.toInt())
+    .build())
+```
+
+```swift
+let manager = DMPAppManager.sharedInstance()
+manager.capsuleBackgroundColor = UIColor(white: 0.1, alpha: 1)
+manager.capsuleIconColor = .white
+```
+
+```typescript
+const manager = DMPAppManager.sharedInstance()
+manager.capsuleBackgroundColor = '#17202a'
+manager.capsuleIconColor = '#ffffff'
+```
 
 ### 默认启动页和 Android 多任务窗口
 

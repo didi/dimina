@@ -64,6 +64,7 @@ describe('compatibility diagnostics', () => {
 		const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
 		warnUnsupportedWxApi('canIUse', '/pages/index/index.js', 1)
+		warnUnsupportedWxApi('loadFontFace', '/pages/index/index.js', 1)
 		warnUnsupportedWxApi('createCanvas', '/game.js', 2)
 		warnUnsupportedWxApi('createVideoDecoder', '/pages/index/index.js', 2)
 		warnUnsupportedWxApi('getUserProfile', '/pages/index/index.js', 2)

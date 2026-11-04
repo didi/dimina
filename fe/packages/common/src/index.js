@@ -67,3 +67,4 @@ export { decodeLargeCanvasRleBand, consumeLargeCanvasRleBand } from './core/canv
 
 export { propertyBindingPathMatches, propertyBindingPaths } from './core/property-bindings'
 export { LinkedOrder } from './core/linked-order'
+export { fontFaceKey, HOST_FONT_PATH, normalizeFontFace, resolveFontFaceSource } from './core/font-face'

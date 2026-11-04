@@ -307,6 +307,9 @@ export class DMPAppManager {
   // Capsule fill color, including alpha. Configure before launching mini programs.
   public capsuleBackgroundColor: ResourceColor = '#ffffff'
 
+  // Color for both capsule icons, including alpha. Configure before launching mini programs.
+  public capsuleIconColor: ResourceColor = '#1f1f1f'
+
   public showLaunchLoading: boolean = true
 
   isExistsApp(appId: string): boolean {

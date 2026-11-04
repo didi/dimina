@@ -82,6 +82,8 @@ enum DMPWebResourceLoader {
             return "image/heif"
         case "json":
             return "application/json"
+        case "ttf", "otf", "woff", "woff2":
+            return "font/\(pathExtension.lowercased())"
         default:
             return "application/octet-stream"
         }
@@ -108,6 +110,20 @@ class DiminaURLSchemeHandler: NSObject, WKURLSchemeHandler {
     func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
         guard let url = urlSchemeTask.request.url else {
             urlSchemeTask.didFailWithError(NSError(domain: "DiminaErrorDomain", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid URL"]))
+            return
+        }
+
+        if url.scheme == "dimina", url.host == nil, url.path.hasPrefix(DMPHostFonts.resourcePath) {
+            do {
+                let id = String(url.path.dropFirst(DMPHostFonts.resourcePath.count))
+                let payload = try DMPHostFonts.load(id)
+                urlSchemeTask.didReceive(URLResponse(url: url, mimeType: payload.mimeType,
+                                                    expectedContentLength: payload.data.count, textEncodingName: nil))
+                urlSchemeTask.didReceive(payload.data)
+                urlSchemeTask.didFinish()
+            } catch {
+                urlSchemeTask.didFailWithError(error)
+            }
             return
         }
         

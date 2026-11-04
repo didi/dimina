@@ -121,14 +121,17 @@ public class DMPNavigator: NSObject {
         let capsuleView = UIView()
         capsuleView.translatesAutoresizingMaskIntoConstraints = false
         capsuleView.accessibilityIdentifier = "dimina.navigation.capsule"
-        capsuleView.backgroundColor = DMPAppManager.sharedInstance().capsuleBackgroundColor
+        let fillColor = DMPAppManager.sharedInstance().capsuleBackgroundColor
+        let iconColor = DMPAppManager.sharedInstance().capsuleIconColor
+        capsuleView.backgroundColor = fillColor
         capsuleView.layer.cornerRadius = DMPMenuButtonLayout.capsuleSize.height / 2
         capsuleView.layer.borderWidth = 0.5
         capsuleView.layer.borderColor = UIColor(
             red: 229 / 255, green: 229 / 255, blue: 229 / 255, alpha: 1
         ).cgColor
         capsuleView.layer.shadowColor = UIColor.black.cgColor
-        capsuleView.layer.shadowOpacity = 0.08
+        // A layer shadow also sits underneath the fill, affecting translucent colors.
+        capsuleView.layer.shadowOpacity = fillColor.cgColor.alpha == 1 ? 0.08 : 0
         capsuleView.layer.shadowRadius = 2
         capsuleView.layer.shadowOffset = CGSize(width: 0, height: 1)
         capsuleView.isHidden = true
@@ -137,7 +140,7 @@ public class DMPNavigator: NSObject {
         moreButton.translatesAutoresizingMaskIntoConstraints = false
         moreButton.contentHorizontalAlignment = .center
         moreButton.contentVerticalAlignment = .center
-        moreButton.setImage(makeCapsuleMoreImage(), for: .normal)
+        moreButton.setImage(makeCapsuleMoreImage(color: iconColor), for: .normal)
         moreButton.accessibilityLabel = "More"
         moreButton.addTarget(self, action: #selector(capsuleMoreButtonTapped), for: .touchUpInside)
 
@@ -145,7 +148,7 @@ public class DMPNavigator: NSObject {
         closeButton.translatesAutoresizingMaskIntoConstraints = false
         closeButton.contentHorizontalAlignment = .center
         closeButton.contentVerticalAlignment = .center
-        closeButton.setImage(makeCapsuleCloseImage(), for: .normal)
+        closeButton.setImage(makeCapsuleCloseImage(color: iconColor), for: .normal)
         closeButton.accessibilityLabel = "Close"
         closeButton.addTarget(self, action: #selector(capsuleCloseButtonTapped), for: .touchUpInside)
 
@@ -195,8 +198,7 @@ public class DMPNavigator: NSObject {
         self.capsuleCloseButton = closeButton
     }
 
-    private func makeCapsuleMoreImage() -> UIImage {
-        let color = UIColor(red: 31 / 255, green: 31 / 255, blue: 31 / 255, alpha: 1)
+    private func makeCapsuleMoreImage(color: UIColor) -> UIImage {
         let renderer = UIGraphicsImageRenderer(size: CGSize(width: 22, height: 22))
         return renderer.image { context in
             color.setFill()
@@ -213,8 +215,7 @@ public class DMPNavigator: NSObject {
         }.withRenderingMode(.alwaysOriginal)
     }
 
-    private func makeCapsuleCloseImage() -> UIImage {
-        let color = UIColor(red: 31 / 255, green: 31 / 255, blue: 31 / 255, alpha: 1)
+    private func makeCapsuleCloseImage(color: UIColor) -> UIImage {
         let renderer = UIGraphicsImageRenderer(size: CGSize(width: 22, height: 22))
         return renderer.image { context in
             let cgContext = context.cgContext

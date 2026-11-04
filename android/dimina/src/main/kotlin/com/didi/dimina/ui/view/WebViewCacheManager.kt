@@ -605,6 +605,9 @@ private class DiminaPathHandler(
 ) : WebViewAssetLoader.PathHandler {
     override fun handle(path: String): WebResourceResponse? {
         val normalizedPath = path.trimStart('/')
+        if (normalizedPath.startsWith(com.didi.dimina.HostFonts.RESOURCE_PATH)) {
+            return com.didi.dimina.HostFonts.response(normalizedPath.removePrefix(com.didi.dimina.HostFonts.RESOURCE_PATH))
+        }
         if (normalizedPath.isEmpty()) {
             return null
         }

@@ -48,6 +48,7 @@ import { resolveCanvasExportSize } from './canvas-export-limits'
 import { createMiniProgramSlots } from './slots'
 import { planKeyedRelationMoves } from './keyed-relation-moves'
 import { invokeMapContext } from './map-context'
+import { FontFaceLoader } from './font-face'
 import { initializeTemplateBinding, PropertyBindingBucket, resolveTemplateBinding } from './template-binding'
 
 const COMPONENT_HOST_ATTRIBUTE = 'data-dd-component-host'
@@ -674,6 +675,7 @@ function resolveCanvasNodeElement(element) {
 class Runtime {
 	constructor() {
 		this.app = null
+		this.fonts = new FontFaceLoader(window)
 		this.pageId = null
 		this.instance = new Map()
 		this.moduleIds = new WeakMap()
@@ -723,6 +725,7 @@ class Runtime {
 	}
 
 	handleBeforeUnload() {
+		this.fonts.reset()
 		if (this.intersectionObservers.size > 0) {
 			for (const observers of this.intersectionObservers.values()) {
 				observers.forEach(observer => observer.disconnect())
@@ -753,6 +756,7 @@ class Runtime {
 	}
 
 	registerResourceLoad(bridgeId, resourceLoadId) {
+		this.fonts.reset()
 		if (!bridgeId) return
 		if (typeof resourceLoadId === 'string' && resourceLoadId) {
 			this.resourceLoadIds.set(bridgeId, resourceLoadId)
@@ -3140,6 +3144,15 @@ class Runtime {
 			target: 'service',
 			body,
 		})
+	}
+
+	async loadFontFace({ bridgeId, params }) {
+		let error
+		try { await this.fonts.load(params) }
+		catch (reason) { error = reason.message || String(reason) }
+		message.send({ type: 'fontFaceLoaded', target: 'service', body: {
+			bridgeId, requestId: params.requestId, ...(error ? { error } : {}),
+		} })
 	}
 
 	triggerCanvasFailure(bridgeId, params, errMsg) {

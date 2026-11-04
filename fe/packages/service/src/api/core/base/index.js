@@ -3,6 +3,7 @@ import { supportsWebVideoDecoder } from '@/api/core/media/video/web-video-decode
 import { invokeAPI } from '@/api/common'
 import { fileSystemManagerAPINames, VIRTUAL_FILE_PREFIX } from '@/api/core/file'
 import { updateManagerAPINames } from '@/api/core/base/update/api-names'
+import fonts from '@/core/font-face'
 
 /**
  * 环境变量
@@ -63,6 +64,7 @@ const nativeBackedFactorySchemas = {
  * https://developers.weixin.qq.com/miniprogram/dev/api/base/wx.canIUse.html
  */
 export function canIUse(schema) {
+	if (schema === 'loadFontFace') return fonts.supported
 	if (schema === 'WXWebAssembly') return typeof globalThis.WXWebAssembly?.instantiate === 'function'
 	if (typeof schema === 'string' && schema.startsWith('WXWebAssembly.')) return typeof globalThis.WXWebAssembly?.[schema.slice(14)] === 'function'
 	if (isWebWorker && (schema === 'createVideoDecoder' || schema === 'VideoDecoder' || /^VideoDecoder\.(start|seek|stop|remove|getFrameData|on|off)$/.test(schema))) return supportsWebVideoDecoder()

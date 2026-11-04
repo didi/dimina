@@ -3,6 +3,7 @@
 //  diminaTests
 //
 
+import CoreImage
 import UIKit
 import XCTest
 @testable import dimina
@@ -102,6 +103,121 @@ final class DMPNavigatorCapsuleTests: XCTestCase {
 
         XCTAssertEqual(capsules(in: navigationController.view).count, 1)
         XCTAssertFalse(capsules(in: navigationController.view)[0].isHidden)
+    }
+
+    func testTranslucentCapsuleFillCompositesOverTheNavigationBackground() throws {
+        let manager = DMPAppManager.sharedInstance()
+        let previousColor = manager.capsuleBackgroundColor
+        let previousShow = manager.showCapsule
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousWindow = scene.windows.first(where: \.isKeyWindow)
+        let window = UIWindow(windowScene: scene)
+        let navigationController = UINavigationController(rootViewController: UIViewController())
+        navigationController.setNavigationBarHidden(true, animated: false)
+        navigationController.view.backgroundColor = .white
+        window.rootViewController = navigationController
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            previousWindow?.makeKey()
+            manager.capsuleBackgroundColor = previousColor
+            manager.showCapsule = previousShow
+        }
+        manager.showCapsule = true
+        let blue = UIColor(red: 144 / 255, green: 202 / 255, blue: 249 / 255, alpha: 1)
+        let cases: [(UIColor, [UInt8])] = [
+            (.white, [255, 255, 255]),
+            (blue, [144, 202, 249]),
+            (.white.withAlphaComponent(0.5), [255, 255, 255]),
+            (blue.withAlphaComponent(128 / 255), [200, 228, 252]),
+            (blue.withAlphaComponent(0), [255, 255, 255]),
+        ]
+        for (fill, expected) in cases {
+            manager.capsuleBackgroundColor = fill
+            let navigator = DMPNavigator()
+            navigator.setup(navigationController: navigationController)
+            navigator.setCapsuleVisible(true)
+            window.layoutIfNeeded()
+            let capsule = try XCTUnwrap(capsules(in: navigationController.view).first)
+            // Sample inside the fill, away from rounded edges, icons and separator.
+            let point = capsule.convert(CGPoint(x: 21, y: 7), to: window)
+            let snapshot = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+                window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+            }
+            let pixel = try renderedPixel(in: snapshot, at: point)
+            for (actual, expectedChannel) in zip(pixel.prefix(3), expected) {
+                XCTAssertEqual(Int(actual), Int(expectedChannel), accuracy: 3,
+                               "Capsule fill \(fill) must composite without an inner shadow")
+            }
+        }
+    }
+
+    func testCapsuleIconColorRendersBothButtonsWithIndependentFillAndHitTargets() throws {
+        let manager = DMPAppManager.sharedInstance()
+        let previousIconColor = manager.capsuleIconColor
+        let previousFill = manager.capsuleBackgroundColor
+        let previousShow = manager.showCapsule
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousWindow = scene.windows.first(where: \.isKeyWindow)
+        let window = UIWindow(windowScene: scene)
+        let navigationController = UINavigationController(rootViewController: UIViewController())
+        navigationController.setNavigationBarHidden(true, animated: false)
+        navigationController.view.backgroundColor = .white
+        navigationController.view.tintColor = .magenta
+        window.rootViewController = navigationController
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            previousWindow?.makeKey()
+            manager.capsuleIconColor = previousIconColor
+            manager.capsuleBackgroundColor = previousFill
+            manager.showCapsule = previousShow
+        }
+        manager.showCapsule = true
+        let blue = UIColor(red: 40 / 255, green: 96 / 255, blue: 208 / 255, alpha: 1)
+        let dark = UIColor(red: 23 / 255, green: 32 / 255, blue: 42 / 255, alpha: 1)
+        let cases: [(UIColor, UIColor, [UInt8], [UInt8])] = [
+            (previousIconColor, .white, [31, 31, 31], [255, 255, 255]),
+            (blue, .white, [40, 96, 208], [255, 255, 255]),
+            (.white, dark, [255, 255, 255], [23, 32, 42]),
+            (blue.withAlphaComponent(128 / 255), .white, [147, 175, 232], [255, 255, 255]),
+            (.clear, .white, [255, 255, 255], [255, 255, 255]),
+        ]
+        for (iconColor, fill, expectedIcon, expectedFill) in cases {
+            // Exercise the Objective-C facade through the same rendered result.
+            DMPObjCManager.shared.capsuleIconColor = iconColor
+            manager.capsuleBackgroundColor = fill
+            let navigator = DMPNavigator()
+            navigator.setup(navigationController: navigationController)
+            navigator.setCapsuleVisible(true)
+            window.layoutIfNeeded()
+            let capsule = try XCTUnwrap(capsules(in: navigationController.view).first)
+            XCTAssertEqual(capsule.bounds.size, CGSize(width: 87, height: 32))
+            let buttons = capsule.subviews.compactMap { $0 as? UIButton }
+            let more = try XCTUnwrap(buttons.first { $0.accessibilityLabel == "More" })
+            let close = try XCTUnwrap(buttons.first { $0.accessibilityLabel == "Close" })
+            XCTAssertTrue(capsule.hitTest(CGPoint(x: 21.5, y: 16), with: nil) === more)
+            XCTAssertTrue(capsule.hitTest(CGPoint(x: 65.5, y: 16), with: nil) === close)
+            let snapshot = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
+                window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
+            }
+            // Cover all three More dots, the Close dot and the Close ring.
+            let iconCenters: [CGFloat] = [15.5, 21.5, 27.5, 65.5, 73.3]
+            for x in iconCenters {
+                let point = capsule.convert(CGPoint(x: x, y: 16), to: window)
+                let pixel = try renderedPixel(in: snapshot, at: point)
+                for (actual, expected) in zip(pixel.prefix(3), expectedIcon) {
+                    XCTAssertEqual(Int(actual), Int(expected), accuracy: 3, "Icon color \(iconColor), x=\(x)")
+                }
+            }
+            let fillPoint = capsule.convert(CGPoint(x: 21, y: 7), to: window)
+            for (actual, expected) in zip(try renderedPixel(in: snapshot, at: fillPoint).prefix(3), expectedFill) {
+                XCTAssertEqual(Int(actual), Int(expected), accuracy: 3, "Icon color must not tint the fill")
+            }
+            XCTAssertEqual(capsule.layer.borderColor, UIColor(red: 229 / 255, green: 229 / 255, blue: 229 / 255, alpha: 1).cgColor)
+            let separator = try XCTUnwrap(capsule.subviews.first { !($0 is UIButton) })
+            XCTAssertEqual(separator.backgroundColor, UIColor(red: 233 / 255, green: 233 / 255, blue: 233 / 255, alpha: 1))
+        }
     }
 
     func testHostHiddenCapsuleStaysHiddenAcrossVisibilityUpdates() {
@@ -2350,6 +2466,23 @@ final class DMPNavigatorCapsuleTests: XCTestCase {
         while manager.isHostVisibleForTesting() != expected, Date() < deadline {
             try? await Task.sleep(nanoseconds: 5_000_000)
         }
+    }
+
+    private func renderedPixel(in snapshot: UIImage, at point: CGPoint) throws -> [UInt8] {
+        let cgImage = try XCTUnwrap(snapshot.cgImage)
+        let bounds = CGRect(
+            x: floor(point.x * snapshot.scale),
+            y: CGFloat(cgImage.height) - floor(point.y * snapshot.scale) - 1,
+            width: 1, height: 1
+        )
+        let colorSpace = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
+        let context = CIContext()
+        var pixel = [UInt8](repeating: 0, count: 4)
+        pixel.withUnsafeMutableBytes { bytes in
+            context.render(CIImage(cgImage: cgImage), toBitmap: bytes.baseAddress!, rowBytes: 4,
+                           bounds: bounds, format: .RGBA8, colorSpace: colorSpace)
+        }
+        return pixel
     }
 
     private func capsules(in view: UIView) -> [UIView] {

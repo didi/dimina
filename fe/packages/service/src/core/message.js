@@ -10,6 +10,7 @@ const controlMessages = new Set([
 	'appHide', 'appShow', 'stackHide', 'stackShow', 'pageHide', 'pageShow', 'pageUnload',
 	'mU', 'mT', 'flushCallbacks', 'hostEnvUpdate', 'loadResource', 'resourceLoaded',
 	'pageAttached', 'pageReady', 'mC', 'mA', 'mR', 'canvasCapabilities', 'canvasContextEvent', 'canvasTransfer', 'canvasTransferredDispose', 'resourceLoadFailed',
+	'fontFaceLoaded',
 ])
 
 class Message {

@@ -8,6 +8,7 @@ export struct DMPCapsuleButton {
   @Prop appIndex: number
   @Prop webViewId: number
   @Prop fillColor: ResourceColor
+  @Prop iconColor: ResourceColor = '#1f1f1f'
   onMoreClick?: () => void
   onCloseClick?: () => void
 
@@ -19,17 +20,17 @@ export struct DMPCapsuleButton {
             .width(4)
             .height(4)
             .borderRadius(2)
-            .backgroundColor(this.getForegroundColor())
+            .backgroundColor(this.iconColor)
           Blank()
             .width(7)
             .height(7)
             .borderRadius(4)
-            .backgroundColor(this.getForegroundColor())
+            .backgroundColor(this.iconColor)
           Blank()
             .width(4)
             .height(4)
             .borderRadius(2)
-            .backgroundColor(this.getForegroundColor())
+            .backgroundColor(this.iconColor)
         }
         .alignItems(VerticalAlign.Center)
         .justifyContent(FlexAlign.Center)
@@ -55,12 +56,12 @@ export struct DMPCapsuleButton {
           .width(18)
           .height(18)
           .borderRadius(9)
-          .border({ width: 2.4, color: this.getForegroundColor() })
+          .border({ width: 2.4, color: this.iconColor })
         Text('')
           .width(6)
           .height(6)
           .borderRadius(3)
-          .backgroundColor(this.getForegroundColor())
+          .backgroundColor(this.iconColor)
       }
       .width(43)
       .height('100%')
@@ -86,10 +87,6 @@ export struct DMPCapsuleButton {
     .borderRadius(DMPMenuButtonLayout.capsuleHeight / 2)
     .border({ width: 0.5, color: this.getBorderColor() })
     .backgroundColor(this.fillColor)
-  }
-
-  private getForegroundColor(): string {
-    return '#1f1f1f'
   }
 
   private getBorderColor(): string {

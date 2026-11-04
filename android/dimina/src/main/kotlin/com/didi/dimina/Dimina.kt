@@ -56,6 +56,7 @@ class Dimina private constructor(context: Context) {
     class DiminaConfig private constructor(builder: Builder) {
         val showCapsule: Boolean = builder.showCapsule
         @ColorInt val capsuleBackgroundColor: Int = builder.capsuleBackgroundColor
+        @ColorInt val capsuleIconColor: Int = builder.capsuleIconColor
         val enableMultiTask: Boolean = builder.enableMultiTask
         val showLaunchLoading: Boolean = builder.showLaunchLoading
         val debugMode: Boolean = builder.debugMode
@@ -79,6 +80,16 @@ class Dimina private constructor(context: Context) {
             /** Sets the capsule fill to an ARGB color. Configure before [Dimina.init]. */
             fun setCapsuleBackgroundColor(@ColorInt color: Int): Builder {
                 capsuleBackgroundColor = color
+                return this
+            }
+
+            @ColorInt
+            internal var capsuleIconColor: Int = 0xFF1F1F1F.toInt()
+                private set
+
+            /** Sets both capsule icons to an ARGB color. Configure before [Dimina.init]. */
+            fun setCapsuleIconColor(@ColorInt color: Int): Builder {
+                capsuleIconColor = color
                 return this
             }
 
@@ -218,6 +229,8 @@ class Dimina private constructor(context: Context) {
 
     @ColorInt
     internal fun getCapsuleBackgroundColor(): Int = config.capsuleBackgroundColor
+
+    internal fun getCapsuleIconColor(): Int = config.capsuleIconColor
 
     /** Queries installed disk contents, not whether a runtime is currently alive. */
     fun isExistsApp(appId: String): Boolean = getAppVersionInfo(appId) != null

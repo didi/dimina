@@ -122,6 +122,11 @@ public final class DMPObjCManager: NSObject {
         set { manager.capsuleBackgroundColor = newValue }
     }
 
+    public var capsuleIconColor: UIColor {
+        get { manager.capsuleIconColor }
+        set { manager.capsuleIconColor = newValue }
+    }
+
     public var showLaunchLoading: Bool {
         get { manager.showLaunchLoading }
         set { manager.showLaunchLoading = newValue }

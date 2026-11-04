@@ -7,6 +7,7 @@ import hostEnv from './core/host-env'
 import loader from './core/loader'
 import message from './core/message'
 import runtime from './core/runtime'
+import fonts from './core/font-face'
 import { pauseBackgroundWork, resumeBackgroundWork } from './core/background-scheduler'
 
 const actionMap = { navigateBack, navigateTo, reLaunch, redirectTo, switchTab }
@@ -25,6 +26,8 @@ class Service {
 	init() {
 		this.message.on('loadResource', (msg) => {
 			const { appId, bridgeId, pagePath, root = '.', baseUrl = '/', hostEnv: hostEnvSnapshot, query, resourceLoadId, runtimeType, scene, referrerInfo } = msg
+			fonts.beginPage(bridgeId)
+			fonts.supported = runtimeType !== 'game'
 			if (hostEnvSnapshot) {
 				hostEnv.init(hostEnvSnapshot)
 			}
@@ -123,6 +126,7 @@ class Service {
 		})
 
 		this.message.on('resourceLoadFailed', ({ bridgeId, pagePath, errors = [] }) => {
+			fonts.removePage(bridgeId)
 			console.error(`[service] resourceLoadFailed: bridgeId: ${bridgeId}, pagePath: ${pagePath}, errors: ${errors.join('; ')}`)
 		})
 
@@ -132,7 +136,7 @@ class Service {
 
 	onAppMsg() {
 		// 双线程资源就绪后创建首个页面实例
-		this.message.on('resourceLoaded', (msg) => {
+		const startPage = (msg) => {
 			const { bridgeId, pagePath, query, resourceLoadId, stackId } = msg
 			if (runtime.isMiniGame()) {
 				return
@@ -172,6 +176,14 @@ class Service {
 				},
 			})
 			page?.sendInitialData()
+		}
+		this.message.on('resourceLoaded', (msg) => {
+			const prepared = fonts.preparePage(msg.bridgeId)
+			const page = fonts.pages.get(msg.bridgeId)
+			if (prepared) prepared.then(() => {
+				if (fonts.pages.get(msg.bridgeId) === page) startPage(msg)
+			})
+			else startPage(msg)
 		})
 
 		this.message.on('appShow', (options) => {
@@ -223,6 +235,7 @@ class Service {
 		})
 
 		this.message.on('pageUnload', (msg) => {
+			fonts.removePage(msg.bridgeId)
 			// 页面销毁时执行
 			runtime.pageUnload(msg)
 		})

@@ -405,6 +405,9 @@ public class DMPAppManager {
     /// Fill color for the capsule, including alpha. Set on the main thread before launching mini programs.
     public var capsuleBackgroundColor: UIColor = .white
 
+    /// Color for both capsule icons, including alpha. Set on the main thread before launching mini programs.
+    public var capsuleIconColor: UIColor = UIColor(red: 31 / 255, green: 31 / 255, blue: 31 / 255, alpha: 1)
+
     /// Controls only the default mini-program launch overlay, not business loading dialogs.
     public var showLaunchLoading: Bool = true
 

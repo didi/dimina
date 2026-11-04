@@ -1914,6 +1914,7 @@ class DiminaActivity : ComponentActivity() {
                 }
                 MiniProgramCapsuleButton(
                     backgroundColor = Color(Dimina.getInstance().getCapsuleBackgroundColor()),
+                    iconColor = Color(Dimina.getInstance().getCapsuleIconColor()),
                     onMoreClick = {
                         showMiniProgramMenu.value = true
                     },
@@ -2320,11 +2321,11 @@ class DiminaActivity : ComponentActivity() {
     @Composable
     private fun MiniProgramCapsuleButton(
         backgroundColor: Color,
+        iconColor: Color,
         onMoreClick: () -> Unit,
         onCloseClick: () -> Unit,
         modifier: Modifier = Modifier
     ) {
-        val foreground = Color(0xFF1F1F1F)
         val borderColor = Color(0xFFE5E5E5)
         val separatorColor = Color(0xFFE9E9E9)
         val shape = RoundedCornerShape((MenuButtonLayout.HEIGHT_DP / 2).dp)
@@ -2335,7 +2336,8 @@ class DiminaActivity : ComponentActivity() {
                     width = MenuButtonLayout.WIDTH_DP.dp,
                     height = MenuButtonLayout.HEIGHT_DP.dp,
                 )
-                .shadow(1.dp, shape, clip = false)
+                // Elevation shadows fill the outline and would darken translucent backgrounds.
+                .shadow(if (backgroundColor.alpha == 1f) 1.dp else 0.dp, shape, clip = false)
                 .clip(shape)
                 .background(backgroundColor)
                 .border(BorderStroke(0.5.dp, borderColor), shape)
@@ -2357,9 +2359,9 @@ class DiminaActivity : ComponentActivity() {
                         val centerY = size.height / 2
                         val gap = 7.2.dp.toPx()
                         val centerX = size.width / 2
-                        drawCircle(foreground, 1.9.dp.toPx(), Offset(centerX - gap, centerY))
-                        drawCircle(foreground, 3.2.dp.toPx(), Offset(centerX, centerY))
-                        drawCircle(foreground, 1.9.dp.toPx(), Offset(centerX + gap, centerY))
+                        drawCircle(iconColor, 1.9.dp.toPx(), Offset(centerX - gap, centerY))
+                        drawCircle(iconColor, 3.2.dp.toPx(), Offset(centerX, centerY))
+                        drawCircle(iconColor, 1.9.dp.toPx(), Offset(centerX + gap, centerY))
                     }
                 }
 
@@ -2383,13 +2385,13 @@ class DiminaActivity : ComponentActivity() {
                     Canvas(modifier = Modifier.size(22.dp)) {
                         val center = Offset(size.width / 2, size.height / 2)
                         drawCircle(
-                            color = foreground,
+                            color = iconColor,
                             radius = 7.8.dp.toPx(),
                             center = center,
                             style = Stroke(width = 2.4.dp.toPx())
                         )
                         drawCircle(
-                            color = foreground,
+                            color = iconColor,
                             radius = 3.1.dp.toPx(),
                             center = center
                         )

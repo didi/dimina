@@ -122,6 +122,7 @@ const supportedWxApis = [
 	"offMenuButtonBoundingClientRectWeightChange",
 	"nextTick",
 	"createAnimation",
+	"loadFontFace",
 	"createCanvasContext",
 	"createOffscreenCanvas",
 	"createCanvas",
