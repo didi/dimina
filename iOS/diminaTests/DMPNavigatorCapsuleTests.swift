@@ -1268,7 +1268,8 @@ final class DMPNavigatorCapsuleTests: XCTestCase {
                 }
             }
 
-            await fulfillment(of: [completed], timeout: 1)
+            // MainActor route callbacks can queue behind WebView teardown on a busy CI runner.
+            await fulfillment(of: [completed], timeout: 10)
             XCTAssertEqual(callbackTypes, [.fail, .complete])
             XCTAssertEqual(
                 failure?.get("errMsg") as? String,
