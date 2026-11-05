@@ -4,6 +4,7 @@ import android.graphics.ImageFormat
 import android.media.Image
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
+import android.media.MediaCodecList
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.os.Handler
@@ -170,7 +171,11 @@ class VideoDecoderApi : BaseApiHandler() {
             val config = requireNotNull(format)
             outputFormat = null
             config.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible)
-            val decoder = MediaCodec.createDecoderByType(requireNotNull(config.getString(MediaFormat.KEY_MIME)))
+            val decoderName = requireNotNull(MediaCodecList(MediaCodecList.REGULAR_CODECS).findDecoderForFormat(config)) {
+                "no decoder supports ${config.getString(MediaFormat.KEY_MIME)} " +
+                    "${config.getInteger(MediaFormat.KEY_WIDTH)}x${config.getInteger(MediaFormat.KEY_HEIGHT)}"
+            }
+            val decoder = MediaCodec.createByCodecName(decoderName)
             codec = decoder
             decoder.setCallback(object : MediaCodec.Callback() {
                 override fun onInputBufferAvailable(current: MediaCodec, index: Int) {
