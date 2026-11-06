@@ -242,6 +242,8 @@ xcodebuild test \
   -resultBundlePath /tmp/DiminaTests.xcresult
 ```
 
+GitHub Actions 固定使用 macOS 26 和 Xcode 26.5，并选择与 iOS Simulator SDK 主次版本一致的 runtime。缺少对应模拟器时会创建或安装，等待启动完成后再执行完整测试，不会回退到旧 runtime。
+
 ### iOS 模拟器的 JavaScriptCore 地址截断
 
 在 macOS 27.0.1、Xcode 27.2、iOS 26.2 模拟器上，PAG 重复播放会崩于 `JSRopeString::resolveToBuffer`，也可能转移到 JSC 编译线程。调试现场确认，字符串的完整指针为 `0x702069c860`，该 runtime 内部的 `0xfffffffff`（36 位）掩码将其截成了无效的 `0x2069c860`；转换前的字符串字段本身仍保存着完整地址。同一个构建产物切到 iOS 26.5 后，三轮 PAG 播放均通过，其中也覆盖了 `0x70…` 高地址。

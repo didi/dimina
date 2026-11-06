@@ -10,7 +10,7 @@ on:
 jobs:
   unit-test:
     name: iOS Unit Tests
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 30
 
     steps:
@@ -20,10 +20,10 @@ jobs:
       - name: Select Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: latest-stable
+          xcode-version: '26.5'
 
-      - name: Check standalone map package sources
-        run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/tests -p 'test_package_ios_amap.py'
+      - name: Check iOS CI and standalone map package sources
+        run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/tests -p 'test_*.py'
 
       - name: Run native Wasm regressions
         run: |
@@ -54,6 +54,9 @@ jobs:
           set -euo pipefail
           # Install the selected Xcode's system components before contacting CoreSimulator.
           sudo xcodebuild -runFirstLaunch
+          SIMULATOR_SDK_VERSION="$(xcrun --sdk iphonesimulator --show-sdk-version)"
+          xcodebuild -version
+          echo "Required iOS Simulator runtime: $SIMULATOR_SDK_VERSION"
           refresh_runtimes() {
             for probe in 1 2 3; do
               if xcrun simctl list runtimes --json > "$RUNNER_TEMP/dimina-runtimes.json"; then
@@ -80,6 +83,7 @@ jobs:
             cat "$RUNNER_TEMP/dimina-destinations.txt"
             SIMULATOR_UDID="$(
               ruby -e '
+                sdk = ARGV.fetch(1).split(".").first(2).map(&:to_i)
                 available = File.read(ARGV.fetch(0)).split(/Ineligible destinations|Destinations incompatible/).first
                 devices = available.lines.filter_map do |line|
                   next unless line.include?("platform:iOS Simulator,")
@@ -87,11 +91,14 @@ jobs:
                   next if line.include?("error:")
                   udid = line[/id:([0-9A-Fa-f-]{36})/, 1]
                   version = line[/OS:([0-9.]+)/, 1]
-                  [version.split(".").map(&:to_i), udid] if udid && version
+                  next unless udid && version
+                  components = version.split(".").map(&:to_i)
+                  next unless components.first(2) == sdk
+                  [components, udid]
                 end
                 simulator = devices.max_by(&:first)
                 puts simulator.last if simulator
-              ' "$RUNNER_TEMP/dimina-destinations.txt"
+              ' "$RUNNER_TEMP/dimina-destinations.txt" "$SIMULATOR_SDK_VERSION"
             )"
           }
 
@@ -99,21 +106,21 @@ jobs:
             refresh_runtimes
             cat "$RUNNER_TEMP/dimina-runtimes.json"
             SIMULATOR_CONFIG="$(
-              ruby -rjson -rrubygems -e '
-                sdk = Gem::Version.new(ARGV.fetch(1))
+              ruby -rjson -e '
+                sdk = ARGV.fetch(1).split(".").first(2).map(&:to_i)
                 runtimes = JSON.parse(File.read(ARGV.fetch(0))).fetch("runtimes").select do |runtime|
                   runtime["isAvailable"] &&
                     runtime.fetch("identifier").start_with?("com.apple.CoreSimulator.SimRuntime.iOS-") &&
-                    Gem::Version.new(runtime.fetch("version")) <= sdk
+                    runtime.fetch("version").split(".").first(2).map(&:to_i) == sdk
                 end
-                runtime = runtimes.max_by { |item| Gem::Version.new(item.fetch("version")) }
+                runtime = runtimes.max_by { |item| item.fetch("version").split(".").map(&:to_i) }
                 exit 0 unless runtime
                 device_type = runtime.fetch("supportedDeviceTypes").find do |item|
                   item["productFamily"] == "iPhone"
                 end
                 exit 0 unless device_type
                 puts "#{runtime.fetch("identifier")} #{device_type.fetch("identifier")}"
-              ' "$RUNNER_TEMP/dimina-runtimes.json" "$(xcrun --sdk iphonesimulator --show-sdk-version)"
+              ' "$RUNNER_TEMP/dimina-runtimes.json" "$SIMULATOR_SDK_VERSION"
             )"
             if [[ -z "$SIMULATOR_CONFIG" ]]; then
               return
@@ -156,9 +163,10 @@ jobs:
 
           if [[ -z "$SIMULATOR_UDID" ]]; then
             xcrun simctl list devices available
-            echo "::error::No iPhone Simulator is eligible after runtime installation; check deployment targets and Xcode diagnostics above"
+            echo "::error::No eligible iPhone Simulator matches iOS SDK $SIMULATOR_SDK_VERSION after runtime installation"
             exit 1
           fi
+          xcrun simctl bootstatus "$SIMULATOR_UDID" -b
           echo "udid=$SIMULATOR_UDID" >> "$GITHUB_OUTPUT"
           echo "Using eligible iOS Simulator $SIMULATOR_UDID"
 
