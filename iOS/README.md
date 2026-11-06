@@ -229,3 +229,23 @@ open iOS/dimina.xcodeproj
 ```
 
 使用 Xcode 打开 `dimina.xcodeproj` 可以查看示例项目。示例工程构建前会执行 `copy-shared-resources.sh`，将根目录 `shared/jsapp` 和 `shared/jssdk` 中的资源同步到 `iOS/dimina/Resources`。
+
+## 运行测试
+
+在 Xcode 中选择已安装的 iPhone 模拟器，再执行 **Product > Test**。例如，安装 iOS 26.5 runtime 后，可以在仓库根目录运行：
+
+```bash
+xcodebuild test \
+  -project iOS/dimina.xcodeproj \
+  -scheme dimina \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' \
+  -resultBundlePath /tmp/DiminaTests.xcresult
+```
+
+### iOS 模拟器的 JavaScriptCore 地址截断
+
+在 macOS 27.0.1、Xcode 27.2、iOS 26.2 模拟器上，PAG 重复播放会崩于 `JSRopeString::resolveToBuffer`，也可能转移到 JSC 编译线程。调试现场确认，字符串的完整指针为 `0x702069c860`，该 runtime 内部的 `0xfffffffff`（36 位）掩码将其截成了无效的 `0x2069c860`；转换前的字符串字段本身仍保存着完整地址。同一个构建产物切到 iOS 26.5 后，三轮 PAG 播放均通过，其中也覆盖了 `0x70…` 高地址。
+
+- 遇到此类崩溃，先保留完整指针、崩溃指令和 runtime 版本，用同一产物对比 runtime，区分系统兼容问题与 SDK 内存破坏。
+- 这组本地环境使用 iOS 26.5 模拟器进行回归。选择新 runtime 后仍需保留 PAG 的两种传输方式、像素比对和完整测试，不能以更换对象转换方式或修改业务 ID 代替验证。
+- 模拟器结论不能外推为 iOS 26.2 真机存在相同缺陷，也不能替代真机回归。这项模拟器兼容问题不改变 SDK 的最低 iOS 支持版本。
