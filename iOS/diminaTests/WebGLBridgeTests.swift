@@ -11,6 +11,10 @@ extension DMPUIIntegrationTests {
     @Suite
     @MainActor
     struct WebGLBridgeTests {
+        // Cold WebContent on CI can take longer than five seconds to present.
+        // Still require real animation frames; the deadline only fails the wait.
+        private static let presentationTimeout: TimeInterval = 15
+
         @Test(arguments: ["webgl", "webgl2"], [false, true])
         func shaderQueriesKeepThePreviousFrameVisible(contextType: String, preserveDrawingBuffer: Bool) async throws {
             DMPResourceManager.prepareSdk()
@@ -63,7 +67,7 @@ extension DMPUIIntegrationTests {
                 return {preserveDrawingBuffer: frameGL.getContextAttributes().preserveDrawingBuffer};
                 """)
             #expect(first["preserveDrawingBuffer"] as? Bool == preserveDrawingBuffer)
-            try await waitForPresentation(webView)
+            try await waitForPresentation(webView, label: "\(label)-initial")
             let initial = try await snapshotCenter(webView, label: "\(label)-initial")
             print("WEBGL_FRAME_INITIAL=\(label):\(initial)")
             #expect(initial[0] > 240 && initial[1] < 15 && initial[2] > 240)
@@ -73,11 +77,12 @@ extension DMPUIIntegrationTests {
             // query boundary, not a timer used to drive rendering.
             var previousColor: [UInt8] = [255, 0, 255, 255]
             let colors: [[UInt8]] = [[0, 255, 255, 255], [0, 255, 0, 255], [255, 0, 0, 255]]
+            let shaderPauseTimeout = Self.presentationTimeout + 10
             for (frame, color) in colors.enumerated() {
                 let paused = XCTestExpectation(description: "shader query reached in frame \(frame)")
                 engine.registerMethod(name: "__shaderQueryPaused") { _ in
                     paused.fulfill()
-                    _ = resume.wait(timeout: .now() + 15)
+                    _ = resume.wait(timeout: .now() + shaderPauseTimeout)
                     return nil
                 }
                 engine.enqueueScript("""
@@ -93,14 +98,14 @@ extension DMPUIIntegrationTests {
                 """)
                 let pauseResult = await XCTWaiter.fulfillment(of: [paused], timeout: 10)
                 try #require(pauseResult == .completed)
-                try await waitForPresentation(webView)
+                try await waitForPresentation(webView, label: "\(label)-shader-query-\(frame)")
                 let duringQuery = try await snapshotCenter(webView, label: "\(label)-shader-query-\(frame)")
                 print("WEBGL_FRAME_DURING_QUERY=\(label):\(frame):\(duringQuery)")
                 #expect(duringQuery == previousColor)
                 resume.signal()
                 let completed = try await evaluate(service, "return {error: frameGL.getError()};")
                 #expect(completed["error"] as? Int == 0)
-                try await waitForPresentation(webView)
+                try await waitForPresentation(webView, label: "\(label)-final-\(frame)")
                 let final = try await snapshotCenter(webView, label: "\(label)-final-\(frame)")
                 print("WEBGL_FRAME_COMPLETED=\(label):\(frame):\(final)")
                 #expect(final == color)
@@ -108,7 +113,7 @@ extension DMPUIIntegrationTests {
             }
         }
 
-        private func waitForPresentation(_ webView: WKWebView) async throws {
+        private func waitForPresentation(_ webView: WKWebView, label: String) async throws {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
                 var completed = false
                 let finish: (Error?) -> Void = { error in
@@ -128,9 +133,9 @@ extension DMPUIIntegrationTests {
                 }
                 // A native deadline still fires if WebContent has been suspended.
                 // It fails the test; it does not drive or substitute for a frame.
-                DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + Self.presentationTimeout) {
                     finish(NSError(domain: "WebGLFrameTest", code: 1, userInfo: [
-                        NSLocalizedDescriptionKey: "WebKit presentation frames timed out"
+                        NSLocalizedDescriptionKey: "WebKit presentation frames timed out after \(Self.presentationTimeout)s (\(label))"
                     ]))
                 }
             }
@@ -299,7 +304,7 @@ extension DMPUIIntegrationTests {
                 }
             }
             #expect(view.canvasBinaryError == nil)
-            try await waitForPresentation(webView)
+            try await waitForPresentation(webView, label: "queued-publications")
             let queuedPixel = try await snapshotCenter(webView, label: "queued-publications")
             #expect(queuedPixel == [255, 0, 255, 255], "\(queuedPixel)")
             print("WEBGL_QUEUED_PUBLICATIONS=\(queuedPixel)")
@@ -334,13 +339,26 @@ extension DMPUIIntegrationTests {
         }
 
         private func evaluate(_ service: DMPService, _ script: String) async throws -> [String: Any] {
-            let result = await service.evaluateScript("""
-            (function () {
-                try { return JSON.stringify((function () { \(script) })()); }
-                catch (e) { return JSON.stringify({error: String(e), stack: e.stack}); }
-            })()
-            """)
-            let json = try #require(result?.toString())
+            // Convert on the Service thread. Reading a JSValue on main can wait
+            // for its VM lock while Canvas holds that lock waiting for main.
+            let json = await withCheckedContinuation { (continuation: CheckedContinuation<String, Never>) in
+                let callback = "__webglEvaluation_" + UUID().uuidString.replacingOccurrences(of: "-", with: "")
+                let engine = service.getEngine()
+                engine.registerMethod(name: callback) { value in
+                    continuation.resume(returning: value.toString() ?? "")
+                    return nil
+                }
+                engine.enqueueScript("""
+                (function () {
+                    const reply = globalThis.\(callback);
+                    delete globalThis.\(callback);
+                    let result;
+                    try { result = JSON.stringify((function () { \(script) })()); }
+                    catch (e) { result = JSON.stringify({error: String(e), stack: e.stack}); }
+                    reply(result);
+                })()
+                """)
+            }
             return try #require(JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any])
         }
 
