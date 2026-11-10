@@ -1,3 +1,4 @@
+import { DMPCapsuleAppearance } from '../Utils/DMPCapsuleAppearance'
 
 import { common } from '@kit.AbilityKit'
 import { systemDateTime } from '@kit.BasicServicesKit'
@@ -305,10 +306,22 @@ export class DMPAppManager {
   public showCapsule: boolean = true
 
   // Capsule fill color, including alpha. Configure before launching mini programs.
-  public capsuleBackgroundColor: ResourceColor = '#ffffff'
+  private capsuleAppearance: DMPCapsuleAppearance = new DMPCapsuleAppearance()
+
+  public get capsuleBackgroundColor(): ResourceColor { return this.capsuleAppearance.backgroundColor(false) }
+  public set capsuleBackgroundColor(color: ResourceColor) { this.capsuleAppearance.backgroundOverride = color }
 
   // Color for both capsule icons, including alpha. Configure before launching mini programs.
-  public capsuleIconColor: ResourceColor = '#1f1f1f'
+  public get capsuleIconColor(): ResourceColor { return this.capsuleAppearance.iconColor(false) }
+  public set capsuleIconColor(color: ResourceColor) { this.capsuleAppearance.iconOverride = color }
+
+  public resolveCapsuleBackgroundColor(whiteForeground: boolean): ResourceColor {
+    return this.capsuleAppearance.backgroundColor(whiteForeground)
+  }
+
+  public resolveCapsuleIconColor(whiteForeground: boolean): ResourceColor {
+    return this.capsuleAppearance.iconColor(whiteForeground)
+  }
 
   public showLaunchLoading: boolean = true
 

@@ -5,6 +5,9 @@ import { DMPMap } from '../Utils/DMPMap';
 import { DMPContainerBridgesModule } from './DMPContainerBridgesModule';
 
 import { DMPBridgeCallback } from './DMPTSUtil';
+import { DMPAppManager } from '../DApp/DMPAppManager';
+import { DMPApp } from '../DApp/DMPApp';
+import { DMPWindowUtil } from '../Utils/DMPWindowUtils';
 
 export class DMPContainerBridgesModuleNavigationBar extends DMPContainerBridgesModule {
   getExportMethods(): string[] {
@@ -31,6 +34,11 @@ export class DMPContainerBridgesModuleNavigationBar extends DMPContainerBridgesM
     navStyle.set('navigationBarBackgroundColor', backgroundColor)
     this.app.navigatorManager.getPageRecordById(webViewId)!.pageStyle =
       new DMPPageStyle(navStyle ?? new DMPMap(), this.app.appIndex)
+    if (DMPAppManager.sharedInstance().getPresentedApp() === this.app &&
+      !this.app.navigatorManager.isRetainedInBackground && this.app.currentWebViewId === webViewId) {
+      DMPWindowUtil.setWindowBarDarkMode(DMPApp.entryContext.getContext(),
+        this.app.navigatorManager.getPageRecordById(webViewId)!.pageStyle!.isStatusBarDarkMode())
+    }
     DMPLogger.d(Tags.BRIDGE, 'navStyle=' + navStyle.toStr())
     this.invokeSuccessCallback(callback, null)
   }

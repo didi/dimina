@@ -40,6 +40,7 @@ public class DMPNavigator: NSObject {
     private var capsuleView: UIView?
     private weak var capsuleMoreButton: UIButton?
     private weak var capsuleCloseButton: UIButton?
+    private weak var capsuleSeparatorView: UIView?
 
     // 公开初始化方法
     public init(app: DMPApp? = nil) {
@@ -115,6 +116,20 @@ public class DMPNavigator: NSObject {
     func bringCapsuleToFront() {
         guard let capsuleView, !capsuleView.isHidden else { return }
         capsuleView.superview?.bringSubviewToFront(capsuleView)
+    }
+
+    func updateCapsuleAppearance(whiteForeground: Bool) {
+        let appearance = DMPAppManager.sharedInstance().capsuleAppearance
+        let fill = appearance.backgroundColor(whiteForeground: whiteForeground)
+        let icon = appearance.iconColor(whiteForeground: whiteForeground)
+        capsuleView?.backgroundColor = fill
+        capsuleView?.layer.shadowOpacity = fill.cgColor.alpha == 1 ? 0.08 : 0
+        let rule = whiteForeground ? UIColor.white.withAlphaComponent(0.3)
+            : UIColor(red: 229 / 255, green: 229 / 255, blue: 229 / 255, alpha: 1)
+        capsuleView?.layer.borderColor = rule.cgColor
+        capsuleSeparatorView?.backgroundColor = rule
+        capsuleMoreButton?.setImage(makeCapsuleMoreImage(color: icon), for: .normal)
+        capsuleCloseButton?.setImage(makeCapsuleCloseImage(color: icon), for: .normal)
     }
 
     private func installCapsule(in navigationController: UINavigationController) {
@@ -196,6 +211,7 @@ public class DMPNavigator: NSObject {
         self.capsuleView = capsuleView
         self.capsuleMoreButton = moreButton
         self.capsuleCloseButton = closeButton
+        self.capsuleSeparatorView = separatorView
     }
 
     private func makeCapsuleMoreImage(color: UIColor) -> UIImage {

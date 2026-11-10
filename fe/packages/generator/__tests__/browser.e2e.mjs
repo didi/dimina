@@ -296,6 +296,62 @@ try {
 	const statusHeight = await page.locator('.iphone__status-bar').evaluate(element => element.offsetHeight)
 	assert.equal(await screen().locator('.custom-header').evaluate(element => getComputedStyle(element).paddingTop), `${statusHeight}px`)
 	if (artifacts) await page.locator('#iphone').screenshot({ path: `${artifacts}/navbar-custom.png` })
+	const isolated = () => page.frameLocator('#preview-runtime > iframe')
+	const activeScreen = () => isolated().frameLocator('.dimina-mini-app__webviews > .dimina-native-view:last-child iframe')
+	const assertForeground = async color => {
+		await page.locator(`.iphone__status-bar--${color}`).waitFor()
+		assert.equal(await isolated().locator(`.dimina-mini-app-navigation__actions--${color}`).count(), 1, 'Capsule icons follow the host status-bar foreground')
+		const navigation = isolated().locator('.dimina-mini-app__webviews > .dimina-native-view:last-child .dimina-native-webview__navigation')
+		assert.equal(await navigation.evaluate(element => getComputedStyle(element.querySelector('h2')).color), color === 'white' ? 'rgb(255, 255, 255)' : 'rgb(0, 0, 0)')
+	}
+	for (const custom of [false, true]) {
+		const colors = { name: '导航配色检查', files: {
+			'app.js': 'App({})',
+			'app.json': JSON.stringify({ pages: ['pages/index', 'pages/detail'], window: { navigationBarTextStyle: 'white', navigationBarBackgroundColor: '#26394d', navigationBarTitleText: '导航配色检查' } }),
+			'pages/index.json': JSON.stringify(custom ? { navigationStyle: 'custom' } : { navigationBarTextStyle: 'black', navigationBarBackgroundColor: '#ffffff' }),
+			'pages/index.js': `Page({data:{custom:${custom},dark:${custom},statusBarHeight:0},onLoad(){this.setData({statusBarHeight:wx.getSystemInfoSync().statusBarHeight})},light(){this.setData({dark:false});wx.setNavigationBarColor({frontColor:'#000000',backgroundColor:'#ffffff'})},dark(){this.setData({dark:true});wx.setNavigationBarColor({frontColor:'#ffffff',backgroundColor:'#26394d'})},detail(){wx.navigateTo({url:'/pages/detail'})}})`,
+			'pages/index.wxml': `<view wx:if="{{custom}}" class="custom-header" style="padding-top:{{statusBarHeight}}px;background:{{dark ? '#26394d' : '#ffffff'}};color:{{dark ? '#ffffff' : '#000000'}}">自定义导航</view><view class="page"><text>导航配色测试</text><button bindtap="light">切换浅色</button><button bindtap="dark">切换深色</button><button bindtap="detail">打开浅色页</button></view>`,
+			'pages/index.wxss': '.custom-header{height:44px;box-sizing:content-box;display:flex;align-items:center;justify-content:center}.page{padding:24rpx}button{margin-top:20rpx}',
+			'pages/detail.json': '{"navigationBarTextStyle":"black","navigationBarBackgroundColor":"#ffffff","navigationBarTitleText":"浅色详情"}',
+			'pages/detail.js': 'Page({back(){wx.navigateBack()}})',
+			'pages/detail.wxml': '<button bindtap="back">返回深色页</button>',
+		} }
+		await page.locator('#import').setInputFiles({ name: 'navigation-colors.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(colors)) })
+		await idle()
+		assert.match(await page.locator('#status').textContent(), /已保存/)
+		await assertForeground(custom ? 'white' : 'black')
+		await activeScreen().getByText('切换浅色', { exact: true }).click()
+		await assertForeground('black')
+		await activeScreen().getByText('切换深色', { exact: true }).click()
+		await assertForeground('white')
+		if (artifacts) await page.locator('#iphone').screenshot({ path: `${artifacts}/foreground-${custom ? 'custom' : 'default'}-white.png` })
+		await activeScreen().getByText('打开浅色页', { exact: true }).click()
+		await activeScreen().getByText('返回深色页', { exact: true }).waitFor()
+		await isolated().locator('.dimina-mini-app__webviews > .dimina-native-view:last-child:not(.dimina-native-view--enter-anima)').waitFor()
+		await assertForeground('black')
+		await activeScreen().getByText('返回深色页', { exact: true }).click()
+		await activeScreen().getByText('导航配色测试', { exact: true }).waitFor()
+		await assertForeground('white')
+	}
+	await page.route('https://color.example/generate', route => route.fulfill({ status: 503, body: 'Unavailable' }))
+	await page.locator('.studio-settings').evaluate(element => { element.open = true })
+	await page.locator('#protocol').selectOption('gateway')
+	await page.locator('#endpoint').fill('https://color.example/generate')
+	await page.locator('#prompt').fill('修改配色')
+	await page.locator('#generate').click()
+	await idle()
+	assert.equal(await page.locator('#preview-status').getAttribute('data-state'), 'error')
+	await page.locator('.iphone__status-bar--black').waitFor()
+	await page.locator('#preview-resume').click()
+	await assertForeground('white')
+	await page.locator('[data-demo-mode="examples"]').click()
+	await page.locator('.iphone__status-bar--black').waitFor()
+	await page.locator('[data-demo-mode="generator"]').click()
+	await page.locator('[data-generator-jump="preview"]').click()
+	await idle()
+	await assertForeground('white')
+	await page.locator('#new').click()
+	await page.locator('.iphone__status-bar--black').waitFor()
 	assert.deepEqual(errors, [])
 	console.log('Passed: syntax highlighting, native undo/composition, scroll alignment and per-file drafts, full simulator viewport and custom-navigation status-bar geometry, complete source ZIP export/import with editor drafts, Anthropic Messages authentication/context/repair, simulator generation/repair/compile/start/save states, responsive progress and reduced motion, Chat Completions base URL, custom model gateway, browser compiler, live events/input/loops, isolated preview, storage, repair, rollback, offline reopen, failed-edit preservation, mobile layout.')
 } catch (error) {

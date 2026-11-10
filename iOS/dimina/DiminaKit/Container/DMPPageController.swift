@@ -56,6 +56,11 @@ public class DMPPageController: UIViewController {
     private var hasDispatchedPageUnload = false
     private var hasStartedLoading = false
     private var hasShownLaunchLoading = false
+    private var navigationStatusBarStyle: UIStatusBarStyle = .darkContent
+
+    public override var preferredStatusBarStyle: UIStatusBarStyle {
+        navigationStatusBarStyle
+    }
 
     /// Initialization method
     /// - Parameters:
@@ -477,10 +482,20 @@ public class DMPPageController: UIViewController {
     }
 
     public func updateNavigationColor(backgroundColor: UIColor, textColor: UIColor, darkStyle: Bool) {
+        navigationStatusBarStyle = darkStyle ? .lightContent : .darkContent
+        setNeedsStatusBarAppearanceUpdate()
         customNavigationBar?.backgroundColor = backgroundColor
         customNavigationTitleLabel?.textColor = textColor
         updateCustomBackButton(darkStyle: darkStyle)
         updateCustomHomeButton(darkStyle: darkStyle)
+        if let navigator, navigator.isActiveNavigationOwner(),
+           let top = navigator.navigationController?.topViewController,
+           top === self || (top as? DMPTabBarContainerController)?.currentPageController === self {
+            navigator.updateCapsuleAppearance(whiteForeground: darkStyle)
+            navigator.navigationController?.navigationBar.barStyle = darkStyle ? .black : .default
+            navigator.navigationController?.setNeedsStatusBarAppearanceUpdate()
+            DMPUIManager.updateWindowStyle(isDarkTheme: darkStyle)
+        }
     }
 
     private func updateCustomBackButton(darkStyle: Bool) {
@@ -844,7 +859,6 @@ public class DMPPageController: UIViewController {
                 // Set navigation bar button color
                 navigationController?.navigationBar.tintColor = textColor
 
-                DMPUIManager.updateWindowStyle(isDarkTheme: darkStyle)
             }
         }
 

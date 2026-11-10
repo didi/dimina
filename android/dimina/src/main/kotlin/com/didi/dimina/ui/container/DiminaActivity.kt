@@ -1913,8 +1913,8 @@ class DiminaActivity : ComponentActivity() {
                     )
                 }
                 MiniProgramCapsuleButton(
-                    backgroundColor = Color(Dimina.getInstance().getCapsuleBackgroundColor()),
-                    iconColor = Color(Dimina.getInstance().getCapsuleIconColor()),
+                    backgroundColor = Color(Dimina.getInstance().getCapsuleBackgroundColor(navigationBarTextColor.value == Color.White)),
+                    iconColor = Color(Dimina.getInstance().getCapsuleIconColor(navigationBarTextColor.value == Color.White)),
                     onMoreClick = {
                         showMiniProgramMenu.value = true
                     },

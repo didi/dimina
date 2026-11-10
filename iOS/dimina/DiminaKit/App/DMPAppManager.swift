@@ -9,6 +9,19 @@ import Foundation
 import UIKit
 import Darwin
 
+struct DMPCapsuleAppearance {
+    var backgroundOverride: UIColor?
+    var iconOverride: UIColor?
+
+    func backgroundColor(whiteForeground: Bool) -> UIColor {
+        backgroundOverride ?? (whiteForeground ? UIColor.black.withAlphaComponent(0.2) : .white)
+    }
+
+    func iconColor(whiteForeground: Bool) -> UIColor {
+        iconOverride ?? (whiteForeground ? .white : UIColor(red: 31 / 255, green: 31 / 255, blue: 31 / 255, alpha: 1))
+    }
+}
+
 enum DMPMiniProgramNavigationError: LocalizedError {
     case invalidAppId
     case sourceUnavailable
@@ -403,10 +416,18 @@ public class DMPAppManager {
     public var showCapsule: Bool = true
 
     /// Fill color for the capsule, including alpha. Set on the main thread before launching mini programs.
-    public var capsuleBackgroundColor: UIColor = .white
+    var capsuleAppearance = DMPCapsuleAppearance()
+
+    public var capsuleBackgroundColor: UIColor {
+        get { capsuleAppearance.backgroundColor(whiteForeground: false) }
+        set { capsuleAppearance.backgroundOverride = newValue }
+    }
 
     /// Color for both capsule icons, including alpha. Set on the main thread before launching mini programs.
-    public var capsuleIconColor: UIColor = UIColor(red: 31 / 255, green: 31 / 255, blue: 31 / 255, alpha: 1)
+    public var capsuleIconColor: UIColor {
+        get { capsuleAppearance.iconColor(whiteForeground: false) }
+        set { capsuleAppearance.iconOverride = newValue }
+    }
 
     /// Controls only the default mini-program launch overlay, not business loading dialogs.
     public var showLaunchLoading: Bool = true

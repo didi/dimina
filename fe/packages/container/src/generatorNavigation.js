@@ -47,7 +47,7 @@ export function createGeneratorNavigation({ device, container, onProjectsChanged
 				loading ||= load().catch(error => { loading = undefined; throw error })
 				const { mountGenerator } = await loading
 				if (request !== revision) return
-				workspace = mountGenerator({ root: editor, previewMount, onProjectsChanged })
+				workspace = mountGenerator({ root: editor, previewMount, onProjectsChanged, onStatusBarColorChange: color => device.updateStatusBarColor(color) })
 			}
 			if (request !== revision || device.isScreenSleeping) return
 			await workspace.show(projectId)

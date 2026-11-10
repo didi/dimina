@@ -28,7 +28,10 @@ window.addEventListener('message', async event => {
 			mount: document.getElementById('app'),
 			resourceBaseUrl: 'https://dimina.invalid/',
 			urlSync: false, storageSync: storageAdapter,
-			shell: { getStatusBarRect: () => ({ top: 0, left: 0, width: innerWidth, right: innerWidth, height: statusBarHeight, bottom: statusBarHeight }) },
+			shell: {
+				getStatusBarRect: () => ({ top: 0, left: 0, width: innerWidth, right: innerWidth, height: statusBarHeight, bottom: statusBarHeight }),
+				updateStatusBarColor: color => post('statusBarColor', { color }),
+			},
 			runtimeAssets: { serviceWorkerUrl: blob(serviceSource, 'text/javascript'), pageFrameHtml },
 			onAppLaunchError: error => post('error', { error: error?.message || '小程序启动失败' }),
 		})

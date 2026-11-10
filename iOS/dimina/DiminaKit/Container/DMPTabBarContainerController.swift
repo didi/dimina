@@ -38,6 +38,10 @@ final class DMPTabBarContainerController: UIViewController {
         tabControllers[selectedIndex]
     }
 
+    override var childForStatusBarStyle: UIViewController? {
+        currentPageController
+    }
+
     init(
         initialPath: String,
         query: [String: Any]?,

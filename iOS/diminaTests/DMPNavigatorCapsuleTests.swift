@@ -11,6 +11,60 @@ import XCTest
 @MainActor
 final class DMPNavigatorCapsuleTests: XCTestCase {
 
+    func testPageForegroundUpdatesStatusBarAlongsideCapsule() async throws {
+        let fixture = await makeRoutingFixture(name: "navigation-foreground")
+        defer { destroyRoutingFixture(fixture) }
+        let launched = await fixture.navigator.launch(
+            to: "pages/index/index", animated: false, showsLaunchLoading: false
+        )
+        XCTAssertTrue(launched)
+        let page = try XCTUnwrap(fixture.navigationController.topViewController as? DMPPageController)
+        for whiteForeground in [true, false, true] {
+            page.updateNavigationColor(
+                backgroundColor: whiteForeground ? .darkGray : .white,
+                textColor: whiteForeground ? .white : .black,
+                darkStyle: whiteForeground
+            )
+            XCTAssertEqual(page.preferredStatusBarStyle, whiteForeground ? .lightContent : .darkContent)
+            XCTAssertEqual(fixture.navigationController.navigationBar.barStyle, whiteForeground ? .black : .default)
+        }
+        fixture.navigationController.pushViewController(UIViewController(), animated: false)
+        page.updateNavigationColor(backgroundColor: .white, textColor: .black, darkStyle: false)
+        XCTAssertEqual(page.preferredStatusBarStyle, .darkContent)
+        XCTAssertEqual(fixture.navigationController.navigationBar.barStyle, .black,
+                       "A hidden page must not recolor the visible page's status bar")
+    }
+
+    func testCapsuleForegroundFollowsPageAndPreservesExplicitHostColors() throws {
+        let manager = DMPAppManager.sharedInstance()
+        let previous = manager.capsuleAppearance
+        defer { manager.capsuleAppearance = previous }
+        manager.capsuleAppearance = DMPCapsuleAppearance()
+        let navigationController = UINavigationController(rootViewController: UIViewController())
+        let navigator = DMPNavigator()
+        navigator.setup(navigationController: navigationController)
+        let capsule = try XCTUnwrap(capsules(in: navigationController.view).first)
+        let buttons = capsule.subviews.compactMap { $0 as? UIButton }
+        for whiteForeground in [true, false] {
+            navigator.updateCapsuleAppearance(whiteForeground: whiteForeground)
+            XCTAssertEqual(capsule.backgroundColor, whiteForeground ? UIColor.black.withAlphaComponent(0.2) : .white)
+            let expected: [UInt8] = whiteForeground ? [255, 255, 255] : [31, 31, 31]
+            for button in buttons {
+                let image = try XCTUnwrap(button.image(for: .normal))
+                let pixel = try renderedPixel(in: image, at: CGPoint(x: 11, y: 11))
+                XCTAssertEqual(Array(pixel.prefix(3)), expected)
+            }
+        }
+        manager.capsuleBackgroundColor = .white
+        manager.capsuleIconColor = .magenta
+        navigator.updateCapsuleAppearance(whiteForeground: true)
+        XCTAssertEqual(capsule.backgroundColor, .white)
+        for button in buttons {
+            let pixel = try renderedPixel(in: XCTUnwrap(button.image(for: .normal)), at: CGPoint(x: 11, y: 11))
+            XCTAssertEqual(Array(pixel.prefix(3)), [255, 0, 255])
+        }
+    }
+
     func testCompleteReceivesTheSameResultObjectByDefault() {
         let result = DMPMap(["errMsg": "example:ok"])
         var callbacks: [(DMPBridgeCallbackType, DMPMap)] = []
@@ -107,6 +161,7 @@ final class DMPNavigatorCapsuleTests: XCTestCase {
 
     func testTranslucentCapsuleFillCompositesOverTheNavigationBackground() throws {
         let manager = DMPAppManager.sharedInstance()
+        let previousAppearance = manager.capsuleAppearance
         let previousColor = manager.capsuleBackgroundColor
         let previousShow = manager.showCapsule
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
@@ -121,6 +176,7 @@ final class DMPNavigatorCapsuleTests: XCTestCase {
             window.isHidden = true
             previousWindow?.makeKey()
             manager.capsuleBackgroundColor = previousColor
+            manager.capsuleAppearance = previousAppearance
             manager.showCapsule = previousShow
         }
         manager.showCapsule = true
@@ -154,6 +210,7 @@ final class DMPNavigatorCapsuleTests: XCTestCase {
 
     func testCapsuleIconColorRendersBothButtonsWithIndependentFillAndHitTargets() throws {
         let manager = DMPAppManager.sharedInstance()
+        let previousAppearance = manager.capsuleAppearance
         let previousIconColor = manager.capsuleIconColor
         let previousFill = manager.capsuleBackgroundColor
         let previousShow = manager.showCapsule
@@ -171,6 +228,7 @@ final class DMPNavigatorCapsuleTests: XCTestCase {
             previousWindow?.makeKey()
             manager.capsuleIconColor = previousIconColor
             manager.capsuleBackgroundColor = previousFill
+            manager.capsuleAppearance = previousAppearance
             manager.showCapsule = previousShow
         }
         manager.showCapsule = true

@@ -15,6 +15,50 @@ function setup(options = {}) {
 afterEach(() => { preview?.destroy(); document.body.replaceChildren(); localStorage.clear() })
 
 describe('preview commit boundary', () => {
+	it('commits the runtime color with its frame and accepts live black/white changes only from that frame', async () => {
+		const onStatusBarColorChange = vi.fn()
+		const mount = setup({ onStatusBarColorChange })
+		const ready = preview.open(app)
+		void ready.catch(() => {})
+		const frame = mount.querySelector('iframe')
+		send(frame, 'statusBarColor', { color: 'white' })
+		expect(onStatusBarColorChange).not.toHaveBeenCalled()
+		send(frame, 'ready')
+		await ready
+		expect(onStatusBarColorChange).toHaveBeenLastCalledWith('white')
+		onStatusBarColorChange.mockClear()
+		window.dispatchEvent(new MessageEvent('message', { source: window, data: { channel: 'dimina-generator', type: 'statusBarColor', color: 'white' } }))
+		send(frame, 'statusBarColor', { color: 'red' })
+		expect(onStatusBarColorChange).not.toHaveBeenCalled()
+		send(frame, 'statusBarColor', { color: 'black' })
+		expect(onStatusBarColorChange).toHaveBeenLastCalledWith('black')
+	})
+
+	it('keeps the old frame color when a candidate cannot be saved and ignores disposed frames', async () => {
+		const onStatusBarColorChange = vi.fn()
+		const mount = setup({ onStatusBarColorChange })
+		const initial = preview.open(app)
+		const original = mount.querySelector('iframe')
+		send(original, 'statusBarColor', { color: 'white' })
+		send(original, 'ready')
+		await initial
+		onStatusBarColorChange.mockClear()
+		const failed = preview.open(app, { beforeCommit: () => Promise.reject(new Error('quota')) })
+		const candidate = mount.querySelectorAll('iframe')[1]
+		send(candidate, 'statusBarColor', { color: 'black' })
+		send(candidate, 'ready')
+		await expect(failed).rejects.toThrow('quota')
+		expect(onStatusBarColorChange).not.toHaveBeenCalled()
+		const replaced = preview.open(app)
+		const replacement = mount.querySelectorAll('iframe')[1]
+		send(replacement, 'statusBarColor', { color: 'black' })
+		send(replacement, 'ready')
+		await replaced
+		onStatusBarColorChange.mockClear()
+		send(original, 'statusBarColor', { color: 'white' })
+		expect(onStatusBarColorChange).not.toHaveBeenCalled()
+	})
+
 	it('passes the host status-bar geometry into the isolated runtime without host DOM access', async () => {
 		const mount = setup({ statusBarHeight: 48 })
 		const ready = preview.open(app)

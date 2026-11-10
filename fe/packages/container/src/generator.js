@@ -12,7 +12,7 @@ const progressStages = {
 	loading: { title: '正在打开本地小程序…', detail: '正在恢复已保存的应用。', step: 2 },
 }
 
-export function mountGenerator({ root, previewMount, onProjectsChanged = () => {}, onProjectChange = () => {} }) {
+export function mountGenerator({ root, previewMount, onProjectsChanged = () => {}, onProjectChange = () => {}, onStatusBarColorChange = () => {} }) {
 	root.classList.add('generator-panel')
 	root.innerHTML = `
 	 <section class="studio-editor" aria-label="小程序生成工作区">
@@ -56,6 +56,10 @@ export function mountGenerator({ root, previewMount, onProjectsChanged = () => {
 	let active = false, destroyed = false
 	let pendingOperation = Promise.resolve()
 	let project, controller, busy = false, selectedFile
+	let runtimeStatusBarColor = 'black'
+	const syncStatusBarColor = () => {
+		if (active) onStatusBarColorChange(project && $('preview-status').hidden ? runtimeStatusBarColor : 'black')
+	}
 	const status = (text, error = false, stage) => {
 		if (destroyed) return
 		$('status').textContent = text
@@ -81,11 +85,16 @@ export function mountGenerator({ root, previewMount, onProjectsChanged = () => {
 			$('preview-resume').disabled = busy
 		}
 		$('preview-runtime').inert = busy || !panel.hidden
+		syncStatusBarColor()
 	}
 	const progress = stage => status(progressStages[stage].title, false, stage)
 	const statusBarHeight = previewMount.closest('.iphone__screen')?.querySelector('.iphone__status-bar')?.offsetHeight || 0
-	const preview = createPreview({ mount: $('preview-runtime'), statusBarHeight, onRuntimeError: error => status(`运行错误：${error}`, true) })
-	$('preview-resume').onclick = () => { $('preview-status').hidden = true; $('preview-runtime').inert = busy }
+	const preview = createPreview({
+		mount: $('preview-runtime'), statusBarHeight,
+		onRuntimeError: error => status(`运行错误：${error}`, true),
+		onStatusBarColorChange: color => { runtimeStatusBarColor = color; syncStatusBarColor() },
+	})
+	$('preview-resume').onclick = () => { $('preview-status').hidden = true; $('preview-runtime').inert = busy; syncStatusBarColor() }
 	const previousVersion = value => value ? Object.fromEntries(Object.entries(value).filter(([key]) => key !== 'previous')) : undefined
 	function setBusy(value) {
 		if (destroyed) return

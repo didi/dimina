@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createHttpProvider } from '@dimina/generator'
 import { mountGenerator } from '../src/generator.js'
 
-const dependencies = vi.hoisted(() => ({ provider: { generate: vi.fn() }, compile: vi.fn(), preview: { open: vi.fn(), destroy: vi.fn() }, store: { list: vi.fn(), get: vi.fn(), put: vi.fn() } }))
+const dependencies = vi.hoisted(() => ({ provider: { generate: vi.fn() }, compile: vi.fn(), preview: { open: vi.fn(), destroy: vi.fn() }, previewOptions: undefined, color: vi.fn(), store: { list: vi.fn(), get: vi.fn(), put: vi.fn() } }))
 vi.mock('@dimina/generator', async () => {
 	const { createGenerator } = await import('../../generator/src/generation.js')
 	const { parseProject } = await import('../../generator/src/protocol.js')
@@ -11,7 +11,7 @@ vi.mock('@dimina/generator', async () => {
 	return {
 		createGenerator: options => createGenerator({ compile: dependencies.compile, ...options }),
 		createHttpProvider: vi.fn(),
-		createPreview: () => dependencies.preview,
+		createPreview: options => { dependencies.previewOptions = options; return dependencies.preview },
 		createProjectStore: () => dependencies.store,
 		compileProject: (...args) => dependencies.compile(...args), parseProject, createSourceArchive, readSourceProject,
 	}
@@ -31,7 +31,7 @@ beforeEach(async () => {
 	dependencies.compile.mockResolvedValue({})
 	dependencies.preview.open.mockImplementation(async (_project, { beforeCommit } = {}) => { await beforeCommit?.() })
 	document.body.innerHTML = '<div id="editor"></div><div id="preview"></div>'
-	workspace = mountGenerator({ root: $('editor'), previewMount: $('preview') })
+	workspace = mountGenerator({ root: $('editor'), previewMount: $('preview'), onStatusBarColorChange: dependencies.color })
 	await workspace.show()
 	$('endpoint').value = 'https://api.deepseek.com'
 	$('model').value = 'deepseek-flash'
@@ -41,6 +41,24 @@ afterEach(() => { workspace.destroy(); document.body.replaceChildren() })
 function submit() { $('generate-form').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })) }
 
 describe('progress inside the simulator', () => {
+	it('uses runtime foreground colors only while the saved app is visible and restores them after a failure overlay', async () => {
+		await workspace.show(saved.id)
+		dependencies.previewOptions.onStatusBarColorChange('white')
+		expect(dependencies.color).toHaveBeenLastCalledWith('white')
+		dependencies.provider.generate.mockRejectedValue(new Error('model unavailable'))
+		submit()
+		expect(dependencies.color).toHaveBeenLastCalledWith('black')
+		await vi.waitFor(() => expect($('generate').disabled).toBe(false))
+		expect($('preview-status').dataset.state).toBe('error')
+		expect(dependencies.color).toHaveBeenLastCalledWith('black')
+		$('preview-resume').click()
+		expect(dependencies.color).toHaveBeenLastCalledWith('white')
+		workspace.hide()
+		dependencies.color.mockClear()
+		dependencies.previewOptions.onStatusBarColorChange('white')
+		expect(dependencies.color).not.toHaveBeenCalled()
+	})
+
 	it('requires an Anthropic model and sends the API key in its own header', async () => {
 		$('protocol').value = 'anthropic-messages'
 		$('protocol').dispatchEvent(new Event('change'))

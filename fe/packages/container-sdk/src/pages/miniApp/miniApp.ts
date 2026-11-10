@@ -1544,7 +1544,7 @@ export class MiniApp {
 			const mergeConfig = mergePageConfig(this.appConfig!.app, pageConfig)
 
 			// 更新状态栏颜色模式
-			this.updateTargetPageColorStyle(mergeConfig)
+			this.updateTargetPageColorStyle(preBridge.opts.configInfo || mergeConfig)
 
 			// 当前页面推出
 			currentBridge.webview!.el.classList.add('dimina-native-view--before-enter')
@@ -1678,7 +1678,7 @@ export class MiniApp {
 
 			// 目标 bridge 已确认就绪（此刻若是新建的也已经登记+start 过）：现在才提交
 			// 状态栏配色，并开始销毁旧页面。
-			this.updateTargetPageColorStyle(targetMergeConfig)
+			this.updateTargetPageColorStyle(targetBridge.opts.configInfo || targetMergeConfig)
 
 			// 2. 隐藏 / 卸载非 tab 页面（从栈顶往下，遇到 tab 页停止）
 			while (this.navigator.size > 0) {
@@ -3050,6 +3050,14 @@ export class MiniApp {
 				// 设置前景色（文字颜色）
 				if (frontColor) {
 					navigation.querySelector<HTMLElement>('.dimina-native-webview__navigation-title')!.style.color = frontColor
+					const foreground = frontColor.toLowerCase()
+					if (foreground === '#ffffff' || foreground === '#000000') {
+						const color = foreground === '#ffffff' ? 'white' : 'black'
+						navigation.classList.toggle('dimina-native-webview__navigation--white', color === 'white')
+						navigation.classList.toggle('dimina-native-webview__navigation--black', color === 'black')
+						if (currentBridge.opts.configInfo) currentBridge.opts.configInfo.navigationBarTextStyle = color
+						this.updateActionColorStyle(color)
+					}
 				}
 				// 设置背景色
 				if (backgroundColor) {

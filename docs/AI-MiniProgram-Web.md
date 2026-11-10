@@ -67,7 +67,7 @@ await preview.open(project, {
 
 `createProjectStore()` 提供 `get(id)`、`list()`、`put(project)` 和 `delete(id)`。`preview.destroy()` 销毁当前和正在启动的预览。宿主退出工作区时应同时取消生成和销毁预览。
 
-预览应覆盖完整的设备视口，让容器处理标准导航栏的状态栏留白。宿主自行绘制状态栏时，可通过 `createPreview({ mount, statusBarHeight })` 传入其未缩放的 CSS 像素高度，供小程序的系统信息与自定义导航使用；独立预览默认高度为 0。
+预览应覆盖完整的设备视口，让容器处理标准导航栏的状态栏留白。宿主自行绘制状态栏时，可通过 `createPreview({ mount, statusBarHeight, onStatusBarColorChange })` 传入其未缩放的 CSS 像素高度，并在颜色回调中同步状态栏图标。回调参数仅为 `black` 或 `white`，由页面配置或 `wx.setNavigationBarColor` 驱动，与胶囊内图标保持一致；候选版本启动、保存成功后才提交其颜色。独立预览默认状态栏高度为 0。
 
 ## HTTP 模型接入
 

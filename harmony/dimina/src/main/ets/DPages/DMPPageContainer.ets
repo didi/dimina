@@ -183,8 +183,8 @@ export struct DMPPageContainer {
         DMPCapsuleButton({
           appIndex: this.appIndex,
           webViewId: this.webViewId,
-          fillColor: DMPAppManager.sharedInstance().capsuleBackgroundColor,
-          iconColor: DMPAppManager.sharedInstance().capsuleIconColor,
+          fillColor: DMPAppManager.sharedInstance().resolveCapsuleBackgroundColor(!(this.pageRecord.pageStyle?.isStatusBarDarkMode() ?? true)),
+          iconColor: DMPAppManager.sharedInstance().resolveCapsuleIconColor(!(this.pageRecord.pageStyle?.isStatusBarDarkMode() ?? true)),
           onMoreClick: () => {
             this.showMiniProgramMenu()
           },
