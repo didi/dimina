@@ -61,7 +61,7 @@ class Dimina private constructor(context: Context) {
         private val customCapsuleIcon = builder.customCapsuleIcon
 
         internal fun resolveCapsuleBackgroundColor(whiteForeground: Boolean): Int =
-            if (customCapsuleBackground || !whiteForeground) capsuleBackgroundColor else 0x33000000
+            if (customCapsuleBackground || !whiteForeground) capsuleBackgroundColor else 0x26000000
 
         internal fun resolveCapsuleIconColor(whiteForeground: Boolean): Int =
             if (customCapsuleIcon || !whiteForeground) capsuleIconColor else Color.WHITE
@@ -86,7 +86,7 @@ class Dimina private constructor(context: Context) {
             fun setShowCapsule(show: Boolean): Builder { showCapsule = show; return this }
 
             @ColorInt
-            internal var capsuleBackgroundColor: Int = Color.WHITE
+            internal var capsuleBackgroundColor: Int = 0x99FFFFFF.toInt()
                 private set
 
             /** Sets the capsule fill to an ARGB color. Configure before [Dimina.init]. */

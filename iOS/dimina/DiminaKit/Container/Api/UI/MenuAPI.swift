@@ -13,6 +13,9 @@ enum DMPMenuButtonLayout {
     static let trailingSpacing: CGFloat = 10
     static let navigationBarContentHeight: CGFloat = 44
     static let titleTrailingGap: CGFloat = 13
+    static func verticalInset(isLandscape: Bool) -> CGFloat {
+        (navigationBarContentHeight - capsuleSize.height) / 2 + (isLandscape ? 2 : -2)
+    }
     static var titleTrailingInset: CGFloat {
         trailingSpacing + capsuleSize.width + titleTrailingGap
     }
@@ -20,10 +23,11 @@ enum DMPMenuButtonLayout {
     static func rect(
         windowWidth: CGFloat,
         statusBarHeight: CGFloat,
-        safeAreaTop: CGFloat
+        safeAreaTop: CGFloat,
+        isLandscape: Bool = false
     ) -> CGRect {
         let top = max(statusBarHeight, safeAreaTop)
-            + (navigationBarContentHeight - capsuleSize.height) / 2
+            + verticalInset(isLandscape: isLandscape)
         let right = max(windowWidth - trailingSpacing, capsuleSize.width)
         return CGRect(
             x: right - capsuleSize.width,
@@ -56,10 +60,12 @@ public class MenuAPI: DMPContainerApi {
             ?? UIScreen.main.bounds.width
         let statusBarHeight = DMPUIManager.shared.getStatusBarHeight()
         let safeAreaTop = DMPUIManager.shared.getSafeAreaInsets().top
+        let bounds = DMPUIManager.getCurrentWindow()?.bounds ?? UIScreen.main.bounds
         let rect = DMPMenuButtonLayout.rect(
             windowWidth: windowWidth,
             statusBarHeight: statusBarHeight,
-            safeAreaTop: safeAreaTop
+            safeAreaTop: safeAreaTop,
+            isLandscape: bounds.width > bounds.height
         )
         
         let menuButtonInfo = DMPMap([

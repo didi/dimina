@@ -158,6 +158,7 @@ public class DMPPageController: UIViewController {
 
     public override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        navigator?.updateCapsuleLayout()
         if let customNavigationBar = customNavigationBar, !customNavigationBar.isHidden {
             view.bringSubviewToFront(customNavigationBar)
         }

@@ -9,9 +9,9 @@ class CapsuleAppearanceTest {
     fun defaultCapsuleFollowsPageForeground() {
         val config = Dimina.DiminaConfig.Builder().build()
         assertEquals(Color.WHITE, config.resolveCapsuleIconColor(true))
-        assertEquals(0x33000000, config.resolveCapsuleBackgroundColor(true))
+        assertEquals(0x26000000, config.resolveCapsuleBackgroundColor(true))
         assertEquals(0xFF1F1F1F.toInt(), config.resolveCapsuleIconColor(false))
-        assertEquals(Color.WHITE, config.resolveCapsuleBackgroundColor(false))
+        assertEquals(0x99FFFFFF.toInt(), config.resolveCapsuleBackgroundColor(false))
     }
 
     @Test

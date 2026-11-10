@@ -47,7 +47,7 @@ final class DMPNavigatorCapsuleTests: XCTestCase {
         let buttons = capsule.subviews.compactMap { $0 as? UIButton }
         for whiteForeground in [true, false] {
             navigator.updateCapsuleAppearance(whiteForeground: whiteForeground)
-            XCTAssertEqual(capsule.backgroundColor, whiteForeground ? UIColor.black.withAlphaComponent(0.2) : .white)
+            XCTAssertEqual(capsule.backgroundColor, whiteForeground ? UIColor.black.withAlphaComponent(0.15) : UIColor.white.withAlphaComponent(0.6))
             let expected: [UInt8] = whiteForeground ? [255, 255, 255] : [31, 31, 31]
             for button in buttons {
                 let image = try XCTUnwrap(button.image(for: .normal))
@@ -63,6 +63,34 @@ final class DMPNavigatorCapsuleTests: XCTestCase {
             let pixel = try renderedPixel(in: XCTUnwrap(button.image(for: .normal)), at: CGPoint(x: 11, y: 11))
             XCTAssertEqual(Array(pixel.prefix(3)), [255, 0, 255])
         }
+    }
+
+    func testCapsuleUsesWechatIOSOffsetAndReportsItsRenderedFrame() throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousWindow = scene.windows.first(where: \.isKeyWindow)
+        let window = UIWindow(windowScene: scene)
+        let navigationController = UINavigationController(rootViewController: UIViewController())
+        navigationController.setNavigationBarHidden(true, animated: false)
+        window.rootViewController = navigationController
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            previousWindow?.makeKey()
+        }
+        let navigator = DMPNavigator()
+        navigator.setup(navigationController: navigationController)
+        window.layoutIfNeeded()
+        navigationController.view.layoutIfNeeded()
+        let capsule = try XCTUnwrap(capsules(in: navigationController.view).first)
+        let rendered = capsule.convert(capsule.bounds, to: window)
+        let menu = MenuAPI.getMenuButtonBoundingClientRect()
+        let top = max(window.safeAreaInsets.top, DMPUIManager.shared.getStatusBarHeight()) + 4
+        XCTAssertEqual(rendered.minY, top, accuracy: 0.5)
+        XCTAssertEqual(try XCTUnwrap(menu.get("top") as? CGFloat), rendered.minY, accuracy: 0.5)
+        XCTAssertEqual(try XCTUnwrap(menu.get("left") as? CGFloat), rendered.minX, accuracy: 0.5)
+        XCTAssertEqual(try XCTUnwrap(menu.get("width") as? CGFloat), rendered.width, accuracy: 0.5)
+        XCTAssertEqual(try XCTUnwrap(menu.get("height") as? CGFloat), rendered.height, accuracy: 0.5)
+        XCTAssertEqual(DMPMenuButtonLayout.rect(windowWidth: 852, statusBarHeight: 0, safeAreaTop: 0, isLandscape: true).minY, 8)
     }
 
     func testCompleteReceivesTheSameResultObjectByDefault() {

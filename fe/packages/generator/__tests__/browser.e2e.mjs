@@ -313,6 +313,7 @@ try {
 	const assertForeground = async color => {
 		await page.locator(`.iphone__status-bar--${color}`).waitFor()
 		assert.equal(await isolated().locator(`.dimina-mini-app-navigation__actions--${color}`).count(), 1, 'Capsule icons follow the host status-bar foreground')
+		assert.equal(await isolated().locator('.dimina-mini-app-navigation__actions').evaluate(element => getComputedStyle(element).backgroundColor), color === 'white' ? 'rgba(0, 0, 0, 0.15)' : 'rgba(255, 255, 255, 0.6)', 'Default capsule fill matches WeChat developer tools')
 		const navigation = isolated().locator('.dimina-mini-app__webviews > .dimina-native-view:last-child .dimina-native-webview__navigation')
 		assert.equal(await navigation.evaluate(element => getComputedStyle(element.querySelector('h2')).color), color === 'white' ? 'rgb(255, 255, 255)' : 'rgb(0, 0, 0)')
 	}

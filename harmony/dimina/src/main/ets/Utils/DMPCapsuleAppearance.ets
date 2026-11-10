@@ -3,7 +3,7 @@ export class DMPCapsuleAppearance {
   iconOverride: ResourceColor | undefined = undefined
 
   backgroundColor(whiteForeground: boolean): ResourceColor {
-    return this.backgroundOverride ?? (whiteForeground ? '#33000000' : '#ffffff')
+    return this.backgroundOverride ?? (whiteForeground ? '#26000000' : '#99ffffff')
   }
 
   iconColor(whiteForeground: boolean): ResourceColor {

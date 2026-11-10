@@ -82,7 +82,7 @@ const info = await manager.installMiniProgram('demo', zipPath)
 
 ### 胶囊背景色
 
-未显式配置时，胶囊跟随页面的 `navigationBarTextStyle` 和 `wx.setNavigationBarColor`：黑色前景使用白色底色，白色前景使用半透明深色底色。宿主可在首次启动小程序前设置全局胶囊底色，显式设置会覆盖自动底色。下面三种写法都使用约 50% 不透明度的白色。透明度作用于填充色，图标、边框和点击区域保持原有行为。Android 和 iOS 在填充色不透明时保留默认阴影；半透明或全透明时不绘制阴影，避免底色叠加变暗。
+未显式配置时，胶囊跟随页面的 `navigationBarTextStyle` 和 `wx.setNavigationBarColor`：黑色前景使用 60% 不透明度的白色底色，白色前景使用 15% 不透明度的黑色底色。Web、Android、iOS 和 Harmony 使用相同的默认规则。宿主可在首次启动小程序前设置全局胶囊底色，显式设置会覆盖自动底色。下面三种写法都使用约 50% 不透明度的白色。透明度作用于填充色，图标、边框和点击区域保持原有行为。Android 和 iOS 在填充色不透明时保留默认阴影；半透明或全透明时不绘制阴影，避免底色叠加变暗。
 
 - Android 在初始化 SDK 的 `DiminaConfig.Builder` 上调用 `.setCapsuleBackgroundColor(0x80FFFFFF.toInt())`，参数是 ARGB 颜色整数。
 - iOS 在主线程设置 `DMPAppManager.sharedInstance().capsuleBackgroundColor = UIColor.white.withAlphaComponent(0.5)`。Objective-C 可在 `DMPObjCManager.shared` 上设置同名属性。

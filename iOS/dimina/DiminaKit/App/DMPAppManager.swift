@@ -14,7 +14,7 @@ struct DMPCapsuleAppearance {
     var iconOverride: UIColor?
 
     func backgroundColor(whiteForeground: Bool) -> UIColor {
-        backgroundOverride ?? (whiteForeground ? UIColor.black.withAlphaComponent(0.2) : .white)
+        backgroundOverride ?? (whiteForeground ? UIColor.black.withAlphaComponent(0.15) : UIColor.white.withAlphaComponent(0.6))
     }
 
     func iconColor(whiteForeground: Bool) -> UIColor {

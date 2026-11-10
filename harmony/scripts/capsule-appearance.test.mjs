@@ -14,9 +14,9 @@ const { DMPCapsuleAppearance } = module.exports
 test('default capsule follows the page foreground through both modes', () => {
   const appearance = new DMPCapsuleAppearance()
   assert.equal(appearance.iconColor(true), '#ffffff')
-  assert.equal(appearance.backgroundColor(true), '#33000000')
+  assert.equal(appearance.backgroundColor(true), '#26000000')
   assert.equal(appearance.iconColor(false), '#1f1f1f')
-  assert.equal(appearance.backgroundColor(false), '#ffffff')
+  assert.equal(appearance.backgroundColor(false), '#99ffffff')
 })
 
 test('host overrides retain their exact color and alpha in both modes', () => {

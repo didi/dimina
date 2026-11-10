@@ -38,6 +38,7 @@ public class DMPNavigator: NSObject {
     // 胶囊属于小程序容器，而不是某个页面。固定挂在 UINavigationController.view
     // 上可避免 push/pop 时新旧页面各携带一份胶囊参与转场。
     private var capsuleView: UIView?
+    private var capsuleTopConstraint: NSLayoutConstraint?
     private weak var capsuleMoreButton: UIButton?
     private weak var capsuleCloseButton: UIButton?
     private weak var capsuleSeparatorView: UIView?
@@ -118,6 +119,15 @@ public class DMPNavigator: NSObject {
         capsuleView.superview?.bringSubviewToFront(capsuleView)
     }
 
+    @MainActor
+    func updateCapsuleLayout() {
+        guard isActiveNavigationOwner(), let bounds = navigationController?.view.bounds else { return }
+        let inset = DMPMenuButtonLayout.verticalInset(isLandscape: bounds.width > bounds.height)
+        if capsuleTopConstraint?.constant != inset {
+            capsuleTopConstraint?.constant = inset
+        }
+    }
+
     func updateCapsuleAppearance(whiteForeground: Bool) {
         let appearance = DMPAppManager.sharedInstance().capsuleAppearance
         let fill = appearance.backgroundColor(whiteForeground: whiteForeground)
@@ -178,13 +188,14 @@ public class DMPNavigator: NSObject {
         capsuleView.addSubview(closeButton)
         navigationController.view.addSubview(capsuleView)
 
-        let verticalInset = (DMPMenuButtonLayout.navigationBarContentHeight
-            - DMPMenuButtonLayout.capsuleSize.height) / 2
+        let bounds = navigationController.view.bounds
+        let topConstraint = capsuleView.topAnchor.constraint(
+            equalTo: navigationController.view.safeAreaLayoutGuide.topAnchor,
+            constant: DMPMenuButtonLayout.verticalInset(isLandscape: bounds.width > bounds.height)
+        )
+        capsuleTopConstraint = topConstraint
         NSLayoutConstraint.activate([
-            capsuleView.topAnchor.constraint(
-                equalTo: navigationController.view.safeAreaLayoutGuide.topAnchor,
-                constant: verticalInset
-            ),
+            topConstraint,
             capsuleView.trailingAnchor.constraint(
                 equalTo: navigationController.view.trailingAnchor,
                 constant: -DMPMenuButtonLayout.trailingSpacing
