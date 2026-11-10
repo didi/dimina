@@ -4,6 +4,7 @@
 html,
 body {
 	overflow-x: clip;
+	-webkit-text-size-adjust: 100%;
 }
 
 #root {
@@ -12,11 +13,6 @@ body {
 	overflow: auto;
 	color: var(--color-ink);
 	background: var(--color-paper);
-
-	@include mobile-fullscreen-device {
-		overflow: clip;
-		background: var(--color-device-island);
-	}
 }
 
 .device-stage {
@@ -94,7 +90,35 @@ body {
 		background: transparent;
 		color: var(--color-ink-muted);
 		cursor: pointer;
+		white-space: nowrap;
 		&[aria-pressed="true"] { background: var(--color-stage-glow); color: var(--color-focus); }
+		&:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+	}
+
+	button, a, summary {
+		touch-action: manipulation;
+		-webkit-tap-highlight-color: transparent;
+		-webkit-user-select: none;
+		user-select: none;
+	}
+	button, summary { -webkit-touch-callout: none; }
+	&__mode:active, &__nav a:active { background: var(--color-stage-glow); color: var(--color-focus); }
+	.device-stage__jump {
+		display: none;
+		align-items: center;
+		justify-content: center;
+		flex: 0 0 auto;
+		min-block-size: var(--size-hit);
+		padding: 0 var(--space-md);
+		border: 1px solid var(--color-rule);
+		border-radius: 0.625rem;
+		background: var(--color-paper-raised);
+		color: var(--color-focus);
+		font: 500 0.8125rem/1.4 var(--font-body);
+		letter-spacing: normal;
+		white-space: nowrap;
+		cursor: pointer;
+		&:active { background: var(--color-stage-glow); }
 		&:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
 	}
 
@@ -115,10 +139,12 @@ body {
 		text-decoration: none;
 		white-space: nowrap;
 
-		&:hover {
-			color: var(--color-focus);
-			text-decoration: underline;
-			text-underline-offset: 0.25em;
+		@media (hover: hover) and (pointer: fine) {
+			&:hover {
+				color: var(--color-focus);
+				text-decoration: underline;
+				text-underline-offset: 0.25em;
+			}
 		}
 
 		&:focus-visible {
@@ -195,6 +221,7 @@ body {
 	&__preview-label {
 		z-index: 1;
 		display: flex;
+		align-items: center;
 		justify-content: space-between;
 		gap: var(--space-md);
 		color: var(--color-ink-muted);
@@ -270,57 +297,72 @@ body {
 }
 
 @include mobile-fullscreen-device {
-	#root.is-generator-active { overflow: auto; background: var(--color-paper); }
 	.device-stage {
-		display: block;
-		block-size: 100%;
-		min-block-size: 0;
-		padding: 0;
+		display: grid;
+		grid-template-columns: minmax(0, 1fr);
+		grid-template-rows: auto auto;
+		align-content: start;
+		block-size: auto;
+		min-block-size: 100%;
+		padding-block: calc(var(--space-lg) + env(safe-area-inset-top, 0px)) calc(var(--space-lg) + env(safe-area-inset-bottom, 0px));
+		padding-inline: calc(var(--space-lg) + env(safe-area-inset-left, 0px)) calc(var(--space-lg) + env(safe-area-inset-right, 0px));
+		gap: var(--space-xl);
 
-		&__header,
-		&__preview-label,
 		&__orbit,
 		&__statement,
 		&__footer {
 			display: none;
 		}
 
-		&__preview {
-			position: absolute;
-			inset: 0;
-			display: block;
+		.device-stage__header {
+			position: sticky;
+			inset-block-start: env(safe-area-inset-top, 0px);
+			z-index: 2;
+			display: flex;
+			gap: var(--space-md);
+			background: var(--color-paper);
+		}
+		.device-stage__logo { inline-size: 4.5rem; flex: 0 0 auto; }
+		.device-stage__nav { font-size: 0.75rem; gap: 0.25rem; }
+		.device-stage__mode { padding-inline: var(--space-sm); }
+
+		.device-stage__preview {
+			position: relative;
+			inset: auto;
+			display: grid;
+			grid-template-rows: auto auto;
+			gap: var(--space-sm);
+			inline-size: 100%;
+			max-inline-size: 20rem;
+			justify-self: center;
 			padding: 0;
 			border: 0;
 			border-radius: 0;
-			background: var(--color-device-island);
+			background: transparent;
+			scroll-margin-block-start: calc(var(--size-hit) + var(--space-lg) + var(--space-md));
 		}
 
-		&__device {
+		.device-stage__device {
 			inline-size: 100%;
-			block-size: 100%;
+			block-size: auto;
+			aspect-ratio: #{$deviceWidth} / #{$deviceHeight};
 
 			#iphone {
 				transform: none;
 				box-shadow: none;
 			}
 		}
+		#iphone { background: var(--color-device-island); border-radius: 2rem; }
+		#iphone .iphone__screen { inset: 0.5rem; border-radius: 1.5rem; }
+		// Keep the time and signal icons clear in the bounded mobile frame.
+		#iphone .iphone__screen .iphone__screen_dynamic-island { display: none; }
 	}
 
 	.device-stage--generator {
-		display: grid;
-		grid-template-columns: minmax(0, 1fr);
 		grid-template-rows: auto auto auto;
-		block-size: auto;
-		min-block-size: 100%;
-		padding: var(--space-lg);
-		gap: var(--space-xl);
-		.device-stage__header { display: flex; flex-wrap: wrap; }
-		.device-stage__logo { inline-size: 5.5rem; }
-		.device-stage__nav { font-size: 0.75rem; gap: 0.25rem; }
-		.device-stage__preview { position: relative; inset: auto; block-size: min(80svh, 46rem); min-block-size: 32rem; border-radius: 2rem; }
-		.device-stage__device { inline-size: 100%; block-size: 100%; }
-		#iphone { background: #343232; border-radius: 2rem; }
-		#iphone .iphone__screen { inset: 0.5rem; border-radius: 1.5rem; }
+		.device-stage__workspace { inline-size: 100%; max-inline-size: 42rem; justify-self: center; scroll-margin-block-start: calc(var(--size-hit) + var(--space-lg) + var(--space-md)); }
+		.device-stage__jump { display: inline-flex; }
+		.device-stage__preview-platform { display: none; }
 	}
 }
 

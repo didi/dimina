@@ -44,4 +44,17 @@ describe('integrated generator navigation', () => {
 		expect(mountGenerator).not.toHaveBeenCalled()
 		expect(application.el.hidden).toBe(false)
 	})
+
+	it('reveals the page header when switching modes without resetting a workspace reopened in place', async () => {
+		const workspace = { show: vi.fn(), hide: vi.fn() }
+		const { navigation, device } = setup(async () => ({ mountGenerator: () => workspace }))
+		device.root.scrollTop = 480
+		await navigation.open('generator')
+		expect(device.root.scrollTop).toBe(0)
+		device.root.scrollTop = 320
+		await navigation.open('generator')
+		expect(device.root.scrollTop).toBe(320)
+		await navigation.open('examples')
+		expect(device.root.scrollTop).toBe(0)
+	})
 })

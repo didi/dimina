@@ -119,6 +119,15 @@
 	display: flex;
 	flex-direction: column;
 
+	.dimina-app__mini-used-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-sm);
+		padding-inline-end: var(--space-sm);
+		flex: 0 0 auto;
+	}
+
 	.dimina-app__mini-used-title {
 		padding: logic(30px) 0;
 		font-weight: normal;
@@ -179,18 +188,41 @@
 }
 
 .dimina-app__generator-link {
-	display: block;
-	margin: logic(24px) logic(32px) 0;
-	padding: logic(20px) logic(28px);
-	min-height: logic(88px);
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	flex: 0 0 auto;
+	gap: var(--space-xs);
+	padding: 0 var(--space-sm);
+	min-height: var(--size-hit);
 	color: var(--color-focus);
-	background: var(--color-stage-glow);
-	border: 1px solid var(--color-rule);
-	border-radius: logic(18px);
+	background: transparent;
+	border: 0;
+	border-radius: 0.5rem;
 	font: inherit;
-	font-size: logic(28px);
-	text-align: left;
+	font-size: logic(26px);
+	white-space: nowrap;
 	cursor: pointer;
 	&:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+	&:active { background: var(--color-stage-glow); }
+	@media (hover: hover) and (pointer: fine) {
+		&:hover { background: var(--color-stage-glow); }
+	}
 }
 .dimina-app__mini-used-logo--generated { display: grid; place-items: center; background: var(--color-stage-glow); color: var(--color-focus); font-size: logic(52px); }
+
+@include mobile-fullscreen-device {
+	.dimina-app__mini {
+		font-family: var(--font-body);
+		.dimina-app-navigation__title { font-size: 1rem; font-weight: 600; }
+		.dimina-app__mini-search-input { height: var(--size-hit); }
+		.dimina-app__mini-search-input-placeholder { font-size: 1rem; }
+		.dimina-app__mini-used-title { font-size: 0.75rem; padding-block: var(--space-lg); }
+		.dimina-app__generator-link { font-size: 0.8125rem; }
+		.dimina-app__mini-used-list-item { padding-inline-start: calc(var(--size-hit) + var(--space-lg) + var(--space-sm)); }
+		.dimina-app__mini-used-name { font-size: 0.875rem; line-height: 1.5; padding-block: var(--space-xl); }
+		.dimina-app__mini-used-logo { width: var(--size-hit); height: var(--size-hit); left: var(--space-sm); }
+		.dimina-app__mini-used-logo--generated { font-size: 1.5rem; }
+		.dimina-app__mini-used-state { font-size: 0.8125rem; }
+	}
+}
