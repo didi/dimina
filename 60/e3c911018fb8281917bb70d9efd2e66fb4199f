@@ -1,0 +1,141 @@
+fe/packages/container-sdk/src/pages/webview/webview.ts
+  a67563ac67f11cf7 14,31,44-52,66-75,125-128,133-135
+fe/packages/container/package.json
+  a67563ac67f11cf7 16-17
+fe/packages/service/src/index.js
+  a67563ac67f11cf7 28,36
+fe/packages/container-sdk/src/pages/application/application.ts
+  a67563ac67f11cf7 32,72,85
+fe/packages/container-sdk/src/config.ts
+  a67563ac67f11cf7 71,82
+fe/packages/generator/src/store.js
+  a67563ac67f11cf7 1-25
+fe/packages/container/src/pages/device/device-stage.scss
+  a67563ac67f11cf7 87-108,269,273,308-323
+fe/packages/generator/__tests__/generator.spec.js
+  a67563ac67f11cf7 1-71
+fe/packages/generator/src/index.js
+  a67563ac67f11cf7 1-34
+fe/packages/compiler/package.json
+  a67563ac67f11cf7 15-16,23,48-49,58,65
+fe/packages/generator/__tests__/preview.spec.js
+  a67563ac67f11cf7 1-62
+fe/packages/container-sdk/src/pages/miniApp/miniApp.ts
+  a67563ac67f11cf7 83-85,783-789,794-795,813-814,831
+fe/packages/generator/src/renderFrame.js
+  a67563ac67f11cf7 1-15
+docs/AI-MiniProgram-Web.md
+  a67563ac67f11cf7 1-113
+fe/packages/container/src/pages/device/device.html
+  a67563ac67f11cf7 6-7,17
+fe/packages/compiler/src/browser/transform.js
+  a67563ac67f11cf7 1-5
+fe/packages/container-sdk/README.md
+  a67563ac67f11cf7 59-66
+fe/packages/container/src/pages/appList/appList.js
+  a67563ac67f11cf7 24,26-29,44-56,92-95,116,121,123,128,131,150,155-166
+fe/packages/generator/package.json
+  a67563ac67f11cf7 1-26
+fe/packages/compiler/src/browser/index.js
+  a67563ac67f11cf7 1-33
+fe/packages/generator/src/protocol.js
+  a67563ac67f11cf7 1-35
+fe/packages/container/src/index.js
+  a67563ac67f11cf7 5-6,121-127,129-132,135
+fe/packages/container-sdk/src/core/bridge.ts
+  a67563ac67f11cf7 231-232,250-251,352,370,435
+fe/packages/container/src/generator.js
+  a67563ac67f11cf7 1-153
+fe/packages/render/src/core/loader.js
+  a67563ac67f11cf7 10,17-19,22-24,77-83,98-103
+fe/README.md
+  a67563ac67f11cf7 11
+fe/packages/generator/src/compiler.worker.js
+  a67563ac67f11cf7 1-5
+fe/packages/generator/.gitignore
+  a67563ac67f11cf7 1-2
+fe/packages/container-sdk/src/types.ts
+  a67563ac67f11cf7 106-109,134-135
+fe/packages/compiler/src/browser/postcss.js
+  a67563ac67f11cf7 1-5
+fe/packages/render/src/index.js
+  a67563ac67f11cf7 46,50
+fe/packages/service/src/core/loader.js
+  a67563ac67f11cf7 19,24-30
+fe/packages/generator/vitest.config.mjs
+  a67563ac67f11cf7 1-2
+docs/README.md
+  a67563ac67f11cf7 12
+fe/packages/generator/__tests__/browser.e2e.mjs
+  a67563ac67f11cf7 1-129
+fe/packages/container/vite.config.mjs
+  a67563ac67f11cf7 52,64
+fe/packages/container-sdk/__tests__/local-resources.spec.ts
+  a67563ac67f11cf7 1-38
+fe/packages/generator/src/generation.js
+  a67563ac67f11cf7 1-41
+fe/packages/container-sdk/src/core/jscore.ts
+  a67563ac67f11cf7 68
+fe/packages/generator/src/preview.js
+  a67563ac67f11cf7 1-81
+fe/packages/compiler/src/browser/fs.js
+  a67563ac67f11cf7 1-48
+fe/packages/container/src/styles/generator.scss
+  a67563ac67f11cf7 1-116
+fe/packages/generator/src/provider.js
+  a67563ac67f11cf7 1-18
+fe/packages/compiler/src/browser/parser.js
+  a67563ac67f11cf7 1-15
+fe/packages/container-sdk/src/index.ts
+  a67563ac67f11cf7 20,37
+fe/packages/generator/src/sandbox.js
+  a67563ac67f11cf7 1-42
+fe/packages/compiler/vite.browser.config.mjs
+  a67563ac67f11cf7 1-23
+fe/packages/container-sdk/src/core/appManager.ts
+  a67563ac67f11cf7 191-192
+fe/packages/container/src/pages/appList/appList.scss
+  a67563ac67f11cf7 180-196
+fe/scripts/generate-sdk.js
+  a67563ac67f11cf7 7,95-96,98
+fe/packages/container/src/generatorNavigation.js
+  a67563ac67f11cf7 1-63
+fe/package.json
+  a67563ac67f11cf7 16,25-26
+fe/packages/generator/build.mjs
+  a67563ac67f11cf7 1-26
+fe/packages/compiler/src/browser/platform.js
+  a67563ac67f11cf7 1-25
+fe/packages/container/__tests__/app-list-navigation.spec.js
+  a67563ac67f11cf7 45-58
+fe/scripts/sdk-assets.test.js
+  a67563ac67f11cf7 1-18
+fe/packages/container/__tests__/generator-navigation.spec.js
+  a67563ac67f11cf7 1-47
+fe/packages/container/generator.html
+  a67563ac67f11cf7 1-5
+fe/scripts/sdk-assets.js
+  a67563ac67f11cf7 1-26
+fe/packages/container/src/pages/appList/appList.html
+  a67563ac67f11cf7 10
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "60e3c911018fb8281917bb70d9efd2e66fb4199f",
+  "prompts": {
+    "a67563ac67f11cf7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c49e-4048-7f21-8ed5-5d3407360402",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 14841,
+      "total_deletions": 657,
+      "accepted_lines": 6909,
+      "overriden_lines": 27
+    }
+  }
+}
