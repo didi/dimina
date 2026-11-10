@@ -66,6 +66,11 @@ const idle = async () => {
 	await page.waitForFunction(() => !document.getElementById('generate').disabled, null, { timeout: 90000 })
 }
 const screen = () => page.frameLocator('#preview-runtime > iframe').frameLocator('iframe')
+const assertStatusCoversScreen = async () => {
+	const panel = await page.locator('#preview-status').boundingBox()
+	const screen = await page.locator('.iphone__screen').boundingBox()
+	for (const dimension of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(panel[dimension] - screen[dimension]) < 1, `Loading overlay must cover the status bar too (${dimension})`)
+}
 const assertPreviewFillsScreen = async () => {
 	const frame = await page.locator('#preview-runtime > iframe').boundingBox()
 	const screen = await page.locator('.iphone__screen').boundingBox()
@@ -75,9 +80,13 @@ const assertPreviewFillsScreen = async () => {
 try {
 	await page.goto(server.resolvedUrls.local[0])
 	const demoPath = new URL(page.url()).pathname
+	const examplesDevice = await page.locator('#iphone').boundingBox()
 	assert.equal(await page.locator('#iphone').count(), 1)
 	await page.locator('.dimina-app__generator-link').click()
 	await page.locator('#generate').waitFor()
+	const generatorDevice = await page.locator('#iphone').boundingBox()
+	for (const dimension of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(examplesDevice[dimension] - generatorDevice[dimension]) < 1, `Both tabs must keep the simulator aligned (${dimension})`)
+	if (artifacts) await page.locator('#iphone').screenshot({ path: `${artifacts}/simulator-empty.png` })
 	await page.evaluate(() => {
 		window.generatorPhases = []
 		const panel = document.getElementById('preview-status')
@@ -94,6 +103,7 @@ try {
 	await page.locator('#generate').click()
 	await page.locator('#preview-status-title').getByText('模型正在生成源码…', { exact: true }).waitFor()
 	assert.equal(await page.locator('#preview-status').isVisible(), true)
+	await assertStatusCoversScreen()
 	assert.equal(await page.locator('#preview-runtime').evaluate(element => element.inert), true)
 	if (artifacts) {
 		await page.screenshot({ path: `${artifacts}/generator-progress-desktop.png`, fullPage: true })
@@ -102,6 +112,7 @@ try {
 	for (const width of [320, 375, 414, 768]) {
 		await page.setViewportSize({ width, height: 844 })
 		await page.locator('#preview-status').scrollIntoViewIfNeeded()
+		await assertStatusCoversScreen()
 		assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true)
 		assert.equal(await page.locator('#preview-status').evaluate(element => element.scrollWidth <= element.clientWidth), true)
 		if (artifacts) await page.screenshot({ path: `${artifacts}/generator-progress-${width}.png`, fullPage: true })
@@ -177,6 +188,7 @@ try {
 	assert.equal(await page.locator('#token').inputValue(), '')
 	await context.setOffline(true)
 	await page.locator('#projects').selectOption(id)
+	await assertStatusCoversScreen()
 	await idle()
 	await screen().getByText('今天喝了 1 杯水', { exact: true }).waitFor()
 	await screen().getByText('喝一杯水', { exact: true }).click()
@@ -352,6 +364,20 @@ try {
 	await assertForeground('white')
 	await page.locator('#new').click()
 	await page.locator('.iphone__status-bar--black').waitFor()
+	for (const width of [320, 375, 414, 768, 1280]) {
+		await page.setViewportSize({ width, height: 950 })
+		await page.locator('[data-demo-mode="examples"]').click()
+		const examples = await page.locator('#iphone').boundingBox()
+		const examplesPanel = await page.locator('.device-stage__preview').boundingBox()
+		await page.locator('[data-demo-mode="generator"]').click()
+		await page.locator('#preview-empty').waitFor()
+		const generated = await page.locator('#iphone').boundingBox()
+		const generatedPanel = await page.locator('.device-stage__preview').boundingBox()
+		for (const dimension of ['x', 'width', 'height']) assert.ok(Math.abs(examples[dimension] - generated[dimension]) < 1, `Simulator geometry stays stable at ${width}px (${dimension})`)
+		assert.ok(Math.abs((examples.y - examplesPanel.y) - (generated.y - generatedPanel.y)) < 1, `Preview labels reserve the same height at ${width}px`)
+		if (width >= 768) assert.ok(Math.abs(examples.y - generated.y) < 1, `Tab switching keeps the simulator's top at ${width}px`)
+		assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true)
+	}
 	assert.deepEqual(errors, [])
 	console.log('Passed: syntax highlighting, native undo/composition, scroll alignment and per-file drafts, full simulator viewport and custom-navigation status-bar geometry, complete source ZIP export/import with editor drafts, Anthropic Messages authentication/context/repair, simulator generation/repair/compile/start/save states, responsive progress and reduced motion, Chat Completions base URL, custom model gateway, browser compiler, live events/input/loops, isolated preview, storage, repair, rollback, offline reopen, failed-edit preservation, mobile layout.')
 } catch (error) {

@@ -35,7 +35,13 @@ export default defineConfig(({ command, mode }) => {
 				{ find: '@', replacement: resolve(import.meta.dirname, 'src') },
 				{ find: '@images', replacement: '/images' },
 				...(mode === 'test'
-					? [{ find: '@dimina/service?url', replacement: resolve(import.meta.dirname, '__tests__/fixtures/service-worker-url.js') }]
+					? [
+						// Vitest must resolve the package entry before applying its mock.
+						// Unit tests do not require generator dist or embedded runtime builds.
+						{ find: /^@dimina\/generator$/, replacement: resolve(import.meta.dirname, '../generator/src/index.js') },
+						{ find: /^@dimina\/generator\/store$/, replacement: resolve(import.meta.dirname, '../generator/src/store.js') },
+						{ find: '@dimina/service?url', replacement: resolve(import.meta.dirname, '__tests__/fixtures/service-worker-url.js') },
+					]
 					: []),
 			],
 		},

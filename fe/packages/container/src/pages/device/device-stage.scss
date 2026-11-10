@@ -127,7 +127,6 @@ body {
 	&--generator #iphone .iphone__screen { background: white; }
 	&--generator {
 		.device-stage__workspace { align-self: start; }
-		.device-stage__preview { position: sticky; inset-block-start: var(--space-lg); align-self: start; grid-template-rows: auto auto; }
 	}
 
 	&__nav a,
@@ -197,10 +196,12 @@ body {
 	}
 
 	&__preview {
-		position: relative;
+		position: sticky;
+		inset-block-start: var(--space-lg);
+		align-self: start;
 		isolation: isolate;
 		display: grid;
-		grid-template-rows: auto 1fr;
+		grid-template-rows: auto auto;
 		gap: var(--space-xl);
 		min-inline-size: 0;
 		overflow: clip;
@@ -293,7 +294,7 @@ body {
 			row-gap: 0;
 		}
 	}
-	.device-stage--generator .device-stage__preview { position: relative; inset-block-start: auto; }
+	.device-stage .device-stage__preview { position: relative; inset-block-start: auto; }
 }
 
 @include mobile-fullscreen-device {
@@ -341,6 +342,7 @@ body {
 			background: transparent;
 			scroll-margin-block-start: calc(var(--size-hit) + var(--space-lg) + var(--space-md));
 		}
+		.device-stage__preview-label { min-block-size: var(--size-hit); }
 
 		.device-stage__device {
 			inline-size: 100%;

@@ -249,17 +249,19 @@
 		&::after { flex: 2; }
 	}
 	#preview-empty img { inline-size: 9rem; max-inline-size: 60%; block-size: auto; margin-block-end: 1.75rem; }
+	// Balance the wordmark's visual weight without moving its surrounding text.
+	#preview-empty img, .studio-preview-status__indicator img { transform: translateX(-5%); }
 	#preview-empty h2 { font: 500 1.2rem/1.6 var(--font-body); color: var(--color-ink); margin-block-end: 0.6rem; }
 	#preview-empty p { font-size: 0.875rem; line-height: 1.7; }
 
 	.studio-preview-status {
 		position: absolute;
-		inset: var(--device-status-bar-height, 0px) 0 0;
+		inset: 0;
 		z-index: 2;
 		display: flex;
 		flex-direction: column;
 		align-items: center;
-		padding: var(--space-2xl) var(--space-xl);
+		padding: calc(var(--device-status-bar-height, 0px) + var(--space-2xl)) var(--space-xl) var(--space-2xl);
 		overflow: auto;
 		background: var(--color-paper-raised);
 		color: var(--color-ink);
@@ -353,7 +355,7 @@
 		#preview-empty { padding: var(--space-lg); }
 		#preview-empty img { inline-size: 7rem; margin-block-end: var(--space-lg); }
 		#preview-empty h2 { font-size: 1rem; }
-		.studio-preview-status { padding: var(--space-lg); }
+		.studio-preview-status { padding: calc(var(--device-status-bar-height, 0px) + var(--space-lg)) var(--space-lg) var(--space-lg); }
 		.studio-preview-status::before, .studio-preview-status::after { min-block-size: var(--space-sm); }
 		.studio-preview-status__indicator { inline-size: 3.75rem; block-size: 3.75rem; margin-block-end: var(--space-lg); }
 		.studio-preview-status__indicator img { inline-size: 2.25rem; }
