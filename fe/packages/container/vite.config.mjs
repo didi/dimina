@@ -49,6 +49,7 @@ export default defineConfig(({ command, mode }) => {
 			},
 		},
 		build: {
+			manifest: true,
 			// Android 11 devices may retain WebView 83 (issue #343).
 			// Lower vendor syntax too: vConsole's ||= otherwise prevents all render startup.
 			target: 'chrome83',
@@ -60,6 +61,7 @@ export default defineConfig(({ command, mode }) => {
 			rollupOptions: {
 				input: {
 					index: resolve(import.meta.dirname, 'index.html'),
+					generator: resolve(import.meta.dirname, 'generator.html'),
 					pageFrame: resolve(import.meta.dirname, 'pageFrame.html'),
 				},
 				onwarn: onVConsoleBuildWarning,

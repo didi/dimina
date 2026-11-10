@@ -11,6 +11,7 @@ export interface WebViewOptions {
 	configInfo: MergedPageConfig
 	isRoot: boolean
 	pageFrameUrl?: string
+	pageFrameHtml?: string
 	/** 逐 app 覆盖的资源基路径；页面相对路径资源需要相对它而不是容器自身部署路径解析时才传。 */
 	resourceBaseUrl?: string
 	showHomeButton?: boolean
@@ -27,6 +28,7 @@ export class WebView {
 	el: HTMLElement
 	iframe: HTMLIFrameElement
 	event: Emitter<WebViewEvents>
+	private messagePort: MessagePort | null = null
 	/** createWebview() 里赋值为发起创建的 Bridge 实例。 */
 	parent!: Bridge
 
@@ -39,11 +41,16 @@ export class WebView {
 		this.iframe = this.el.querySelector<HTMLIFrameElement>('.dimina-native-webview__window')!
 		// 用 URL API 组装而不是裸字符串拼接：传入的 pageFrameUrl 可能自带 query，
 		// 裸拼 `?vconsole=1` 会产出双 '?' 的畸形地址；searchParams 追加天然走 '&'。
-		const pageFrameUrl = new URL(this.opts.pageFrameUrl ?? '/pageFrame.html', window.location.href)
-		if (import.meta.env.DEV) {
-			pageFrameUrl.searchParams.set('vconsole', '1')
+		if (this.opts.pageFrameHtml !== undefined) {
+			this.iframe.srcdoc = this.opts.pageFrameHtml
 		}
-		this.iframe.src = pageFrameUrl.toString()
+		else {
+			const pageFrameUrl = new URL(this.opts.pageFrameUrl ?? '/pageFrame.html', window.location.href)
+			if (import.meta.env.DEV) {
+				pageFrameUrl.searchParams.set('vconsole', '1')
+			}
+			this.iframe.src = pageFrameUrl.toString()
+		}
 		this.iframe.name = this.id
 		this.event = mitt<WebViewEvents>()
 		this.bindBackEvent()
@@ -56,6 +63,16 @@ export class WebView {
 
 	async init(callback?: () => void, signal?: AbortSignal): Promise<void> {
 		await this.frameLoaded(signal)
+		if (this.opts.pageFrameHtml !== undefined) {
+			const channel = new MessageChannel()
+			this.messagePort = channel.port1
+			channel.port1.onmessage = ({ data }) => {
+				if (data?.type === 'invoke' || data?.type === 'publish') this.event.emit(data.type, data.message)
+			}
+			this.iframe.contentWindow!.postMessage({ type: 'dimina:connect' }, '*', [channel.port2])
+			callback?.()
+			return
+		}
 		// window.frames 按名取子窗口是浏览器真实支持的行为，但 lib.dom 只声明了数字索引签名，
 		// 这里用 unknown 收窄成按名索引后再断言渲染层挂出的 DiminaRenderBridge 契约。
 		const iframeWindow = (window.frames as unknown as Record<string, RenderFrameWindow>)[this.iframe.name]
@@ -105,8 +122,17 @@ export class WebView {
 	 * @param {*} msg
 	 */
 	postMessage(msg: BridgeMessage): void {
+		if (this.messagePort) {
+			this.messagePort.postMessage(msg)
+			return
+		}
 		const iframeWindow = (window.frames as unknown as Record<string, RenderFrameWindow>)[this.iframe.name]
 		iframeWindow.DiminaRenderBridge.onMessage(msg)
+	}
+
+	disposeMessages(): void {
+		this.messagePort?.close()
+		this.messagePort = null
 	}
 
 	bindBackEvent(): void {

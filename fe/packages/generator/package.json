@@ -1,0 +1,27 @@
+{
+  "name": "@dimina/generator",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Browser-local mini-program generation with developer-provided models",
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": "./dist/index.js",
+    "./store": "./dist/store.js"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "vitest run",
+    "test:browser": "node __tests__/browser.e2e.mjs"
+  },
+  "dependencies": {
+    "@dimina/compiler": "workspace:^",
+    "@dimina/fe-container-sdk": "workspace:^",
+    "@dimina/service": "workspace:^",
+    "fflate": "0.8.3"
+  },
+  "devDependencies": {
+    "playwright": "1.65.0"
+  }
+}

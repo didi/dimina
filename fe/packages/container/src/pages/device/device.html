@@ -3,6 +3,8 @@
 	<header class="device-stage__header">
 		<img class="device-stage__logo" alt="星河 Dimina">
 		<nav class="device-stage__nav" aria-label="项目链接">
+			<button type="button" class="device-stage__mode" data-demo-mode="examples" aria-pressed="true">组件演示</button>
+			<button type="button" class="device-stage__mode" data-demo-mode="generator" aria-pressed="false">AI 创建</button>
 			<a href="https://github.com/didi/dimina" target="_blank" rel="noreferrer">GitHub ↗</a>
 		</nav>
 	</header>
@@ -12,6 +14,7 @@
 		<h1>一份小程序<br>在<span>四个平台</span>运行</h1>
 		<p>用熟悉的小程序语法开发，运行在 Android、iOS、Harmony 和 Web。打开右侧示例，试试组件和交互。</p>
 	</section>
+	<section class="device-stage__workspace" aria-label="AI 小程序工作区" hidden></section>
 
 	<section class="device-stage__preview" aria-label="小程序实时预览">
 		<div class="device-stage__preview-label" aria-hidden="true">

@@ -188,6 +188,8 @@ export class AppManager {
 			query,
 			restoreStack, // 完整页面栈，用于刷新后静默恢复
 			resourceBaseUrl,
+			resourceUrls: opts.resourceUrls,
+			resourceContents: opts.resourceContents,
 			virtualFilePrefix: dimina.virtualFilePrefix,
 		})
 

@@ -4,6 +4,7 @@ const os = require('node:os')
 const path = require('node:path')
 const process = require('node:process')
 const fsExtra = require('fs-extra')
+const { getWebOnlySdkAssets } = require('./sdk-assets')
 
 // Define paths relative to the script location
 const rootDir = path.resolve(__dirname, '..')
@@ -91,8 +92,10 @@ async function generateSdk() {
 		}
 
 		// 复制 assets 目录
+		const manifest = await fsExtra.readJson(path.join(distDir, '.vite/manifest.json'))
+		const webOnlyAssets = getWebOnlySdkAssets(manifest)
 		await fsExtra.copy(sourceDir, targetDir, {
-			filter: src => !src.includes('index.'),
+			filter: src => !src.includes('index.') && !webOnlyAssets.has(path.relative(sourceDir, src).split(path.sep).join('/')),
 		})
 
 		// 复制 pageFrame.html

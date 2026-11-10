@@ -228,6 +228,8 @@ export class Bridge {
 				pagePath: this.opts.pagePath,
 				root: this.opts.root,
 				baseUrl: this.parent?.getResourceBaseUrl?.() ?? '/',
+				resourceUrls: this.parent?.appInfo?.resourceUrls,
+				resourceContents: this.parent?.appInfo?.resourceContents,
 			},
 		})
 
@@ -245,6 +247,8 @@ export class Bridge {
 				referrerInfo: this.opts.referrerInfo,
 				root: this.opts.root,
 				baseUrl: this.parent?.getResourceBaseUrl?.() ?? '/',
+				resourceUrls: this.parent?.appInfo?.resourceUrls,
+				resourceContents: this.parent?.appInfo?.resourceContents,
 				hostEnv: this.parent!.getHostEnvSnapshot(),
 			},
 		})
@@ -345,6 +349,7 @@ export class Bridge {
 				configInfo: this.opts.configInfo,
 				isRoot: this.opts.isRoot,
 				pageFrameUrl: this.parent?.getPageFrameUrl?.(),
+				pageFrameHtml: this.parent?.parent?.runtimeAssets?.pageFrameHtml,
 				resourceBaseUrl: this.parent?.getResourceBaseUrl?.(),
 				// 返回首页按钮显隐的权威判据在 miniApp（它掌握 entryPagePath / tabBar）
 				showHomeButton: this.parent?.shouldShowHomeButton?.({
@@ -362,6 +367,7 @@ export class Bridge {
 			webview.init(() => {
 				resolve(webview)
 			}, signal).catch((error: unknown) => {
+				webview.disposeMessages()
 				webview.el.remove()
 				// 按 name 而不是 instanceof DOMException 判定：signal.reason 来自
 				// AbortController 所在 realm，跨 realm 时 instanceof 会失效。
@@ -426,6 +432,7 @@ export class Bridge {
 	destroy(reason: PageStateTeardown = 'routing'): void {
 		const wasResourceLoaded = this.isResourceLoaded()
 		this.#rejectStartupReady(new Error('bridge was destroyed before startup became ready'))
+		this.webview?.disposeMessages?.()
 		this.destroyed = true
 		this.serviceResource = false
 		this.renderResource = false

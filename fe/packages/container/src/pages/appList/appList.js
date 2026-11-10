@@ -21,8 +21,12 @@ export class AppList {
 	/**
 	 * @param {ReturnType<typeof import('@dimina/fe-container-sdk').createContainer>} container
 	 */
-	constructor(container) {
+	constructor(container, { onCreate = () => {}, onOpenGenerated = () => {}, getGeneratedProjects } = {}) {
 		this.container = container
+		this.onCreate = onCreate
+		this.onOpenGenerated = onOpenGenerated
+		this.getGeneratedProjects = getGeneratedProjects
+		this.generatedApps = []
 		this.parent = null
 		this.el = document.createElement('div')
 		this.el.classList.add('dimina-native-view')
@@ -37,6 +41,19 @@ export class AppList {
 		this.createAppList()
 		this.bindSearchEvent()
 		this.bindOpenMiniApp()
+		this.el.querySelector('.dimina-app__generator-link').onclick = () => this.onCreate()
+		void this.refreshGeneratedProjects()
+	}
+
+	async refreshGeneratedProjects() {
+		if (!this.getGeneratedProjects) return
+		try { this.setGeneratedProjects(await this.getGeneratedProjects()) }
+		catch { /* The built-in examples remain available when browser storage is disabled. */ }
+	}
+
+	setGeneratedProjects(projects) {
+		this.generatedApps = projects.map(project => ({ appId: project.id, name: project.name, generated: true }))
+		this.renderFilteredAppList()
 	}
 
 	createAppList() {
@@ -72,6 +89,10 @@ export class AppList {
 			}
 
 			const appId = app.getAttribute('data-appid')
+			if (app.dataset.generated === 'true') {
+				this.onOpenGenerated(appId)
+				return
+			}
 			const appInfo = await getMiniAppInfo(appId)
 
 			if (!appInfo) {
@@ -92,20 +113,22 @@ export class AppList {
 
 	onPresentIn() {
 		this.parent.updateStatusBarColor('black')
+		void this.refreshGeneratedProjects()
 	}
 
 	renderFilteredAppList() {
 		const keyword = this.searchKeyword
+		const apps = [...this.generatedApps, ...this.appList]
 		this.filteredAppList = keyword
-			? this.appList.filter((appInfo) => {
+			? apps.filter((appInfo) => {
 					const name = appInfo.name?.toLocaleLowerCase() ?? ''
 					const appId = appInfo.appId?.toLocaleLowerCase() ?? ''
 					return name.includes(keyword) || appId.includes(keyword)
 				})
-			: this.appList
+			: apps
 		this.renderAppList(this.filteredAppList)
 
-		if (!this.appList.length) {
+		if (!apps.length) {
 			this.setListState('暂无应用')
 		}
 		else if (!this.filteredAppList.length) {
@@ -124,16 +147,23 @@ export class AppList {
 			const item = document.createElement('li')
 			item.className = 'dimina-app__mini-used-list-item'
 			item.dataset.appid = appInfo.appId
+			item.dataset.generated = String(Boolean(appInfo.generated))
 
 			const logo = document.createElement('div')
 			logo.className = 'dimina-app__mini-used-logo'
 
-			const logoImg = document.createElement('img')
-			logoImg.src = appInfo.logo
-			logoImg.alt = `${appInfo.name} logo`
-			logoImg.loading = 'lazy'
-			logoImg.draggable = false
-			logo.appendChild(logoImg)
+			if (appInfo.generated) {
+				logo.classList.add('dimina-app__mini-used-logo--generated')
+				logo.textContent = '✳'
+			}
+			else {
+				const logoImg = document.createElement('img')
+				logoImg.src = appInfo.logo
+				logoImg.alt = `${appInfo.name} logo`
+				logoImg.loading = 'lazy'
+				logoImg.draggable = false
+				logo.appendChild(logoImg)
+			}
 
 			const name = document.createElement('p')
 			name.className = 'dimina-app__mini-used-name'

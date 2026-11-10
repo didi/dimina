@@ -56,6 +56,14 @@ resourceBaseUrl/
 
 产物不绑定任何编译器，目录结构符合约定即可。本仓库的产物由内置编译器生成：`examples/miniprogram/{projectName}/` 是小程序源码（appId 取 `project.config.json` 的 `appid` 字段），在 `fe/`（pnpm workspace 根）跑 `pnpm compile` 编译到 `fe/packages/container/public/{appId}/`，demo 再把 `public/` 当静态资源托管、原样作为 `resourceBaseUrl`。
 
+### 本地编译产物
+
+宿主可通过 `openApp({ appId, resourceContents })` 传入以包内路径为 key 的文本资源，例如 `main/app-config.json`、`main/logic.js` 和页面 JS/CSS；这些内容优先于 URL 加载。`resourceUrls` 则按同样的 key 提供宿主创建的资源 URL。
+
+`const miniApp = await container.openApp(options)` 只等待呈现流程。需要确认资源与首屏 DOM 都已就绪时，继续 `await miniApp.whenReady()`，启动失败会 reject。
+
+可信宿主可配置 `runtimeAssets: { serviceWorkerUrl, pageFrameHtml }`，用于离线或隔离容器；`pageFrameHtml` 的渲染运行时须通过 `dimina:connect` 消息接收 MessagePort，并转发 invoke/publish 消息。这些字段属于运行时引导代码，不应接收模型输出。AI 生成源码应通过 [Web 生成器](../../../docs/AI-MiniProgram-Web.md) 的 sandbox 预览运行。
+
 ## 页面渲染帧宿主页面
 
 `resourceBaseUrl` 目录下需提供一个 `pageFrame.html`：

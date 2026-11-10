@@ -9,6 +9,7 @@ Dimina（星河小程序）由 DMCC 编译器、逻辑层与渲染层运行时�
 | 你的目标 | 建议先读 | 接下来 |
 | --- | --- | --- |
 | 了解 Dimina 如何工作 | [架构总览](./Architecture-Diagram.md) | [实现细节](./Architecture-Details.md) |
+| 在 Web 用自有模型生成小程序 | [Web AI 小程序生成](./AI-MiniProgram-Web.md) | 本地编译、隔离预览与模型协议 |
 | 判断某项能力是否可用 | [能力参考](./API-Reference.md) | 对应平台的 SDK 接入文档 |
 | 从 Flutter 宿主启动小程序 | [Flutter 宿主接入](./Flutter-Integration.md) | [Android/iOS/Harmony 示例工程](../examples/flutter/README.md) |
 | 排查页面或组件初始化时序 | [生命周期](./Architecture-Lifecycle.md) | `service` / `render` 运行时源码与测试 |

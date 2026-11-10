@@ -7,21 +7,21 @@ class Loader {
 	}
 
 	async loadResource(opts) {
-		const { bridgeId, appId, pagePath, root, baseUrl, resourceLoadId, runtimeType } = opts
+		const { bridgeId, appId, pagePath, root, baseUrl, resourceLoadId, runtimeType, resourceUrls, resourceContents } = opts
 		if (runtimeType === 'game') {
 			this.reportResourceLoaded({ bridgeId, resourceLoadId })
 			return true
 		}
 
 		const filename = pagePath.replace(/\//g, '_')
-		const appStyleResourcePath = `${baseUrl}${appId}/main/app.css`
-		const styleResourcePath = `${baseUrl}${appId}/${root}/${filename}.css`
-		const viewResourcePath = `${baseUrl}${appId}/${root}/${filename}.js`
+		const appStyleResourcePath = resourceUrls?.['main/app.css'] ?? `${baseUrl}${appId}/main/app.css`
+		const styleResourcePath = resourceUrls?.[`${root}/${filename}.css`] ?? `${baseUrl}${appId}/${root}/${filename}.css`
+		const viewResourcePath = resourceUrls?.[`${root}/${filename}.js`] ?? `${baseUrl}${appId}/${root}/${filename}.js`
 
 		const results = await Promise.allSettled([
-			this.loadStyleFile(appStyleResourcePath),
-			this.loadStyleFile(styleResourcePath),
-			this.loadScriptFile(viewResourcePath),
+			this.loadStyleFile(appStyleResourcePath, resourceContents?.['main/app.css']),
+			this.loadStyleFile(styleResourcePath, resourceContents?.[`${root}/${filename}.css`]),
+			this.loadScriptFile(viewResourcePath, resourceContents?.[`${root}/${filename}.js`]),
 		])
 
 		const errors = results
@@ -74,7 +74,13 @@ class Loader {
 		})
 	}
 
-	loadStyleFile(path) {
+	loadStyleFile(path, content) {
+		if (typeof content === 'string') {
+			const style = document.createElement('style')
+			style.textContent = content
+			document.head.append(style)
+			return Promise.resolve()
+		}
 		return new Promise((resolve, reject) => {
 			const style = document.createElement('link')
 			style.rel = 'stylesheet'
@@ -89,7 +95,12 @@ class Loader {
 		})
 	}
 
-	loadScriptFile(path) {
+	loadScriptFile(path, content) {
+		if (typeof content === 'string') {
+			// eslint-disable-next-line no-new-func -- Execute host-provided compiled view modules inside the render realm.
+			try { new Function(content)(); return Promise.resolve() }
+			catch (error) { return Promise.reject(error) }
+		}
 		return new Promise((resolve, reject) => {
 			const script = document.createElement('script')
 			script.src = path

@@ -25,7 +25,7 @@ class Service {
 
 	init() {
 		this.message.on('loadResource', (msg) => {
-			const { appId, bridgeId, pagePath, root = '.', baseUrl = '/', hostEnv: hostEnvSnapshot, query, resourceLoadId, runtimeType, scene, referrerInfo } = msg
+			const { appId, bridgeId, pagePath, root = '.', baseUrl = '/', hostEnv: hostEnvSnapshot, query, resourceLoadId, runtimeType, scene, referrerInfo, resourceUrls, resourceContents } = msg
 			fonts.beginPage(bridgeId)
 			fonts.supported = runtimeType !== 'game'
 			if (hostEnvSnapshot) {
@@ -33,7 +33,7 @@ class Service {
 			}
 			runtime.setRuntimeType(runtimeType)
 			runtime.setAppLaunchOptions({ scene, pagePath, query, referrerInfo })
-			const loaded = loader.loadResource({ appId, bridgeId, pagePath, root, baseUrl, resourceLoadId, runtimeType })
+			const loaded = loader.loadResource({ appId, bridgeId, pagePath, root, baseUrl, resourceLoadId, runtimeType, resourceUrls, resourceContents })
 			if (loaded && runtime.isMiniGame()) {
 				runtime.gameLaunch()
 			}

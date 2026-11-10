@@ -65,7 +65,7 @@ export class JSCore {
 			registeredApis,
 			virtualFilePrefix: this.parent.appInfo.virtualFilePrefix,
 		})
-		this.worker = new Worker(serviceURL, { type: 'classic', name: workerName })
+		this.worker = new Worker(this.parent.parent?.runtimeAssets?.serviceWorkerUrl ?? serviceURL, { type: 'classic', name: workerName })
 
 		// 监听逻辑线程的消息
 		this.worker.onmessage = (e: MessageEvent<WorkerEvent>) => {

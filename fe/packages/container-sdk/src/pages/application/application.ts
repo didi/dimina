@@ -29,6 +29,7 @@ export interface ApplicationOptions {
 	resourceBaseUrl?: string
 	/** 渲染层 iframe URL，缺省基于 resourceBaseUrl 拼接 */
 	pageFrameUrl?: string
+	runtimeAssets?: { serviceWorkerUrl: string; pageFrameHtml: string }
 	/** 小程序虚拟文件协议前缀，缺省 `difile://` */
 	virtualFilePrefix?: string
 	/** resourceBaseUrl/pageFrameUrl 最终解析出的 origin 白名单；不传则不限制来源 */
@@ -68,6 +69,7 @@ export class Application {
 	shell: ResolvedShell
 	resourceBaseUrl: string
 	pageFrameUrl: string
+	runtimeAssets?: { serviceWorkerUrl: string; pageFrameHtml: string }
 	virtualFilePrefix: string
 	/** resourceBaseUrl/pageFrameUrl 的 origin 白名单；openApp() 逐 app 覆盖 resourceBaseUrl 时复用同一份校验。 */
 	allowedOrigins?: readonly string[]
@@ -80,6 +82,7 @@ export class Application {
 	appManager: AppManager
 
 	constructor(opts: ApplicationOptions = {}) {
+		this.runtimeAssets = opts.runtimeAssets
 		this.root = null
 		this.views = []
 		this.rootView = null

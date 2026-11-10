@@ -2,6 +2,8 @@ import { createContainer, QueryRouter } from '@dimina/fe-container-sdk'
 import '@dimina/fe-container-sdk/style.css'
 import { AppList } from '@/pages/appList/appList'
 import { Device } from '@/pages/device/device'
+import { createProjectStore } from '@dimina/generator/store'
+import { createGeneratorNavigation } from './generatorNavigation.js'
 import { getMiniAppInfo, manifestInfoCache, resolveManifestResourceBaseUrl } from '@/services'
 import '@/styles/app.scss'
 
@@ -116,10 +118,21 @@ window.onload = function () {
 			})
 	})
 
-	const appListPage = new AppList(container)
+	const projects = createProjectStore()
+	let generatorNavigation
+	const appListPage = new AppList(container, {
+		onCreate: () => generatorNavigation.open('generator'),
+		onOpenGenerated: id => generatorNavigation.open('generator', id),
+		getGeneratedProjects: () => projects.list(),
+	})
 	container.setRootView(appListPage)
+	generatorNavigation = createGeneratorNavigation({
+		device, container,
+		onProjectsChanged: entries => appListPage.setGeneratedProjects(entries),
+	})
 
 	const searchParams = new URLSearchParams(window.location.search)
+	if (searchParams.get('workspace') === 'generator') void generatorNavigation.open('generator')
 	const manifestUrl = searchParams.get('manifestUrl')
 	if (manifestUrl) {
 		resolveManifestResourceBaseUrl(null, manifestUrl)

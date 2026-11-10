@@ -1,4 +1,5 @@
 #iphone {
+	--device-status-bar-height: 48px;
 	position: relative;
 	width: $deviceWidth * 1px;
 	height: $deviceHeight * 1px;
@@ -46,7 +47,7 @@
 		}
 
 		.iphone__status-bar {
-			height: 48px;
+			height: var(--device-status-bar-height);
 			position: absolute;
 			left: 0;
 			right: 0;

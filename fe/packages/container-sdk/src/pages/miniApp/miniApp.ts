@@ -80,6 +80,9 @@ export interface MiniAppOptions {
 	restoreStack?: Array<{ pagePath: string, query?: Record<string, string> }>
 	/** 逐 app 覆盖容器默认 resourceBaseUrl；已由 AppManager 解析并校验过 allowedOrigins。 */
 	resourceBaseUrl?: string
+	resourceUrls?: Record<string, string>
+	/** Package-relative text resources; scripts execute only inside the runtime. */
+	resourceContents?: Record<string, string>
 	/** 当前容器已经归一化的虚拟文件协议前缀。 */
 	virtualFilePrefix?: string
 }
@@ -777,11 +780,19 @@ export class MiniApp {
 		this.bindCloseEvent()
 	}
 
+	private startupPromise?: Promise<void>
+
+	/** Resolves after the entry page has loaded resources and rendered its first DOM. */
+	whenReady(): Promise<void> {
+		return this.startupPromise ?? Promise.reject(new Error('mini program has not started'))
+	}
+
 	viewDidLoad(): void {
 		this._prepareViewForLoad()
 		// initApp() 是 fire-and-forget：真实初始化失败必须落日志并通知宿主，
 		// 否则 openApp 照常 resolve、页面却空白，宿主收不到任何信号。
-		this.initApp().catch((error: unknown) => {
+		this.startupPromise = this.initApp()
+		this.startupPromise.catch((error: unknown) => {
 			// 容器销毁打断初始化是正常流程，不是启动失败。abort 判定优先看
 			// _destroyed 这个本地标志——它总是可靠；error.name 判定见 bridge.ts
 			// createWebview 的说明（instanceof DOMException 才是跨 realm 会失效的那个）。
@@ -799,7 +810,8 @@ export class MiniApp {
 	 */
 	async viewDidLoadForReplacement(): Promise<void> {
 		this._prepareViewForLoad()
-		await this.initApp(false, true)
+		this.startupPromise = this.initApp(false, true)
+		await this.startupPromise
 	}
 
 	async initApp(removeFailedViewOnError = true, waitForInitialResources = false): Promise<void> {
@@ -816,7 +828,7 @@ export class MiniApp {
 			const root = 'main'
 			const configPath = `${this.appInfo.appId}/${root}/app-config.json`
 			const [configContent] = await Promise.all([
-				readFile(`${this.getResourceBaseUrl()}${configPath}`),
+				this.appInfo.resourceContents?.[`${root}/app-config.json`] ?? readFile(this.appInfo.resourceUrls?.[`${root}/app-config.json`] ?? `${this.getResourceBaseUrl()}${configPath}`),
 				sleep(LAUNCH_SCREEN_MIN_MS),
 			])
 

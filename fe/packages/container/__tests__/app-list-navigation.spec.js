@@ -42,4 +42,18 @@ describe('app list navigation', () => {
 
 		expect(page.parent.updateStatusBarColor).toHaveBeenCalledWith('black')
 	})
+
+	it('opens the integrated workspace and local generated apps without fetching deployed app metadata', () => {
+		const onCreate = vi.fn()
+		const onOpenGenerated = vi.fn()
+		page = new AppList({ openApp: vi.fn() }, { onCreate, onOpenGenerated })
+		page.viewDidLoad()
+		page.el.querySelector('.dimina-app__generator-link').click()
+		expect(onCreate).toHaveBeenCalledOnce()
+		page.setGeneratedProjects([{ id: 'local-app', name: '我的打卡本' }])
+		page.el.querySelector('[data-appid="local-app"]').click()
+		expect(onOpenGenerated).toHaveBeenCalledWith('local-app')
+		expect(getMiniAppInfo).not.toHaveBeenCalled()
+		expect(page.container.openApp).not.toHaveBeenCalled()
+	})
 })

@@ -16,13 +16,18 @@ class Loader {
 	 * @param {*} opts
 	 */
 	loadResource(opts) {
-		const { appId, bridgeId, pagePath, root, baseUrl, resourceLoadId, runtimeType } = opts
+		const { appId, bridgeId, pagePath, root, baseUrl, resourceLoadId, runtimeType, resourceUrls, resourceContents } = opts
 		// webworker 需要主动加载资源
 		if (isWebWorker) {
 			this.isScriptLoaded = this.isScriptLoaded || {}
 			if (!this.isScriptLoaded[root]) {
-				const logicResourcePath = `${baseUrl}${appId}/${root}/logic.js`
-				globalThis.importScripts(logicResourcePath)
+				const logicResourcePath = resourceUrls?.[`${root}/logic.js`] ?? `${baseUrl}${appId}/${root}/logic.js`
+				if (resourceContents && Object.hasOwn(resourceContents, `${root}/logic.js`)) {
+					// eslint-disable-next-line no-new-func -- Execute compiled modules inside the app runtime, like importScripts.
+					new Function(resourceContents[`${root}/logic.js`])()
+				} else {
+					globalThis.importScripts(logicResourcePath)
+				}
 				this.isScriptLoaded[root] = true
 			}
 		}

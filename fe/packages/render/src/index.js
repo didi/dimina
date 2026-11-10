@@ -43,11 +43,11 @@ class Render {
 		// 资源加载消息
 		this.message.on('loadResource', (msg) => {
 			window.__diminaCanvasResource?.cancel()
-			const { bridgeId, appId, pagePath, root = '.', baseUrl = '/', resourceLoadId, runtimeType } = msg
+			const { bridgeId, appId, pagePath, root = '.', baseUrl = '/', resourceLoadId, runtimeType, resourceUrls, resourceContents } = msg
 			debugBridgeId = bridgeId
 			if (msg.debugEnabled === 'true') window.dispatchEvent(new Event('dimina:debug-ready'))
 			runtime.registerResourceLoad(bridgeId, resourceLoadId)
-			loader.loadResource({ bridgeId, appId, pagePath, root, baseUrl, resourceLoadId, runtimeType })
+			loader.loadResource({ bridgeId, appId, pagePath, root, baseUrl, resourceLoadId, runtimeType, resourceUrls, resourceContents })
 		})
 
 		// 数据初始化消息

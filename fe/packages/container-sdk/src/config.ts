@@ -68,7 +68,7 @@ function assertAllowedOrigin(url: URL, allowedOrigins: readonly string[] | undef
  * 供下游直接拼接；畸形输入在此同步抛错，不往下游传。
  */
 export function resolveResourceBaseUrl(resourceBaseUrl: string | undefined, allowedOrigins?: readonly string[]): string {
-	const resolved = new URL(resourceBaseUrl || DEFAULT_RESOURCE_BASE_URL, window.location.origin)
+	const resolved = new URL(resourceBaseUrl || DEFAULT_RESOURCE_BASE_URL, window.location.origin === 'null' ? undefined : window.location.origin)
 	assertAllowedOrigin(resolved, allowedOrigins, 'resourceBaseUrl')
 	return withTrailingSlash(resolved.toString())
 }
@@ -79,7 +79,7 @@ export function resolveResourceBaseUrl(resourceBaseUrl: string | undefined, allo
  */
 export function resolvePageFrameUrl(pageFrameUrl: string | undefined, resourceBaseUrl: string, allowedOrigins?: readonly string[]): string {
 	const resolved = pageFrameUrl
-		? new URL(pageFrameUrl, window.location.origin)
+		? new URL(pageFrameUrl, window.location.origin === 'null' ? undefined : window.location.origin)
 		: new URL('pageFrame.html', resourceBaseUrl)
 	assertAllowedOrigin(resolved, allowedOrigins, 'pageFrameUrl')
 	return resolved.toString()

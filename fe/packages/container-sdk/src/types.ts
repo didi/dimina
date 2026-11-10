@@ -103,6 +103,10 @@ export interface OpenAppOptions {
 	 * 同时托管部署在不同位置的多个小程序。同样经真实 URL 解析并受 allowedOrigins 约束。
 	 */
 	resourceBaseUrl?: string
+	/** Compiled package-relative resource URLs supplied by the host. */
+	resourceUrls?: Record<string, string>
+	/** Package-relative text resources; scripts execute only inside the runtime. */
+	resourceContents?: Record<string, string>
 }
 
 /**
@@ -127,6 +131,8 @@ export interface CreateContainerOptions {
 	resourceBaseUrl?: string
 	/** 渲染层 iframe URL */
 	pageFrameUrl?: string
+	/** Trusted runtime assets for offline or sandboxed containers. Never pass model output here. */
+	runtimeAssets?: { serviceWorkerUrl: string; pageFrameHtml: string }
 	/**
 	 * 小程序虚拟文件协议前缀，必须是以 `://` 结尾且不与系统或 SDK 保留值冲突的自定义 URI scheme；缺省为 `difile://`。
 	 * 该值按容器实例隔离，并在逻辑线程启动前传入 Worker。
