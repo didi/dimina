@@ -127,6 +127,7 @@ test('rejects host-managed pages before notifying hide or detaching routes', () 
 function appManagerFixture(clock = {}) {
   let now = 0
   const { DMPAppManager } = load('DApp/DMPAppManager.ets', {
+    '../Utils/DMPCapsuleAppearance': load('Utils/DMPCapsuleAppearance.ets'),
     './DMPMiniProgramPresentationStack': load('DApp/DMPMiniProgramPresentationStack.ets', { '../Utils/DMPMap': {} }),
     './config/DMPLaunchConfig': load('DApp/config/DMPLaunchConfig.ets'),
     './config/DMPAppConfig': {},

@@ -12,11 +12,13 @@ import XCTest
 
 final class DMPWebSocketManagerTests: XCTestCase {
 
-    private func makeManager() -> (DMPWebSocketManager, FakeTransportFactory, FakeScheduling) {
+    private func makeManager(
+        queue: DispatchQueue = DispatchQueue(label: "dmp-ws-test-\(UUID().uuidString)")
+    ) -> (DMPWebSocketManager, FakeTransportFactory, FakeScheduling) {
         let factory = FakeTransportFactory()
         let scheduling = FakeScheduling()
         let manager = DMPWebSocketManager(transportFactory: factory, scheduling: scheduling,
-                                           queue: DispatchQueue(label: "dmp-ws-test-\(UUID().uuidString)"))
+                                           queue: queue)
         return (manager, factory, scheduling)
     }
 
@@ -567,22 +569,25 @@ final class DMPWebSocketManagerTests: XCTestCase {
     }
 
     func test_closeRace_createdState_noNetworkTouch_exactlyOneClose() {
-        let (manager, factory, _) = makeManager()
+        let queue = DispatchQueue(label: "dmp-ws-created-close-test")
+        let (manager, factory, _) = makeManager(queue: queue)
         var events: [RecordedEvent] = []
         manager.eventSinkForTest = { appId, cb, payload in events.append(RecordedEvent(appId: appId, callbackId: cb, payload: payload)) }
 
         let connectRecorder = CallbackRecorder()
         let closeRecorder = CallbackRecorder()
-        // Fired back-to-back with no drain in between so close() lands while
-        // the entry is still CREATED (dial not yet performed).
-        manager.connectSocket(params: url(), appId: "app1", appVersion: "0", callback: connectRecorder.makeCallback())
-        manager.onSocketEvent(event: .close, params: DMPMap(["socketId": "s1", "callback": "cbClose"]), appId: "app1")
-        manager.onSocketEvent(event: .error, params: DMPMap(["socketId": "s1", "callback": "cbError"]), appId: "app1")
-        manager.closeSocket(params: DMPMap(["socketId": "s1", "code": 3001, "reason": "gone"]),
-                             appId: "app1", callback: closeRecorder.makeCallback())
+        // Enqueue the entire sequence in one queue turn. Back-to-back calls
+        // from the test thread can otherwise race with the queued dial.
+        queue.sync {
+            manager.connectSocket(params: url(), appId: "app1", appVersion: "0", callback: connectRecorder.makeCallback())
+            manager.onSocketEvent(event: .close, params: DMPMap(["socketId": "s1", "callback": "cbClose"]), appId: "app1")
+            manager.onSocketEvent(event: .error, params: DMPMap(["socketId": "s1", "callback": "cbError"]), appId: "app1")
+            manager.closeSocket(params: DMPMap(["socketId": "s1", "code": 3001, "reason": "gone"]),
+                                 appId: "app1", callback: closeRecorder.makeCallback())
+        }
         drain(manager)
 
-        XCTAssertTrue(factory.createdTransports.isEmpty, "dial must never touch the network for a same-tick close")
+        XCTAssertTrue(factory.createdTransports.isEmpty, "closing a CREATED entry must not dial")
         XCTAssertEqual(closeRecorder.lastSuccessErrMsg, "closeSocket:ok")
         XCTAssertTrue(events.filter { $0.callbackId == "cbError" }.isEmpty)
         let closeEvents = events.filter { $0.callbackId == "cbClose" }
@@ -869,21 +874,22 @@ final class DMPWebSocketManagerTests: XCTestCase {
     }
 
     func test_legacy_multipleListeners_receiveInRegistrationOrder_close() {
-        // Terminal event: goes through `teardown`. Fired back-to-back with no
-        // drain in between so closeSocket lands while the entry is still
-        // CREATED (see test_closeRace_createdState_...), driving the close
-        // through teardown rather than the transport delegate.
-        let (manager, factory, _) = makeManager()
+        // Terminal event: close the entry while it is still CREATED so the
+        // listeners are dispatched by teardown rather than the transport.
+        let queue = DispatchQueue(label: "dmp-ws-created-close-listeners-test")
+        let (manager, factory, _) = makeManager(queue: queue)
         var events: [RecordedEvent] = []
         manager.eventSinkForTest = { appId, cb, payload in events.append(RecordedEvent(appId: appId, callbackId: cb, payload: payload)) }
 
-        manager.connectSocket(params: url(), appId: "app1", appVersion: "0", callback: CallbackRecorder().makeCallback())
-        manager.onSocketEvent(event: .close, params: DMPMap(["callback": "cFirst"]), appId: "app1")
-        manager.onSocketEvent(event: .close, params: DMPMap(["callback": "cSecond"]), appId: "app1")
-        manager.closeSocket(params: DMPMap(["socketId": "s1"]), appId: "app1", callback: CallbackRecorder().makeCallback())
+        queue.sync {
+            manager.connectSocket(params: url(), appId: "app1", appVersion: "0", callback: CallbackRecorder().makeCallback())
+            manager.onSocketEvent(event: .close, params: DMPMap(["callback": "cFirst"]), appId: "app1")
+            manager.onSocketEvent(event: .close, params: DMPMap(["callback": "cSecond"]), appId: "app1")
+            manager.closeSocket(params: DMPMap(["socketId": "s1"]), appId: "app1", callback: CallbackRecorder().makeCallback())
+        }
         drain(manager)
 
-        XCTAssertTrue(factory.createdTransports.isEmpty, "sanity: dial must never have happened for this same-tick close")
+        XCTAssertTrue(factory.createdTransports.isEmpty, "closing a CREATED entry must not dial")
         let closeEvents = events.filter { $0.callbackId == "cFirst" || $0.callbackId == "cSecond" }
         XCTAssertEqual(closeEvents.map { $0.callbackId }, ["cFirst", "cSecond"],
                         "both legacy close listeners must fire via teardown, in registration order")
