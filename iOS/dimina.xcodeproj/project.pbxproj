@@ -774,7 +774,7 @@
 			repositoryURL = "https://github.com/Tencent/MMKV.git";
 			requirement = {
 				kind = exactVersion;
-				version = 2.4.2;
+				version = 2.4.3;
 			};
 		};
 		1A2B3C4D5E6F700000000203 /* XCRemoteSwiftPackageReference "ZIPFoundation" */ = {

@@ -14,7 +14,7 @@
   "dependencies": {
     "libdimina.so": "file:./src/main/cpp/types/libdimina",
     "@ohos/imageknifepro": "1.0.14",
-    "@tencent/mmkv": "2.4.2",
+    "@tencent/mmkv": "2.4.3",
     "@ohos/photoview": "2.1.1"
   },
   "compatibleSdkVersion": "12",

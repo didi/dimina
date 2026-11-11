@@ -15,7 +15,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/Alamofire/Alamofire.git", exact: "5.12.0"),
-        .package(url: "https://github.com/Tencent/MMKV.git", exact: "2.4.2"),
+        .package(url: "https://github.com/Tencent/MMKV.git", exact: "2.4.3"),
         .package(url: "https://github.com/weichsel/ZIPFoundation.git", exact: "0.9.20"),
     ],
     targets: [
