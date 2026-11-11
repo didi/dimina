@@ -112,7 +112,7 @@ export class AppList {
 	onPresentOut() { }
 
 	onPresentIn() {
-		this.parent.updateStatusBarColor('black')
+		this.parent.shell.updateStatusBarColor('black')
 		void this.refreshGeneratedProjects()
 	}
 

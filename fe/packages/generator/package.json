@@ -13,7 +13,8 @@
   "scripts": {
     "build": "node build.mjs",
     "test": "vitest run",
-    "test:browser": "node __tests__/browser.e2e.mjs"
+    "test:browser": "node __tests__/browser.e2e.mjs",
+    "test:browser:menu": "node __tests__/menu.e2e.mjs"
   },
   "dependencies": {
     "@dimina/compiler": "workspace:^",

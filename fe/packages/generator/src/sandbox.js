@@ -10,7 +10,7 @@ let started = false
 window.addEventListener('message', async event => {
 	if (event.source !== parent || event.data?.channel !== 'dimina-generator' || event.data.type !== 'init' || started) return
 	started = true
-	const { appId, resources, storage = {}, statusBarHeight = 0 } = event.data
+	const { appId, appName, resources, storage = {}, statusBarHeight = 0 } = event.data
 	const state = new Map(Object.entries(storage))
 	const storageAdapter = {
 		getItem: key => state.get(key) ?? null,
@@ -28,6 +28,7 @@ window.addEventListener('message', async event => {
 			mount: document.getElementById('app'),
 			resourceBaseUrl: 'https://dimina.invalid/',
 			urlSync: false, storageSync: storageAdapter,
+			getAppInfo: () => ({ name: appName }),
 			shell: {
 				getStatusBarRect: () => ({ top: 0, left: 0, width: innerWidth, right: innerWidth, height: statusBarHeight, bottom: statusBarHeight }),
 				updateStatusBarColor: color => post('statusBarColor', { color }),
@@ -35,6 +36,10 @@ window.addEventListener('message', async event => {
 			runtimeAssets: { serviceWorkerUrl: blob(serviceSource, 'text/javascript'), pageFrameHtml },
 			onAppLaunchError: error => post('error', { error: error?.message || '小程序启动失败' }),
 		})
+		const home = document.createElement('div')
+		home.className = 'dimina-native-view'
+		home.style.background = 'white'
+		container.setRootView({ el: home, onPresentIn: () => post('closed') })
 		const config = JSON.parse(resources['main/app-config.json'])
 		const app = await container.openApp({ appId, path: config.app.entryPagePath || config.app.pages[0], resourceContents: resources })
 		await app.whenReady()

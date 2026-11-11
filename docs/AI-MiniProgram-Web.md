@@ -47,7 +47,7 @@ const provider = {
 }
 const generator = createGenerator({ provider })
 const store = createProjectStore()
-const preview = createPreview({ mount: document.getElementById('preview') })
+const preview = createPreview({ mount: document.getElementById('preview'), onClose: () => { /* 显示关闭状态或重新打开入口 */ } })
 const controller = new AbortController()
 
 const project = await generator.generate({

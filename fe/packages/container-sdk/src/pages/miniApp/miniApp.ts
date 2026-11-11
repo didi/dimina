@@ -545,7 +545,9 @@ export class MiniApp {
 		name.textContent = this.appInfo.name || '未命名小程序'
 		appId.textContent = `AppID：${this.appId || '--'}`
 		desc.textContent = `当前页面：${pagePath || '--'}`
-		logo.src = this.appInfo.logo || ''
+		logo.hidden = !this.appInfo.logo
+		if (this.appInfo.logo) logo.src = this.appInfo.logo
+		else logo.removeAttribute('src')
 
 		const quickActionItems = [
 			...(shareUrl

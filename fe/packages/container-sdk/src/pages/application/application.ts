@@ -195,7 +195,7 @@ export class Application {
 		this.done = false
 
 		try {
-			const preView = this.views[this.views.length - 1]
+			const preView = this.views[this.views.length - 1] ?? this.rootView
 			view.parent = this
 			view.el.style.zIndex = String(this.views.length + 1)
 			view.el.classList.add('dimina-native-view--before-present')
@@ -203,7 +203,7 @@ export class Application {
 			preView?.el.classList.add('dimina-native-view--before-presenting')
 			preView?.el.classList.remove('dimina-native-view--instage')
 			preView?.el.classList.add('dimina-native-view--enter-anima')
-			preView?.onPresentOut()
+			preView?.onPresentOut?.()
 			// Application 处于 sleeping 状态时不能主动触发前台生命周期——
 			// sleepActiveView() 只隐藏当前栈顶，不改变 views；这里若继续呈现新
 			// 栈顶，应该等 wakeActiveView() 统一补发 onPresentIn()，不能抢先 fire
@@ -344,7 +344,7 @@ export class Application {
 		this.done = false
 
 		try {
-			const preView = this.views[this.views.length - 2]
+			const preView = this.views[this.views.length - 2] ?? this.rootView
 			const currentView = view
 
 			currentView.el.classList.add('dimina-native-view--enter-anima')
@@ -358,7 +358,7 @@ export class Application {
 			// 见 _presentView 里同款注释：sleeping 期间不能抢先 fire 前台生命周期，
 			// 交给 wakeActiveView() 统一补发。
 			if (!this.isSleeping) {
-				preView?.onPresentIn()
+				preView?.onPresentIn?.()
 			}
 			currentView?.onPresentOut()
 

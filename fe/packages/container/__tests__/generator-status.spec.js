@@ -41,6 +41,22 @@ afterEach(() => { workspace.destroy(); document.body.replaceChildren() })
 function submit() { $('generate-form').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })) }
 
 describe('progress inside the simulator', () => {
+	it('shows a closed state and reopens the saved app without clearing its source', async () => {
+		dependencies.store.list.mockResolvedValue([saved])
+		await workspace.show(saved.id)
+		dependencies.previewOptions.onClose()
+		expect($('preview-status').dataset.state).toBe('closed')
+		expect($('preview-status-title').textContent).toBe('小程序已关闭')
+		expect($('preview-resume').textContent).toBe('重新打开小程序')
+		expect($('preview-runtime').inert).toBe(true)
+		expect($('version').textContent).toBe('版本 1')
+		$('preview-resume').click()
+		await vi.waitFor(() => expect($('generate').disabled).toBe(false))
+		expect(dependencies.preview.open).toHaveBeenCalledTimes(2)
+		expect($('preview-status').hidden).toBe(true)
+		expect($('preview-runtime').inert).toBe(false)
+		expect($('projects').value).toBe(saved.id)
+	})
 	it('uses runtime foreground colors only while the saved app is visible and restores them after a failure overlay', async () => {
 		await workspace.show(saved.id)
 		dependencies.previewOptions.onStatusBarColorChange('white')

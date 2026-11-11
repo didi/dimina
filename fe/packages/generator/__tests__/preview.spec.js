@@ -15,6 +15,38 @@ function setup(options = {}) {
 afterEach(() => { preview?.destroy(); document.body.replaceChildren(); localStorage.clear() })
 
 describe('preview commit boundary', () => {
+	it('reports closure once while preserving storage written during app hide', async () => {
+		const onClose = vi.fn()
+		const mount = setup({ onClose })
+		const ready = preview.open(app)
+		const frame = mount.querySelector('iframe')
+		send(frame, 'ready')
+		await ready
+		window.dispatchEvent(new MessageEvent('message', { source: window, data: { channel: 'dimina-generator', type: 'closed' } }))
+		expect(onClose).not.toHaveBeenCalled()
+		send(frame, 'closed')
+		expect(mount.querySelector('iframe')).toBe(frame)
+		expect(onClose).toHaveBeenCalledOnce()
+		send(frame, 'storage', { storage: { hidden: 'true' } })
+		expect(JSON.parse(localStorage.getItem(storageKey))).toEqual({ hidden: 'true' })
+		send(frame, 'closed')
+		expect(onClose).toHaveBeenCalledOnce()
+	})
+
+	it('rejects a runtime that closes during startup without replacing the previous frame', async () => {
+		const mount = setup()
+		const initial = preview.open(app)
+		const original = mount.querySelector('iframe')
+		send(original, 'ready')
+		await initial
+		const next = preview.open(app)
+		const candidate = mount.querySelectorAll('iframe')[1]
+		send(candidate, 'closed')
+		send(candidate, 'ready')
+		await expect(next).rejects.toThrow('小程序已关闭')
+		expect(mount.querySelector('iframe')).toBe(original)
+	})
+
 	it('commits the runtime color with its frame and accepts live black/white changes only from that frame', async () => {
 		const onStatusBarColorChange = vi.fn()
 		const mount = setup({ onStatusBarColorChange })
@@ -66,7 +98,7 @@ describe('preview commit boundary', () => {
 		const frame = mount.querySelector('iframe')
 		const post = vi.spyOn(frame.contentWindow, 'postMessage')
 		send(frame, 'boot')
-		expect(post).toHaveBeenCalledWith(expect.objectContaining({ channel: 'dimina-generator', type: 'init', statusBarHeight: 48 }), '*')
+		expect(post).toHaveBeenCalledWith(expect.objectContaining({ channel: 'dimina-generator', type: 'init', appName: app.name, statusBarHeight: 48 }), '*')
 		expect(frame.getAttribute('sandbox')).toBe('allow-scripts')
 		send(frame, 'ready')
 		await ready

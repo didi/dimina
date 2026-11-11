@@ -1,5 +1,5 @@
 /** Each preview lives in an opaque origin, outside the host's DOM and storage. */
-export function createPreview({ mount, storage = globalThis.localStorage, onRuntimeError = () => {}, onStatusBarColorChange = () => {}, timeout = 20000, runtimeSource, statusBarHeight = 0 }) {
+export function createPreview({ mount, storage = globalThis.localStorage, onRuntimeError = () => {}, onStatusBarColorChange = () => {}, onClose = () => {}, timeout = 20000, runtimeSource, statusBarHeight = 0 }) {
 	if (getComputedStyle(mount).position === 'static') mount.style.position = 'relative'
 	let current
 	let pending
@@ -23,6 +23,7 @@ export function createPreview({ mount, storage = globalThis.localStorage, onRunt
 			let cancel
 			let settled = false
 			let committed = false
+			let closed = false
 			let stagedStorage
 			let stagedStatusBarColor = 'black'
 			const persist = data => { try { storage.setItem(key, data) } catch (error) { onRuntimeError(error.message) } }
@@ -39,13 +40,23 @@ export function createPreview({ mount, storage = globalThis.localStorage, onRunt
 				const receive = event => {
 					if (event.source !== frame.contentWindow || event.data?.channel !== 'dimina-generator') return
 					const message = event.data
-					if (message.type === 'boot') frame.contentWindow.postMessage({ channel: 'dimina-generator', type: 'init', appId: app.id, resources: app.resources, storage: initialStorage, statusBarHeight }, '*')
+					if (message.type === 'boot') frame.contentWindow.postMessage({ channel: 'dimina-generator', type: 'init', appId: app.id, appName: app.name, resources: app.resources, storage: initialStorage, statusBarHeight }, '*')
+					if (message.type === 'closed' && !closed) {
+						closed = true
+						if (!committed) finish(new Error('小程序已关闭'))
+						else if (current?.frame === frame) {
+							// Keep listening for storage written by the app's onHide.
+							// The host covers the closed view; replacement/destroy releases it.
+							updateStatusBarColor('black')
+							onClose()
+						}
+					}
 					if (message.type === 'ready') finish()
 					if (message.type === 'error') settled ? onRuntimeError(String(message.error)) : finish(new Error(message.error))
 					if (message.type === 'runtimeError') onRuntimeError(String(message.error).slice(0, 4000))
 					if (message.type === 'statusBarColor' && (message.color === 'black' || message.color === 'white')) {
 						stagedStatusBarColor = message.color
-						if (committed) updateStatusBarColor(message.color)
+						if (committed && !closed) updateStatusBarColor(message.color)
 					}
 					if (message.type === 'storage' && message.storage && typeof message.storage === 'object' && Object.values(message.storage).every(value => typeof value === 'string')) {
 						const data = JSON.stringify(message.storage)
@@ -69,7 +80,9 @@ export function createPreview({ mount, storage = globalThis.localStorage, onRunt
 			mount.append(frame)
 			try {
 				await ready
+				if (closed) throw new Error('小程序已关闭')
 				await beforeCommit()
+				if (closed) throw new Error('小程序已关闭')
 				signal?.throwIfAborted()
 				if (pending !== operation) throw new DOMException('已取消', 'AbortError')
 			} catch (error) {

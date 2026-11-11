@@ -22,7 +22,7 @@ describe('app list navigation', () => {
 		getAppList.mockClear()
 		getMiniAppInfo.mockReset()
 		page = new AppList({ openApp: vi.fn() })
-		page.parent = { updateStatusBarColor: vi.fn() }
+		page.parent = { shell: { updateStatusBarColor: vi.fn() } }
 		page.viewDidLoad()
 		list = page.el.querySelector('.dimina-app__mini-used-list')
 	})
@@ -40,7 +40,7 @@ describe('app list navigation', () => {
 	it('restores the status bar color when the list page is presented again', () => {
 		page.onPresentIn()
 
-		expect(page.parent.updateStatusBarColor).toHaveBeenCalledWith('black')
+		expect(page.parent.shell.updateStatusBarColor).toHaveBeenCalledWith('black')
 	})
 
 	it('opens the integrated workspace and local generated apps without fetching deployed app metadata', () => {

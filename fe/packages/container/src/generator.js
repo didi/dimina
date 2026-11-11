@@ -56,7 +56,7 @@ export function mountGenerator({ root, previewMount, onProjectsChanged = () => {
 	let active = false, destroyed = false
 	let pendingOperation = Promise.resolve()
 	let project, controller, busy = false, selectedFile
-	let runtimeStatusBarColor = 'black'
+	let runtimeStatusBarColor = 'black', runtimeClosed = false
 	const syncStatusBarColor = () => {
 		if (active) onStatusBarColorChange(project && $('preview-status').hidden ? runtimeStatusBarColor : 'black')
 	}
@@ -66,15 +66,16 @@ export function mountGenerator({ root, previewMount, onProjectsChanged = () => {
 		$('status').classList.toggle('error', error)
 		const progress = progressStages[stage]
 		const stopped = stage === 'stopped'
+		const closed = stage === 'closed'
 		const panel = $('preview-status')
-		panel.hidden = !progress && !error && !stopped
-		panel.dataset.state = progress ? 'busy' : error ? 'error' : 'stopped'
+		panel.hidden = !progress && !error && !stopped && !closed
+		panel.dataset.state = progress ? 'busy' : error ? 'error' : closed ? 'closed' : 'stopped'
 		panel.dataset.stage = stage || ''
 		if (!panel.hidden) {
-			$('preview-status-title').textContent = progress?.title || (stopped ? '操作已停止' : '暂时无法完成')
+			$('preview-status-title').textContent = progress?.title || (closed ? '小程序已关闭' : stopped ? '操作已停止' : '暂时无法完成')
 			$('preview-status-detail').textContent = progress?.detail || text
-			$('preview-status-symbol').textContent = error ? '!' : stopped ? 'Ⅱ' : ''
-			$('preview-status-hint').textContent = project ? '上一个已保存版本仍然保留。' : progress ? '完成后会自动显示小程序。' : '可以调整配置或需求后重新尝试。'
+			$('preview-status-symbol').textContent = closed ? '⏻' : error ? '!' : stopped ? 'Ⅱ' : ''
+			$('preview-status-hint').textContent = closed ? '也可以继续编辑源码。' : project ? '上一个已保存版本仍然保留。' : progress ? '完成后会自动显示小程序。' : '可以调整配置或需求后重新尝试。'
 			$('preview-steps').hidden = !progress
 			for (const [index, item] of [...$('preview-steps').children].entries()) {
 				item.dataset.state = index < progress?.step ? 'done' : index === progress?.step ? 'current' : 'pending'
@@ -82,6 +83,7 @@ export function mountGenerator({ root, previewMount, onProjectsChanged = () => {
 				else item.removeAttribute('aria-current')
 			}
 			$('preview-resume').hidden = Boolean(progress) || !project
+			$('preview-resume').textContent = runtimeClosed ? '重新打开小程序' : '返回小程序'
 			$('preview-resume').disabled = busy
 		}
 		$('preview-runtime').inert = busy || !panel.hidden
@@ -93,8 +95,12 @@ export function mountGenerator({ root, previewMount, onProjectsChanged = () => {
 		mount: $('preview-runtime'), statusBarHeight,
 		onRuntimeError: error => status(`运行错误：${error}`, true),
 		onStatusBarColorChange: color => { runtimeStatusBarColor = color; syncStatusBarColor() },
+		onClose: () => { runtimeClosed = true; if (!busy) status('源码和数据已保留，可以重新打开小程序。', false, 'closed') },
 	})
-	$('preview-resume').onclick = () => { $('preview-status').hidden = true; $('preview-runtime').inert = busy; syncStatusBarColor() }
+	$('preview-resume').onclick = () => {
+		if (runtimeClosed) { void openProject(project.id); return }
+		$('preview-status').hidden = true; $('preview-runtime').inert = busy; syncStatusBarColor()
+	}
 	const previousVersion = value => value ? Object.fromEntries(Object.entries(value).filter(([key]) => key !== 'previous')) : undefined
 	function setBusy(value) {
 		if (destroyed) return
@@ -112,6 +118,7 @@ export function mountGenerator({ root, previewMount, onProjectsChanged = () => {
 		onProjectsChanged(entries)
 	}
 	function showSource() {
+		runtimeClosed = false
 		setOptions($('files'), Object.keys(project?.files || {}).map(path => new Option(path, path)))
 		selectedFile = $('files').value
 		$('source').value = project?.files[selectedFile] || ''
@@ -227,7 +234,7 @@ export function mountGenerator({ root, previewMount, onProjectsChanged = () => {
 			await refreshProjects()
 			if (!active) return
 			if (projectId) await openProject(projectId)
-			else if (project) await operate(async () => { progress('loading'); await preview.open(project, { signal: controller.signal }); status('已打开本地保存的小程序。') })
+			else if (project) await operate(async () => { progress('loading'); await preview.open(project, { signal: controller.signal }); runtimeClosed = false; status('已打开本地保存的小程序。') })
 			else status('生成的源码和应用保存在当前浏览器中。')
 		},
 		hide: close,

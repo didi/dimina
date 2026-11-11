@@ -240,8 +240,11 @@
 	transition: transform 0.24s ease-in-out;
 	z-index: 1000;
 	transform: translateY(100%);
-	max-height: logic(420px);
-	overflow: hidden;
+	box-sizing: border-box;
+	max-height: 100%;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	> * { flex-shrink: 0; }
 
 	&.show {
 		transform: translateY(0);
@@ -280,6 +283,7 @@
 	height: 100%;
 	display: block;
 	object-fit: cover;
+	&[hidden] { display: none; }
 }
 
 .dimina-mini-app-menu__app-meta {
