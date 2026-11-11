@@ -65,6 +65,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
       - name: Cache Harmony command-line tools
         id: harmony-cli-cache
         uses: actions/cache@v4

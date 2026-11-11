@@ -297,7 +297,7 @@ export class DMPNavigator {
 
     } catch (err) {
       DMPLogger.e(Tags.BRIDGE, `msg: ${(err as BusinessError).message}`)
-      if (throwOnFailure) throw err
+      if (throwOnFailure) throw err as Error
     }
   }
 

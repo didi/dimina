@@ -103,6 +103,22 @@ function wire(key, value) {
   return { data, dataType, entrySize: JSON.stringify(key).length + 1 + JSON.stringify({ data, dataType }).length }
 }
 
+for (const [value, dataType] of [
+  ['你好😀', 'String'], [0, 'Number'], [false, 'Boolean'], [null, 'Null'],
+  [undefined, 'Undefined'], [[false, null, '😀'], 'Array'], [{ nested: [1, '你'] }, 'Object'],
+  [Number.NaN, 'Number'], [Number.POSITIVE_INFINITY, 'Number'],
+]) {
+  test('native storage fallback encodes ' + dataType + ' data ' + String(value), () => {
+    const f = fixture()
+    assert.equal(f.bridge.setStorageSync(new f.DMPMap(['key', value]), f.callback), undefined)
+    const record = f.bridge.getStorageSync(new f.DMPMap({ key: 'key', __diminaStorageWire: true }), f.callback).record
+    const expected = wire('key', value)
+    assert.equal(record.dataType, dataType)
+    assert.equal(record.data, expected.data)
+    assert.equal(record.entrySize, expected.entrySize)
+  })
+}
+
 test('typed wire survives storage and ignores a forged entrySize', () => {
   const f = fixture()
   const record = { data: '1730000000000', dataType: 'Date', entrySize: 0 }

@@ -1,9 +1,21 @@
 import { DMPMMKVManager } from './DMPMMKVManager';
 
-export interface DMPStorageWire {
+interface DMPStoragePayload {
   data: string;
   dataType: string;
+}
+export interface DMPStorageWire extends DMPStoragePayload {
   entrySize: number;
+}
+export interface DMPStorageInfo {
+  keys: string[];
+  currentSize: number;
+  limitSize: number;
+}
+interface DMPStorageResult {
+  __diminaStorageResult: number;
+  record?: DMPStorageWire;
+  value?: object | string | number | boolean | null;
 }
 interface DMPStorageRecord {
   version: number;
@@ -12,7 +24,11 @@ interface DMPStorageRecord {
   wire?: DMPStorageWire;
 }
 export class DMPStorageSpace {
-  constructor(private manager: DMPMMKVManager) {}
+  private manager: DMPMMKVManager;
+
+  constructor(manager: DMPMMKVManager) {
+    this.manager = manager;
+  }
 
   private record(key: string): DMPStorageRecord | undefined {
     const encoded = this.manager.readStorageRecord(key);
@@ -34,15 +50,28 @@ export class DMPStorageSpace {
       dataType = supplied.dataType;
       data = supplied.data;
     } else {
-      dataType = Object.prototype.toString.call(value).slice(8, -1);
-      if (dataType === 'Object' || dataType === 'Array') data = JSON.stringify(value);
-      else if (dataType === 'Date') data = (value as Date).getTime().toString();
-      else if (dataType === 'Undefined') data = 'undefined';
-      else if (dataType === 'Null') data = 'null';
-      else if (['String', 'Number', 'Boolean'].includes(dataType)) data = String(value);
-      else data = '';
+      if (value === undefined) {
+        dataType = 'Undefined'; data = 'undefined';
+      } else if (value === null) {
+        dataType = 'Null'; data = 'null';
+      } else if (typeof value === 'string') {
+        dataType = 'String'; data = value;
+      } else if (typeof value === 'number') {
+        dataType = 'Number'; data = value.toString();
+      } else if (typeof value === 'boolean') {
+        dataType = 'Boolean'; data = value.toString();
+      } else if (Array.isArray(value)) {
+        dataType = 'Array'; data = JSON.stringify(value);
+      } else if (value instanceof Date) {
+        dataType = 'Date'; data = value.getTime().toString();
+      } else if (value instanceof RegExp) {
+        dataType = 'RegExp'; data = '';
+      } else {
+        dataType = 'Object'; data = JSON.stringify(value);
+      }
     }
-    return { data, dataType, entrySize: JSON.stringify(key).length + 1 + JSON.stringify({ data, dataType }).length };
+    const payload: DMPStoragePayload = { data, dataType };
+    return { data, dataType, entrySize: JSON.stringify(key).length + 1 + JSON.stringify(payload).length };
   }
 
   private records(): Map<string, DMPStorageRecord> {
@@ -88,8 +117,10 @@ export class DMPStorageSpace {
     const record = this.record(key);
     if (!record || record.deleted) return undefined;
     if (!wire) return record.value;
-    if (record.wire) return { __diminaStorageResult: 1, record: record.wire };
-    return { __diminaStorageResult: 1, value: record.value };
+    const result: DMPStorageResult = { __diminaStorageResult: 1 };
+    if (record.wire) result.record = record.wire;
+    else result.value = record.value;
+    return result;
   }
 
   has(key: string): boolean {
@@ -99,12 +130,13 @@ export class DMPStorageSpace {
 
   remove(key: string): boolean {
     if (!key) return false;
-    return this.manager.writeStorageRecord(key, JSON.stringify({ version: 1, deleted: true }));
+    const record: DMPStorageRecord = { version: 1, deleted: true };
+    return this.manager.writeStorageRecord(key, JSON.stringify(record));
   }
 
   clear(): void { this.manager.clearStorageSpace(); }
 
-  info(): object {
+  info(): DMPStorageInfo {
     const records = this.records();
     const keys: string[] = [];
     records.forEach((record, key) => { if (!record.deleted) keys.push(key); });

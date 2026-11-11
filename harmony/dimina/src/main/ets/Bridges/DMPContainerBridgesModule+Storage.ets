@@ -5,6 +5,7 @@ import { DMPStorageSpace, DMPStorageWire } from '../Bundle/Util/DMPStorageSpace'
 import { DMPMap } from '../Utils/DMPMap';
 
 interface DMPStorageOptions { __diminaStorageWire?: DMPStorageWire; }
+interface DMPStorageError { __diminaStorageError: string; }
 
 export class DMPContainerBridgesModuleStorage extends DMPContainerBridgesModule {
   private space(): DMPStorageSpace {
@@ -27,7 +28,7 @@ export class DMPContainerBridgesModuleStorage extends DMPContainerBridgesModule 
     }
   }
 
-  setStorageSync(data: DMPMap, _callback: DMPBridgeCallback): object | void {
+  setStorageSync(data: DMPMap, _callback: DMPBridgeCallback): DMPStorageError | void {
     const params = data.toArray<object | string | number | boolean | null>();
     const wire = (params[2] as DMPStorageOptions)?.__diminaStorageWire;
     try {
@@ -79,6 +80,8 @@ export class DMPContainerBridgesModuleStorage extends DMPContainerBridgesModule 
   }
 
   getStorageInfo(_data: DMPMap, callback: DMPBridgeCallback): void {
-    this.invokeSuccessCallback(callback, new DMPMap({ ...this.space().info(), errMsg: 'getStorageInfo:ok' }));
+    const info = new DMPMap(this.space().info());
+    info.set('errMsg', 'getStorageInfo:ok');
+    this.invokeSuccessCallback(callback, info);
   }
 }
