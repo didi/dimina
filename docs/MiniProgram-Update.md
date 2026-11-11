@@ -48,6 +48,8 @@ Android 端 WebView 通过 `https://appassets.androidplatform.net/jsapp/` 映射
 
 因此，内置包随宿主 App 发版更新是默认支持的。宿主升级后，SDK 会比较新包和本地缓存包的 `versionCode`，在新版本更高时覆盖沙盒中的小程序包。
 
+Harmony 在每次准备启动包时分别比较内置小程序包和 JSSDK 的资源版本，不依赖宿主应用的 `versionCode` 是否变化。资源版本相同或更低时沿用缓存，不重复解压；更高版本的远程缓存不会被旧底包覆盖。由宿主接管的小程序包仍以宿主管理结果为准。该检查在启动包准备阶段执行，已保留的运行实例需要销毁后重新启动，才会重新准备资源。
+
 ## `wx.getUpdateManager` 的职责
 
 `wx.getUpdateManager()` 提供的是小程序侧感知更新状态和触发重启的 API：

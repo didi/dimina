@@ -109,14 +109,12 @@ export class DMPReleaseBundleLoader implements DMPBundleLoader {
     try {
       // 先读取沙箱中已安装的版本；调试开关不参与发布包的安装和版本决策。
       this.loadCacheConfig(bundleLoadInfo);
+      // 资源版本独立于宿主版本，每次准备启动包时都比较；同版和旧版不会重复解压。
+      this.loadLocalBundleConfig(bundleLoadInfo);
+      await this.installLocalJsAppBundle(bundleLoadInfo);
+      await this.installLocalJSSDKBundle(bundleLoadInfo);
       if (bundleLoadInfo.isAppUpdate()) {
         DMPLogger.i(Tags.LOAD_LOCAL_BUNDLE, '应用有更新');
-        //加载本地配置
-        this.loadLocalBundleConfig(bundleLoadInfo);
-        //安装jsApp本地包
-        await this.installLocalJsAppBundle(bundleLoadInfo);
-        //安装jsSdk本地包
-        await this.installLocalJSSDKBundle(bundleLoadInfo);
         //安装成功以后，存储version
         DMPPreference.getInstance().put(bundleLoadInfo.appId + "_versionName", bundleLoadInfo.appVersionName!)
         DMPPreference.getInstance().put(bundleLoadInfo.appId + "_versionCode", bundleLoadInfo.appVersionCode!)
