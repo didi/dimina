@@ -1,3 +1,4 @@
+import { createRequestResult, decodeRequestData } from './request-wire.js'
 import http from 'node:http'
 import https from 'node:https'
 import { fileURLToPath } from 'node:url'
@@ -15,7 +16,7 @@ import {
 
 const MAX_REQUEST_BODY_BYTES = 1024 * 1024
 const MAX_RESPONSE_BODY_BYTES = 10 * 1024 * 1024
-const ALLOWED_METHODS = new Set(['GET', 'POST', 'PUT', 'DELETE', 'PATCH'])
+const ALLOWED_METHODS = new Set(['GET', 'HEAD', 'POST', 'PUT', 'DELETE', 'PATCH'])
 const ALLOWED_RESPONSE_TYPES = new Set(['json', 'text', 'arraybuffer'])
 
 export function createProxyApp({ allowedOrigins = process.env.DIMINA_PROXY_ALLOWED_ORIGINS } = {}) {
@@ -41,6 +42,8 @@ export function createProxyApp({ allowedOrigins = process.env.DIMINA_PROXY_ALLOW
 				timeout = 30000,
 				method = 'GET',
 				responseType = 'json',
+				dataType = 'json',
+				wireEnvelope = false,
 			} = req.body ?? {}
 
 			const normalizedMethod = String(method).toUpperCase()
@@ -65,9 +68,9 @@ export function createProxyApp({ allowedOrigins = process.env.DIMINA_PROXY_ALLOW
 					'Content-Type': 'application/json',
 					...sanitizeRequestHeaders(header),
 				},
-				...(normalizedMethod !== 'GET' && { data }),
+				...(!['GET', 'HEAD'].includes(normalizedMethod) && { data: decodeRequestData(data) }),
 				...(normalizedMethod === 'GET' && data && { params: data }),
-				responseType,
+				responseType: wireEnvelope ? 'arraybuffer' : responseType,
 				validateStatus: () => true,
 				// Redirects must be validated independently; disabling them prevents
 				// a public endpoint from redirecting the proxy into a private network.
@@ -78,6 +81,10 @@ export function createProxyApp({ allowedOrigins = process.env.DIMINA_PROXY_ALLOW
 				httpAgent,
 				httpsAgent,
 			})
+
+			if (wireEnvelope) {
+				return res.json(createRequestResult(response, dataType, responseType))
+			}
 
 			if (responseType === 'arraybuffer') {
 				const contentType = response.headers['content-type'] || 'application/octet-stream'

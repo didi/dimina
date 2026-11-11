@@ -1,3 +1,4 @@
+import { createProxyRequestHandler } from './services/request.js'
 import { createContainer, QueryRouter } from '@dimina/fe-container-sdk'
 import '@dimina/fe-container-sdk/style.css'
 import { AppList } from '@/pages/appList/appList'
@@ -53,70 +54,7 @@ window.onload = function () {
 	 * 一定有本地代理这类基础设施）；本 demo 配套 fe/packages/server 的开发态 CORS 代理，
 	 * 在这里通过 registerApi 接上，行为与移除前完全一致。
 	 */
-	container.registerApi('request', function ({
-		url,
-		data,
-		header = {},
-		timeout = 0, // 0 表示不设超时
-		method = 'GET',
-		dataType = 'json',
-		responseType = 'text',
-		success,
-		fail,
-		complete,
-	}) {
-		const init = {
-			method: 'POST',
-			headers: {
-				'Content-Type': 'application/json',
-			},
-			body: JSON.stringify({
-				url,
-				data,
-				header,
-				timeout,
-				method,
-				dataType,
-				responseType,
-			}),
-		}
-
-		const onSuccess = this.createCallbackFunction(success)
-		const onFail = this.createCallbackFunction(fail)
-		const onComplete = this.createCallbackFunction(complete)
-
-		fetch('http://localhost:7788/proxy', init)
-			.then((response) => {
-				if (!response.ok) {
-					const error = new Error(response.statusText)
-					error.code = response.status
-					throw error
-				}
-
-				const headers = {}
-				response.headers.forEach((value, key) => {
-					headers[key] = value
-				})
-
-				switch (dataType) {
-					case 'json':
-						return response.json().then(data => ({ data: JSON.parse(data), header: headers, statusCode: response.status }))
-					case 'arraybuffer':
-						return response.arrayBuffer().then(data => ({ data, header: headers, statusCode: response.status }))
-					default:
-						return response.text().then(data => ({ data, header: headers, statusCode: response.status }))
-				}
-			})
-			.then((data) => {
-				onSuccess?.(data)
-			})
-			.catch((error) => {
-				onFail?.({ errMsg: error.message, errno: error.code })
-			})
-			.finally(() => {
-				onComplete?.()
-			})
-	})
+	container.registerApi('request', createProxyRequestHandler('http://localhost:7788/proxy'))
 
 	const projects = createProjectStore()
 	let generatorNavigation

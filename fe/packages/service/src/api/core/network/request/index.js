@@ -1,5 +1,27 @@
 import { debugRequest } from '../../../../core/debug'
 import { invokeAPI } from '@/api/common'
+import { ARRAY_BUFFER_BASE64_KEY, base64ToArrayBuffer, encodeSocketMessage } from '../socket/shared'
+
+function prepareBinaryRequest(options) {
+	if (!options || typeof options !== 'object') return options
+	const data = encodeSocketMessage(options.data)
+	const binaryResponse = options.responseType?.toLowerCase() === 'arraybuffer'
+	if (data === options.data && !binaryResponse) return options
+	const result = { ...options, ...(data !== options.data ? { data } : {}) }
+	if (binaryResponse) {
+		for (const name of ['success', 'complete']) {
+			if (typeof options[name] !== 'function') continue
+			result[name] = (response) => {
+				const value = response?.data
+				const decoded = value && typeof value[ARRAY_BUFFER_BASE64_KEY] === 'string'
+					? { ...response, data: base64ToArrayBuffer(value[ARRAY_BUFFER_BASE64_KEY]) }
+					: response
+				options[name](decoded)
+			}
+		}
+	}
+	return result
+}
 
 function normalizeQuery(options) {
 	if (!options || typeof options.url !== 'string') return options
@@ -37,5 +59,5 @@ function normalizeQuery(options) {
  * @param {*} opts
  */
 export function request(opts) {
-	return invokeAPI('request', debugRequest(normalizeQuery(opts)))
+	return invokeAPI('request', prepareBinaryRequest(debugRequest(normalizeQuery(opts))))
 }

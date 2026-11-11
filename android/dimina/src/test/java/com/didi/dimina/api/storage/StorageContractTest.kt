@@ -32,10 +32,10 @@ class StorageContractTest {
 
     @Test
     fun `storage info reports kilobytes and rounds partial kilobytes up`() {
-        val result = StorageApi.storageInfoResult(linkedMapOf("stored" to 1025))
+        val result = StorageApi.storageInfoResult(linkedMapOf("stored" to 1025L))
         assertEquals(2L, result.getLong("currentSize"))
         assertEquals(10240, result.getInt("limitSize"))
         assertEquals("stored", result.getJSONArray("keys").getString(0))
-        assertEquals(0L, StorageApi.storageInfoResult(emptyMap()).getLong("currentSize"))
+        assertEquals(1L, StorageApi.storageInfoResult(emptyMap()).getLong("currentSize"))
     }
 }

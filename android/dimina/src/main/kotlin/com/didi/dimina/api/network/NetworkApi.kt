@@ -60,7 +60,8 @@ class NetworkApi : BaseApiHandler() {
             responseType: String,
         ): Any {
             if (responseType.equals("arraybuffer", ignoreCase = true)) {
-                return bodyString
+                return JSONObject().put("__diminaArrayBufferBase64",
+                    java.util.Base64.getEncoder().encodeToString(bodyString.toByteArray(Charsets.UTF_8)))
             }
 
             val shouldParseJson = dataType.equals("json", ignoreCase = true) ||
@@ -77,6 +78,77 @@ class NetworkApi : BaseApiHandler() {
                 }
             } catch (_: Exception) {
                 bodyString
+            }
+        }
+
+
+        internal fun buildHttpRequest(params: JSONObject): Request {
+            val method = params.optString("method", "GET").uppercase()
+            val header = params.optJSONObject("header")
+            val builder = Request.Builder().url(params.optString("url"))
+            var contentType = "application/json; charset=utf-8"
+            header?.keys()?.forEach { key ->
+                val value = header.optString(key)
+                builder.addHeader(key, value)
+                if (key.equals("content-type", true)) contentType = value
+            }
+            val data = params.opt("data")
+            val encoded = (data as? JSONObject)?.optString("__diminaArrayBufferBase64")
+            val body = if (encoded != null && data.has("__diminaArrayBufferBase64")) {
+                java.util.Base64.getDecoder().decode(encoded).toRequestBody(contentType.toMediaTypeOrNull())
+            } else {
+                params.optString("data", "").toRequestBody(contentType.toMediaTypeOrNull())
+            }
+            when (method) {
+                "GET", "HEAD" -> builder.method(method, null)
+                "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "TRACE" ->
+                    builder.method(method, if (params.has("data") || method in setOf("POST", "PUT", "PATCH")) body else null)
+                else -> throw IllegalArgumentException("unsupported method $method")
+            }
+            return builder.build()
+        }
+
+        internal fun requestResult(response: okhttp3.Response, dataType: String, responseType: String): JSONObject =
+            JSONObject().apply {
+                put("errMsg", "$REQUEST:ok")
+                put("statusCode", response.code)
+                val body = response.body
+                put("data", if (responseType.equals("arraybuffer", true)) {
+                    JSONObject().put("__diminaArrayBufferBase64",
+                        java.util.Base64.getEncoder().encodeToString(body.bytes()))
+                } else {
+                    parseResponseData(body.string(), dataType, responseType)
+                })
+                put("header", JSONObject().apply {
+                    response.headers.toMultimap().forEach { (key, values) -> put(key, values.joinToString(",")) }
+                })
+                put("cookies", JSONArray(response.headers.values("set-cookie")))
+            }
+
+        internal fun deliverNetworkResult(
+            params: JSONObject, result: JSONObject, success: Boolean, responseCallback: (String) -> Unit,
+        ) {
+            if (success) ApiUtils.invokeSuccess(params, result, responseCallback)
+            else ApiUtils.invokeFail(params, result, responseCallback)
+            ApiUtils.invokeComplete(params, responseCallback, result)
+        }
+
+        internal fun performRequest(params: JSONObject, responseCallback: (String) -> Unit) {
+            try {
+                val request = buildHttpRequest(params)
+                val timeout = params.optLong("timeout", 60000).takeIf { it > 0 } ?: 60000
+                val configuredClient = if (timeout == 60000L) client else client.newBuilder()
+                    .connectTimeout(timeout, TimeUnit.MILLISECONDS)
+                    .readTimeout(timeout, TimeUnit.MILLISECONDS)
+                    .writeTimeout(timeout, TimeUnit.MILLISECONDS).build()
+                configuredClient.newCall(request).execute().use { response ->
+                    deliverNetworkResult(params, requestResult(response,
+                        params.optString("dataType", "json"), params.optString("responseType", "text")),
+                        true, responseCallback)
+                }
+            } catch (error: Exception) {
+                deliverNetworkResult(params,
+                    JSONObject().put("errMsg", "$REQUEST:fail ${error.message}"), false, responseCallback)
             }
         }
 
@@ -126,103 +198,7 @@ class NetworkApi : BaseApiHandler() {
                     })
                 }
 
-                val data = params.optString("data")
-                val header = params.optJSONObject("header")
-                val timeout = params.optInt("timeout", 60000)
-                val method = params.optString("method", "GET")
-                val dataType = params.optString("dataType", "json")
-                val responseType = params.optString("responseType", "text")
-
-                // Create OkHttp client with timeout
-                // 使用单例 client，但根据参数动态调整超时时间
-                val adjustedClient = if (timeout != 60000) { // 如果超时时间不是默认值
-                    client.newBuilder()
-                        .connectTimeout(timeout.toLong(), TimeUnit.MILLISECONDS)
-                        .readTimeout(timeout.toLong(), TimeUnit.MILLISECONDS)
-                        .writeTimeout(timeout.toLong(), TimeUnit.MILLISECONDS)
-                        .build()
-                } else {
-                    client // 直接使用单例
-                }
-
-                // Build request
-                val requestBuilder = Request.Builder()
-                    .url(url)
-
-                // Set headers
-                header?.let {
-                    header.keys().forEach { key ->
-                        requestBuilder.addHeader(key, header.optString(key))
-                    }
-                }
-
-                // Set request body based on method
-                when (method) {
-                    "POST", "PUT" -> {
-                        val mediaType = when (dataType.lowercase()) {
-                            "json" -> "application/json; charset=utf-8"
-                            else -> "text/plain; charset=utf-8"
-                        }
-                        val body = if (data.isNotEmpty()) {
-                            data.toRequestBody(mediaType.toMediaTypeOrNull())
-                        } else {
-                            "".toRequestBody(mediaType.toMediaTypeOrNull())
-                        }
-                        requestBuilder.method(method, body)
-                    }
-
-                    "GET", "HEAD", "DELETE" -> {
-                        requestBuilder.method(method, null)
-                    }
-
-                    else -> {
-                        return AsyncResult(JSONObject().apply {
-                            put("errMsg", "$REQUEST:fail unsupported method $method")
-                        })
-                    }
-                }
-
-                val request = requestBuilder.build()
-                try {
-                    CoroutineScope(Dispatchers.IO).launch {
-                        try {
-                            adjustedClient.newCall(request).execute().use { response ->
-                                val bodyString = response.body?.string() ?: ""
-                                val result = JSONObject().apply {
-                                    put("errMsg", "$REQUEST:ok")
-                                    put("statusCode", response.code)
-                                    put("data", parseResponseData(bodyString, dataType, responseType))
-                                    put("header", JSONObject().apply {
-                                        response.headers.toMultimap().forEach { (key, values) ->
-                                            put(key, values.joinToString(","))
-                                        }
-                                    })
-                                }
-
-                                ApiUtils.invokeSuccess(params, result, responseCallback)
-                                ApiUtils.invokeComplete(params, responseCallback)
-                            }
-                        } catch (e: IOException) {
-                            ApiUtils.invokeFail(params, JSONObject().apply {
-                                put("errMsg", "$REQUEST:fail network error: ${e.message}")
-                            }, responseCallback)
-                            ApiUtils.invokeComplete(params, responseCallback)
-                        } catch (e: Exception) {
-                            ApiUtils.invokeFail(params, JSONObject().apply {
-                                put("errMsg", "$REQUEST:fail ${e.message}")
-                            }, responseCallback)
-                            ApiUtils.invokeComplete(params, responseCallback)
-                        }
-                    }
-                } catch (e: IOException) {
-                    AsyncResult(JSONObject().apply {
-                        put("errMsg", "$REQUEST:fail network error: ${e.message}")
-                    })
-                } catch (e: Exception) {
-                    AsyncResult(JSONObject().apply {
-                        put("errMsg", "$REQUEST:fail ${e.message}")
-                    })
-                }
+                CoroutineScope(Dispatchers.IO).launch { performRequest(params, responseCallback) }
 
                 NoneResult()
             }
@@ -265,19 +241,17 @@ class NetworkApi : BaseApiHandler() {
                         val response = adjustedClient.newCall(request).execute()
 
                         if (!response.isSuccessful) {
-                            ApiUtils.invokeFail(params, JSONObject().apply {
+                            deliverNetworkResult(params, JSONObject().apply {
                                 put("errMsg", "$DOWNLOAD_FILE:fail HTTP ${response.code}")
-                            }, responseCallback)
-                            ApiUtils.invokeComplete(params, responseCallback)
+                            }, false, responseCallback)
                             return@launch
                         }
 
                         val body = response.body
                         if (body == null) {
-                            ApiUtils.invokeFail(params, JSONObject().apply {
+                            deliverNetworkResult(params, JSONObject().apply {
                                 put("errMsg", "$DOWNLOAD_FILE:fail empty response")
-                            }, responseCallback)
-                            ApiUtils.invokeComplete(params, responseCallback)
+                            }, false, responseCallback)
                             return@launch
                         }
 
@@ -298,21 +272,17 @@ class NetworkApi : BaseApiHandler() {
                             }
                         }
 
-                        ApiUtils.invokeSuccess(params, JSONObject().apply {
+                        deliverNetworkResult(params, JSONObject().apply {
                             put("tempFilePath", PathUtils.pathToVirtual(outFile))
                             put("filePath", filePath)
                             put("statusCode", response.code)
                             put("errMsg", "$DOWNLOAD_FILE:ok")
-                        }, responseCallback)
-
-                        ApiUtils.invokeComplete(params, responseCallback)
+                        }, true, responseCallback)
 
                     } catch (e: Exception) {
-                        ApiUtils.invokeFail(params, JSONObject().apply {
+                        deliverNetworkResult(params, JSONObject().apply {
                             put("errMsg", "$DOWNLOAD_FILE:fail ${e.message}")
-                        }, responseCallback)
-
-                        ApiUtils.invokeComplete(params, responseCallback)
+                        }, false, responseCallback)
                     }
                 }
 

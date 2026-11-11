@@ -2,6 +2,9 @@ import { isFunction } from '@dimina/common'
 import { invokeAPI } from '@/api/common'
 import router from '@/core/router'
 import { hydrateSelectorQueryResult } from '../../ui/canvas/canvas-node'
+import { createCanvasContext } from '../../ui/canvas'
+import { createVideoContext } from '../../media/video'
+import { createMapContext } from '../../map'
 
 /**
  * 返回一个 SelectorQuery 对象实例。在自定义组件或包含自定义组件的页面中，应使用 this.createSelectorQuery() 来代替。
@@ -27,9 +30,20 @@ function getCurrentBridgeId() {
 	return pageInfo?.bridgeId || pageInfo?.id
 }
 
+function hydrateContexts(value, bridgeId) {
+	if (Array.isArray(value)) return value.map(item => hydrateContexts(item, bridgeId))
+	if (!value?.context?.__diminaSelectorContext) return value
+	const { type, id, moduleId } = value.context
+	const component = { __id__: moduleId, bridgeId }
+	const create = { canvas: createCanvasContext, video: createVideoContext, map: createMapContext }[type]
+	return { ...value, context: create(id, component) }
+}
+
 class SelectorQuery {
 	constructor() {
 		this.__componentId = getCurrentModuleId()
+		this.__bridgeId = getCurrentBridgeId()
+		this.__explicitComponent = false
 		this.__taskQueue = []
 		this.__cbQueue = []
 	}
@@ -40,7 +54,14 @@ class SelectorQuery {
 	 * @returns {SelectorQuery} SelectorQuery
 	 */
 	in(com) {
+		if (!com) return this
+		if ((this.__explicitComponent || this.__taskQueue.length) && this.__bridgeId !== com.bridgeId) {
+			console.error('A single SelectorQuery could not work in components in different pages.')
+			return this
+		}
 		this.__componentId = com.__id__
+		this.__bridgeId = com.bridgeId || this.__bridgeId
+		this.__explicitComponent = true
 		return this
 	}
 
@@ -68,7 +89,7 @@ class SelectorQuery {
 	 * @returns {NodesRef} NodesRef
 	 */
 	selectViewport() {
-		return new NodesRef(this, getCurrentModuleId(), '', true)
+		return new NodesRef(this, 0, '', true)
 	}
 
 	/**
@@ -95,11 +116,12 @@ class SelectorQuery {
 	 */
 	exec(callback) {
 		const that = this
-		const bridgeId = getCurrentBridgeId()
+		const bridgeId = this.__bridgeId
 		const data = {
+			selectorBridgeId: bridgeId,
 			tasks: this.__taskQueue,
 			success: (res) => {
-				const hydratedRes = hydrateSelectorQueryResult(res, bridgeId) || []
+				const hydratedRes = hydrateContexts(hydrateSelectorQueryResult(res, bridgeId), bridgeId) || []
 				hydratedRes.forEach((nodeInfo, index) => {
 					const cb = that.__cbQueue[index]
 					if (isFunction(cb)) {

@@ -5,10 +5,12 @@ export class DMPHttpParamsNext {
   headers: DMPMap | undefined;
   method: string = '';
   dataType: string = '';
+  responseType: string = 'text';
+  timeout: number = 60000;
   contentType: string = ''
 
   private data: DMPMap;
-  body: DMPMap = new DMPMap();
+  body?: object | string | ArrayBuffer;
   appId: string;
   appVersion: string;
 
@@ -32,7 +34,10 @@ export class DMPHttpParamsNext {
       this.url = this.data.get('url');
       this.method = this.data.get('method') ?? 'GET';
       this.dataType = this.data.get('dataType') ?? 'json';
-      this.body = this.data.get('data') ?? new DMPMap();
+      this.responseType = (this.data.getString('responseType') ?? 'text').toLowerCase();
+      const timeout = this.data.getNumber('timeout') ?? 60000;
+      this.timeout = timeout > 0 ? timeout : 60000;
+      this.body = this.data.get('data');
       this.build();
     }
 
@@ -60,5 +65,6 @@ export class DMPHttpParamsNext {
       contentType = "application/json"
     }
     this.contentType = contentType
+    if (!param['Content-Type'] && !param['content-type']) param['content-type'] = contentType
   }
 }

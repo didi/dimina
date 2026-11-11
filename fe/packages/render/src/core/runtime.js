@@ -50,6 +50,7 @@ import { planKeyedRelationMoves } from './keyed-relation-moves'
 import { invokeMapContext } from './map-context'
 import { FontFaceLoader } from './font-face'
 import { initializeTemplateBinding, PropertyBindingBucket, resolveTemplateBinding } from './template-binding'
+import { collectRenderedWxmlTree, findRenderedNode } from './rendered-wxml-tree'
 
 const COMPONENT_HOST_ATTRIBUTE = 'data-dd-component-host'
 const STYLE_ISOLATION_ATTRIBUTE = 'data-dd-style-isolation'
@@ -326,6 +327,10 @@ function renderTemplateList(source, renderItem, cache, index) {
 	), cache, index)
 }
 
+function renderWxmlSlot(...args) {
+	return cloneVNode(renderSlot(...args), { diminaSlotBoundary: true })
+}
+
 // Keep these aliases in sync with @vue/compiler-core helperNameMap/aliasHelper output.
 const VUE_RUNTIME_HELPERS = {
 	_Fragment: Fragment,
@@ -340,7 +345,7 @@ const VUE_RUNTIME_HELPERS = {
 	_normalizeStyle: normalizeStyle,
 	_openBlock: openBlock,
 	_renderList: renderTemplateList,
-	_renderSlot: renderSlot,
+	_renderSlot: renderWxmlSlot,
 	_resolveComponent: resolveComponent,
 	_resolveDirective: resolveDirective,
 	_resolveDynamicComponent: resolveDynamicComponent,
@@ -687,6 +692,10 @@ class Runtime {
 		this.moduleIds = new WeakMap()
 		this.moduleRootIds = new WeakMap()
 		this.renderedTrees = new Map()
+		this.wxmlSnapshots = new Map()
+		this.wxmlNativeIds = new WeakMap()
+		this.wxmlPublishPending = false
+		window.__diminaEventInfo = (target, currentTarget, moduleId) => this.nativeEventInfo(target, currentTarget, moduleId)
 		this.setupData = new Map()
 		this.initializedModules = new Set()
 		this.preInitUpdates = new Map()
@@ -759,6 +768,8 @@ class Runtime {
 		this.canvasFrameStreams.clear()
 		this.canvasScopeQueues.clear()
 		this.resourceLoadIds.clear()
+		this.wxmlSnapshots.clear()
+		this.wxmlNativeIds = new WeakMap()
 	}
 
 	registerResourceLoad(bridgeId, resourceLoadId) {
@@ -795,6 +806,8 @@ class Runtime {
 	 */
 	firstRender(opts) {
 		const { bridgeId, pagePath, pageId, query, resourceLoadId } = opts
+		this.bridgeId = bridgeId
+		this.templateComponentRegistries = new Map()
 
 		const options = this.makeOptions({
 			path: pagePath,
@@ -808,6 +821,10 @@ class Runtime {
 			this.app.unmount()
 		}
 		this.app = createApp(options.app)
+		this.app.mixin({
+			mounted: () => this.queueWxmlTree(bridgeId),
+			updated: () => this.queueWxmlTree(bridgeId),
+		})
 		// 全量加载基础组件，是否有必要可优化为按需加载组件
 		this.app.use(Components)
 
@@ -827,14 +844,9 @@ class Runtime {
 			return
 		}
 
-		const { id, tplComponents = {}, usingComponents = {}, componentPlaceholder = {} } = module.moduleInfo
-		const components = this.createComponent(path, bridgeId, usingComponents, new Map(), componentPlaceholder)
-		for (const [tplName, render] of Object.entries(tplComponents)) {
-			this.app.component(`dd-${tplName}`, this.createTplComponent({
-				id,
-				components,
-				render,
-			}))
+		const { usingComponents = {} } = module.moduleInfo
+		for (const [name, component] of Object.entries(this.createTemplateComponents(path, bridgeId))) {
+			this.app.component(name, component)
 		}
 
 		for (const componentPath of Object.values(usingComponents)) {
@@ -842,14 +854,32 @@ class Runtime {
 		}
 	}
 
-	createTplComponent({ id, components, render }) {
+	createTemplateComponents(path, bridgeId) {
+		this.templateComponentRegistries ||= new Map()
+		const key = `${bridgeId}\u0000${path}`
+		if (this.templateComponentRegistries.has(key)) return this.templateComponentRegistries.get(key)
+		const registry = {}
+		this.templateComponentRegistries.set(key, registry)
+		const module = loader.getModuleByPath(path)
+		if (!module?.moduleInfo) return registry
+		const { id, tplComponents = {}, usingComponents = {}, componentPlaceholder = {} } = module.moduleInfo
+		const components = this.createComponent(path, bridgeId, usingComponents, new Map(), componentPlaceholder)
+		for (const [name, render] of Object.entries(tplComponents)) {
+			registry[`dd-${name}`] = this.createTplComponent({ id, components, render, templateComponents: registry })
+		}
+		return registry
+	}
+
+	createTplComponent({ id, components, render, templateComponents }) {
 		return {
+			__diminaTemplate: true,
 			__scopeId: `data-v-${id}`,
 			components,
 			props: {
 				data: Object,
 			},
 			setup(props) {
+				if (templateComponents) provide('dimina-template-components', templateComponents)
 				const { data: state, templateData } = createTemplateData()
 				watchEffect(() => {
 					const newData = props.data || {}
@@ -921,6 +951,7 @@ class Runtime {
 							const vueInstance = getCurrentInstance()
 							provide('bridgeId', bridgeId)
 							provide('path', path)
+							provide('dimina-template-components', that.createTemplateComponents(path, bridgeId))
 							provide(path, {
 								id: that.pageId,
 							})
@@ -962,6 +993,7 @@ class Runtime {
 								)
 								window.addEventListener('scroll', handleScroll, { passive: true })
 								nextTick(() => {
+									that.publishWxmlTree(bridgeId)
 									message.send({
 										type: 'pageAttached',
 										target: 'service',
@@ -1156,6 +1188,7 @@ class Runtime {
 		nextTick(() => {
 			if (this.renderedTrees.get(bridgeId) !== tree) return
 			this.publishRenderedTree(bridgeId)
+			this.publishWxmlTree(bridgeId)
 			const mounted = tree.mounted.splice(0).filter(({ moduleId }) => tree.nodes.has(moduleId))
 			// Each DOM commit attaches the full subtree before acknowledging layout.
 			for (const { moduleId } of mounted) {
@@ -1304,6 +1337,37 @@ class Runtime {
 		return eventPath
 	}
 
+	queueWxmlTree(bridgeId) {
+		if (this.wxmlPublishPending) return
+		this.wxmlPublishPending = true
+		nextTick(() => {
+			this.wxmlPublishPending = false
+			if (bridgeId === this.bridgeId) this.publishWxmlTree(bridgeId)
+		})
+	}
+
+	publishWxmlTree(bridgeId) {
+		const page = this.instance.get(this.pageId)?.$
+		if (!page || bridgeId !== this.bridgeId) return
+		const snapshot = collectRenderedWxmlTree(page, this.pageId, this.moduleIds, this.wxmlNativeIds, collectVNodeRootElements)
+		const signature = JSON.stringify(snapshot.records)
+		const previous = this.wxmlSnapshots.get(bridgeId)
+		this.wxmlSnapshots.set(bridgeId, { ...snapshot, signature })
+		if (signature === previous?.signature) return
+		message.send({ type: 'mW', target: 'service', body: { bridgeId, nodes: snapshot.records } })
+	}
+
+	nativeEventInfo(target, currentTarget, moduleId) {
+		const snapshot = this.wxmlSnapshots.get(this.bridgeId)
+		if (!snapshot) return
+		const start = findRenderedNode(snapshot, target)
+		const listener = findRenderedNode(snapshot, currentTarget, moduleId)
+		if (!start || !listener) return
+		const entry = snapshot.tree.eventPath(start, true).find(item => item.node.nodeId === listener.nodeId)
+		if (!entry) return
+		return { target: snapshot.tree.targetInfo(entry.target), mark: entry.mark }
+	}
+
 	createComponent(path, bridgeId, usingComponents, componentCache = new Map(), componentPlaceholder = {}) {
 		if (!usingComponents || Object.keys(usingComponents).length === 0) {
 			return
@@ -1391,6 +1455,7 @@ class Runtime {
 						sId,
 					})
 					provide('path', resolvedComponentPath)
+					provide('dimina-template-components', that.createTemplateComponents(resolvedComponentPath, bridgeId))
 					provide(resolvedComponentPath, {
 						id: moduleId,
 						pagePath, // 声明该组件的页面或组件路径
@@ -1890,6 +1955,7 @@ class Runtime {
 
 		if (callbackIds.length > 0) {
 			nextTick(() => {
+				this.publishWxmlTree(bridgeId)
 				callbackIds.forEach((id) => {
 					message.send({
 						type: 'triggerCallback',
@@ -2939,14 +3005,21 @@ class Runtime {
 
 	async selectorQuery(opts) {
 		const { bridgeId, params: { tasks, success } } = opts
-
 		const executeQuery = async () => {
+			this.publishWxmlTree(bridgeId)
+			const snapshot = this.wxmlSnapshots.get(bridgeId)
 			const results = await Promise.all(tasks.map(async (task) => {
 				const { moduleId, selector, single, fields } = task
+				if (moduleId === 0) return this.parseViewport(fields)
+				if (snapshot?.tree.nodes.has(`s:${moduleId}`)) {
+					const matches = snapshot.tree.query(moduleId, selector, single)
+					const parse = node => this.parseElement(node.roots?.find(element => element.nodeType === 1), fields, bridgeId, node, snapshot.tree)
+					return single ? matches[0] ? parse(matches[0]) : null : Promise.all(matches.map(parse))
+				}
 				const el = await this.waitForEl(this.instance.get(moduleId))
 				if (!el) {
 					console.warn('[system]', '[render]', `module ${moduleId} dom is not exist.`)
-					return null
+					return single ? null : []
 				}
 
 				if (!el.querySelector) {
@@ -2973,16 +3046,13 @@ class Runtime {
 				}
 			}))
 
-			return results.filter(Boolean)
+			return results
 		}
 
 		try {
-			// 使用 requestAnimationFrame 确保在下一帧执行
-			const res = await new Promise((resolve) => {
-				requestAnimationFrame(async () => {
-					resolve(await executeQuery())
-				})
-			})
+			// Vue's commit is the ordering barrier; zero-size nodes are valid results.
+			await nextTick()
+			const res = await executeQuery()
 
 			message.send({
 				type: 'triggerCallback',
@@ -2997,6 +3067,24 @@ class Runtime {
 		catch (error) {
 			console.error('[system]', '[render]', 'selectorQuery error:', error)
 		}
+	}
+
+	parseViewport(fields) {
+		const viewport = document.documentElement
+		const body = document.body
+		const data = {}
+		if (fields.id) data.id = ''
+		if (fields.dataset) data.dataset = {}
+		if (fields.mark) data.mark = {}
+		if (fields.rect) Object.assign(data, { left: 0, top: 0, right: 0, bottom: 0 })
+		if (fields.size) Object.assign(data, { width: viewport.clientWidth || body.clientWidth, height: viewport.clientHeight || body.clientHeight })
+		if (fields.scrollOffset) Object.assign(data, {
+			scrollLeft: viewport.scrollLeft || body.scrollLeft,
+			scrollTop: viewport.scrollTop || body.scrollTop,
+			scrollWidth: viewport.scrollWidth || body.scrollWidth,
+			scrollHeight: viewport.scrollHeight || body.scrollHeight,
+		})
+		return data
 	}
 
 	videoContext(opts) {
@@ -3047,86 +3135,84 @@ class Runtime {
 	/**
 	 * https://developers.weixin.qq.com/miniprogram/dev/api/wxml/NodesRef.fields.html
 	 */
-	async parseElement(targetElement, fields, bridgeId) {
-		// 确保元素已准备好（有尺寸）
-		await this.ensureElementReady(targetElement)
-
+	async parseElement(targetElement, fields, bridgeId, node, tree) {
 		const data = {}
 
 		if (fields.id) {
-			data.id = targetElement.id ?? ''
+			data.id = node?.id ?? targetElement?.id ?? ''
 		}
 
 		if (fields.dataset) {
-			data.dataset = targetElement._ds
+			data.dataset = node?.dataset || targetElement?._ds || { ...targetElement?.dataset }
 		}
 
 		// 是否返回节点 mark
 		if (fields.mark) {
-			data.mark = targetElement.dataset?.mark ?? ''
+			data.mark = node && tree ? tree.collectMarks(node) : {}
 		}
 
 		if (fields.rect) {
-			const { left, top, right, bottom, width, height } = this.getElementRect(targetElement)
+			const { left, top, right, bottom } = this.getQueryNodeRect(targetElement, node)
 			data.left = left
 			data.top = top
 			data.right = right
 			data.bottom = bottom
-			data.width = width
-			data.height = height
 		}
 
 		if (fields.size) {
-			if (fields.rect) {
-				const { width, height } = this.getElementRect(targetElement)
-				data.width = width
-				data.height = height
-			}
-			else {
-				data.width = targetElement.offsetWidth
-				data.height = targetElement.offsetHeight
-			}
+			const { width, height } = this.getQueryNodeRect(targetElement, node)
+			data.width = node || fields.rect ? width : targetElement?.offsetWidth || 0
+			data.height = node || fields.rect ? height : targetElement?.offsetHeight || 0
 		}
 
 		if (fields.scrollOffset) {
-			data.scrollHeight = targetElement.scrollHeight
-			data.scrollLeft = targetElement.scrollLeft
-			data.scrollTop = targetElement.scrollTop
-			data.scrollWidth = targetElement.scrollWidth
+			const scrollable = !node || node.tag === 'scroll-view'
+			data.scrollHeight = scrollable ? targetElement?.scrollHeight || 0 : 0
+			data.scrollLeft = scrollable ? targetElement?.scrollLeft || 0 : 0
+			data.scrollTop = scrollable ? targetElement?.scrollTop || 0 : 0
+			data.scrollWidth = scrollable ? targetElement?.scrollWidth || 0 : 0
 		}
 
 		// 指定属性名列表，返回节点对应属性名的当前属性值（只能获得组件文档中标注的常规属性值，id class style 和事件绑定的属性值不可获取）
 		if (fields.properties && Array.isArray(fields.properties)) {
-			const properties = {}
 			fields.properties.forEach((prop) => {
-				if (prop !== 'id' && prop !== 'class' && prop !== 'style' && !prop.startsWith('bind') && !prop.startsWith('on')) {
-					properties[prop] = targetElement.getAttribute(prop) ?? ''
-				}
+				if (['id', 'class', 'style'].includes(prop) || /^(?:capture-)?(?:bind|catch|on)/.test(prop)) return
+				const name = toCamelCase(prop)
+				if (node && Object.prototype.hasOwnProperty.call(node.properties || {}, name)) data[name] = node.properties[name]
 			})
-			data.properties = properties
 		}
 
 		// 指定样式名列表，返回节点对应样式名的当前值
 		if (fields.computedStyle && Array.isArray(fields.computedStyle)) {
-			const computedStyle = window.getComputedStyle(targetElement)
-			const styles = {}
+			const computedStyle = targetElement ? window.getComputedStyle(targetElement) : null
 			fields.computedStyle.forEach((style) => {
-				styles[style] = computedStyle.getPropertyValue(style) || ''
+				if (computedStyle && computedStyle[style] !== undefined) data[style] = computedStyle[style]
 			})
-			data.computedStyle = styles
 		}
 
 		if (fields.node) {
 			const canvas = resolveCanvasNodeElement(targetElement)
-			data.node = canvas
-				? this.registerCanvasNode(canvas, canvas.getAttribute?.('type') || '2d', bridgeId)
-				: null
+			if (canvas) data.node = this.registerCanvasNode(canvas, canvas.getAttribute?.('type') || '2d', bridgeId)
 		}
-		// TODO: 支持获取 VideoContext、CanvasContext、LivePlayerContext、EditorContext和 MapContext
-		// if (fields.context) {
-		// }
+		if (fields.context && node && ['video', 'map', 'canvas'].includes(node.tag)) {
+			const id = node.tag === 'canvas' ? node.properties.canvasId : node.id
+			if (node.tag !== 'canvas' || id) {
+				data.context = { __diminaSelectorContext: true, type: node.tag, id, moduleId: node.scopeId }
+			}
+		}
 
 		return data
+	}
+
+	getQueryNodeRect(element, node) {
+		const roots = node?.roots?.filter(root => root.nodeType === 1) || (element ? [element] : [])
+		const rects = roots.map(root => this.getElementRect(root))
+		if (!rects.length) return { left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 }
+		const left = Math.min(...rects.map(rect => rect.left))
+		const top = Math.min(...rects.map(rect => rect.top))
+		const right = Math.max(...rects.map(rect => rect.right))
+		const bottom = Math.max(...rects.map(rect => rect.bottom))
+		return { left, top, right, bottom, width: right - left, height: bottom - top }
 	}
 
 	getElementRect(element) {

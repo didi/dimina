@@ -131,8 +131,9 @@ function invokeMessage(name, params, target) {
 		target,
 		body: {
 			name,
-			// MapContext belongs to its creation page, including after another page opens.
-			bridgeId: name === 'mapContext' ? params.mapBridgeId : router.getPageInfo().id,
+			// Retained contexts and queries keep their owner after another page opens.
+			bridgeId: name === 'mapContext' ? params.mapBridgeId
+				: name === 'selectorQuery' ? params.selectorBridgeId : router.getPageInfo().id,
 			params,
 		},
 	}

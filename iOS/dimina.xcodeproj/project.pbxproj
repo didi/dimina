@@ -34,6 +34,8 @@
 		B41C7E52A0D34F0891C6D311 /* DMPServiceRenderOrderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B41C7E52A0D34F0891C6D310 /* DMPServiceRenderOrderTests.swift */; };
 		D3AF9DC58D4F29D8D2A8F71F /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2EAA9C0614F7638987B22EAC /* Foundation.framework */; };
 		E90FD67E791E4377923344EF /* DMPEngineTimerThreadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 898FFD601DB04AFEBBAAAE0A /* DMPEngineTimerThreadTests.swift */; };
+		1DFD1B13FA67E5A55F003A92 /* DMPStorageContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCF317231F14810B221F2335 /* DMPStorageContractTests.swift */; };
+		B756FEA9757EE924A0CC7D84 /* DMPNetworkBinaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50696E403FB7D2F22E70C131 /* DMPNetworkBinaryTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -80,6 +82,8 @@
 		AE429915A2BA3583BF99A758 /* DiminaKitTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DiminaKitTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		B41C7E52A0D34F0891C6D310 /* DMPServiceRenderOrderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DMPServiceRenderOrderTests.swift; sourceTree = "<group>"; };
 		FAB6B466B43575C7978B1BAD /* DMPWebSocketValidationTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DMPWebSocketValidationTests.swift; sourceTree = "<group>"; };
+		FCF317231F14810B221F2335 /* DMPStorageContractTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DMPStorageContractTests.swift; sourceTree = "<group>"; };
+		50696E403FB7D2F22E70C131 /* DMPNetworkBinaryTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DMPNetworkBinaryTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -175,6 +179,8 @@
 				4F8C9A102F23000100000002 /* DMPWebResourceLoaderTests.swift */,
 				7C4A5E132F23000100000002 /* CanvasTempFileValidationTests.swift */,
 				9A1D30A12F12000100000002 /* DMPNavigatorCapsuleTests.swift */,
+				50696E403FB7D2F22E70C131 /* DMPNetworkBinaryTests.swift */,
+				FCF317231F14810B221F2335 /* DMPStorageContractTests.swift */,
 				44A000002609090000000002 /* DMPRetainedMiniProgramTests.swift */,
 				44A000002609170000000002 /* LoadingSequenceTests.swift */,
 				A35800000000000000000002 /* WebGLBridgeTests.swift */,
@@ -389,6 +395,8 @@
 				4F8C9A102F23000100000001 /* DMPWebResourceLoaderTests.swift in Sources */,
 				7C4A5E132F23000100000001 /* CanvasTempFileValidationTests.swift in Sources */,
 				9A1D30A12F12000100000001 /* DMPNavigatorCapsuleTests.swift in Sources */,
+				B756FEA9757EE924A0CC7D84 /* DMPNetworkBinaryTests.swift in Sources */,
+				1DFD1B13FA67E5A55F003A92 /* DMPStorageContractTests.swift in Sources */,
 				44A000002609090000000001 /* DMPRetainedMiniProgramTests.swift in Sources */,
 				44A000002609170000000001 /* LoadingSequenceTests.swift in Sources */,
 				A35800000000000000000001 /* WebGLBridgeTests.swift in Sources */,

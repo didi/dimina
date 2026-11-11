@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import CoreFoundation
 import MMKV
 
 /**
@@ -83,111 +84,146 @@ public class DMPStorage {
         return encrypted ? encryptedMMKV : mmkv
     }
     
-    // Set value
-    public func set(key: String, value: Any, encrypted: Bool = false) -> Bool {
-        var result = false
+    static let storageLimitKB = 10 * 1024
+
+    // New writes keep the JS-produced typed string and its exact UTF-16 entry length.
+    // MMKV's allocated bytes and our own record metadata are not part of the quota.
+    static func storageWireEntry(key: String, value: Any) -> [String: Any] {
+        let type: String
+        let data: String
+        if value is NSNull {
+            type = "Null"; data = "null"
+        } else if let string = value as? String {
+            type = "String"; data = string
+        } else if let number = value as? NSNumber {
+            if CFGetTypeID(number) == CFBooleanGetTypeID() {
+                type = "Boolean"; data = number.boolValue ? "true" : "false"
+            } else {
+                type = "Number"; data = storageNumberString(number.doubleValue)
+            }
+        } else if let date = value as? Date {
+            type = "Date"; data = storageNumberString(date.timeIntervalSince1970 * 1000)
+        } else if value is [Any] || value is [String: Any] {
+            type = value is [Any] ? "Array" : "Object"
+            let encoded = try? JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed, .withoutEscapingSlashes])
+            data = encoded.flatMap { String(data: $0, encoding: .utf8) } ?? "null"
+        } else {
+            type = "Unknown"; data = ""
+        }
+        let entryLength = storageQuotedLength(key) + 1
+            + 21 + storageQuotedLength(data) + storageQuotedLength(type)
+        return ["data": data, "dataType": type, "entrySize": entryLength]
+    }
+
+    private static func storageNumberString(_ number: Double) -> String {
+        if number.isNaN { return "NaN" }
+        if number == .infinity { return "Infinity" }
+        if number == -.infinity { return "-Infinity" }
+        if number == 0 { return "0" }
+        // JSONSerialization uses the same shortest round-trip number representation.
+        let encoded = (try? JSONSerialization.data(withJSONObject: number, options: [.fragmentsAllowed]))
+            .flatMap { String(data: $0, encoding: .utf8) } ?? String(number)
+        let parts = encoded.lowercased().split(separator: "e").map(String.init)
+        let mantissa = parts[0].hasSuffix(".0") ? String(parts[0].dropLast(2)) : parts[0]
+        guard parts.count == 2, let exponent = Int(parts[1]) else { return mantissa }
+        if abs(number) >= 0.000001 && abs(number) < 1e21 {
+            return NSDecimalNumber(string: encoded).stringValue
+        }
+        return mantissa + "e" + (exponent >= 0 ? "+" : "") + String(exponent)
+    }
+
+    private static func storageQuotedLength(_ value: String) -> Int {
+        // JSON.stringify quotes strings without escaping '/' or non-ASCII characters.
+        value.utf16.reduce(2) { count, unit in
+            if unit == 34 || unit == 92 || [8, 9, 10, 12, 13].contains(unit) { return count + 2 }
+            return count + (unit < 32 ? 6 : 1)
+        }
+    }
+
+    private static func decodedWireValue(_ wire: [String: Any]) -> Any {
+        let data = wire["data"] as? String ?? ""
+        switch wire["dataType"] as? String {
+        case "String": return data
+        case "Number": return Double(data) ?? Double.nan
+        case "Boolean": return data == "true"
+        case "Null", "Undefined": return NSNull()
+        case "Date": return Date(timeIntervalSince1970: (Double(data) ?? .nan) / 1000)
+        case "Array", "Object":
+            return data.data(using: .utf8).flatMap { try? JSONSerialization.jsonObject(with: $0) } ?? NSNull()
+        default: return ""
+        }
+    }
+
+    private func record(in storage: MMKV, key: String) -> [String: Any]? {
+        guard let data = storage.data(forKey: key) else { return nil }
+        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+    }
+
+    private func value(in record: [String: Any]) -> Any? {
+        if let wire = record["storageWire"] as? [String: Any] { return Self.decodedWireValue(wire) }
+        return record["dmpvalue"]
+    }
+
+    private func entries(encrypted: Bool? = nil) -> [(key: String, size: Int)] {
+        let stores: [MMKV?] = encrypted.map { [$0 ? encryptedMMKV : mmkv] } ?? [mmkv, encryptedMMKV]
+        return stores.compactMap { $0 }.flatMap { storage in
+            (storage.allKeys() as? [String] ?? []).compactMap { key in
+                guard let stored = record(in: storage, key: key), let value = value(in: stored) else { return nil }
+                let wire = stored["storageWire"] as? [String: Any] ?? Self.storageWireEntry(key: key, value: value)
+                return (key: key, size: (wire["entrySize"] as? NSNumber)?.intValue ?? 0)
+            }
+        }
+    }
+
+    private static func spaceSize(_ sizes: [Int]) -> Int {
+        2 + sizes.reduce(0, +) + max(0, sizes.count - 1)
+    }
+
+    /// Returns an error message without modifying the previous value on failure.
+    func write(key: String, value: Any, encrypted: Bool = false, wire suppliedWire: [String: Any]? = nil) -> String? {
         queue.sync(flags: .barrier) {
-            guard let mmkv = getInstance(encrypted: encrypted) else { return }
-            
+            guard !key.isEmpty else { return "key is empty" }
+            guard let storage = getInstance(encrypted: encrypted) else { return "storage unavailable" }
+            var wire = suppliedWire ?? Self.storageWireEntry(key: key, value: value)
+            guard let dataString = wire["data"] as? String,
+                  let dataType = wire["dataType"] as? String else { return "invalid storage record" }
+            let size = Self.storageQuotedLength(key) + 1 + 21
+                + Self.storageQuotedLength(dataString) + Self.storageQuotedLength(dataType)
+            wire["entrySize"] = size
+            let sameNamespace = entries(encrypted: encrypted).filter { $0.key != key }.map(\.size)
+            let otherNamespace = entries(encrypted: !encrypted).map(\.size)
+            let total = Self.spaceSize(sameNamespace + otherNamespace + [size]) + 6
+            guard total <= Self.storageLimitKB * 1024 else { return "exceed storage max size 10Mb" }
+            let stored: [String: Any] = ["dmpvalue": "", "type": "Wire", "storageWire": wire]
             do {
-                // 创建存储字典，包含值和类型
-                var storageDict: [String: Any] = [
-                    "dmpvalue": value
-                ]
-                
-                // 确定并存储值的类型
-                switch value {
-                case is String:
-                    storageDict["type"] = "String"
-                case is Bool:
-                    storageDict["type"] = "Bool"
-                case is Int:
-                    storageDict["type"] = "Int"
-                case is Int32:
-                    storageDict["type"] = "Int32"
-                case is Double:
-                    storageDict["type"] = "Double"
-                case is Float:
-                    storageDict["type"] = "Float"
-                case is Data:
-                    storageDict["type"] = "Data"
-                case is [String: Any]:
-                    storageDict["type"] = "Dictionary"
-                case is [Any]:
-                    storageDict["type"] = "Array"
-                default:
-                    storageDict["type"] = "Unknown"
-                }
-                
-                // 将字典转换为 Data
-                let data = try JSONSerialization.data(withJSONObject: storageDict, options: [])
-                result = mmkv.set(data, forKey: key)
+                let encoded = try JSONSerialization.data(withJSONObject: stored, options: [.withoutEscapingSlashes])
+                return storage.set(encoded, forKey: key) ? nil : "write failed"
             } catch {
-                // 如果序列化失败，尝试将值转换为字符串存储
-                let stringValue = String(describing: value)
-                let storageDict: [String: Any] = [
-                    "dmpvalue": stringValue,
-                    "type": "String"
-                ]
-                
-                do {
-                    let data = try JSONSerialization.data(withJSONObject: storageDict, options: [])
-                    result = mmkv.set(data, forKey: key)
-                } catch {
-                    DMPLogger.debug("DMPStorage: Failed to store value for key \(key)")
-                }
+                return "invalid storage data"
             }
         }
-        return result
     }
-    
-    // Get value
-    public func get(key: String, encrypted: Bool = false) -> Any? {
-        var result: Any?
+
+    public func set(key: String, value: Any, encrypted: Bool = false) -> Bool {
+        write(key: key, value: value, encrypted: encrypted) == nil
+    }
+
+    func bridgeValue(key: String, encrypted: Bool = false, wireRequested: Bool) -> Any? {
         queue.sync {
-            guard let mmkv = getInstance(encrypted: encrypted) else { return }
-            
-            // 检查 key 是否存在
-            guard let data = mmkv.data(forKey: key) else { return }
-            
-            do {
-                // 解析存储的字典
-                if let storageDict = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let value = storageDict["dmpvalue"],
-                   let type = storageDict["type"] as? String {
-                    
-                    // 根据存储的类型返回相应的值
-                    switch type {
-                    case "String":
-                        result = value as? String
-                    case "Bool":
-                        result = value as? Bool
-                    case "Int":
-                        result = value as? Int
-                    case "Int32":
-                        result = value as? Int32
-                    case "Double":
-                        result = value as? Double
-                    case "Float":
-                        result = value as? Float
-                    case "Data":
-                        result = value as? Data
-                    case "Dictionary":
-                        result = value as? [String: Any]
-                    case "Array":
-                        result = value as? [Any]
-                    default:
-                        result = value
-                    }
-                }
-            } catch {
-                DMPLogger.debug("DMPStorage: Failed to retrieve value for key \(key)")
+            guard let storage = getInstance(encrypted: encrypted),
+                  let stored = record(in: storage, key: key), let value = value(in: stored) else { return nil }
+            guard wireRequested else { return value }
+            if let wire = stored["storageWire"] as? [String: Any] {
+                return ["__diminaStorageResult": 1, "record": wire]
             }
+            return ["__diminaStorageResult": 1, "value": value]
         }
-        
-        return result
     }
-    
+
+    public func get(key: String, encrypted: Bool = false) -> Any? {
+        bridgeValue(key: key, encrypted: encrypted, wireRequested: false)
+    }
+
     // Delete key
     public func remove(key: String, encrypted: Bool = false) {
         queue.sync(flags: .barrier) {
@@ -242,51 +278,20 @@ public class DMPStorage {
         return result
     }
     
-    // Get storage information
     public func getStorageInfo(encrypted: Bool = false) -> (keys: [String], currentSize: Int, limitSize: Int) {
-        var keys: [String] = []
-        var size: Int = 0
-        
         queue.sync {
-            guard let mmkv = getInstance(encrypted: encrypted) else { return }
-            // Use type conversion to ensure return type is [String]
-            if let allKeys = mmkv.allKeys() as? [String] {
-                keys = allKeys
-            }
-            size = mmkv.totalSize() / 1024  // Convert to KB
+            let stored = entries(encrypted: encrypted)
+            return (stored.map(\.key), (Self.spaceSize(stored.map(\.size)) + 1023) / 1024, Self.storageLimitKB)
         }
-        
-        // MMKV limit is approximately 10MB
-        return (keys: keys, currentSize: size, limitSize: 10 * 1024)  // 10MB converted to KB
     }
-    
-    // Get all storage information (including encrypted and non-encrypted)
+
     public func getAllStorageInfo() -> (keys: [String], currentSize: Int, limitSize: Int) {
-        var normalKeys: [String] = []
-        var encryptedKeys: [String] = []
-        var normalSize: Int = 0
-        var encryptedSize: Int = 0
-        
         queue.sync {
-            // Use type conversion to ensure return type is [String]
-            if let keys = mmkv?.allKeys() as? [String] {
-                normalKeys = keys
-            }
-            if let keys = encryptedMMKV?.allKeys() as? [String] {
-                encryptedKeys = keys
-            }
-            normalSize = mmkv?.totalSize() ?? 0
-            encryptedSize = encryptedMMKV?.totalSize() ?? 0
+            let stored = entries()
+            return (Array(Set(stored.map(\.key))), (Self.spaceSize(stored.map(\.size)) + 1023) / 1024, Self.storageLimitKB)
         }
-        
-        // Merge keys and remove duplicates
-        let allKeys = Array(Set(normalKeys + encryptedKeys))
-        let totalSize = (normalSize + encryptedSize) / 1024  // Convert to KB
-        
-        // MMKV limit is approximately 10MB
-        return (keys: allKeys, currentSize: totalSize, limitSize: 10 * 1024)  // 10MB converted to KB
     }
-    
+
     /// Debug-only callers receive decoded MMKV values from this app's two namespaces.
     func debugSnapshot() -> [[String: Any]] {
         let namespaces: [(Bool, [String])] = queue.sync {

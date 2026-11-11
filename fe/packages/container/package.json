@@ -13,6 +13,7 @@
 		"coverage": "vitest run --coverage"
 	},
 	"dependencies": {
+		"@dimina/common": "workspace:^",
 		"@dimina/fe-container-sdk": "workspace:^",
 		"@dimina/generator": "workspace:^",
 		"prismjs": "1.30.0"

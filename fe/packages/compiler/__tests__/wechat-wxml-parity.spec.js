@@ -51,6 +51,11 @@ function loadBundle(source) {
 	return modules
 }
 
+function template(page, name) {
+	const id = Object.keys(page.tplComponents).find(key => key.startsWith(`tpl-${name}-`))
+	return page.tplComponents[id]
+}
+
 function text(node) {
 	if (node == null) return ''
 	if (typeof node === 'function') return text(node())
@@ -122,8 +127,8 @@ describe('WeChat WXML compiler parity', () => {
 		})
 		const page = modules.get('pages/home')
 		expect(text(page.render({}, {}))).toBe('page')
-		expect(text(page.tplComponents['tpl-left']({}, {}))).toBe('left')
-		expect(text(page.tplComponents['tpl-right']({}, {}))).toBe('right')
+		expect(text(template(page, 'left')({}, {}))).toBe('left')
+		expect(text(template(page, 'right')({}, {}))).toBe('right')
 	})
 
 	it('resolves inline WXS require relative to its declaring WXML file', async () => {
@@ -164,7 +169,7 @@ describe('WeChat WXML compiler parity', () => {
 		})
 		const page = modules.get('pages/home')
 		expect(text(page.render({}, {}))).toBe('included')
-		expect(text(page.tplComponents['tpl-card']({}, {}))).toBe('relative-template')
+		expect(text(template(page, 'card')({}, {}))).toBe('relative-template')
 	})
 
 	it('stops cyclic include edges without dropping surrounding content', async () => {
@@ -191,7 +196,7 @@ describe('WeChat WXML compiler parity', () => {
 		const second = loadBundle(fs.readFileSync(path.join(process.env.TARGET_PATH, 'main/pages_home.js'), 'utf8'))
 		const page = second.get('pages/home')
 		expect(text(page.render({}, {}))).toBe('next-inline|next-external')
-		expect(text(page.tplComponents['tpl-card']({}, {}))).toBe('next-template')
+		expect(text(template(page, 'card')({}, {}))).toBe('next-template')
 	})
 
 	it('retains cached external WXS dependency graphs for later pages', async () => {

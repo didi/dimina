@@ -30,24 +30,32 @@ public class StorageAPI: DMPContainerApi {
     @BridgeMethod(SET_STORAGE_SYNC)
     var setStorageSync: DMPBridgeMethodHandler = { param, env, callback in
         guard let array = param.getValue() as? [Any], array.count >= 2,
-              let key = array[0] as? String else { return DMPSyncResult(false) }
-        return DMPSyncResult(DMPStorage.storage(for: env.appId).set(key: key, value: array[1], encrypted: false))
+              let key = array[0] as? String else { return DMPNoneResult() }
+        let metadata = array.count > 2 ? array[2] as? [String: Any] : nil
+        let wire = metadata?["__diminaStorageWire"] as? [String: Any]
+        if let failure = DMPStorage.storage(for: env.appId).write(key: key, value: array[1], wire: wire) {
+            return DMPErrorResult("setStorageSync:fail \(failure)")
+        }
+        return DMPNoneResult()
     }
 
     // wx.getStorageSync(key) → params: key string
     @BridgeMethod(GET_STORAGE_SYNC)
     var getStorageSync: DMPBridgeMethodHandler = { param, env, callback in
-        guard let key = param.getValue() as? String else { return DMPNoneResult() }
-        let value = DMPStorage.storage(for: env.appId).get(key: key, encrypted: false)
+        let request = param.getValue() as? [String: Any]
+        guard let key = request?["key"] as? String ?? param.getValue() as? String else { return DMPNoneResult() }
+        let value = DMPStorage.storage(for: env.appId).bridgeValue(
+            key: key, wireRequested: request?["__diminaStorageWire"] as? Bool == true
+        )
         return DMPSyncResult(value ?? "")
     }
 
     // wx.removeStorageSync(key) → params: key string
     @BridgeMethod(REMOVE_STORAGE_SYNC)
     var removeStorageSync: DMPBridgeMethodHandler = { param, env, callback in
-        guard let key = param.getValue() as? String else { return DMPSyncResult(false) }
+        guard let key = param.getValue() as? String else { return DMPNoneResult() }
         DMPStorage.storage(for: env.appId).remove(key: key, encrypted: false)
-        return DMPSyncResult(true)
+        return DMPNoneResult()
     }
 
     // Clear storage synchronously
@@ -55,7 +63,7 @@ public class StorageAPI: DMPContainerApi {
     var clearStorageSync: DMPBridgeMethodHandler = { param, env, callback in
         // 清除所有存储（包括加密和非加密）
         DMPStorage.storage(for: env.appId).clearAllStorage()
-        return DMPSyncResult(true)
+        return DMPNoneResult()
     }
 
     // Set storage
@@ -70,8 +78,9 @@ public class StorageAPI: DMPContainerApi {
 
         let data = param.get("data")
         let encrypt = param.get("encrypt") as? Bool ?? false
+        let wire = param.get("__diminaStorageWire") as? [String: Any]
 
-        guard let data = data else {
+        guard let data = data ?? (wire == nil ? nil : NSNull()) else {
             let errMsg = "\(SET_STORAGE):fail missing parameter data"
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: errMsg)
             return DMPAsyncResult()
@@ -79,15 +88,15 @@ public class StorageAPI: DMPContainerApi {
 
         // 在后台线程执行存储操作
         DispatchQueue.global().async {
-            let success = DMPStorage.storage(for: env.appId).set(key: key, value: data, encrypted: encrypt)
+            let failure = DMPStorage.storage(for: env.appId).write(key: key, value: data, encrypted: encrypt, wire: wire)
 
             DispatchQueue.main.async {
-                if success {
+                if failure == nil {
                     let resultMap = DMPMap()
                     resultMap.set("errMsg", "\(SET_STORAGE):ok")
                     DMPContainerApi.invokeSuccess(callback: callback, param: resultMap)
                 } else {
-                    DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "\(SET_STORAGE):fail")
+                    DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "\(SET_STORAGE):fail \(failure ?? "write failed")")
                 }
             }
         }
@@ -106,10 +115,11 @@ public class StorageAPI: DMPContainerApi {
         }
 
         let encrypt = param.get("encrypt") as? Bool ?? false
+        let wireRequested = param.get("__diminaStorageWire") as? Bool == true
 
         // 在后台线程执行获取操作
         DispatchQueue.global().async {
-            let value = DMPStorage.storage(for: env.appId).get(key: key, encrypted: encrypt)
+            let value = DMPStorage.storage(for: env.appId).bridgeValue(key: key, encrypted: encrypt, wireRequested: wireRequested)
 
             DispatchQueue.main.async {
                 if let value = value {

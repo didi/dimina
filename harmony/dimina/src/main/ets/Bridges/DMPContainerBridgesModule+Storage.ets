@@ -1,135 +1,84 @@
-import { DMPContainerBridgesModule } from './DMPContainerBridgesModule'
-
-import { DMPBridgeCallback } from './DMPTSUtil'
-import { DMPMMKVManager } from '../Bundle/Util/DMPMMKVManager'
+import { DMPContainerBridgesModule } from './DMPContainerBridgesModule';
+import { DMPBridgeCallback } from './DMPTSUtil';
+import { DMPMMKVManager } from '../Bundle/Util/DMPMMKVManager';
+import { DMPStorageSpace, DMPStorageWire } from '../Bundle/Util/DMPStorageSpace';
 import { DMPMap } from '../Utils/DMPMap';
 
+interface DMPStorageOptions { __diminaStorageWire?: DMPStorageWire; }
+
 export class DMPContainerBridgesModuleStorage extends DMPContainerBridgesModule {
-  private getStorageManager(): DMPMMKVManager {
-    const appId = this.appData.appId || this.app?.appConfig?.appId || 'default';
-    return DMPMMKVManager.sharedInstance(appId);
+  private space(): DMPStorageSpace {
+    return new DMPStorageSpace(DMPMMKVManager.sharedInstance(
+      this.appData.appId || this.app?.appConfig?.appId || 'default'));
   }
 
   getExportMethods(): string[] {
-    return [
-      'setStorageSync',
-      'setStorage',
-      'getStorageSync',
-      'getStorage',
-      'removeStorageSync',
-      'removeStorage',
-      'clearStorageSync',
-      'clearStorage',
-      'getStorageInfoSync',
-      'getStorageInfo',
-    ];
+    return ['setStorageSync', 'setStorage', 'getStorageSync', 'getStorage', 'removeStorageSync',
+      'removeStorage', 'clearStorageSync', 'clearStorage', 'getStorageInfoSync', 'getStorageInfo'];
   }
 
-  setStorage(data: DMPMap, callback: DMPBridgeCallback) {
-    const mgr = this.getStorageManager()
-    const value: number | string | boolean | Date | object = data.get('data')
-    const key: string = data.get('key')
-    const success = mgr.encode(key, value)
-    if (success) {
-      this.invokeSuccessCallback(callback, undefined);
-    } else {
-      this.invokeFailureCallback(callback, undefined, '');
+  setStorage(data: DMPMap, callback: DMPBridgeCallback): void {
+    try {
+      const success = this.space().set(data.getString('key') ?? '', data.get('data'), data.get('__diminaStorageWire'));
+      if (!success) throw new Error('storage write failed');
+      this.invokeSuccessCallback(callback, new DMPMap({ errMsg: 'setStorage:ok' }));
+    } catch (error) {
+      this.invokeFailureCallback(callback, null, 'setStorage:fail ' + (error as Error).message);
     }
   }
 
-  // 这里的入参根据微信接口定义的变化而变化，框架只做了透传，不修改数据结构
-  // setStorageSync 入参不是对象，而是两个参数，这里 data 是 array 类型，所以可以使用 index 访问
-  setStorageSync(data: DMPMap, callback: DMPBridgeCallback): boolean {
-    const params: object = data.toObject()
-    const key: string = params[0]
-    const value: number | string | boolean | Date | object = params[1]
-    const mgr = this.getStorageManager()
-    return mgr.encode(key, value)
+  setStorageSync(data: DMPMap, _callback: DMPBridgeCallback): object | void {
+    const params = data.toArray<object | string | number | boolean | null>();
+    const wire = (params[2] as DMPStorageOptions)?.__diminaStorageWire;
+    try {
+      if (!this.space().set(params[0] as string, params[1], wire)) throw new Error('storage write failed');
+    } catch (error) { return { __diminaStorageError: (error as Error).message }; }
   }
 
-  getStorageSync(data: string | DMPMap, callback: DMPBridgeCallback): number | string | boolean | Date | object {
-    const key: string = this._getKey(data)
-    return this._getStorage(key);
+  getStorageSync(data: string | DMPMap, _callback: DMPBridgeCallback): object | string | number | boolean | null | undefined {
+    const space = this.space();
+    const key = this.key(data);
+    if (!space.has(key)) return '';
+    return space.get(key, typeof data !== 'string' && data.getBoolean('__diminaStorageWire') === true);
   }
 
-  getStorage(data: DMPMap, callback: DMPBridgeCallback) {
-    const record = this.getStorageManager().decode(this._getKey(data));
-    if (!record.getString('type')) {
+  getStorage(data: DMPMap, callback: DMPBridgeCallback): void {
+    const space = this.space();
+    const key = this.key(data);
+    if (!space.has(key)) {
       this.invokeFailureCallback(callback, null, 'getStorage:fail data not found');
       return;
     }
-    const result: DMPMap = new DMPMap();
-    result.set('data', record.get('value'));
-    result.set('errMsg', 'getStorage:ok');
-    this.invokeSuccessCallback(callback, result);
+    this.invokeSuccessCallback(callback, new DMPMap({
+      data: space.get(key, data.getBoolean('__diminaStorageWire') === true), errMsg: 'getStorage:ok',
+    }));
   }
 
-  removeStorageSync(data: string | DMPMap, callback: DMPBridgeCallback): boolean {
-    const key: string = this._getKey(data)
-    const mgr = this.getStorageManager()
-    return mgr.remove(key)
+  removeStorageSync(data: string | DMPMap, _callback: DMPBridgeCallback): void {
+    this.space().remove(this.key(data));
   }
 
-  removeStorage(data: DMPMap, callback: DMPBridgeCallback) {
-    const key: string = this._getKey(data)
-    const mgr = this.getStorageManager()
-    if (mgr.remove(key)) {
-      this.invokeSuccessCallback(callback, null);
-    } else {
-      this.invokeFailureCallback(callback, undefined, '');
-    }
+  removeStorage(data: DMPMap, callback: DMPBridgeCallback): void {
+    if (this.space().remove(this.key(data))) this.invokeSuccessCallback(callback, new DMPMap({ errMsg: 'removeStorage:ok' }));
+    else this.invokeFailureCallback(callback, null, 'removeStorage:fail');
   }
 
-  clearStorageSync(data: DMPMap, callback: DMPBridgeCallback): boolean {
-    const mgr = this.getStorageManager()
-    mgr.clear()
-    return true
+  clearStorageSync(_data: DMPMap, _callback: DMPBridgeCallback): void { this.space().clear(); }
+
+  clearStorage(_data: DMPMap, callback: DMPBridgeCallback): void {
+    this.space().clear();
+    this.invokeSuccessCallback(callback, new DMPMap({ errMsg: 'clearStorage:ok' }));
   }
 
-  clearStorage(data: DMPMap, callback: DMPBridgeCallback) {
-    const mgr = this.getStorageManager()
-    mgr.clear()
-    const result = new DMPMap();
-    result.set('errMsg', 'clearStorage:ok');
-    this.invokeSuccessCallback(callback, result);
+  private key(data: string | DMPMap): string {
+    return typeof data === 'string' ? data : data.getString('key') ?? '';
   }
 
-  _getStorage(key: string): number | string | boolean | Date | object {
-    const mgr = this.getStorageManager()
-    return mgr.decode(key).get('value');
+  getStorageInfoSync(_data: DMPMap, _callback: DMPBridgeCallback): object {
+    return new DMPMap(this.space().info());
   }
 
-  private _getKey(data: string | DMPMap): string {
-    if (typeof data === 'string') {
-      return data
-    }
-    return data.getString('key') ?? ''
-  }
-
-  getStorageInfoSync(data: DMPMap, callback: DMPBridgeCallback): object {
-    return this._getStorageInfo();
-  }
-
-  getStorageInfo(data: DMPMap, callback: DMPBridgeCallback) {
-    const result = this._getStorageInfo()
-    this.invokeSuccessCallback(callback, result);
-  }
-
-  _getStorageInfo(): DMPMap {
-    const mgr = this.getStorageManager()
-
-    const currentSize = Math.ceil(mgr.totalSize() / 1024)
-    const keys = mgr.keys() as Array<string>
-
-    let result = new Object() as object
-
-    const storageTotalLimit = 10 * 1024; // Storage API reports sizes in KB (10MB).
-    // const DMPStorageLengthLimit = 1024 * 1024; // 单个 key 允许存储的最大数据长度为 1MB
-
-    result['keys'] = keys;
-    result['currentSize'] = currentSize;
-    result['limitSize'] = storageTotalLimit;
-
-    return DMPMap.createFromObject(result);
+  getStorageInfo(_data: DMPMap, callback: DMPBridgeCallback): void {
+    this.invokeSuccessCallback(callback, new DMPMap({ ...this.space().info(), errMsg: 'getStorageInfo:ok' }));
   }
 }

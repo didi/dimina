@@ -10,6 +10,7 @@ import com.didi.dimina.ui.container.DiminaActivity
 import com.tencent.mmkv.MMKV
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Storage API implementation
@@ -29,6 +30,9 @@ class StorageApi : BaseApiHandler() {
         private const val CLEAR_STORAGE = "clearStorage"
         private const val GET_STORAGE_INFO_SYNC = "getStorageInfoSync"
         private const val GET_STORAGE_INFO = "getStorageInfo"
+
+        private val storageLocks = ConcurrentHashMap<String, Any>()
+        private fun storageLock(appId: String): Any = storageLocks.computeIfAbsent(appId) { Any() }
 
         internal fun storageSyncValue(value: Any?): JSValue = when (value) {
             JSONObject.NULL -> JSValue.createNull()
@@ -52,15 +56,17 @@ class StorageApi : BaseApiHandler() {
             }
         }
 
-        internal fun storageInfoResult(values: Map<String, Int>): JSONObject = JSONObject().apply {
+        internal fun storageInfoResult(values: Map<String, Long>): JSONObject = JSONObject().apply {
             put("keys", JSONArray(values.keys))
-            put("currentSize", (values.values.sumOf { it.toLong() } + 1023) / 1024)
+            put("currentSize", (StorageWire.spaceSize(values.values) + 1023) / 1024)
             put("limitSize", 10 * 1024)
         }
 
         internal fun clearAllStorage(appId: String) {
-            MMKV.mmkvWithID(appId).clearAll()
-            MMKV.mmkvWithID(StorageRecordCodec.storageId(appId)).clearAll()
+            synchronized(storageLock(appId)) {
+                MMKV.mmkvWithID(appId).clearAll()
+                MMKV.mmkvWithID(StorageRecordCodec.storageId(appId)).clearAll()
+            }
         }
     }
 
@@ -86,18 +92,31 @@ class StorageApi : BaseApiHandler() {
     ): APIResult {
         val legacyStorage = MMKV.mmkvWithID(appId)
         val storage = MMKV.mmkvWithID(StorageRecordCodec.storageId(appId))
-        return when (apiName) {
+        val lock = storageLock(appId)
+        val space = StorageSpace(lock, { collectRecords(storage, legacyStorage) }, { key ->
+            val dataKey = StorageRecordCodec.dataKey(key)
+            val record = if (storage.containsKey(dataKey)) StorageRecordCodec.decode(storage.decodeString(dataKey)) else null
+            record ?: getLegacy(key, legacyStorage)?.let { StorageRecord(false, it) }
+        }) { key, encoded ->
+            storage.encode(StorageRecordCodec.dataKey(key), encoded)
+        }
+        return synchronized(lock) { when (apiName) {
             SET_STORAGE_SYNC -> {
                 val kv = params.optJSONArray("args")
                 if (kv != null && kv.length() >= 2) {
-                    set(kv.getString(0), kv.get(1), storage)
+                    try {
+                        space.set(kv.getString(0), kv.get(1), kv.optJSONObject(2)?.optJSONObject("__diminaStorageWire"))
+                    } catch (error: IllegalStateException) {
+                        return@synchronized SyncResult(JSValue.createObject(JSONObject()
+                            .put("__diminaStorageError", error.message).toString()))
+                    }
                 }
                 NoneResult()
             }
 
             GET_STORAGE_SYNC -> {
-                val key = params.optString("args")
-                SyncResult(storageSyncValue(get(key, storage, legacyStorage)))
+                val key = params.optString("key", params.optString("args"))
+                SyncResult(storageSyncValue(space.get(key, params.optBoolean("__diminaStorageWire"))))
             }
 
             REMOVE_STORAGE_SYNC -> {
@@ -117,15 +136,15 @@ class StorageApi : BaseApiHandler() {
             SET_STORAGE -> {
                 val key = params.optString("key")
                 val data = params.opt("data")
-                val res = set(key, data, storage)
-                AsyncResult(JSONObject().apply {
-                    put("errMsg", "$SET_STORAGE:${if (res) "ok" else "fail"}")
-                })
+                val message = try {
+                    if (space.set(key, data, params.optJSONObject("__diminaStorageWire"))) "$SET_STORAGE:ok" else "$SET_STORAGE:fail"
+                } catch (error: IllegalStateException) { "$SET_STORAGE:fail ${error.message}" }
+                AsyncResult(JSONObject().put("errMsg", message))
             }
 
             GET_STORAGE -> {
                 val key = params.optString("key")
-                val value = get(key, storage, legacyStorage)
+                val value = space.get(key, params.optBoolean("__diminaStorageWire"))
                 AsyncResult(storageReadResult(value))
             }
 
@@ -152,38 +171,22 @@ class StorageApi : BaseApiHandler() {
             }
 
             GET_STORAGE_INFO_SYNC -> {
-                SyncResult(JSValue.createObject(storageInfo(storage, legacyStorage).toString()))
+                SyncResult(JSValue.createObject(space.info().toString()))
             }
 
             GET_STORAGE_INFO -> {
-                AsyncResult(storageInfo(storage, legacyStorage).apply {
+                AsyncResult(space.info().apply {
                     put("errMsg", "$GET_STORAGE_INFO:ok")
                 })
             }
 
             else ->
                 super.handleAction(activity, appId, apiName, params, responseCallback)
-        }
-    }
-
-    private fun set(key: String, data: Any?, storage: MMKV): Boolean {
-        if (key.isEmpty()) return false
-        return storage.encode(StorageRecordCodec.dataKey(key), StorageRecordCodec.encodeValue(data))
+        } }
     }
 
     private fun remove(key: String, storage: MMKV) {
         storage.encode(StorageRecordCodec.dataKey(key), StorageRecordCodec.encodeDeleted())
-    }
-
-    private fun get(key: String, storage: MMKV, legacyStorage: MMKV): Any? {
-        if (key.isEmpty()) return null
-        val dataKey = StorageRecordCodec.dataKey(key)
-        if (storage.containsKey(dataKey)) {
-            return StorageRecordCodec.decode(storage.decodeString(dataKey))?.takeUnless { it.deleted }?.value
-        }
-        val legacyValue = getLegacy(key, legacyStorage) ?: return null
-        set(key, legacyValue, storage)
-        return legacyValue
     }
 
     private fun getLegacy(key: String, storage: MMKV): Any? {
@@ -207,27 +210,24 @@ class StorageApi : BaseApiHandler() {
         }
     }
 
-    private fun storageInfo(storage: MMKV, legacyStorage: MMKV): JSONObject {
-        val values = linkedMapOf<String, Int>()
-        val overriddenKeys = mutableSetOf<String>()
+    private fun collectRecords(storage: MMKV, legacyStorage: MMKV): Map<String, StorageRecord> {
+        val values = linkedMapOf<String, StorageRecord>()
         storage.allKeys()?.forEach { storedKey ->
-            if (!storedKey.startsWith(StorageRecordCodec.DATA_PREFIX)) return@forEach
-            val key = storedKey.removePrefix(StorageRecordCodec.DATA_PREFIX)
-            overriddenKeys += key
-            val raw = storage.decodeString(storedKey) ?: return@forEach
-            val record = StorageRecordCodec.decode(raw) ?: return@forEach
-            if (!record.deleted) values[key] = raw.toByteArray().size
+            if (storedKey.startsWith(StorageRecordCodec.DATA_PREFIX)) {
+                val key = storedKey.removePrefix(StorageRecordCodec.DATA_PREFIX)
+                StorageRecordCodec.decode(storage.decodeString(storedKey))?.let { values[key] = it }
+            }
         }
-        legacyStorage.allKeys()?.forEach { legacyKey ->
-            if (legacyKey.endsWith("_type") || legacyKey in overriddenKeys) return@forEach
-            val value = getLegacy(legacyKey, legacyStorage) ?: return@forEach
-            values[legacyKey] = value.toString().toByteArray().size
+        legacyStorage.allKeys()?.forEach { key ->
+            if (!key.endsWith("_type") && key !in values) {
+                getLegacy(key, legacyStorage)?.let { values[key] = StorageRecord(false, it) }
+            }
         }
-        return storageInfoResult(values)
+        return values
     }
 }
 
-internal data class StorageRecord(val deleted: Boolean, val value: Any? = null)
+internal data class StorageRecord(val deleted: Boolean, val value: Any? = null, val wire: JSONObject? = null)
 
 internal object StorageRecordCodec {
     const val DATA_PREFIX = "data:"
@@ -242,7 +242,7 @@ internal object StorageRecordCodec {
         .put("kind", "deleted")
         .toString()
 
-    fun encodeValue(value: Any?): String {
+    fun encodeValue(value: Any?, wire: JSONObject? = null): String {
         val type = when (value) {
             null, JSONObject.NULL -> "Null"
             is Int -> "Int"
@@ -258,6 +258,7 @@ internal object StorageRecordCodec {
         return JSONObject()
             .put("version", VERSION)
             .put("kind", "value")
+            .apply { if (wire != null) put("__diminaStorageWire", wire) }
             .put("type", type)
             .put("value", when (type) {
                 "Null" -> JSONObject.NULL
@@ -286,7 +287,149 @@ internal object StorageRecordCodec {
                 "Object" -> json.getJSONObject("value")
                 else -> return null
             }
-            StorageRecord(deleted = false, value = value)
+            StorageRecord(deleted = false, value = value, wire = json.optJSONObject("__diminaStorageWire"))
         }.getOrNull()
+    }
+}
+
+
+internal object StorageWire {
+    const val QUOTA_ERROR = "exceed storage max size 10Mb"
+    private const val LIMIT = 10L * 1024 * 1024
+
+    fun quotedLength(value: String): Long {
+        var length = 2L
+        var index = 0
+        while (index < value.length) {
+            val character = value[index]
+            length += when {
+                character == '"' || character == '\\' || character in "\b\u000c\n\r\t" -> 2
+                character.code < 0x20 -> 6
+                Character.isHighSurrogate(character) && index + 1 < value.length && Character.isLowSurrogate(value[index + 1]) -> {
+                    index++
+                    2
+                }
+                Character.isSurrogate(character) -> 6
+                else -> 1
+            }
+            index++
+        }
+        return length
+    }
+
+    fun normalize(key: String, value: Any?, wire: JSONObject?): JSONObject {
+        val dataType: String
+        val data: String
+        if (wire?.opt("data") is String && wire.opt("dataType") is String) {
+            dataType = wire.getString("dataType")
+            data = wire.getString("data")
+        } else {
+            dataType = when (value) {
+                null, JSONObject.NULL -> "Null"
+                is String -> "String"
+                is Number -> "Number"
+                is Boolean -> "Boolean"
+                is JSONArray -> "Array"
+                is JSONObject -> "Object"
+                else -> "String"
+            }
+            data = when (value) {
+                null, JSONObject.NULL -> "null"
+                is String -> value
+                is Number -> numberString(value)
+                is Boolean -> value.toString()
+                is JSONArray, is JSONObject -> stringify(value)
+                else -> value.toString()
+            }
+        }
+        val size = quotedLength(key) + 1 + 21 + quotedLength(data) + quotedLength(dataType)
+        return JSONObject().put("data", data).put("dataType", dataType).put("entrySize", size)
+    }
+
+    fun spaceSize(sizes: Collection<Long>): Long = 2L + sizes.sum() + (sizes.size - 1).coerceAtLeast(0)
+
+    fun check(sizes: Collection<Long>) {
+        if (spaceSize(sizes) + 6 > LIMIT) throw IllegalStateException(QUOTA_ERROR)
+    }
+
+    private fun numberString(value: Number): String {
+        val number = value.toDouble()
+        if (!number.isFinite()) return number.toString()
+        if (number == 0.0) return "0"
+        val decimal = java.math.BigDecimal.valueOf(number).stripTrailingZeros()
+        val absolute = kotlin.math.abs(number)
+        if (absolute >= 1e-6 && absolute < 1e21) return decimal.toPlainString()
+        return decimal.toString().lowercase().replace(Regex("e([+-]?)0+(\\d+)"), "e$1$2")
+    }
+
+    private fun quote(value: String): String {
+        val result = StringBuilder().append('"')
+        var index = 0
+        while (index < value.length) {
+            val character = value[index]
+            when (character) {
+                '"' -> result.append("\\\"")
+                '\\' -> result.append("\\\\")
+                '\b' -> result.append("\\b")
+                '\u000c' -> result.append("\\f")
+                '\n' -> result.append("\\n")
+                '\r' -> result.append("\\r")
+                '\t' -> result.append("\\t")
+                else -> when {
+                    character.code < 0x20 -> result.append("\\u%04x".format(character.code))
+                    Character.isHighSurrogate(character) && index + 1 < value.length && Character.isLowSurrogate(value[index + 1]) -> {
+                        result.append(character).append(value[++index])
+                    }
+                    Character.isSurrogate(character) -> result.append("\\u%04x".format(character.code))
+                    else -> result.append(character)
+                }
+            }
+            index++
+        }
+        return result.append('"').toString()
+    }
+
+    private fun stringify(value: Any?): String = when (value) {
+        null, JSONObject.NULL -> "null"
+        is String -> quote(value)
+        is Number -> numberString(value)
+        is Boolean -> value.toString()
+        is JSONArray -> (0 until value.length()).joinToString(",", "[", "]") { stringify(value.opt(it)) }
+        is JSONObject -> value.keys().asSequence().joinToString(",", "{", "}") { quote(it) + ":" + stringify(value.opt(it)) }
+        else -> quote(value.toString())
+    }
+}
+
+internal class StorageSpace(
+    private val lock: Any,
+    private val records: () -> Map<String, StorageRecord>,
+    private val lookup: ((String) -> StorageRecord?)? = null,
+    private val commit: (String, String) -> Boolean,
+) {
+    fun set(key: String, value: Any?, wire: JSONObject?): Boolean = synchronized(lock) {
+        if (key.isEmpty()) return false
+        val normalized = StorageWire.normalize(key, value, wire)
+        val sizes = records().filterValues { !it.deleted }.mapValues { (existingKey, record) ->
+            StorageWire.normalize(existingKey, record.value, record.wire).getLong("entrySize")
+        }.toMutableMap()
+        sizes[key] = normalized.getLong("entrySize")
+        StorageWire.check(sizes.values)
+        commit(key, StorageRecordCodec.encodeValue(value, normalized))
+    }
+
+    fun info(): JSONObject = synchronized(lock) {
+        val sizes = records().filterValues { !it.deleted }.mapValues { (key, record) ->
+            StorageWire.normalize(key, record.value, record.wire).getLong("entrySize")
+        }
+        StorageApi.storageInfoResult(sizes)
+    }
+
+    fun get(key: String, wire: Boolean): Any? = synchronized(lock) {
+        val record = (lookup?.invoke(key) ?: if (lookup == null) records()[key] else null)
+            ?.takeUnless { it.deleted } ?: return null
+        if (!wire) return record.value
+        JSONObject().put("__diminaStorageResult", 1).apply {
+            if (record.wire != null) put("record", record.wire) else put("value", record.value ?: JSONObject.NULL)
+        }
     }
 }

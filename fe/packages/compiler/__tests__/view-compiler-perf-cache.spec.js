@@ -105,7 +105,7 @@ describe('templateRenderCache 命中路径 - 两页共享具名模板 + WXS 的�
 		expect(outputTwo).toContain('templates_format')
 
 		// 共享具名模板的 compileTemplate 只应该被真正调用一次：第二页命中 templateRenderCache
-		const cardCompileCalls = perfCacheSpies.compileTemplateCalls.filter(filename => filename === 'tpl-card')
+		const cardCompileCalls = perfCacheSpies.compileTemplateCalls.filter(filename => filename.startsWith('tpl-card-'))
 		expect(cardCompileCalls).toHaveLength(1)
 
 		// 两个页面都包含同一表达式；第二次转换必须复用 optionalChainingCache。

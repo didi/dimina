@@ -31,6 +31,17 @@ declare module '@dimina/common' {
 	export namespace modRequire {
 		function async<T = unknown>(id: string): Promise<T>
 	}
+	export interface StorageWireEntry {
+		data: string
+		dataType: string
+		entrySize: number
+	}
+	export const STORAGE_LIMIT_KB: number
+	export function createStorageEntry(key: string, value: unknown): StorageWireEntry
+	export function storageEntrySize(key: string, record: Pick<StorageWireEntry, 'data' | 'dataType'>): number
+	export function decodeStorageEntry(record: Pick<StorageWireEntry, 'data' | 'dataType'>): unknown
+	export function storageSpaceSize(entrySizes: number[]): number
+	export function checkStorageQuota(entrySizes: number[]): void
 }
 
 // @dimina/components 的样式子路径导出，纯副作用导入

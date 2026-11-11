@@ -43,8 +43,7 @@ class DMPNetwork {
         timeout: TimeInterval,
         dataType: String,
         success: @escaping (Data?, Int, [String: String], [String]) -> Void,
-        fail: @escaping (String, Int?) -> Void,
-        complete: @escaping () -> Void
+        fail: @escaping (String, Int?) -> Void
     ) {
         // 默认为application/json
         var headers: HTTPHeaders = header.map { HTTPHeaders($0) } ?? []
@@ -59,7 +58,9 @@ class DMPNetwork {
         request.timeoutInterval = timeout
         
         // 处理请求数据
-        if let requestData = data {
+        if let binary = NetworkAPI.decodeRequestBody(data) {
+            request.httpBody = binary
+        } else if let requestData = data {
             // 根据content-type处理请求数据
             let contentType = headers["content-type"]?.lowercased() ?? "application/json"
             
@@ -99,11 +100,7 @@ class DMPNetwork {
         
         // 使用Alamofire发送请求
         AF.request(request)
-            .validate()
             .responseData { response in
-                // 记录网络请求过程信息（可以扩展更多指标）
-                let profile = ["timestamp": Date().timeIntervalSince1970]
-                
                 switch response.result {
                 case .success(let data):
                     // 提取响应头
@@ -128,8 +125,7 @@ class DMPNetwork {
                     fail(errorMessage, statusCode)
                 }
                 
-                // 完成回调
-                complete()
+
             }
     }
     
@@ -150,8 +146,7 @@ class DMPNetwork {
         timeout: TimeInterval,
         filePath: String?,
         success: @escaping (String, Int) -> Void,
-        fail: @escaping (String) -> Void,
-        complete: @escaping () -> Void
+        fail: @escaping (String) -> Void
     ) {
         // 设置下载路径（用户指定或临时目录）
         let destination: DownloadRequest.Destination
@@ -182,7 +177,6 @@ class DMPNetwork {
         AF.download(url, method: .get, headers: headers, requestModifier: { request in
             request.timeoutInterval = timeout
         }, to: destination)
-        .validate()
         .responseURL { response in
             switch response.result {
             case .success(_):
@@ -196,8 +190,7 @@ class DMPNetwork {
                 fail(errorMessage)
             }
             
-            // 完成回调
-            complete()
+
         }
     }
     

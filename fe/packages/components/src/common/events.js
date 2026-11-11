@@ -141,8 +141,14 @@ function sendTriggerEvent(methodName, { type, detail = {}, info, success, event 
 		detail, // 自定义事件所携带的数据
 		currentTarget: currentTargetInfo, // 当前处理事件的元素（即绑定事件监听器的元素）
 		target: targetInfo,	// 触发事件的元素
+		mark: {},
 		changedTouches: Array.from(changedTouches).map(mapTouchPoint),
 		touches: Array.from(touches).map(mapTouchPoint),
+	}
+	const wxmlInfo = window.__diminaEventInfo?.(target, currentTargetElement, moduleId)
+	if (wxmlInfo) {
+		eventPayload.target = wxmlInfo.target
+		eventPayload.mark = wxmlInfo.mark
 	}
 	const successId = success && window.__callback.store(success)
 	window.__message.send({

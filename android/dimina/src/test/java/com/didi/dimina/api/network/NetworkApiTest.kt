@@ -11,6 +11,13 @@ import java.io.File
 
 class NetworkApiTest {
     @Test
+    fun arrayBufferResponseTakesPrecedenceOverJsonParsing() {
+        val data = NetworkApi.parseResponseData("{\"ok\":true}", "json", "arraybuffer")
+        assertTrue(data is JSONObject)
+        assertEquals("eyJvayI6dHJ1ZX0=", (data as JSONObject).getString("__diminaArrayBufferBase64"))
+    }
+
+    @Test
     fun parseResponseDataParsesJsonArrayWhenDataTypeIsJson() {
         val data = NetworkApi.parseResponseData(
             """[{"id":"0"},{"id":"1"}]""",

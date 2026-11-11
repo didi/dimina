@@ -4,7 +4,7 @@
 
 Dimina 的手势事件由渲染层合成：组件在自己的根元素上安装一套触摸状态机，把原生 `touchstart` / `touchmove` / `touchend` / `touchcancel` 与指针序列翻译成小程序的 `tap`、`longpress`、`longtap`、`canceltap`，再经渲染层桥发往逻辑层。四端共用这一份实现，因为渲染层在 Android、iOS、HarmonyOS 和 Web 都运行在浏览器环境里。
 
-本文以微信小程序当前的 [WXML 事件](https://developers.weixin.qq.com/miniprogram/dev/framework/view/wxml/event.html) 与 [`label`](https://developers.weixin.qq.com/miniprogram/dev/component/label.html) 文档为公开契约基准。文档未定义的部分（多指下每个触点的 `tap` 判定、label 对隐藏与禁用控件的处理、容器事件的归属）以微信开发者工具上的可复现行为为准，并在第 7 节集中列出。
+本文说明 Dimina 的触摸状态机、label 激活和容器事件归属。公开 API 定义可参阅 [WXML 事件](https://developers.weixin.qq.com/miniprogram/dev/framework/view/wxml/event.html) 与 [`label`](https://developers.weixin.qq.com/miniprogram/dev/component/label.html) 文档；当前实现限制见第 7 节。
 
 ## 1. 支持范围
 
@@ -70,11 +70,11 @@ Dimina 的手势事件由渲染层合成：组件在自己的根元素上安装�
 ### 3.2 一次触摸序列
 
 - `tap` 由触摸序列合成，不监听原生 `click`。`canvas` 这类只有触摸通道的节点因此同样能拿到 `tap`，长按也才能按官方语义抑制本次 `tap`。
-- 位移超过阈值后本次序列不再产生 `tap`，并从越过阈值的那一次 `touchmove` 起，之后每一条 `touchmove` 都各带一条 `canceltap`：同一个探针小程序在微信开发者工具上跑，两次越过阈值的移动记到两条 `canceltap`。`touchend` 终点复查与 `touchcancel` 这两条路径只在整段序列还没发过 `canceltap` 时补一条。
+- 位移超过阈值后本次序列不再产生 `tap`，并从越过阈值的那一次 `touchmove` 起，之后每一条 `touchmove` 都各带一条 `canceltap`。`touchend` 终点复查与 `touchcancel` 这两条路径只在整段序列还没发过 `canceltap` 时补一条。
 - `touchend` 上按起点与终点再判一次距离：`touchmove` 可能一条都没到（被 `preventDefault` 吞掉，或系统把移动并进抬手），此时超过位移阈值改发 `canceltap`，不合成 `tap`。
 - `longpress` 触发后抑制本次 `tap`；抑制标记记录在原生事件上，祖先节点观察到同一次序列时也不再合成自己的 `tap`。`longtap` 不抑制。
 - `tap`、`longpress` 与 `longtap` 是单指手势。第二根手指加入时只取消长按计时器，本次序列不再触发 `longpress` 与 `longtap`；它不重置起点，也不影响第一根手指的 `tap` 判定。第一根手指原地抬起仍会产生一次 `tap`。多指下每个触点的终态见第 7 节。
-- 鼠标与触控笔经 `pointerdown` 合成 `identifier` 为 `0` 的单点触摸序列，与官方基础库在 PC 上的做法一致。移动与抬起监听在 `document` 上，指针移出节点后抬起仍能收口；窗口失焦按取消处理。
+- 鼠标与触控笔经 `pointerdown` 合成 `identifier` 为 `0` 的单点触摸序列。移动与抬起监听在 `document` 上，指针移出节点后抬起仍能收口；窗口失焦按取消处理。
 - 原生 `click` 只作为兜底，覆盖程序化 `element.click()` 与键盘、无障碍触发。指针序列补发的 `click` 带非零 `detail`，此时 `tap` 已由触摸序列合成，一律放过。
 - `tap` 在 `touchend` 完整冒泡结束后的同一个微任务里统一派发。路径上每个所有者先登记任务再统一收口，因此处理器中同步移除 DOM 或 `document` 级的 `pointerup` 都不会让某个节点提前结束或漏发。
 
@@ -136,12 +136,12 @@ graph LR
 
 Android 另有一条独立路径：原生组件占位节点的触摸在 `document` 捕获阶段透传给原生层，不参与本文的手势合成。
 
-## 7. 与微信公开契约的差异及限制
+## 7. 当前实现限制
 
 - 捕获阶段绑定 `capture-bind` / `capture-catch` 与互斥绑定 `mut-bind` 未实现；编译器识别这些前缀，渲染层不派发。
-- 一个手势所有者只维护一条触摸序列，`tap` 与 `canceltap` 属于这条序列而不是逐个触点。多指同时按下时，只有建立序列的那根手指会产生终态事件，其余触点只透传原生 `touchstart` / `touchmove` / `touchend`。glass-easel 按 `identifier` 逐触点记 `possibleTaps`，每个触点各有自己的终态；微信公开文档未定义多指下的 `tap` 时机，Dimina 不采用该模型。
-- `label` 对隐藏控件与禁用控件的处理（都不跳过）由实测确定，微信文档未定义。
-- 容器事件的归属（`change` 记在容器还是子项）由微信实测行为确定，官方文档未定义。
+- 一个手势所有者只维护一条触摸序列，`tap` 与 `canceltap` 属于这条序列而不是逐个触点。多指同时按下时，只有建立序列的那根手指会产生终态事件，其余触点只透传原生 `touchstart` / `touchmove` / `touchend`。
+- `label` 查找控件时不跳过隐藏或禁用控件，激活行为仍受目标控件自身状态约束。
+- 容器产生的 `change` 等事件使用容器自身的 `currentTarget`，不沿用触发子项的节点信息。
 - 原生焦点只跟随受信任手势，因此自动化工具注入的合成事件无法驱动 `input` 聚焦；该差异属于浏览器约束，不属于手势语义。
 
 ## 8. 源码入口

@@ -1,4 +1,5 @@
 import { invokeAPI } from '@/api/common'
+import router from '@/core/router'
 
 export { createVideoDecoder } from './video-decoder'
 
@@ -40,6 +41,7 @@ export function compressVideo(opts) {
 class VideoContext {
 	constructor(opts) {
 		this.opts = opts
+		this.moduleId = opts.obj?.__id__ || router.getPageInfo()?.__id__
 	}
 
 	play() {
@@ -94,6 +96,7 @@ class VideoContext {
 		invokeAPI('videoContext', {
 			type: 'native/video',
 			id: this.opts.videoId,
+			moduleId: this.moduleId,
 			command,
 			...data,
 		}, 'render')

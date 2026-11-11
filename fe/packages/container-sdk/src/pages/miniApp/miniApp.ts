@@ -3,6 +3,7 @@ import type { BridgeOptions, MiniProgramReferrerInfo, PageStackEntry, StorageAda
 import type { ApiParams, SocketEventName } from '../../core/webSocketManager.js'
 import type { ReadWebFileOptions } from '../../core/webFileSystem.js'
 import type { AppWindowConfig, MergedPageConfig, PageConfig } from '../../utils/util.js'
+import { checkStorageQuota, createStorageEntry, decodeStorageEntry, storageEntrySize, storageSpaceSize, STORAGE_LIMIT_KB } from '@dimina/common'
 import { LAUNCH_SCREEN_MIN_MS, MODAL_GUARD_MS, WAIT_TRANSITION_TIMEOUT_MS } from '../../constants/animation.js'
 import { Bridge } from '../../core/bridge.js'
 import { JSCore } from '../../core/jscore.js'
@@ -54,6 +55,7 @@ interface StorageValueRecord {
 	kind: 'value' | 'deleted'
 	dataType?: 'json' | 'undefined'
 	data?: unknown
+	wire?: { data: string, dataType: string, entrySize: number }
 }
 
 function getErrorMessage(error: unknown): string {
@@ -187,6 +189,7 @@ interface SetClipboardDataOptions extends ApiCallbackOptions {
 
 interface StorageKeyOptions extends ApiCallbackOptions {
 	key: string
+	__diminaStorageWire?: boolean | StorageValueRecord['wire']
 }
 
 interface SetStorageOptions extends StorageKeyOptions {
@@ -652,7 +655,8 @@ export class MiniApp {
 		return `${STORAGE_V2_META_PREFIX}${this.appId.length}:${this.appId}:legacy-disabled`
 	}
 
-	_serializeStorageValue(data: unknown): string {
+	_serializeStorageValue(data: unknown, wire?: StorageValueRecord['wire']): string {
+		if (wire) return JSON.stringify({ version: 2, kind: 'value', dataType: 'json', wire } satisfies StorageValueRecord)
 		const record: StorageValueRecord = data === undefined
 			? { version: 2, kind: 'value', dataType: 'undefined' }
 			: { version: 2, kind: 'value', dataType: 'json', data }
@@ -683,7 +687,7 @@ export class MiniApp {
 		}
 	}
 
-	_readStorageValue(storageAdapter: StorageAdapter, key: string): { found: boolean, data?: unknown } {
+	_readStorageValue(storageAdapter: StorageAdapter, key: string): { found: boolean, data?: unknown, wire?: StorageValueRecord['wire'] } {
 		const storageKey = this._storageKey(key)
 		const current = storageAdapter.getItem(storageKey)
 		if (current !== null) {
@@ -691,7 +695,7 @@ export class MiniApp {
 			if (record.kind === 'deleted') {
 				return { found: false }
 			}
-			return { found: true, data: record.dataType === 'undefined' ? undefined : record.data }
+			return { found: true, data: record.wire ? decodeStorageEntry(record.wire) : record.dataType === 'undefined' ? undefined : record.data, wire: record.wire }
 		}
 
 		// Old `${appId}_${key}` data remains readable and is lazily copied into
@@ -709,8 +713,37 @@ export class MiniApp {
 			return { found: false }
 		}
 		const data = this._decodeLegacyStorageValue(legacy)
-		storageAdapter.setItem(storageKey, this._serializeStorageValue(data))
-		return { found: true, data }
+		const wire = createStorageEntry(key, data)
+		storageAdapter.setItem(storageKey, this._serializeStorageValue(data, wire))
+		return { found: true, data, wire }
+	}
+
+	_storageEntries(storageAdapter: StorageAdapter): Map<string, NonNullable<StorageValueRecord['wire']>> {
+		const entries = new Map<string, NonNullable<StorageValueRecord['wire']>>()
+		const overridden = new Set<string>()
+		const prefix = this._storageKeyPrefix()
+		const allKeys = Array.from({ length: storageAdapter.length }, (_, index) => storageAdapter.key(index))
+		for (const fullKey of allKeys) {
+			if (!fullKey?.startsWith(prefix)) continue
+			const key = fullKey.slice(prefix.length)
+			overridden.add(key)
+			const raw = storageAdapter.getItem(fullKey)
+			if (raw === null) continue
+			const record = this._decodeStorageRecord(raw)
+			if (record.kind === 'deleted') continue
+			entries.set(key, record.wire ?? createStorageEntry(key, record.dataType === 'undefined' ? undefined : record.data))
+		}
+		if (!this.appId.includes('_') && storageAdapter.getItem(this._legacyStorageDisabledKey()) !== '1') {
+			const legacyPrefix = `${this.appId}_`
+			for (const fullKey of allKeys) {
+				if (!fullKey?.startsWith(legacyPrefix)) continue
+				const key = fullKey.slice(legacyPrefix.length)
+				if (key.includes('_') || overridden.has(key)) continue
+				const raw = storageAdapter.getItem(fullKey)
+				if (raw !== null) entries.set(key, createStorageEntry(key, this._decodeLegacyStorageValue(raw)))
+			}
+		}
+		return entries
 	}
 
 	/**
@@ -3572,8 +3605,15 @@ export class MiniApp {
 		const { onSuccess, onFail, onComplete } = this._createApiCallbacks({ success, fail, complete })
 
 		try {
+			if (typeof key !== 'string' || !key.length) throw new Error('key is empty')
 			const storageKey = this._storageKey(key)
-			this._getStorageAdapter().setItem(storageKey, this._serializeStorageValue(data))
+			const adapter = this._getStorageAdapter()
+			const supplied = typeof opts.__diminaStorageWire === 'object' ? opts.__diminaStorageWire : createStorageEntry(key, data)
+			const wire = { ...supplied, entrySize: storageEntrySize(key, supplied) }
+			const entries = this._storageEntries(adapter)
+			entries.set(key, wire)
+			checkStorageQuota([...entries.values()].map(entry => entry.entrySize))
+			adapter.setItem(storageKey, this._serializeStorageValue(data, wire))
 			onSuccess?.({ errMsg: 'setStorage:ok' })
 		}
 		catch (error) {
@@ -3591,7 +3631,10 @@ export class MiniApp {
 		try {
 			const result = this._readStorageValue(this._getStorageAdapter(), key)
 			if (result.found) {
-				onSuccess?.({ data: result.data, errMsg: 'getStorage:ok' })
+				const data = opts.__diminaStorageWire === true
+					? { __diminaStorageResult: 1, ...(result.wire ? { record: result.wire } : { value: result.data }) }
+					: result.data
+				onSuccess?.({ data, errMsg: 'getStorage:ok' })
 			}
 			else {
 				onFail?.({ errMsg: `getStorage:fail data not found` })
@@ -3659,31 +3702,11 @@ export class MiniApp {
 		const { onSuccess, onFail, onComplete } = this._createApiCallbacks({ success, fail, complete })
 
 		try {
-			const keys: string[] = []
-			let currentSize = 0
-			const limitSize = 10 * 1024 * 1024 // 假设限制为10MB
-			const appIdPrefix = this._storageKeyPrefix()
-			const storageAdapter = this._getStorageAdapter()
-
-			for (let i = 0; i < storageAdapter.length; i++) {
-				const fullKey = storageAdapter.key(i)
-
-				// 只处理当前appId的keys；StorageAdapter.key() 允许返回 null（自定义适配器
-				// 合法返回值，或枚举过程中存储发生变化），跳过而不是断言非空后直接调用字符串方法
-				if (fullKey?.startsWith(appIdPrefix)) {
-					const item = storageAdapter.getItem(fullKey)
-					if (item === null) continue
-					const record = this._decodeStorageRecord(item)
-					if (record.kind === 'deleted') continue
-					keys.push(fullKey.substring(appIdPrefix.length))
-					currentSize += item.length * 2 // 估算 UTF-16 落盘大小
-				}
-			}
-
+			const entries = this._storageEntries(this._getStorageAdapter())
 			onSuccess?.({
-				keys,
-				currentSize, // 当前占用空间，单位为字节
-				limitSize, // 存储限制，单位为字节
+				keys: [...entries.keys()],
+				currentSize: Math.ceil(storageSpaceSize([...entries.values()].map(entry => entry.entrySize)) / 1024),
+				limitSize: STORAGE_LIMIT_KB,
 				errMsg: 'getStorageInfo:ok',
 			})
 		}

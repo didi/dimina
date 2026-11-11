@@ -63,6 +63,18 @@ Dimina 的 render runtime 使用 Vue，但模板编译器和组件 runtime 会�
 
     默认情况下，`created` 中可读取属性默认值；父组件传入的初始值会在 `created` 后写入，然后依次执行 data observer 和 property observer。如果组件开启 `options.propertyEarlyInit: true`，则初始属性和 observer 会在 `created` 前完成。`lifetimes` 中的同名回调优先于顶层生命周期字段，behavior 也遵循相同规则。
 
+- **纯数据字段与 Behavior 定义过滤器**
+
+    `options.pureDataPattern` 支持用正则标记仅供逻辑层使用的顶层字段；组件 JSON 中的同名配置字符串优先于 JS 配置。纯字段继续参与逻辑数据和数据 observer，初始值、`setData()` 更新及父组件属性更新均不会把它们写入渲染数据。
+
+    `Behavior({ definitionFilter })` 会在引用者定义准备阶段执行；自身过滤器可接收直接依赖的过滤器数组。Component 和 Page 的定义过滤发生在字段与 Behavior 合并之前。
+
+- **组件查询的自定义导出**
+
+    启用 `wx://component-export` 后，`selectComponent()`、`selectAllComponents()` 和 `selectOwnerComponent()` 均会调用目标的 `export(owner)`，其中 owner 是查询发起者。返回 `undefined` 时使用目标组件实例，返回 `null` 或其它值时保留该结果。
+
+    查询支持 `#id`、`.class` 及其复合形式、后代、`>`、跨组件边界的 `>>>` 和逗号分组。结果按 WXML 逻辑节点顺序返回，并遵循组件和 slot 边界；匹配普通视图时保留 `null`，不会跳过该节点查找后续组件。标签名和属性选择器不在支持范围内。行为与验证范围见[运行时行为走查](./Runtime-Behavior-Review.md)。
+
 ## 组件列表
 
 该表是编译器兼容性清单的数据源，因此保持单列格式。

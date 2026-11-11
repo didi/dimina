@@ -73,7 +73,7 @@ describe('request query parameters (#341)', () => {
 		expect(dispatched(options)).toEqual(options)
 	})
 
-	it.each([undefined, null, 'key=value', new ArrayBuffer(2)])('preserves non-object query payload %s', (data) => {
+	it.each([undefined, null, 'key=value'])('preserves non-object query payload %s', (data) => {
 		const options = { url: 'https://example.com', method: 'GET', data }
 		expect(dispatched(options)).toEqual(options)
 	})

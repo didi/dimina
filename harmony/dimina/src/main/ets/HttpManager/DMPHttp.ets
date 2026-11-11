@@ -5,7 +5,7 @@ export async function request(option: DMPRequestOption): Promise<http.HttpRespon
   let options: http.HttpRequestOptions = {
     method: option.methodType,
     extraData: option.body, //body string
-    expectDataType: undefined,
+    expectDataType: option.responseType === 'arraybuffer' ? http.HttpDataType.ARRAY_BUFFER : http.HttpDataType.STRING,
     usingCache: false,
     header: option.headers?.toJSON(),
     readTimeout: option.readTimeOut,
@@ -13,13 +13,19 @@ export async function request(option: DMPRequestOption): Promise<http.HttpRespon
     usingProxy: false,
     caPath: undefined
   }
-  return await http.createHttp().request(option.url, options)
+  const transport = http.createHttp();
+  try {
+    return await transport.request(option.url, options);
+  } finally {
+    transport.destroy();
+  }
 
 }
 
 export interface DMPRequestOption {
   headers?: DMPMap;
-  body?: string;
+  body?: string | ArrayBuffer;
+  responseType?: string;
   url: string;
   methodType: http.RequestMethod
   readTimeOut?: number

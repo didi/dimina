@@ -121,6 +121,8 @@ export class Page {
 	 * 使用选择器选取页面中的组件实例对象，返回匹配到的第一个组件实例对象
 	 */
 	selectComponent(selector) {
+		const rendered = runtime.queryComponents(this, selector, true)
+		if (rendered) return resolveComponentExport(rendered[0], this)
 		const children = Object.values(runtime.instances[this.bridgeId] || {})
 
 		// 遍历所有组件查找匹配的子组件
@@ -139,6 +141,8 @@ export class Page {
 	 * 使用选择器选取页面中的组件实例对象，返回匹配到的全部组件实例对象组成的数组
 	 */
 	selectAllComponents(selector) {
+		const rendered = runtime.queryComponents(this, selector)
+		if (rendered) return rendered.map(component => resolveComponentExport(component, this))
 		const children = Object.values(runtime.instances[this.bridgeId] || {})
 
 		// 遍历所有组件查找匹配的子组件

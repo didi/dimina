@@ -16,6 +16,26 @@ import Alamofire
  */
 public class NetworkAPI: DMPContainerApi {
     
+
+    static func decodeRequestBody(_ value: Any?) -> Data? {
+        if let data = value as? Data { return data }
+        guard let object = value as? [String: Any],
+              let base64 = object["__diminaArrayBufferBase64"] as? String else { return nil }
+        return Data(base64Encoded: base64)
+    }
+
+    static func responseData(_ data: Data, dataType: String, responseType: String) -> Any {
+        if responseType.lowercased() == "arraybuffer" {
+            return ["__diminaArrayBufferBase64": data.base64EncodedString()]
+        }
+        if dataType.lowercased() == "json",
+           let object = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) {
+            return object
+        }
+        let text = String(decoding: data, as: UTF8.self)
+        return text.first == "\u{feff}" ? String(text.dropFirst()) : text
+    }
+
     // API method names
     private static let REQUEST = "request"
     private static let DOWNLOAD_FILE = "downloadFile"
@@ -50,6 +70,7 @@ public class NetworkAPI: DMPContainerApi {
         let timeout = param.getDouble(key: "timeout") ?? 60000
         let methodStr = param.getString(key: "method")?.uppercased() ?? "GET"
         let dataType = param.getString(key: "dataType") ?? "json"
+        let responseType = param.getString(key: "responseType") ?? "text"
         
         // 验证URL
         guard let _ = URL(string: url) else {
@@ -82,25 +103,10 @@ public class NetworkAPI: DMPContainerApi {
             success: { (responseData, statusCode, responseHeaders, cookies) in
                 let resultMap = DMPMap()
                 
-                // 处理响应数据
-                if let data = responseData {
-                    if dataType.lowercased() == "json" {
-                        do {
-                            // 尝试解析JSON
-                            let jsonObject = try JSONSerialization.jsonObject(with: data)
-                            resultMap.set("data", jsonObject)
-                        } catch {
-                            // JSON解析失败，返回字符串
-                            let dataString = String(data: data, encoding: .utf8) ?? ""
-                            resultMap.set("data", dataString)
-                        }
-                    } else {
-                        // 非JSON格式，直接返回字符串
-                        let dataString = String(data: data, encoding: .utf8) ?? ""
-                        resultMap.set("data", dataString)
-                    }
-                }
-                
+                resultMap.set("data", NetworkAPI.responseData(responseData ?? Data(),
+                    dataType: dataType, responseType: responseType))
+                resultMap.set("errMsg", "request:ok")
+
                 // 设置响应状态码
                 resultMap.set("statusCode", statusCode)
                 
@@ -127,10 +133,6 @@ public class NetworkAPI: DMPContainerApi {
                 
                 // 返回失败结果
                 DMPContainerApi.invokeFailure(callback: callback, param: errorMap, errMsg: errMsg)
-            },
-            complete: {
-                // 完成回调
-                DMPContainerApi.invokeCallback(callback, type: .complete, param: nil)
             }
         )
         
@@ -186,6 +188,7 @@ public class NetworkAPI: DMPContainerApi {
                 
                 // 设置响应状态码
                 resultMap.set("statusCode", statusCode)
+                resultMap.set("errMsg", "downloadFile:ok")
                 
                 // 返回成功结果
                 DMPContainerApi.invokeSuccess(callback: callback, param: resultMap)
@@ -193,10 +196,6 @@ public class NetworkAPI: DMPContainerApi {
             fail: { (errMsg) in
                 // 返回失败结果
                 DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: errMsg)
-            },
-            complete: {
-                // 完成回调
-                DMPContainerApi.invokeCallback(callback, type: .complete, param: nil)
             }
         )
         

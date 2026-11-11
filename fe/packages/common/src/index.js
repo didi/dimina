@@ -67,4 +67,7 @@ export { decodeLargeCanvasRleBand, consumeLargeCanvasRleBand } from './core/canv
 
 export { propertyBindingPathMatches, propertyBindingPaths } from './core/property-bindings'
 export { LinkedOrder } from './core/linked-order'
+export { parseWxmlSelector, WxmlTree } from './core/wxml-tree'
 export { fontFaceKey, HOST_FONT_PATH, normalizeFontFace, resolveFontFaceSource } from './core/font-face'
+
+export { checkStorageQuota, createStorageEntry, decodeStorageEntry, decodeStorageResult, storageEntrySize, storageSpaceSize, STORAGE_LIMIT, STORAGE_LIMIT_KB } from './core/storage'

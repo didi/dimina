@@ -526,6 +526,8 @@ export class Component {
 	 * 使用选择器选取子组件实例对象，返回匹配到的第一个组件实例对象
 	 */
 	selectComponent(selector) {
+		const rendered = runtime.queryComponents(this, selector, true)
+		if (rendered) return resolveComponentExport(rendered[0], this)
 		const children = Object.values(runtime.instances[this.bridgeId])
 
 		// 遍历所有组件查找匹配的子组件
@@ -544,6 +546,8 @@ export class Component {
 	 * 使用选择器选取子组件实例对象，返回匹配到的全部组件实例对象组成的数组
 	 */
 	selectAllComponents(selector) {
+		const rendered = runtime.queryComponents(this, selector)
+		if (rendered) return rendered.map(component => resolveComponentExport(component, this))
 		const children = Object.values(runtime.instances[this.bridgeId])
 
 		// 遍历所有组件查找匹配的子组件
@@ -740,6 +744,8 @@ export class Component {
 			}
 
 			event.currentTarget = node.currentTarget
+			event.target = node.target || target
+			event.mark = node.mark || {}
 			const instance = runtime.instances[this.bridgeId]?.[node.moduleId]
 			if (!instance) return
 
@@ -785,6 +791,17 @@ export class Component {
 	}
 
 	getCustomEventPath(composed) {
+		const tree = runtime.wxmlTrees.get(this.bridgeId)
+		const host = tree?.components.get(this.__id__)
+		if (host) {
+			return tree.eventPath(host, composed).map(({ node, target, mark }) => ({
+				moduleId: node.scopeId,
+				eventAttr: node.eventAttr || {},
+				currentTarget: tree.targetInfo(node),
+				target: tree.targetInfo(target),
+				mark,
+			}))
+		}
 		const eventPath = [{
 			moduleId: this.__pageId__,
 			eventAttr: this.__eventAttr__ || {},

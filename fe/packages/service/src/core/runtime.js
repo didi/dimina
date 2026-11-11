@@ -1,4 +1,4 @@
-import { isFunction, LinkedOrder } from '@dimina/common'
+import { isFunction, LinkedOrder, WxmlTree } from '@dimina/common'
 import { emitAppHide, emitAppShow, reportAppError } from './app-events'
 import { invokeSafely } from './safe-callback'
 import { App } from '../instance/app/app'
@@ -21,6 +21,7 @@ class Runtime {
 		this.appLaunchOptions = {}
 		this.appEnterOptions = {}
 		this.instances = {}
+		this.wxmlTrees = new Map()
 		this.pageStates = new Map()
 		this.runtimeType = 'miniProgram'
 		this.gameLaunched = false
@@ -272,6 +273,27 @@ class Runtime {
 		const parent = this.instances[bridgeId]?.[instance.__propBindingParentId__]
 		if (parent?.__childPropsBindings__) delete parent.__childPropsBindings__[instance.__id__]
 		instance.__propBindingParentId__ = undefined
+	}
+
+	wxmlTreeUpdated({ bridgeId, nodes }) {
+		if (!this.instances[bridgeId]) return
+		this.wxmlTrees.set(bridgeId, new WxmlTree(nodes))
+		for (const node of nodes) {
+			const instance = node.componentId && this.instances[bridgeId]?.[node.componentId]
+			if (!instance) continue
+			instance.id = node.id
+			instance.dataset = node.dataset
+			instance.__targetInfo__ = { id: node.id, class: node.class, dataset: node.dataset }
+		}
+	}
+
+	queryComponents(instance, selector, single = false) {
+		const tree = this.wxmlTrees.get(instance.bridgeId)
+		if (!tree) return null
+		return tree.query(instance.__id__, selector, single).map(node => {
+			const component = node.componentId && this.instances[instance.bridgeId]?.[node.componentId]
+			return component || null
+		})
 	}
 
 	moduleTreeUpdated({ bridgeId, nodes, moved, moveSteps }) {
@@ -708,6 +730,7 @@ class Runtime {
 		router.remove(bridgeId)
 
 		delete this.instances[bridgeId]
+		this.wxmlTrees.delete(bridgeId)
 		this.pageStates.delete(bridgeId)
 	}
 

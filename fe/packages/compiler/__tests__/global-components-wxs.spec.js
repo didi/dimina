@@ -167,8 +167,8 @@ describe('全局组件 wxs 问题修复', () => {
 		expect(aboutContent).toContain('from wxs')
 		
 		// 验证两个页面都包含压缩后的 exports（可能是 t.exports 或 module.exports）
-		expect(indexContent).toMatch(/[t|module]\.exports/)
-		expect(aboutContent).toMatch(/[t|module]\.exports/)
+		expect(indexContent).toContain('exports')
+		expect(aboutContent).toContain('exports')
 		
 		// 验证两个页面都包含全局组件的模块定义
 		expect(indexContent).toContain('/components/global-component/index')

@@ -8,6 +8,7 @@ const MMKV_TYPE_SUFFIX = '_mMKv7Yp3';
 
 export class DMPMMKVManager {
   public mmkv: MMKV;
+  private storageRecords: MMKV;
   private static instances: Map<string, DMPMMKVManager> = new Map();
   private static initialized: boolean = false;
 
@@ -26,10 +27,13 @@ export class DMPMMKVManager {
     const instance = DMPMMKVManager.instances.get(namespace);
     instance?.mmkv.clearAll();
     instance?.mmkv.close();
+    instance?.storageRecords.clearAll();
+    instance?.storageRecords.close();
     DMPMMKVManager.instances.delete(namespace);
 
     const fileManager = DMPFileManager.sharedInstance();
     MMKV.removeStorage(`dimina_mmkv_${namespace}`, `${fileManager.sandboxPath}/mmkv`);
+    MMKV.removeStorage(`dimina_storage_records_v1_${namespace}`, `${fileManager.sandboxPath}/mmkv`);
     const backupPath = `${fileManager.sandboxPath}/mmkv_backup/${namespace}`;
     if (fs.accessSync(backupPath)) {
       fs.rmdirSync(backupPath);
@@ -48,7 +52,17 @@ export class DMPMMKVManager {
     let mmapID = `dimina_mmkv_${namespace}`;
     let backupRootDir = `${sandboxPath}/mmkv_backup/${namespace}`
     this.mmkv = MMKV.backedUpMMKVWithID(mmapID, backupRootDir, MMKV.SINGLE_PROCESS_MODE, "DIMINA MMKV");
+    this.storageRecords = MMKV.backedUpMMKVWithID(
+      `dimina_storage_records_v1_${namespace}`, `${backupRootDir}/records`, MMKV.SINGLE_PROCESS_MODE, "DIMINA MMKV");
   }
+
+  storageRecordKeys(): string[] { return this.storageRecords.allKeys(); }
+
+  readStorageRecord(key: string): string | undefined { return this.storageRecords.decodeString(key); }
+
+  writeStorageRecord(key: string, value: string): boolean { return this.storageRecords.encodeString(key, value); }
+
+  clearStorageSpace(): void { this.storageRecords.clearAll(); this.mmkv.clearAll(); }
 
   encode(key: string, value: number | string | boolean | Date | object): boolean {
     if (!this._isValidKey(key)) {

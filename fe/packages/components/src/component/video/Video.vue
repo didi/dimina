@@ -363,7 +363,7 @@ function scheduleSyncRect() {
 
 function bindNativeEvent(nativeEvent, eventType, detailFactory = msg => msg) {
 	const off = onEvent(nativeEvent, (msg) => {
-		if (msg.id !== props.id) {
+		if (msg.id !== props.id || (msg.moduleId && msg.moduleId !== info.moduleId)) {
 			return
 		}
 		triggerEvent(eventType, {

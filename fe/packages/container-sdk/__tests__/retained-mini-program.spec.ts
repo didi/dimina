@@ -42,11 +42,13 @@ it('refreshes host entry options without reviving an old mini-program opener', a
 	const target = await manager.navigateToMiniProgram({ appId: 'target', extraData: { old: true } }, source)
 	const worker = FakeWorker.instances[1]
 	const page = target.navigator.top
-	await vi.waitFor(() => expect(worker.postMessage.mock.calls.some(([msg]) => msg.type === 'loadResource')).toBe(true))
+	type WorkerMessage = { type: string, body?: Record<string, unknown> }
+	const messages = (): WorkerMessage[] => worker.postMessage.mock.calls.map(([msg]: [WorkerMessage]) => msg)
+	await vi.waitFor(() => expect(messages().some(msg => msg.type === 'loadResource')).toBe(true))
 	await container.application.dismissView(target, { destroy: false })
 	await container.application.dismissView(source, { destroy: false })
 
-	const lastShow = () => worker.postMessage.mock.calls.map(([msg]) => msg).filter(msg => msg.type === 'appShow').at(-1)?.body
+	const lastShow = () => messages().filter(msg => msg.type === 'appShow').at(-1)?.body
 	try {
 		expect(await container.openApp({ appId: 'target', scene: 1011 })).toBe(target)
 		expect(target.navigator.top).toBe(page)

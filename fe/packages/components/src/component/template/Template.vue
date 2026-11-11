@@ -9,10 +9,21 @@ const props = defineProps({
 	data: {
 		type: Object,
 	},
+	diminaTemplateScope: Object,
 })
 
+const templateComponents = inject('dimina-template-components', null)
 const tplCom = computed(() => {
-	return `dd-tpl-${props.is}`
+	const scope = props.diminaTemplateScope
+	const name = scope
+		? (Object.prototype.hasOwnProperty.call(scope, props.is) ? scope[props.is] : '')
+		: (props.is ? `tpl-${props.is}` : '')
+	if (!name) return null
+	const key = `dd-${name}`
+	// A template keeps its caller's custom-component registry while its names
+	// are resolved in the declaring WXML file. Missing lexical names render nothing.
+	if (templateComponents?.[key]) return templateComponents[key]
+	return scope ? null : key
 })
 
 const bindProps = computed(() => {
