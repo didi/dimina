@@ -9,6 +9,12 @@ import androidx.core.view.SoftwareKeyboardControllerCompat
 /** Connect DOM editing focus to Android's input connection, including focus before window ready. */
 @SuppressLint("ViewConstructor")
 internal class MiniProgramWebView(context: Context) : WebView(context) {
+    var renderBridgeCleanup: (() -> Unit)? = null
+
+    fun clearRenderBridge() {
+        renderBridgeCleanup?.invoke()
+        renderBridgeCleanup = null
+    }
     private var focusGeneration = 0
     private var keyboardPending = false
     var isPageActive = false
@@ -103,6 +109,7 @@ internal class MiniProgramWebView(context: Context) : WebView(context) {
     }
 
     override fun destroy() {
+        clearRenderBridge()
         cancelPendingKeyboard()
         removeJavascriptInterface("DiminaKeyboardBridge")
         super.destroy()

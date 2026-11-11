@@ -41,7 +41,17 @@ export class DMPWebViewController extends web_webview.WebviewController {
     this.app = app
     this.webViewId = webViewId
     // Cannot read property appIndex of undefined
-    this.webViewProxy = new DMPWebViewProxy(this.webViewId, app.appIndex)
+    this.webViewProxy = new DMPWebViewProxy(this.webViewId, app.appIndex, () => {
+      // Query the actual calling frame; the current top-level URL alone cannot
+      // authenticate a native proxy exposed to an embedded document.
+      try {
+        const frameUrl = this.getLastJavascriptProxyCallingFrameUrl().split('#')[0].split('?')[0]
+        const trustedUrl = this.loadPath().split('#')[0].split('?')[0]
+        return frameUrl === trustedUrl || (trustedUrl.startsWith('/') && frameUrl === `file://${trustedUrl}`)
+      } catch {
+        return false
+      }
+    })
   }
 
   // 老 api，只能注册一个对象

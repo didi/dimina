@@ -6,6 +6,27 @@ import org.junit.Test
 
 class RenderNavigationSecurityTest {
     @Test
+    fun allowsHttpSubframesOnlyWithAnIsolatedBridge() {
+        val h5 = "https://h5.example/form"
+        assertTrue(isAllowedRenderNavigation(h5, isMainFrame = false, isolatedBridge = true))
+        assertFalse(isAllowedRenderNavigation(h5, isMainFrame = true, isolatedBridge = true))
+        assertFalse(isAllowedRenderNavigation(h5, isMainFrame = false, isolatedBridge = false))
+        listOf("javascript:alert(1)", "file:///data/secret", "intent://app", "https:").forEach {
+            assertFalse(isAllowedRenderNavigation(it, isMainFrame = false, isolatedBridge = true))
+        }
+    }
+
+    @Test
+    fun nativeMessagesRequireTheTrustedMainFrameOrigin() {
+        val origin = "https://appassets.androidplatform.net"
+        assertTrue(isTrustedRenderBridgeSource(origin, true))
+        assertTrue(isTrustedRenderBridgeSource("$origin:443", true))
+        assertFalse(isTrustedRenderBridgeSource(origin, false))
+        assertFalse(isTrustedRenderBridgeSource("https://h5.example", true))
+        assertFalse(isTrustedRenderBridgeSource("http://appassets.androidplatform.net", true))
+        assertFalse(isTrustedRenderBridgeSource("$origin:444", true))
+    }
+    @Test
     fun onlyAllowsTheInternalPageFrameAsANavigationTarget() {
         assertTrue(isTrustedRenderNavigation("about:blank"))
         assertTrue(isTrustedRenderNavigation(

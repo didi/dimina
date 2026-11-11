@@ -19,6 +19,9 @@ import com.didi.dimina.engine.qjs.JSValue
 import com.didi.dimina.ui.view.DiminaNativeComponentBridge
 import com.didi.dimina.ui.container.DiminaActivity
 import com.didi.dimina.ui.view.DiminaRenderBridge
+import com.didi.dimina.ui.view.MiniProgramWebView
+import com.didi.dimina.ui.view.installIsolatedRenderBridge
+import com.didi.dimina.ui.view.supportsIsolatedRenderBridge
 import com.didi.dimina.ui.view.postMessage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -59,6 +62,7 @@ class Bridge(
     private var destroyed: Boolean = false
     @Volatile
     private var resourceLoadId: String? = null
+    private var renderBridgeCleanup: (() -> Unit)? = null
     private val canvasChannel = CanvasBinaryChannel(options.webview) { ready -> options.jscore.setCanvasBinaryReady(id, ready) }
     private val pageVisibilityLedger = PageVisibilityLedger { delivery ->
         options.jscore.postMessage(
@@ -81,16 +85,32 @@ class Bridge(
             options.jscore.publish(id, servicePublishHandler)
             options.jscore.canvasPublish(id, canvasPublishHandler)
 
-            // Add JavaScript interface for DiminaRenderBridge
-            options.webview.addJavascriptInterface(
-                DiminaRenderBridge(
-                    invokeHandler = { msg -> messageInvoke("render", msg) },
-                    publishHandler = { msg -> messagePublish(msg) }
-                ), DiminaRenderBridge.TAG)
-            options.webview.addJavascriptInterface(
-                DiminaNativeComponentBridge(
-                    touchHandler = { msg -> parent.dispatchNativeComponentTouch(msg, this@Bridge) }
-                ), DiminaNativeComponentBridge.TAG)
+            val miniView = options.webview as? MiniProgramWebView
+            if (miniView != null) miniView.clearRenderBridge()
+            else renderBridgeCleanup?.invoke()
+            renderBridgeCleanup = null
+            options.webview.removeJavascriptInterface(DiminaRenderBridge.TAG)
+            options.webview.removeJavascriptInterface(DiminaNativeComponentBridge.TAG)
+            if (supportsIsolatedRenderBridge()) {
+                val dispose = installIsolatedRenderBridge(options.webview,
+                    invoke = { msg -> messageInvoke("render", msg) },
+                    publish = { msg -> messagePublish(msg) },
+                    touch = { msg -> parent.dispatchNativeComponentTouch(msg, this@Bridge) })
+                (options.webview as? MiniProgramWebView)?.renderBridgeCleanup = dispose
+                renderBridgeCleanup = dispose
+            } else {
+                // Older kernels keep the legacy full-screen bridge. Embedded mode
+                // is disabled until an origin-scoped transport is available.
+                options.webview.addJavascriptInterface(
+                    DiminaRenderBridge(
+                        invokeHandler = { msg -> messageInvoke("render", msg) },
+                        publishHandler = { msg -> messagePublish(msg) }
+                    ), DiminaRenderBridge.TAG)
+                options.webview.addJavascriptInterface(
+                    DiminaNativeComponentBridge(
+                        touchHandler = { msg -> parent.dispatchNativeComponentTouch(msg, this@Bridge) }
+                    ), DiminaNativeComponentBridge.TAG)
+            }
         }
         // 加载模版页面。调试模式通过 URL 参数让 pageFrame 在 render 初始化前启用 vConsole。
         val vConsoleQuery = if (Dimina.getInstance().isDebugMode()) "?vconsole=1" else ""
@@ -416,6 +436,10 @@ class Bridge(
         }
 
         if (!keepHandler) {
+            val miniView = options.webview as? MiniProgramWebView
+            if (miniView == null) renderBridgeCleanup?.invoke()
+            else if (miniView.renderBridgeCleanup === renderBridgeCleanup) miniView.clearRenderBridge()
+            renderBridgeCleanup = null
             // 移除在 init() 中添加的回调
             options.jscore.removeInvoke(id, serviceInvokeHandler)
             options.jscore.removePublish(id, servicePublishHandler)

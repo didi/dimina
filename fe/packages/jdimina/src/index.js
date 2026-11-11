@@ -1,17 +1,22 @@
+import { createFrameTransport } from './frame-transport.js'
+
 function uuid() {
 	return Math.random().toString(36).slice(2, 7)
 }
 
 const funIdMap = new Map()
 const isFunction = v => typeof v === 'function'
+const triggerCallback = (id, args) => {
+	const fn = funIdMap.get(id)
+	funIdMap.delete(id)
+	fn?.(args)
+}
+const frameTransport = createFrameTransport(window, triggerCallback)
 
-if (window.DiminaRenderBridge) {
+if (!frameTransport && window.DiminaRenderBridge) {
 	window.DiminaRenderBridge.onMessage = (data) => {
 		const { type, body } = data || {}
-		if (type === 'triggerCallback' && body.id && funIdMap.get(body.id)) {
-			funIdMap.get(body.id)(body.args)
-			funIdMap.delete(body.id)
-		}
+		if (type === 'triggerCallback' && body?.id) triggerCallback(body.id, body.args)
 	}
 }
 
@@ -94,7 +99,8 @@ const didiJsBridge = {
 		console.warn('publish 未实现')
 	},
 	onMessage(params = {}) {
-		window.DiminaRenderBridge.invoke(params)
+		if (frameTransport) frameTransport.invoke(params)
+		else window.DiminaRenderBridge.invoke(params)
 	},
 }
 

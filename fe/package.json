@@ -22,7 +22,7 @@
     "preview:container": "pnpm --dir ./packages/container preview",
     "generate:sdk": "node ./scripts/generate-sdk.js",
     "generate:app": "node ./scripts/generate-app.js",
-    "test": "pnpm --filter compiler --filter common --filter components --filter service --filter render --filter container --filter fe-container-sdk --filter generator test && pnpm test:scripts",
+    "test": "pnpm --filter compiler --filter common --filter components --filter service --filter render --filter container --filter fe-container-sdk --filter generator --filter jdimina-next test && pnpm test:scripts",
     "test:scripts": "node --test scripts/generate-app.test.js scripts/sdk-assets.test.js scripts/dev.test.js",
     "coverage": "pnpm --filter compiler --filter common --filter components --filter service --filter render --filter container --filter fe-container-sdk coverage",
     "lint": "oxlint",

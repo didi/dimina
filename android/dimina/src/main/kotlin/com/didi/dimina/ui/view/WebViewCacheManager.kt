@@ -313,6 +313,7 @@ object WebViewCacheManager : ComponentCallbacks2 {
             
             // 清理历史记录
             webView.clearHistory()
+            (webView as? MiniProgramWebView)?.clearRenderBridge()
             
             // 清理缓存（可选）
             webView.clearCache(true)
@@ -331,6 +332,7 @@ object WebViewCacheManager : ComponentCallbacks2 {
     private fun cleanWebView(webView: WebView) {
         try {
             webView.stopLoading()
+            (webView as? MiniProgramWebView)?.clearRenderBridge()
             webView.loadUrl("about:blank")
             webView.clearHistory()
             webView.removeJavascriptInterface("DiminaRenderBridge")
@@ -667,7 +669,8 @@ internal fun createWebViewClientWithInterceptor(
         }
 
 		override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-			val allowed = isTrustedRenderNavigation(request.url.toString())
+			val allowed = isAllowedRenderNavigation(request.url.toString(), request.isForMainFrame,
+                supportsIsolatedRenderBridge())
 			if (!allowed) {
 				LogUtils.w(WEBVIEW_TAG, "Blocked untrusted WebView navigation")
 			}
@@ -717,6 +720,15 @@ internal fun isTrustedRenderNavigation(rawUrl: String): Boolean {
 	} catch (_: Exception) {
 		false
 	}
+}
+
+internal fun isAllowedRenderNavigation(rawUrl: String, isMainFrame: Boolean, isolatedBridge: Boolean): Boolean {
+    if (isTrustedRenderNavigation(rawUrl)) return true
+    if (isMainFrame || !isolatedBridge) return false
+    return try {
+        val uri = URI(rawUrl)
+        (uri.scheme.equals("https", true) || uri.scheme.equals("http", true)) && !uri.host.isNullOrEmpty()
+    } catch (_: Exception) { false }
 }
 
 private fun handleVirtualFileRequest(context: Context, uri: android.net.Uri, appId: String): WebResourceResponse? {

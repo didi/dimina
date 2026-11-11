@@ -22,6 +22,7 @@ Dimina（星河小程序）由 DMCC 编译器、逻辑层与渲染层运行时�
 | 接入内置包或远程更新 | [小程序包更新](./MiniProgram-Update.md) | 对应平台的 Bundle Loader 实现 |
 | 接入地图、选择地图服务商及配置 Key | [地图接入](./Map-Integration.md) | provider 接口、平台差异与最小示例 |
 | 扩展 Android 原生组件的承载方式 | [原生组件承载后端](./Native-Component-Backend.md) | 后端工厂、布局/触摸、生命周期与同层限制 |
+| 在页面内嵌入 H5 卡片、表单或图表 | [web-view 局部嵌入（Dimina 扩展）](./Web-View.md) | embedded 扩展属性、CSS 尺寸、滚动与消息通道 |
 | 查看 WebSocket API、事件与平台限制 | [WebSocket 能力](./websocket-architecture.md) | 对应平台的 Manager 与校验源码 |
 | 排查点击、长按或 `label` 激活的行为 | [触摸事件与手势](./touch-event-architecture.md) | `components` 的手势与组件源码 |
 | 参与前端框架开发 | [前端工程说明](../fe/README.md) | [贡献指南](../CONTRIBUTING.md) |

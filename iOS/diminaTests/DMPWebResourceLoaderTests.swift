@@ -14,6 +14,16 @@ import XCTest
 @MainActor
 final class DMPWebResourceLoaderTests: XCTestCase {
 
+    func testNavigationAllowsHTTPSubframesWhileKeepingTheMainFrameInternal() {
+        let external = URL(string: "https://h5.example/form")!
+        XCTAssertTrue(DMPWebview.allowsNavigation(external, isMainFrame: false))
+        XCTAssertFalse(DMPWebview.allowsNavigation(external, isMainFrame: true))
+        XCTAssertTrue(DMPWebview.allowsNavigation(URL(string: "dimina:///pageFrame.html"), isMainFrame: true))
+        for value in ["javascript:alert(1)", "file:///private/data", "dimina:///secret", "https:"] {
+            XCTAssertFalse(DMPWebview.allowsNavigation(URL(string: value), isMainFrame: false), value)
+        }
+    }
+
     func testHostFontRegistrationAndRemoval() throws {
         let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".ttf")
         defer { try? FileManager.default.removeItem(at: file); DMPHostFonts.unregister("test-brand") }

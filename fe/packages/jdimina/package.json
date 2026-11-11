@@ -17,6 +17,7 @@
 	"scripts": {
 		"dev": "vite build",
 		"build:dev": "vite build --mode development",
-		"build": "vite build"
+		"build": "vite build",
+		"test": "vitest run"
 	}
 }

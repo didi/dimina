@@ -14,7 +14,8 @@
     "build": "node build.mjs",
     "test": "vitest run",
     "test:browser": "node __tests__/browser.e2e.mjs",
-    "test:browser:menu": "node __tests__/menu.e2e.mjs"
+    "test:browser:menu": "node __tests__/menu.e2e.mjs",
+    "test:browser:web-view": "node __tests__/web-view.e2e.mjs"
   },
   "dependencies": {
     "@dimina/compiler": "workspace:^",

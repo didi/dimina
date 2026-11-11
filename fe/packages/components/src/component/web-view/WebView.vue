@@ -1,13 +1,14 @@
 <script setup>
 // 承载网页的容器
 // https://developers.weixin.qq.com/miniprogram/dev/component/web-view.html
-import { isAndroid, isDesktop } from '@dimina/common'
+import { isAndroid, isDesktop, isHarmonyOS } from '@dimina/common'
 import { invokeAPI, onEvent, triggerEvent, useInfo } from '@/common/events'
 import { ensureNativeLayerTouchBridge } from '@/common/nativeLayerTouchBridge'
 
 const props = defineProps({
 	id: { type: String, default: () => `webview-${useId()}` },
 	src: { type: String, default: '' },
+	embedded: { type: Boolean, default: false },
 })
 
 const ENCODE_CHARS_REGEXP = /(?:[^\x21\x25\x26-\x3B\x3D\x3F-\x5B\x5D\x5F\x7E]|%(?:[^0-9A-F]|[0-9A-F][^0-9A-F]|$))+/gi
@@ -18,6 +19,21 @@ const rootRef = ref()
 const url = computed(() => props.src
 	.replace(UNMATCHED_SURROGATE_PAIR_REGEXP, UNMATCHED_SURROGATE_PAIR_REPLACE)
 	.replace(ENCODE_CHARS_REGEXP, encodeURI))
+const useFrame = computed(() => props.embedded || isDesktop)
+const frameLoadError = computed(() => {
+	if (!props.embedded || !url.value) return ''
+	const bridge = window.DiminaRenderBridge
+	if (isAndroid && !isHarmonyOS && bridge && bridge.mapRenderer !== 'web'
+		&& (typeof bridge.supportsEmbeddedWebView !== 'function' || !bridge.supportsEmbeddedWebView())) {
+		return 'web-view:fail embedded mode requires an isolated host bridge'
+	}
+	try {
+		if (['http:', 'https:'].includes(new URL(url.value, window.location.href).protocol)) return ''
+	} catch { /* Report malformed URLs through the component error event. */ }
+	return 'web-view:fail unsupported embedded URL'
+})
+const validFrameURL = computed(() => !frameLoadError.value)
+const frameURL = computed(() => validFrameURL.value ? url.value : 'about:blank')
 const type = 'native/webview'
 const info = useInfo()
 const nativeEventOffs = []
@@ -25,6 +41,8 @@ let syncFrameId = 0
 let lastRectKey = ''
 let resizeObserver
 let nativeMounted = false
+let mounted = false
+let nativeParams
 
 function getRect() {
 	const element = rootRef.value
@@ -82,9 +100,13 @@ function getNativeParams() {
 }
 
 function invokeNative(apiName) {
-	if (isDesktop) return
-	if (apiName === 'propsUpdate' && !nativeMounted) return
-	invokeAPI(apiName, { bridgeId: info.bridgeId, params: getNativeParams() })
+	if (apiName === 'componentUnmount') {
+		if (nativeMounted) invokeAPI(apiName, { bridgeId: info.bridgeId, params: nativeParams })
+		return
+	}
+	if (useFrame.value || (apiName === 'propsUpdate' && !nativeMounted)) return
+	nativeParams = getNativeParams()
+	invokeAPI(apiName, { bridgeId: info.bridgeId, params: nativeParams })
 }
 
 function syncRect(force = false) {
@@ -118,16 +140,69 @@ function bindNativeEvent(nativeEvent, eventType, detailFactory = msg => msg) {
 	nativeEventOffs.push(off)
 }
 
-function handleDesktopMessage(event) {
-	if (event.source !== rootRef.value?.contentWindow) return
+const FRAME_CHANNEL = 'dimina:web-view:v1'
+const navigationMethods = new Set(['H5navigateTo', 'H5navigateBack', 'H5redirectTo', 'H5switchTab', 'H5reLaunch'])
+
+function handleFrameRequest(event) {
+	const { kind, session, request } = event.data
+	if (typeof session !== 'string') return
+	const reply = data => event.source.postMessage({ channel: FRAME_CHANNEL, session, ...data }, event.origin === 'null' ? '*' : event.origin)
+	if (kind === 'hello') {
+		reply({ kind: 'ready' })
+		return
+	}
+	if (kind !== 'invoke' || !request || typeof request !== 'object') return
+	const { type: requestType, body } = request
+	if (!body || typeof body !== 'object' || typeof body.name !== 'string') return
+	const params = body.params?.data?.params || {}
+	const callback = (args) => {
+		if (typeof body.params?.success === 'string') reply({ kind: 'callback', id: body.params.success, args })
+	}
+	if (requestType === 'h5SdkAction' && body.name === 'h5postMessage') {
+		emitFrameMessage(event, [params.data])
+	}
+	else if (requestType === 'invokeAPI' && body.name === 'getEnv') {
+		callback({ data: { miniprogram: true } })
+	}
+	else if (requestType === 'h5SdkAction' && navigationMethods.has(body.name)) {
+		// Keep relative URL resolution in the service route API. Guest-supplied
+		// bridge IDs, handler names and callback IDs never cross this boundary.
+		window.__message.send({
+			type: 'h5SdkAction', target: 'service',
+			body: {
+				name: body.name, bridgeId: info.bridgeId,
+				params: { url: params.url, delta: params.delta },
+			},
+		})
+		callback({ data: {} })
+	}
+	else {
+		callback({ data: { success: false, errMsg: `${body.name}:fail unsupported in embedded web-view` } })
+	}
+}
+
+function emitFrameMessage(event, data) {
 	triggerEvent('message', {
 		type: 'message',
 		info,
-		detail: { data: event.data },
+		currentTarget: rootRef.value,
+		event: {
+			target: rootRef.value,
+			currentTarget: rootRef.value,
+			stopPropagation: () => event.stopPropagation(),
+		},
+		detail: { data },
 	})
 }
 
-function handleDesktopLoad(event) {
+function handleFrameMessage(event) {
+	if (!useFrame.value || !validFrameURL.value || event.source !== rootRef.value?.contentWindow) return
+	if (event.data?.channel === FRAME_CHANNEL) handleFrameRequest(event)
+	else emitFrameMessage(event, props.embedded ? [event.data] : event.data)
+}
+
+function handleFrameLoad(event) {
+	if (!useFrame.value || !validFrameURL.value || event.currentTarget !== rootRef.value) return
 	triggerEvent('load', {
 		type: 'load',
 		event,
@@ -136,18 +211,20 @@ function handleDesktopLoad(event) {
 	})
 }
 
-function handleDesktopError(event) {
+function handleFrameError(event) {
+	if (event && (!useFrame.value || event.currentTarget !== rootRef.value)) return
 	triggerEvent('error', {
 		type: 'error',
 		event,
 		info,
-		detail: { url: url.value, fullUrl: url.value },
+		detail: { url: url.value, fullUrl: url.value, errMsg: frameLoadError.value || 'web-view:fail load error' },
 	})
 }
 
-onMounted(() => {
-	if (isDesktop) {
-		window.addEventListener('message', handleDesktopMessage)
+function startNative() {
+	if (useFrame.value) return
+	if (nativeMounted) {
+		invokeNative('propsUpdate')
 		return
 	}
 
@@ -171,35 +248,59 @@ onMounted(() => {
 		resizeObserver = new ResizeObserver(scheduleSyncRect)
 		resizeObserver.observe(rootRef.value)
 	}
-})
+}
 
-watch(
-	() => [props.id, url.value],
-	() => invokeNative('propsUpdate'),
-)
-
-onBeforeUnmount(() => {
-	window.removeEventListener('message', handleDesktopMessage)
+function stopNative() {
+	if (!nativeMounted) return
 	if (syncFrameId) cancelAnimationFrame(syncFrameId)
+	syncFrameId = 0
 	resizeObserver?.disconnect()
+	resizeObserver = undefined
 	window.removeEventListener('resize', scheduleSyncRect)
 	window.removeEventListener('scroll', scheduleSyncRect, true)
 	invokeNative('componentUnmount')
 	nativeMounted = false
 	nativeEventOffs.splice(0).forEach(off => off())
+}
+
+function syncMode() {
+	if (!mounted) return
+	if (!useFrame.value) startNative()
+	else if (!validFrameURL.value) handleFrameError()
+}
+
+onMounted(() => {
+	mounted = true
+	window.addEventListener('message', handleFrameMessage)
+	syncMode()
+})
+
+watch(() => [useFrame.value, props.id], stopNative)
+watch(
+	() => [useFrame.value, props.id, url.value],
+	syncMode,
+	{ flush: 'post' },
+)
+
+onBeforeUnmount(() => {
+	mounted = false
+	window.removeEventListener('message', handleFrameMessage)
+	stopNative()
 })
 </script>
 
 <template>
 	<iframe
-		v-if="isDesktop"
+		v-if="useFrame"
+		:key="`${id}:${url}`"
 		:id="id"
 		ref="rootRef"
 		v-bind="$attrs"
-		class="dd-web-view dd-web-view-pc"
-		:src="url"
-		@load="handleDesktopLoad"
-		@error="handleDesktopError"
+		class="dd-web-view"
+		:class="embedded ? 'dd-web-view-embedded' : 'dd-web-view-pc'"
+		:src="frameURL"
+		@load="handleFrameLoad"
+		@error="handleFrameError"
 	/>
 	<embed
 		v-else
@@ -229,6 +330,12 @@ onBeforeUnmount(() => {
 	top: 0;
 	width: 100%;
 	height: 100%;
+	border: 0;
+}
+
+.dd-web-view-embedded {
+	width: 100%;
+	height: 150px;
 	border: 0;
 }
 </style>

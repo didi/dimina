@@ -339,7 +339,8 @@ public class DMPWebview: NSObject, WKNavigationDelegate, WKScriptMessageHandler,
 
     // Use custom URL scheme to handle resource loading
     public func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-        let allowed = isTrustedNavigation(navigationAction.request.url)
+        let allowed = Self.allowsNavigation(navigationAction.request.url,
+                                            isMainFrame: navigationAction.targetFrame?.isMainFrame ?? true)
         if !allowed {
             DMPLogger.debug("Blocked untrusted WebView navigation")
         }
@@ -348,10 +349,17 @@ public class DMPWebview: NSObject, WKNavigationDelegate, WKScriptMessageHandler,
 
     private func isTrustedBridgeMessage(_ message: WKScriptMessage) -> Bool {
         guard message.frameInfo.isMainFrame else { return false }
-        return isTrustedNavigation(message.frameInfo.request.url)
+        return Self.isTrustedNavigation(message.frameInfo.request.url)
     }
 
-    private func isTrustedNavigation(_ url: URL?) -> Bool {
+    static func allowsNavigation(_ url: URL?, isMainFrame: Bool) -> Bool {
+        if !isMainFrame, let scheme = url?.scheme?.lowercased(), ["http", "https"].contains(scheme) {
+            return url?.host?.isEmpty == false
+        }
+        return isTrustedNavigation(url)
+    }
+
+    private static func isTrustedNavigation(_ url: URL?) -> Bool {
         guard let url else { return false }
         if url.absoluteString == "about:blank" { return true }
         return url.scheme?.lowercased() == "dimina"

@@ -158,6 +158,8 @@ class DiminaRenderBridge(
     private val invokeHandler: (JSONObject) -> Unit,
     private val publishHandler: (JSONObject) -> Unit
 ) {
+    @JavascriptInterface
+    fun supportsEmbeddedWebView(): Boolean = false
     /**
      * Method that can be called from JavaScript to invoke a function in Kotlin
      * @param message The message from JavaScript

@@ -126,6 +126,7 @@ Dimina 的 render runtime 使用 Vue，但模板编译器和组件 runtime 会�
 - 该列表包含运行时内置组件，以及编译期支持的 WXML 模板标签（如 `slot`、`template`、`wxs`、`include`、`import`）。
 - `map` 提供基于宿主 provider 的基础能力。Android / iOS / Harmony 可选接入高德原生 SDK，Web 使用高德 JS API；需要注册 provider、配置平台 Key 和隐私授权。详见[地图接入](./Map-Integration.md)。
 - 同层渲染组件 `video` 已支持 Android / iOS / Harmony。
+- `web-view` 的 `embedded` 是 **Dimina 扩展属性**，不属于微信小程序规范。设置 `embedded="{{true}}"` 可使用局部 iframe，支持 CSS 尺寸、圆角、滚动和视图遮挡；接入方式、H5 消息与部署限制见 [web-view 局部嵌入（Dimina 扩展）](./Web-View.md)。
 - tabBar 已支持 Android / iOS / Harmony。
 
 ### Android 同层渲染限制
