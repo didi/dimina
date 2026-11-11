@@ -2369,6 +2369,8 @@ static int js_waker_init(JSWaker *w)
 
     if (pipe(fds) < 0)
         return -1;
+    fcntl(fds[0], F_SETFL, fcntl(fds[0], F_GETFL) | O_NONBLOCK);
+    fcntl(fds[1], F_SETFL, fcntl(fds[1], F_GETFL) | O_NONBLOCK);
     w->read_fd = fds[0];
     w->write_fd = fds[1];
     return 0;
@@ -2382,7 +2384,10 @@ static void js_waker_signal(JSWaker *w)
         ret = write(w->write_fd, "", 1);
         if (ret == 1)
             break;
-        if (ret < 0 && (errno != EAGAIN || errno != EINTR))
+        /* if errno = EAGAIN the pipe is full and we consider it is
+           likely that the poll() will be waked anyway, so we don't
+           need to block */
+        if (ret < 0 && errno != EINTR)
             break;
     }
 }
@@ -2619,7 +2624,7 @@ static int js_os_poll(JSContext *ctx)
 {
     JSRuntime *rt = JS_GetRuntime(ctx);
     JSThreadState *ts = JS_GetRuntimeOpaque(rt);
-    int min_delay, nfds;
+    int min_delay, nfds, atomics_async_waker_fd_index;
     int64_t cur_time, delay;
     JSOSRWHandler *rh;
     struct list_head *el;
@@ -2698,6 +2703,7 @@ static int js_os_poll(JSContext *ctx)
         }
     }
 
+    atomics_async_waker_fd_index = nfds;
     if (js_poll_add_poll_fd(ts, &nfds, ts->atomics_async_waker.read_fd, POLLIN))
         return -1;
 
@@ -2728,7 +2734,7 @@ static int js_os_poll(JSContext *ctx)
                 }
             }
         }
-        if (ts->poll_fds[ts->atomics_async_waker.read_fd].revents != 0) {
+        if (ts->poll_fds[atomics_async_waker_fd_index].revents != 0) {
             js_waker_clear(&ts->atomics_async_waker);
         }
     }

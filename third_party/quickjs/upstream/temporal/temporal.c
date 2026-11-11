@@ -196,7 +196,7 @@ int ti_parse_temporal_timezone_string(const char *str, int64_t *offset_ns)
     /* ISO date-time string with ±HHMM or ±HH:MM offset at end */
     if (len >= 5) {
         const char *offset_start = NULL;
-        int offset_len = 0;
+        size_t offset_len = 0;
         int i;
         for (i = (int)(len - 6); i >= 0; i--) {
             if ((str[i] == '+' || str[i] == '-') && str[i + 3] == ':') {
@@ -235,11 +235,7 @@ int ti_parse_temporal_timezone_string(const char *str, int64_t *offset_ns)
                 int hours = h1 * 10 + h2;
                 int mins = m1 * 10 + m2;
                 if (hours <= 23 && mins <= 59) {
-                    if ((int)len > (int)(offset_start - str) + offset_len && offset_start[offset_len] == ':')
-                        return -1;
-                    if ((int)len > (int)(offset_start - str) + offset_len && offset_start[offset_len] == '.')
-                        return -1;
-                    if (len >= 7 && !memcmp(str, "-000000", 7))
+                    if (len > (offset_start - str) + offset_len)
                         return -1;
                     *offset_ns = sign * ((int64_t)hours * 3600 + mins * 60) * 1000000000LL;
                     return 0;
@@ -3877,19 +3873,19 @@ int ti_validate_timezone_identifier(JSContext *ctx, JSValueConst v, const char *
             return JS_ThrowRangeError(ctx, "invalid time zone"), -1;
         }
     }
+    /* An offset time zone identifier or an available named time zone
+       identifier (GetAvailableNamedTimeZoneIdentifier is not empty) */
+    if (str[0] == '+' || str[0] == '-') {
+        int64_t offset_ns;
+        if (ti_parse_temporal_timezone_string(str, &offset_ns) < 0) {
+            JS_FreeCString(ctx, str);
+            return JS_ThrowRangeError(ctx, "invalid time zone"), -1;
+        }
+    }
     *out_str = str;
     return 1;
 }
-JSValue js_create_temporal_object(JSContext *ctx, JSValueConst new_target,
-                                                 JSClassID class_id, void *opaque)
-{
-    
-    JSValue obj = JS_CreateFromConstructor(ctx, new_target, class_id);
-    if (JS_IsException(obj))
-        return JS_EXCEPTION;
-    JS_SetOpaque(obj, opaque);
-    return obj;
-}
+
 int is_valid_epoch_timespec(const JSTimeSpec *ts)
 {
     if (ts->secs > INSTANT_MAX_SECS || ts->secs < -INSTANT_MAX_SECS)
