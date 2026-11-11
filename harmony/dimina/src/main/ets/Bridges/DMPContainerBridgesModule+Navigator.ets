@@ -120,13 +120,33 @@ export class DMPContainerBridgesModuleNavigator extends DMPContainerBridgesModul
       })
   }
 
-  navigateBack(data: DMPMap, callback: DMPBridgeCallback) {
-    const navigator = this.app.navigatorManager.getCurNavigator()
-    if (navigator) {
-      let delta: number = data.getNumber('delta') ?? 1
-      navigator.navigateBack(delta)
+  async navigateBack(data: DMPMap, callback: DMPBridgeCallback) {
+    const manager = this.app.navigatorManager
+    try {
+      const pageCount = manager.navigationPageCount()
+      if (pageCount <= 1) {
+        throw new Error('navigateBack:fail cannot navigate back at first page.')
+      }
+      const requested = data.getNumber('delta')
+      const delta = typeof requested === 'number' && Number.isFinite(requested)
+        ? Math.max(Math.trunc(requested), 1) : 1
+      let remaining = Math.min(delta, pageCount - 1)
+      while (remaining > 0) {
+        const navigator = manager.getCurNavigator()
+        const count = Math.min(remaining, navigator?.getPageCount() ?? 0)
+        if (!navigator || count < 1) throw new Error('navigateBack:fail no current navigator')
+        const before = manager.navigationPageCount()
+        await navigator.navigateBack(count)
+        const removed = before - manager.navigationPageCount()
+        if (removed <= 0) throw new Error('navigateBack:fail page stack did not change')
+        remaining -= removed
+      }
+      this.invokeSuccessCallback(callback, new DMPMap({ errMsg: 'navigateBack:ok' }))
+    } catch (error) {
+      const message = (error as Error).message ?? ''
+      this.invokeFailureCallback(callback, null, message.startsWith('navigateBack:fail')
+        ? message : `navigateBack:fail ${message}`)
     }
-    this.invokeSuccessCallback(callback, null);
   }
 
   switchTab(data: DMPMap, callback: DMPBridgeCallback) {

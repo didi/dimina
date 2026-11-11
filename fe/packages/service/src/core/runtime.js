@@ -106,20 +106,20 @@ class Runtime {
 		}
 	}
 
-	async dispatchEvent({ instance, bridgeId, moduleId, methodName, event }) {
+	dispatchEvent({ instance, bridgeId, moduleId, methodName, event }) {
 		if (isFunction(instance[methodName])) {
 			const result = invokeSafely(instance, instance[methodName], [event], `event ${methodName}`)
-			try {
-				return await result
+			if (result && isFunction(result.then)) {
+				return Promise.resolve(result).catch((error) => {
+					if (isFunction(instance.componentError)) {
+						instance.componentError(error)
+					}
+					reportAppError(error)
+					console.error(`[service] event ${methodName} error:`, error)
+					return undefined
+				})
 			}
-			catch (error) {
-				if (isFunction(instance.componentError)) {
-					instance.componentError(error)
-				}
-				reportAppError(error)
-				console.error(`[service] event ${methodName} error:`, error)
-				return undefined
-			}
+			return result
 		}
 		console.warn(`[service] triggerEvent ${bridgeId} ${moduleId}, is: ${instance.is}, method: ${methodName} is not exist`)
 	}

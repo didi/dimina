@@ -912,6 +912,14 @@ class DiminaActivity : ComponentActivity() {
         homeButtonHiddenForPage.value = true
     }
 
+    fun navigateBack(delta: Int = 1): Boolean =
+        activityRegistry.navigateBack(miniProgram.appId, delta) { activity ->
+            activity.runOnUiThread {
+                activity.preserveMiniAppOnDestroy = true
+                activity.finish()
+            }
+        }
+
     fun switchTab(url: String): Boolean {
         if (!::appConfig.isInitialized) {
             return false

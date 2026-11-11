@@ -1,3 +1,5 @@
+import { configurePureDataPattern } from '../../core/pure-data'
+import { callDefinitionFilters } from '../../core/definition-filter'
 import { filterData, mergeBehaviors, serializeProps } from '../../core/utils'
 
 export class ComponentModule {
@@ -8,6 +10,8 @@ export class ComponentModule {
 	 * @param {{data: object, lifetimes: object, pageLifetimes: object, methods: object, options: object, properties: object}} moduleInfo
 	 */
 	constructor(moduleInfo, extraInfo) {
+		configurePureDataPattern(moduleInfo, extraInfo)
+		callDefinitionFilters(moduleInfo)
 		this.moduleInfo = moduleInfo
 		this.extraInfo = extraInfo
 		this.type = ComponentModule.type
@@ -35,9 +39,13 @@ export class ComponentModule {
 				}
 			}
 		}
-		if (builtinBehaviors.length) {
+		const pureDataPattern = this.moduleInfo.options?.pureDataPattern
+		if (builtinBehaviors.length || pureDataPattern instanceof RegExp) {
 			props ||= {}
-			props.__diminaMeta = { builtinBehaviors }
+			props.__diminaMeta = {
+				...(builtinBehaviors.length ? { builtinBehaviors } : {}),
+				...(pureDataPattern instanceof RegExp ? { pureDataPattern: [pureDataPattern.source, pureDataPattern.flags] } : {}),
+			}
 		}
 		return props
 	}

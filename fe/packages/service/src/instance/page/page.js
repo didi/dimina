@@ -1,3 +1,4 @@
+import { filterRenderData } from '../../core/pure-data'
 import { cloneDeep, isFunction } from '@dimina/common'
 import { createSelectorQuery } from '../../api/core/wxml/selector-query'
 import message from '../../core/message'
@@ -5,7 +6,7 @@ import runtime from '../../core/runtime'
 import { applyDataUpdates } from '../../core/data-update'
 import { invokeSafely, invokeSafelyAll } from '../../core/safe-callback'
 import { createUpdateCallback, enqueueUpdate } from '../../core/update-queue'
-import { isChildComponent, matchComponent, syncUpdateChildrenProps } from '../../core/utils'
+import { isChildComponent, matchComponent, resolveComponentExport, syncUpdateChildrenProps } from '../../core/utils'
 
 // https://developers.weixin.qq.com/miniprogram/dev/reference/api/Page.html
 // const lifecycleMethods = ['onLoad', 'onShow', 'onReady', 'onHide', 'onUnload',
@@ -52,7 +53,7 @@ export class Page {
 			body: {
 				bridgeId: this.bridgeId,
 				path: this.is,
-				data: this.data,
+				data: filterRenderData(this.data, this.__info__.options?.pureDataPattern),
 			},
 		})
 	}
@@ -131,14 +132,7 @@ export class Page {
 			return null
 		}
 
-		// 检查组件是否使用了 wx://component-export behavior
-		if (matchedComponent.hasBehavior && matchedComponent.hasBehavior('wx://component-export') && matchedComponent.export) {
-			// 如果组件定义了 export 方法，返回自定义的导出结果
-			return matchedComponent.export()
-		}
-
-		// 默认返回组件实例本身
-		return matchedComponent
+		return resolveComponentExport(matchedComponent, this)
 	}
 
 	/**
@@ -152,13 +146,7 @@ export class Page {
 			isChildComponent(item, this.__id__, children) && matchComponent(selector, item),
 		)
 
-		// 处理每个匹配的组件，检查是否有自定义导出
-		return matchedComponents.map(component => {
-			if (component.hasBehavior && component.hasBehavior('wx://component-export') && component.export) {
-				return component.export()
-			}
-			return component
-		})
+		return matchedComponents.map(component => resolveComponentExport(component, this))
 	}
 
 	// 开发者自定义函数

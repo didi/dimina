@@ -1,3 +1,4 @@
+import { filterRenderData } from './pure-data'
 import { camelCaseToUnderscore, cloneDeep, deepEqual, get, isFunction, isNil, normalizePropertyDefinition, propertyBindingPathMatches, propertyBindingPaths, toCamelCase } from '@dimina/common'
 import { invokeDataObservers, invokePropertyChanges, parseDataPath } from './data-update'
 
@@ -445,6 +446,15 @@ export function mergeBehaviors(obj, behaviors) {
 	}
 }
 
+export function resolveComponentExport(component, owner) {
+	if (!component) return null
+	if (component.hasBehavior?.('wx://component-export') && isFunction(component.export)) {
+		const result = component.export(owner)
+		if (result !== undefined) return result
+	}
+	return component
+}
+
 /**
  * 检查一个组件是否是指定组件的子组件(包括深层嵌套)
  * ComponentA (__id__: 'a')
@@ -624,7 +634,7 @@ export function syncUpdateChildrenProps(parent, allInstances, changedData, chang
 			const normalizedData = appliedData || child.normalizePropertyValues?.(incomingData) || incomingData
 			child.__pendingSyncedProps__ = child.__pendingSyncedProps__ || {}
 			Object.assign(child.__pendingSyncedProps__, incomingData)
-			syncedChildren.push({ child, data: normalizedData })
+			syncedChildren.push({ child, data: filterRenderData(normalizedData, child.__info__?.options?.pureDataPattern) })
 		}
 	}
 

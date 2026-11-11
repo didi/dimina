@@ -33,6 +33,23 @@ internal class MiniProgramActivityRegistry<T> {
     @Synchronized
     fun snapshot(appId: String): List<T> = activitiesByAppId[appId]?.toList().orEmpty()
 
+    /**
+     * Atomically removes up to [delta] pages from the top while retaining the first page.
+     * Remove entries before finishing Activities so a second call cannot pop a pending destroy.
+     */
+    fun navigateBack(appId: String, delta: Int, close: (T) -> Unit): Boolean {
+        val toClose = synchronized(this) {
+            val activities = activitiesByAppId[appId] ?: return false
+            val count = delta.coerceAtLeast(1).coerceAtMost(activities.size - 1)
+            if (count <= 0) return false
+            activities.toList().takeLast(count).also { pages ->
+                activities.removeAll(pages.toSet())
+            }
+        }
+        toClose.asReversed().forEach(close)
+        return true
+    }
+
     fun closeEveryApp(close: (T) -> Unit) {
         val activities = synchronized(this) {
             val snapshot = activitiesByAppId.values.flatMap { it.toList() }

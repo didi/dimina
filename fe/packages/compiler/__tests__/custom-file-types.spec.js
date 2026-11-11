@@ -439,8 +439,8 @@ module.exports = { srcFn: srcFn }
 		expect(fs.existsSync(outputPath)).toBe(true)
 
 		const output = fs.readFileSync(outputPath, 'utf-8')
-		// 内联 <qds module="m1"> → 以模块名 m1 注册（与 <wxs module> 等价形态）
-		expect(output).toContain('modDefine("m1"')
+		// Inline view scripts use the declaring template path as their module namespace.
+		expect(output).toContain('modDefine("wxs-inline:/pages/vs/index#m1"')
 		expect(output).toContain('inlineFn')
 		expect(output).toContain('from inline qds')
 		// src 引用的 .qds 文件 → 以文件路径派生 id 注册（与 <wxs src> 等价形态）。
@@ -449,7 +449,7 @@ module.exports = { srcFn: srcFn }
 		expect(output).toContain('srcFn')
 		expect(output).toContain('from src qds')
 		// 页面 render 通过依赖注入引用这两个 qds 模块（证明 .qds + <qds> 被当 WXS 类脚本编进来了）
-		expect(output).toContain('"m1"')
+		expect(output).toContain('"wxs-inline:/pages/vs/index#m1"')
 		expect(output).toContain('"pages_vs_util"')
 		// WXS 类脚本特征：exports（压缩后可能是 t.exports / module.exports / n.exports 等）
 		expect(output).toMatch(/\w\.exports/)

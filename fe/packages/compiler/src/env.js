@@ -524,6 +524,7 @@ function storeComponentConfig(pageJsonContent, pageFilePath) {
 			id: uuid(moduleId),
 			path: moduleId,
 			component: isComponent,
+			pureDataPattern: cContent.pureDataPattern,
 			styleIsolation,
 			usingComponents: cComponents,
 			componentPlaceholder: { ...(cContent.componentPlaceholder || {}) },
@@ -728,6 +729,7 @@ function getPages() {
 		return {
 			id: uuid(path),
 			path,
+			pureDataPattern: pageInfo[path]?.pureDataPattern,
 			appStyleScopeId: getAppStyleScopeId(),
 			sharedStyleScopeIds: collectSharedStyleScopeIds(mergedComponents),
 			usingComponents: mergedComponents,
@@ -751,6 +753,7 @@ function getPages() {
 				return {
 					id: uuid(fullPath),
 					path: fullPath,
+					pureDataPattern: pageInfo[fullPath]?.pureDataPattern,
 					appStyleScopeId: getAppStyleScopeId(),
 					sharedStyleScopeIds: collectSharedStyleScopeIds(mergedComponents),
 					usingComponents: mergedComponents,

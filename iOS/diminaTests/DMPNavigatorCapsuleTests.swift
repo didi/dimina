@@ -10,6 +10,19 @@ import XCTest
 
 @MainActor
 final class DMPNavigatorCapsuleTests: XCTestCase {
+    private final class NavigationDidShowObserver: NSObject, UINavigationControllerDelegate {
+        var onDidShow: ((UIViewController) -> Void)?
+        func navigationController(_ navigationController: UINavigationController,
+                                  didShow viewController: UIViewController, animated: Bool) {
+            onDidShow?(viewController)
+        }
+    }
+
+    private final class RejectingPopNavigationController: UINavigationController {
+        override func popToViewController(_ viewController: UIViewController, animated: Bool) -> [UIViewController]? {
+            nil
+        }
+    }
 
     func testPageForegroundUpdatesStatusBarAlongsideCapsule() async throws {
         let fixture = await makeRoutingFixture(name: "navigation-foreground")
@@ -635,6 +648,139 @@ final class DMPNavigatorCapsuleTests: XCTestCase {
         await service.drainPendingContainerMessages()
 
         XCTAssertEqual(recorder.types.filter { $0 == "pageUnload" }, ["pageUnload"])
+    }
+
+
+    func testNavigateBackAPIRejectsFirstPageWithoutLeavingTheMiniProgram() async throws {
+        _ = RouteAPI()
+        let handler = try XCTUnwrap(DMPContainerApi.getHandler(for: "navigateBack"))
+        for includesHost in [false, true] {
+            let fixture = await makeRoutingFixture(name: "back-first-page", includesHost: includesHost,
+                                                   registeredWithManager: true)
+            defer { fixture.app.destroy(); destroyRoutingFixture(fixture) }
+            let launched = await fixture.navigator.launch(
+                to: "pages/index/index", animated: false, showsLaunchLoading: false
+            )
+            XCTAssertTrue(launched)
+            let controllers = fixture.navigationController.viewControllers
+            let webViewId = fixture.app.getCurrentWebViewId()
+            await fixture.service.drainPendingContainerMessages()
+            fixture.recorder.types.removeAll()
+            let complete = expectation(description: "first page reports failure")
+            var types: [DMPBridgeCallbackType] = []
+            var messages: [String] = []
+            _ = handler(
+                DMPBridgeParam(value: ["delta": 99]),
+                DMPBridgeEnv(appIndex: fixture.app.getAppIndex(), appId: fixture.app.getAppId(), webViewId: webViewId)
+            ) { result, type in
+                types.append(type)
+                messages.append(result.get("errMsg") as? String ?? "")
+                if type == .complete { complete.fulfill() }
+            }
+            await fulfillment(of: [complete], timeout: 1)
+            await fixture.service.drainPendingContainerMessages()
+            XCTAssertEqual(types, [.fail, .complete])
+            XCTAssertEqual(messages, Array(repeating: "navigateBack:fail cannot navigate back at first page.", count: 2))
+            XCTAssertEqual(fixture.navigationController.viewControllers.count, controllers.count)
+            XCTAssertTrue(zip(fixture.navigationController.viewControllers, controllers).allSatisfy { $0.0 === $0.1 })
+            XCTAssertEqual(fixture.app.getCurrentWebViewId(), webViewId)
+            XCTAssertNotNil(fixture.app.service)
+            XCTAssertFalse(fixture.recorder.types.contains("pageUnload"))
+        }
+    }
+
+    func testNavigateBackPageClampsDeltaAndRetainsItsRootRecord() async throws {
+        let fixture = await makeRoutingFixture(name: "back-page-delta")
+        defer { destroyRoutingFixture(fixture) }
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousWindow = scene.windows.first(where: \.isKeyWindow)
+        let window = UIWindow(windowScene: scene)
+        window.rootViewController = fixture.navigationController
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            previousWindow?.makeKey()
+        }
+        let observer = NavigationDidShowObserver()
+        fixture.navigationController.delegate = observer
+        func showPage(_ operation: () async -> Void) async {
+            let shown = expectation(description: "native page didShow")
+            observer.onDidShow = { controller in
+                guard controller is DMPPageController else { return }
+                observer.onDidShow = nil
+                shown.fulfill()
+            }
+            await operation()
+            await fulfillment(of: [shown], timeout: 1)
+        }
+        var launched = false
+        await showPage {
+            launched = await fixture.navigator.launch(
+                to: "pages/index/index", animated: false, showsLaunchLoading: false
+            )
+        }
+        XCTAssertTrue(launched)
+        let root = try XCTUnwrap(fixture.navigationController.topViewController)
+        await showPage { await fixture.navigator.navigateTo(to: "pages/detail/index", animated: false) }
+        await showPage { await fixture.navigator.navigateTo(to: "pages/detail/index", animated: false) }
+        let returned = expectation(description: "native root didShow")
+        observer.onDidShow = { controller in
+            guard controller === root else { return }
+            observer.onDidShow = nil
+            returned.fulfill()
+        }
+        XCTAssertTrue(fixture.navigator.navigateBackPage(delta: Int.max))
+        await fulfillment(of: [returned], timeout: 1)
+        XCTAssertTrue(fixture.navigationController.topViewController === root)
+        XCTAssertNotNil(fixture.navigator.getTopPageRecord())
+        XCTAssertFalse(fixture.navigator.navigateBackPage())
+        XCTAssertTrue(fixture.navigationController.topViewController === root)
+    }
+
+    func testNavigateBackAPIKeepsPageRecordsWhenUIKitRejectsThePop() async throws {
+        _ = RouteAPI()
+        let fixture = await makeRoutingFixture(name: "back-rejected", registeredWithManager: true,
+                                               navigation: RejectingPopNavigationController())
+        defer { fixture.app.destroy(); destroyRoutingFixture(fixture) }
+        let launched = await fixture.navigator.launch(
+            to: "pages/index/index", animated: false, showsLaunchLoading: false
+        )
+        XCTAssertTrue(launched)
+        await fixture.navigator.navigateTo(to: "pages/detail/index", animated: false)
+        let record = try XCTUnwrap(fixture.navigator.getTopPageRecord())
+        let top = fixture.navigationController.topViewController
+        let count = fixture.navigationController.viewControllers.count
+        await fixture.service.drainPendingContainerMessages()
+        fixture.recorder.types.removeAll()
+        let handler = try XCTUnwrap(DMPContainerApi.getHandler(for: "navigateBack"))
+        let completed = expectation(description: "rejected pop reports failure")
+        var types: [DMPBridgeCallbackType] = []
+        var messages: [String] = []
+        _ = handler(DMPBridgeParam(value: ["delta": 1]),
+                    DMPBridgeEnv(appIndex: fixture.app.getAppIndex(), appId: fixture.app.getAppId(),
+                                 webViewId: fixture.app.getCurrentWebViewId())) { result, type in
+            types.append(type)
+            messages.append(result.get("errMsg") as? String ?? "")
+            if type == .complete { completed.fulfill() }
+        }
+        await fulfillment(of: [completed], timeout: 1)
+        await fixture.service.drainPendingContainerMessages()
+        XCTAssertEqual(types, [.fail, .complete])
+        XCTAssertEqual(messages, Array(repeating: "navigateBack:fail navigation was not accepted", count: 2))
+        XCTAssertTrue(fixture.navigator.getTopPageRecord() === record)
+        XCTAssertTrue(fixture.navigationController.topViewController === top)
+        XCTAssertEqual(fixture.navigationController.viewControllers.count, count)
+        XCTAssertFalse(fixture.recorder.types.contains("pageUnload"))
+    }
+
+    func testNavigateBackDeltaAcceptsNumbersAndDefaultsOtherTypesToOne() {
+        let cases: [(Any?, Int)] = [
+            (nil, 1), ("2", 1), (true, 1), (0, 1), (-2, 1), (2.9, 2), (3, 3),
+            (Double.greatestFiniteMagnitude, Int.max),
+        ]
+        for (value, expected) in cases {
+            XCTAssertEqual(RouteAPI.navigationBackDelta(value), expected)
+        }
     }
 
     func testNavigateBackDispatchesOneUnloadForEachRemovedPage() async throws {
@@ -2370,7 +2516,8 @@ final class DMPNavigatorCapsuleTests: XCTestCase {
         name: String,
         includesHost: Bool = true,
         bundleConfig: DMPBundleAppConfig? = nil,
-        registeredWithManager: Bool = false
+        registeredWithManager: Bool = false,
+        navigation: UINavigationController? = nil
     ) async -> RoutingFixture {
         let appConfig = DMPAppConfig(appName: name, appId: "\(name)-\(UUID().uuidString)")
         let app = registeredWithManager
@@ -2385,7 +2532,7 @@ final class DMPNavigatorCapsuleTests: XCTestCase {
         app.markAppRuntimeReady()
 
         let navigator = app.getNavigator()!
-        let navigationController = UINavigationController()
+        let navigationController = navigation ?? UINavigationController()
         if includesHost {
             navigationController.setViewControllers([UIViewController()], animated: false)
         }

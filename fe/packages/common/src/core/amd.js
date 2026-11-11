@@ -1,81 +1,69 @@
 import { isFunction } from './utils'
 
-const JSModules = {} // 缓存已定义的模块
-const MODULES_STATUS_UNLOAD = 1 // 未加载
-const MODULES_STATUS_LOADED = 2 // 已加载
+const JSModules = Object.create(null)
+const MODULES_STATUS_UNLOAD = 1
+const MODULES_STATUS_LOADED = 2
 
-// 模块定义函数
 function modDefine(id, factory) {
-	if (!JSModules[id]) {
-		JSModules[id] = {
-			factory,
-			status: MODULES_STATUS_UNLOAD,
-			exports: undefined,
-		}
+	const previous = JSModules[id]
+	// WebNode keeps identical definitions cached, but replaces a changed factory.
+	if (previous?.factory && previous.factory.toString() === factory?.toString()) {
+		return
 	}
+	JSModules[id] = { factory, status: MODULES_STATUS_UNLOAD, exports: undefined }
 }
 
 function hasModule(id) {
 	return Object.prototype.hasOwnProperty.call(JSModules, id)
 }
 
-// 模块加载函数
-function modRequire(id, callback, errorCallback) {
-	if (typeof id !== 'string') {
-		throw new TypeError('require args must be a string')
-	}
+function evaluateModule(id) {
 	const mod = JSModules[id]
 	if (!mod) {
 		throw new Error(`module ${id} not found`)
 	}
-
 	if (mod.status === MODULES_STATUS_UNLOAD) {
+		const module = { exports: {} }
+		// Circular requires must see the initial exports object before the factory runs.
+		mod.exports = module.exports
 		mod.status = MODULES_STATUS_LOADED
-		const module = {
-			exports: {},
-		}
-		let res
 		try {
-			if (mod.factory) {
-				res = mod.factory.call(null, modRequire, module, module.exports)
-			}
+			const factory = mod.factory
+			const result = factory?.(modRequire, module, module.exports)
+			mod.exports = module.exports === undefined ? result : module.exports
 		}
-		catch (e) {
+		catch (error) {
 			mod.status = MODULES_STATUS_UNLOAD
-			const em = `
-				name: ${e.name}
-				msg: ${e.message}
-				stack:
-				${e.stack}
-			`
-			console.error(`require ${id} error: ${em}`)
-			if (isFunction(globalThis.__diminaReportError)) {
-				globalThis.__diminaReportError(e)
-			}
-			if (isFunction(errorCallback)) {
-				errorCallback({ mod: id, errMsg: e.message })
-			}
+			mod.exports = undefined
+			throw error
 		}
-		mod.exports = module.exports === undefined ? res : module.exports
 	}
-
-	if (isFunction(callback)) {
-		callback(mod.exports)
-	}
-
 	return mod.exports
 }
 
-// TODO:https://developers.weixin.qq.com/miniprogram/dev/reference/api/require.html
-modRequire.async = async (id) => {
-	return new Promise((resolve, reject) => {
-		try {
-			resolve(modRequire(id))
-		}
-		catch (e) {
-			reject(new Error(`${e.message}: Failed to initialize asynchronous loading for module '${id}'`))
-		}
-	})
+function modRequire(id, callback, errorCallback) {
+	if (typeof id !== 'string') {
+		throw new TypeError('require args must be a string')
+	}
+	if (isFunction(callback)) {
+		// Callback require is asynchronous even when the module is cached.
+		setTimeout(() => {
+			try {
+				callback(evaluateModule(id))
+			}
+			catch (error) {
+				if (isFunction(errorCallback)) {
+					errorCallback({ mod: id, errMsg: error?.message || 'async require: fail' })
+				}
+			}
+		}, 0)
+		return
+	}
+	return evaluateModule(id)
 }
+
+modRequire.async = id => new Promise((resolve, reject) => {
+	modRequire(id, resolve, reject)
+})
 
 export { hasModule, modDefine, modRequire }

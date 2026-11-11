@@ -40,9 +40,9 @@ export function openAppAuthorizeSetting(opts) {
  * https://developers.weixin.qq.com/miniprogram/dev/api/base/system/wx.getSystemInfo.html
  */
 export function getSystemInfo(opts) {
-	return new Promise((resolve) => {
-		resolve(invokeAPI('getSystemInfo', opts))
-	})
+	const result = invokeAPI('getSystemInfo', opts)
+	if (opts && ['success', 'fail', 'complete'].some(key => Object.hasOwn(opts, key))) return
+	return result
 }
 
 /**

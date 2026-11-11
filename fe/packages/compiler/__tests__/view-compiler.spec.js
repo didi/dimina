@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { generateVModelTemplate, generateSlotDirective, parseBraceExp, parseClassRules, parseKeyExpression, parseTemplateDataExp, processWxsContent, splitWithBraces } from '../src/core/view-compiler'
 
 describe('parseKeyExpression - 解析 key 表达式', () => {
-	it('默认索引名 index - 应该直接返回 index', () => {
-		expect(parseKeyExpression('index')).toEqual('index')
+	it('静态 index 字段 - 应该读取 item.index', () => {
+		expect(parseKeyExpression('index')).toEqual('item.index')
 	})
 	
 	it('普通属性名 - 应该添加 item 前缀', () => {
@@ -26,12 +26,12 @@ describe('parseKeyExpression - 解析 key 表达式', () => {
 		expect(parseKeyExpression('{{ text }}')).toEqual('item.text')
 	})
 
-	it('*this 关键字 - 应该转换为 toString 方法', () => {
-		expect(parseKeyExpression('*this')).toEqual('item.toString()')
+	it('*this 关键字 - 应该保留当前元素值', () => {
+		expect(parseKeyExpression('*this')).toEqual('item')
 	})
 
-	it('双花括号包裹的 this - 应该转换为 toString 方法', () => {
-		expect(parseKeyExpression('{{ this }}')).toEqual('item.toString()')
+	it('双花括号包裹的 this - 应该保留当前元素值', () => {
+		expect(parseKeyExpression('{{ this }}')).toEqual('item')
 	})
 	
 	it('正整数 - 应该直接返回数字', () => {
@@ -70,8 +70,8 @@ describe('parseKeyExpression - 解析 key 表达式', () => {
 		expect(parseKeyExpression('1-{{item.index}}')).toEqual('\'1-\'+item.index')
 	})
 	
-	it('自定义索引名 - 应该直接返回自定义索引名', () => {
-		expect(parseKeyExpression('i', 'item', 'i')).toEqual('i')
+	it('静态 key 与索引同名 - 仍应该读取 item 属性', () => {
+		expect(parseKeyExpression('i', 'item', 'i')).toEqual('item.i')
 	})
 	
 	it('自定义索引名在花括号中 - 应该直接返回自定义索引名', () => {

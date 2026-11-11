@@ -378,7 +378,7 @@ describe('Component.tO observer ordering', () => {
 		expect(instance.data.show).toBe(true)
 	})
 
-	it('does not throw when triggerEvent has no external listener', async () => {
+	it('does not throw when triggerEvent has no external listener', () => {
 		const instance = {
 			bridgeId: 'bridge-1',
 			__pageId__: 'page-1',
@@ -386,9 +386,9 @@ describe('Component.tO observer ordering', () => {
 			id: 'tabs-1',
 			dataset: {},
 		}
-		const trigger = vi.spyOn(runtime, 'triggerEvent')
+		const trigger = vi.spyOn(runtime, 'dispatchEvent')
 
-		await expect(Component.prototype.triggerEvent.call(instance, 'change', { value: 'follow' })).resolves.toBeUndefined()
+		expect(Component.prototype.triggerEvent.call(instance, 'change', { value: 'follow' })).toBeUndefined()
 		expect(trigger).not.toHaveBeenCalled()
 
 		trigger.mockRestore()

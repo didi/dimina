@@ -1,9 +1,10 @@
 import { modDefine, modRequire } from '@dimina/common'
 import { installDebug } from './debug'
+import { registerBehavior } from './definition-filter'
 import globalApi, { registerEnumerableApiNames } from '../api'
 import { ComponentModule } from '../instance/component/component-module'
 import { PageModule } from '../instance/page/page-module'
-import { installGlobalErrorHandler, reportAppError } from './app-events'
+import { installGlobalErrorHandler } from './app-events'
 import { installBackgroundScheduler } from './background-scheduler'
 import loader from './loader'
 import router from './router'
@@ -17,9 +18,6 @@ class Env {
 	init() {
 		installDebug()
 		installBackgroundScheduler()
-		// common 层的 AMD loader 无法反向依赖 service；通过一个仅 service
-		// 上下文安装的 hook，把 app/page 模块求值错误送进 App.onError/wx.onError。
-		globalThis.__diminaReportError = reportAppError
 		installGlobalErrorHandler()
 
 		// Register API namespaces (dd, wx are built-in; custom ones from config)
@@ -69,9 +67,7 @@ class Env {
 		/**
 		 * https://developers.weixin.qq.com/miniprogram/dev/reference/api/Behavior.html
 		 */
-		globalThis.Behavior = (behaviorInfo) => {
-			return behaviorInfo
-		}
+		globalThis.Behavior = registerBehavior
 
 		/**
 		 * 获取到小程序全局唯一的 App 实例
@@ -85,7 +81,7 @@ class Env {
 		 * https://developers.weixin.qq.com/miniprogram/dev/reference/api/getCurrentPages.html
 		 */
 		globalThis.getCurrentPages = () =>
-			router.stack()
+			router.stack().slice()
 	}
 }
 

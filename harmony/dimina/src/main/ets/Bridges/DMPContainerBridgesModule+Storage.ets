@@ -53,8 +53,14 @@ export class DMPContainerBridgesModuleStorage extends DMPContainerBridgesModule 
   }
 
   getStorage(data: DMPMap, callback: DMPBridgeCallback) {
-    const result: DMPMap = new DMPMap()
-    result.set('data', this._getStorage(this._getKey(data)));
+    const record = this.getStorageManager().decode(this._getKey(data));
+    if (!record.getString('type')) {
+      this.invokeFailureCallback(callback, null, 'getStorage:fail data not found');
+      return;
+    }
+    const result: DMPMap = new DMPMap();
+    result.set('data', record.get('value'));
+    result.set('errMsg', 'getStorage:ok');
     this.invokeSuccessCallback(callback, result);
   }
 
@@ -83,6 +89,9 @@ export class DMPContainerBridgesModuleStorage extends DMPContainerBridgesModule 
   clearStorage(data: DMPMap, callback: DMPBridgeCallback) {
     const mgr = this.getStorageManager()
     mgr.clear()
+    const result = new DMPMap();
+    result.set('errMsg', 'clearStorage:ok');
+    this.invokeSuccessCallback(callback, result);
   }
 
   _getStorage(key: string): number | string | boolean | Date | object {
@@ -109,12 +118,12 @@ export class DMPContainerBridgesModuleStorage extends DMPContainerBridgesModule 
   _getStorageInfo(): DMPMap {
     const mgr = this.getStorageManager()
 
-    const currentSize = mgr.totalSize()
+    const currentSize = Math.ceil(mgr.totalSize() / 1024)
     const keys = mgr.keys() as Array<string>
 
     let result = new Object() as object
 
-    const storageTotalLimit = 10 * 1024 * 1024; // 所有数据存储上限为 10MB
+    const storageTotalLimit = 10 * 1024; // Storage API reports sizes in KB (10MB).
     // const DMPStorageLengthLimit = 1024 * 1024; // 单个 key 允许存储的最大数据长度为 1MB
 
     result['keys'] = keys;

@@ -168,4 +168,64 @@ class MiniProgramActivityRegistryTest {
         assertEquals("page-1", kept)
         assertEquals(listOf("page-3", "page-2", "root"), closed)
     }
+
+    @Test
+    fun `navigateBack closes delta pages from top and leaves other mini programs untouched`() {
+        val registry = MiniProgramActivityRegistry<String>()
+        listOf("root", "page-1", "page-2", "page-3").forEach { registry.register("app", it) }
+        registry.register("other", "other-root")
+        val closed = mutableListOf<String>()
+
+        assertTrue(registry.navigateBack("app", 2, closed::add))
+
+        assertEquals(listOf("page-3", "page-2"), closed)
+        assertEquals(listOf("root", "page-1"), registry.snapshot("app"))
+        assertEquals(listOf("other-root"), registry.snapshot("other"))
+    }
+
+    @Test
+    fun `navigateBack clamps an oversized delta and preserves the first page`() {
+        val registry = MiniProgramActivityRegistry<String>()
+        listOf("root", "page-1", "page-2").forEach { registry.register("app", it) }
+        val closed = mutableListOf<String>()
+
+        assertTrue(registry.navigateBack("app", Int.MAX_VALUE, closed::add))
+
+        assertEquals(listOf("page-2", "page-1"), closed)
+        assertEquals(listOf("root"), registry.snapshot("app"))
+    }
+
+    @Test
+    fun `navigateBack fails at the first page without closing or hiding it`() {
+        val registry = MiniProgramActivityRegistry<String>()
+        registry.register("app", "root")
+        val closed = mutableListOf<String>()
+
+        org.junit.Assert.assertFalse(registry.navigateBack("app", 1, closed::add))
+        org.junit.Assert.assertFalse(registry.navigateBack("missing", 1, closed::add))
+
+        assertTrue(closed.isEmpty())
+        assertEquals(listOf("root"), registry.snapshot("app"))
+    }
+
+    @Test
+    fun `navigateBack removes pending destroys before closing and retains newly opened pages`() {
+        val registry = MiniProgramActivityRegistry<String>()
+        listOf("root", "page-1", "page-2", "page-3").forEach { registry.register("app", it) }
+        val closed = mutableListOf<String>()
+
+        assertTrue(registry.navigateBack("app", 2) { page ->
+            assertEquals(listOf("root", "page-1"), registry.snapshot("app"))
+            closed.add(page)
+        })
+        assertTrue(registry.navigateBack("app", 1) { page ->
+            assertEquals(listOf("root"), registry.snapshot("app"))
+            closed.add(page)
+            registry.register("app", "new-page")
+        })
+        listOf("page-1", "page-2", "page-3").forEach { registry.unregister("app", it) }
+
+        assertEquals(listOf("page-3", "page-2", "page-1"), closed)
+        assertEquals(listOf("root", "new-page"), registry.snapshot("app"))
+    }
 }

@@ -159,8 +159,8 @@ describe('全局组件 wxs 问题修复', () => {
 		expect(aboutContent).toContain('formatText')
 		
 		// 验证两个页面都包含 utils 模块定义
-		expect(indexContent).toContain('"utils"')
-		expect(aboutContent).toContain('"utils"')
+		expect(indexContent).toContain('"wxs-inline:/components/global-component/index#utils"')
+		expect(aboutContent).toContain('"wxs-inline:/components/global-component/index#utils"')
 		
 		// 验证两个页面都包含 wxs 模块的完整定义
 		expect(indexContent).toContain('from wxs')

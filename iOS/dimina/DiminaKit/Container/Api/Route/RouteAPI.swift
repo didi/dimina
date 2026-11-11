@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import CoreFoundation
 
 /**
  * Navigation API implementation
@@ -135,7 +136,16 @@ public class RouteAPI: DMPContainerApi {
                 app: app,
                 callback: callback
             ) else { return }
-            navigator.navigateBack(delta: param.getInt(key: "delta") ?? 1)
+            guard navigator.hasPreviousPage else {
+                RouteAPI.invokeFailure(api: RouteAPI.NAVIGATE_BACK, callback: callback,
+                                       reason: "cannot navigate back at first page.")
+                return
+            }
+            guard navigator.navigateBackPage(delta: RouteAPI.navigationBackDelta(param.get("delta"))) else {
+                RouteAPI.invokeFailure(api: RouteAPI.NAVIGATE_BACK, callback: callback,
+                                       reason: "navigation was not accepted")
+                return
+            }
             RouteAPI.invokeSuccess(api: RouteAPI.NAVIGATE_BACK, callback: callback)
         }
         return DMPAsyncResult()
@@ -465,6 +475,14 @@ public class RouteAPI: DMPContainerApi {
             }
         }
         return DMPAsyncResult()
+    }
+
+    static func navigationBackDelta(_ value: Any?) -> Int {
+        guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() else { return 1 }
+        let delta = number.doubleValue
+        guard delta.isFinite, delta >= 1 else { return 1 }
+        if delta >= Double(Int.max) { return Int.max }
+        return Int(delta)
     }
 
     static func invokeSuccess(api: String, callback: DMPBridgeCallback?) {

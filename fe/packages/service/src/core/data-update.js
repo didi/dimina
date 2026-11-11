@@ -1,3 +1,4 @@
+import { isPureDataField } from './pure-data'
 import { cloneDeep, get, isFunction, isString } from '@dimina/common'
 import { invokeSafely } from './safe-callback'
 
@@ -155,6 +156,11 @@ function getObserverDescriptors(info) {
 	}))
 }
 
+function invokeDataObserver(ctx, descriptor, data) {
+	const args = descriptor.paths.map(({ path }) => path.length === 0 ? data : get(data, path))
+	invokeSafely(ctx, descriptor.observer, args, 'data observer')
+}
+
 /** Invoke matching data observers once, in their registration order. */
 export function invokeDataObservers(ctx, changedPaths, data = ctx.data, info = ctx.__info__ || {}) {
 	for (const descriptor of getObserverDescriptors(info)) {
@@ -165,8 +171,7 @@ export function invokeDataObservers(ctx, changedPaths, data = ctx.data, info = c
 			continue
 		}
 
-		const args = descriptor.paths.map(({ path }) => path.length === 0 ? data : get(data, path))
-		invokeSafely(ctx, descriptor.observer, args, 'data observer')
+		invokeDataObserver(ctx, descriptor, data)
 	}
 }
 
@@ -196,7 +201,8 @@ function collectPropertyChanges(ctx, changes) {
 
 /**
  * Apply one setData transaction. setData calls made by a data observer join the
- * same transaction and are drained in a following observer pass.
+ * same transaction. Pending observers consume the latest data once; observers
+ * already visited are scheduled again when a nested update affects them.
  */
 export function applyDataUpdates(ctx, data, callback) {
 	if (!data || typeof data !== 'object' || Array.isArray(data)) {
@@ -207,7 +213,8 @@ export function applyDataUpdates(ctx, data, callback) {
 	const outermost = !ctx.__dataUpdateTransaction__
 	const transaction = ctx.__dataUpdateTransaction__ || {
 		changes: [],
-		pendingPaths: [],
+		observers: getObserverDescriptors(ctx.__info__ || {}),
+		pendingObservers: new Set(),
 		callbacks: [],
 	}
 	ctx.__dataUpdateTransaction__ = transaction
@@ -230,7 +237,11 @@ export function applyDataUpdates(ctx, data, callback) {
 		const oldValue = path.length === 1 ? ctx.data[path[0]] : undefined
 		setDataPathValue(ctx.data, path, value)
 		transaction.changes.push({ key, path, oldValue, value })
-		transaction.pendingPaths.push(path)
+		for (const descriptor of transaction.observers) {
+			if (isFunction(descriptor.observer) && descriptor.paths.some(observerPath => observerPathMatches(observerPath, path))) {
+				transaction.pendingObservers.add(descriptor)
+			}
+		}
 	}
 
 	if (!outermost) {
@@ -238,20 +249,25 @@ export function applyDataUpdates(ctx, data, callback) {
 	}
 
 	try {
-		while (transaction.pendingPaths.length > 0) {
-			const changedPaths = transaction.pendingPaths
-			transaction.pendingPaths = []
-			invokeDataObservers(ctx, changedPaths)
+		while (transaction.pendingObservers.size > 0) {
+			for (const descriptor of transaction.observers) {
+				if (transaction.pendingObservers.delete(descriptor)) {
+					invokeDataObserver(ctx, descriptor, ctx.data)
+				}
+			}
 		}
 	}
 	finally {
 		delete ctx.__dataUpdateTransaction__
 	}
 
+	const renderChanges = transaction.changes.filter(change => !isPureDataField(ctx.__info__?.options?.pureDataPattern, change.path[0]))
+	if (transaction.changes.length && !renderChanges.length && !transaction.callbacks.length) return null
+
 	return {
 		callbacks: transaction.callbacks,
-		changedData: makeChangedData(ctx, transaction.changes),
-		changes: transaction.changes.map(change => ({
+		changedData: makeChangedData(ctx, renderChanges),
+		changes: renderChanges.map(change => ({
 			path: change.path,
 			value: change.value,
 		})),
@@ -263,6 +279,7 @@ export function invokePropertyChanges(ctx, propertyChanges) {
 	const properties = ctx.__info__?.properties || {}
 
 	for (const change of propertyChanges) {
+		if (isPureDataField(ctx.__info__?.options?.pureDataPattern, change.propertyName)) continue
 		const definition = properties[change.propertyName]
 		const observer = definition?.observer
 		const path = change.path

@@ -57,6 +57,22 @@ describe('env.js API namespace registration', () => {
 		} finally { vi.unstubAllGlobals() }
 	})
 
+	it('returns a fresh getCurrentPages array while preserving page identities', async () => {
+		const { default: router } = await import('../src/core/router')
+		const pages = [{ id: 'first' }]
+		router.stack.mockReturnValue(pages)
+		try {
+			await import('../src/core/env.js')
+			const snapshot = globalThis.getCurrentPages()
+			expect(snapshot).not.toBe(pages)
+			expect(snapshot[0]).toBe(pages[0])
+			pages.push({ id: 'second' })
+			expect(snapshot).toHaveLength(1)
+			snapshot.pop()
+			expect(globalThis.getCurrentPages()).toHaveLength(2)
+		} finally { router.stack.mockReturnValue([]) }
+	})
+
 	it('should set dd and wx to globalApi', async () => {
 		await import('../src/core/env.js')
 

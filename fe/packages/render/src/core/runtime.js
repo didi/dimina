@@ -312,11 +312,17 @@ export function normalizeStaticBooleanAttributes(propertySchemas, values, vnode)
 }
 
 function renderTemplateList(source, renderItem, cache, index) {
-	if (renderItem.length !== 3) return renderList(source, renderItem, cache, index)
+	const numeric = typeof source === 'number'
+	if (numeric) {
+		// WXML iterates i = 0; i < source; i++, while Vue starts numeric ranges at 1
+		// and only accepts integers. Non-finite data must not hang the renderer.
+		source = Number.isFinite(source) && source > 0 ? Math.ceil(source) : 0
+	}
+	if (!numeric && renderItem.length !== 3) return renderList(source, renderItem, cache, index)
 	// The compiler reserves a third parameter to keep an outer loop index
 	// visible when an inner loop shadows it. Vue only supplies it for objects.
 	return renderList(source, (item, key, position, cached) => (
-		renderItem(item, key, position ?? key, cached)
+		renderItem(numeric ? item - 1 : item, key, renderItem.length === 3 ? position ?? key : position, cached)
 	), cache, index)
 }
 
@@ -1436,6 +1442,7 @@ class Runtime {
 					const eventAttr = normalizeEventAttributes(attrs)
 
 					const initialProperties = propertySnapshots.value.values
+					const renderProperties = data => module.filterRenderData ? module.filterRenderData(data) : data
 					const propertyNames = Object.keys(module.propertySchemas || {}).filter(name => (
 						hasVNodeProp(vueInstance.vnode.props, name)
 						|| (name === 'style' && hasVNodeProp(vueInstance.vnode.props, WXML_STYLE_PROP))
@@ -1563,14 +1570,15 @@ class Runtime {
 					}
 					let previousNormalizedProps = initialProperties
 					let propertiesBeforeInit = {}
-					Object.assign(data, cloneDeep(initialProperties))
+					Object.assign(data, cloneDeep(renderProperties(initialProperties)))
 
 					const publishPropertyUpdates = (updates, assigned) => {
 						if (Object.keys(updates).length === 0) return
 
-						Object.assign(data, cloneDeep(updates))
+						const visibleUpdates = renderProperties(updates)
+						Object.assign(data, cloneDeep(visibleUpdates))
 						if (propertiesBeforeInit) {
-							Object.assign(propertiesBeforeInit, updates)
+							Object.assign(propertiesBeforeInit, visibleUpdates)
 						}
 
 						message.send({
@@ -1629,7 +1637,7 @@ class Runtime {
 					that._pendingSetups.delete(moduleId)
 					_pendingResolve()
 					// The initial Service reply can still contain the props sent with mC.
-					that.applyInitialData(moduleId, data, { ...initData, ...cloneDeep(propertiesBeforeInit) })
+					that.applyInitialData(moduleId, data, renderProperties({ ...initData, ...cloneDeep(propertiesBeforeInit) }))
 					propertiesBeforeInit = null
 					return templateData
 				},

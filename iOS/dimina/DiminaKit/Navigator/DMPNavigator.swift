@@ -591,6 +591,19 @@ public class DMPNavigator: NSObject {
         dispatchPageShow(webViewId: pageController.getWebView().getWebViewId())
     }
 
+    /// wx.navigateBack preserves the first mini-program page.
+    @MainActor
+    var hasPreviousPage: Bool { pageRecords.count > 1 }
+
+    @MainActor
+    func navigateBackPage(delta: Int = 1) -> Bool {
+        guard let navigationController,
+              isActiveNavigationOwner(),
+              hasPreviousPage,
+              ownedViewControllers(in: navigationController).count > 1 else { return false }
+        return popPageControllers(delta: delta, animated: true)
+    }
+
     /// 返回上一页或多页
     @MainActor
     public func navigateBack(delta: Int = 1, animated: Bool = true, destroy: Bool = true) {
@@ -638,33 +651,34 @@ public class DMPNavigator: NSObject {
             return
         }
 
-        // 计算要返回的目标控制器索引
+        _ = popPageControllers(delta: delta, animated: animated)
+    }
+
+    @MainActor
+    private func popPageControllers(delta: Int, animated: Bool) -> Bool {
+        guard let navigationController else { return false }
+        let hostControllers = hostViewControllers(in: navigationController)
+        let currentIndex = navigationController.viewControllers.count - 1
         let targetIndex = max(currentIndex - max(delta, 1), hostControllers.count)
-        if targetIndex + 1 < navigationController.viewControllers.count {
-            navigationController.viewControllers[(targetIndex + 1)...]
-                .reversed()
-                .forEach { notifyRoutingUnload(for: $0) }
-        }
+        guard targetIndex >= 0, targetIndex < currentIndex else { return false }
+        let targetViewController = navigationController.viewControllers[targetIndex]
+        let outgoingControllers = Array(navigationController.viewControllers[(targetIndex + 1)...].reversed())
+        // UIKit can reject a pop during an in-flight presentation. Keep its page ledger intact
+        // unless UIKit accepted the operation; rejected navigation must not dispatch onUnload.
+        guard let removedControllers = navigationController.popToViewController(targetViewController, animated: animated),
+              !removedControllers.isEmpty else { return false }
+        outgoingControllers.forEach { notifyRoutingUnload(for: $0) }
 
         // 处理返回逻辑：最多弹到只剩栈底那条记录，首页记录必须留下——pageRecords 是
         // getCurrentWebViewId 的唯一来源，清空它会让之后的前后台切换和跨小程序派发拿到 -1。
-        let removalCount = min(max(delta, 1), max(pageRecords.count - 1, 0))
-        for _ in 0..<removalCount {
-            if navigationController.viewControllers.count <= 1 || pageRecords.isEmpty {
-                break
-            }
-
-            pageRecords.removeLast()
-        }
-
-        // 返回到目标控制器
-        let targetViewController = navigationController.viewControllers[targetIndex]
-        navigationController.popToViewController(targetViewController, animated: animated)
+        let removalCount = min(removedControllers.count, max(pageRecords.count - 1, 0))
+        pageRecords.removeLast(removalCount)
 
         // 显示前一个页面
         if let previousPageRecord = pageRecords.last {
             dispatchPageShow(webViewId: previousPageRecord.webViewId)
         }
+        return true
     }
 
     /// 返回首页（导航栏 home 按钮的唯一路由入口），终态都是只剩首页：

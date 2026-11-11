@@ -1,3 +1,5 @@
+import { configurePureDataPattern } from '../../core/pure-data'
+import { callDefinitionFilters } from '../../core/definition-filter'
 import { isFunction } from '@dimina/common'
 import { filterData, mergeBehaviors } from '../../core/utils'
 
@@ -5,6 +7,8 @@ export class PageModule {
 	static type = 'page'
 
 	constructor(moduleInfo, extraInfo) {
+		configurePureDataPattern(moduleInfo, extraInfo)
+		callDefinitionFilters(moduleInfo)
 		this.moduleInfo = moduleInfo
 		this.extraInfo = extraInfo
 		this.type = PageModule.type

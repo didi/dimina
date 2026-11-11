@@ -15,6 +15,7 @@ import {
 import { canIUse } from '../src/api/core/base'
 import { resetAppEvents } from '../src/core/app-events'
 import '../src/core/env'
+import message from '../src/core/message'
 import { invokeSafely } from '../src/core/safe-callback'
 import { App } from '../src/instance/app/app'
 
@@ -177,7 +178,9 @@ describe('application-level events', () => {
 			throw new Error('module-evaluation-failed')
 		})
 
-		modRequire(moduleId)
+		message.on(moduleId, () => modRequire(moduleId))
+		message.handleMsg({ type: moduleId, body: {} })
+		message.off(moduleId)
 		globalThis.onerror('uncaught-runtime-failed')
 
 		expect(appError).toHaveBeenCalledTimes(2)

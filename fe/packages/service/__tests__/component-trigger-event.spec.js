@@ -345,4 +345,76 @@ describe('Component triggerEvent', () => {
 
 		expect(calls).toEqual(['target'])
 	})
+	test('finishes capture and bubble listeners synchronously before returning', () => {
+		const calls = []
+		const bridgeId = 'sync-event-bridge'
+		const pageId = 'page-1'
+		runtime.instances[bridgeId] = {
+			[pageId]: {
+				capture: () => calls.push('capture'),
+				target: () => calls.push('target'),
+				bubble: () => calls.push('bubble'),
+			},
+		}
+		const component = createTestComponent({
+			bridgeId, moduleId: 'child', pageId, parentId: pageId,
+			eventAttr: { change: { bind: 'target' } },
+		})
+		component.__eventPath__ = [{
+			moduleId: pageId,
+			eventAttr: { change: { captureBind: 'capture', bind: 'bubble' } },
+		}]
+
+		const result = component.triggerEvent('change', {}, { bubbles: true, capturePhase: true })
+		calls.push('returned')
+
+		expect(result).toBeUndefined()
+		expect(calls).toEqual(['capture', 'target', 'bubble', 'returned'])
+	})
+
+	test('does not wait for a listener Promise or use its eventual false to stop bubbling', async () => {
+		const calls = []
+		const bridgeId = 'async-listener-bridge'
+		const pageId = 'page-1'
+		runtime.instances[bridgeId] = {
+			[pageId]: {
+				target: () => { calls.push('target'); return Promise.resolve(false) },
+				bubble: () => calls.push('bubble'),
+			},
+		}
+		const component = createTestComponent({
+			bridgeId, moduleId: 'child', pageId, parentId: pageId,
+			eventAttr: { change: { bind: 'target' } },
+		})
+		component.__eventPath__ = [{ moduleId: pageId, eventAttr: { change: { bind: 'bubble' } } }]
+
+		component.triggerEvent('change', {}, { bubbles: true })
+
+		expect(calls).toEqual(['target', 'bubble'])
+		await Promise.resolve()
+		expect(calls).toEqual(['target', 'bubble'])
+	})
+
+	test('runs service custom-event listeners before their component ready lifetime', () => {
+		const bridgeId = 'attached-event-bridge'
+		const parentId = 'parent'
+		const handler = vi.fn()
+		runtime.instances[bridgeId] = {
+			[parentId]: {
+				__type__: ComponentModule.type,
+				__isComponent__: true,
+				__componentReadied__: false,
+				handler,
+			},
+		}
+		const component = createTestComponent({
+			bridgeId, moduleId: 'child', pageId: parentId, parentId,
+			eventAttr: { change: { bind: 'handler' } },
+		})
+
+		component.triggerEvent('change', { attached: true })
+
+		expect(handler).toHaveBeenCalledWith(expect.objectContaining({ detail: { attached: true } }))
+	})
+
 })

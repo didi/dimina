@@ -256,4 +256,28 @@ describe('Skyline/exparser setData semantics', () => {
 			{ path: ['count'], value: 2 },
 		])
 	})
+	it('consumes pending observers once when an earlier observer changes their shared field', () => {
+		const calls = []
+		const page = makePage({
+			behaviorObserverList: [{
+				key: 'count',
+				observer(value) {
+					calls.push(['behavior', value])
+					if (value === 1) this.setData({ count: 2 })
+				},
+			}],
+			observers: {
+				count(value) { calls.push(['component', value]) },
+			},
+		})
+
+		page.setData({ count: 1 })
+
+		expect(calls).toEqual([
+			['behavior', 1],
+			['component', 2],
+			['behavior', 2],
+		])
+	})
+
 })

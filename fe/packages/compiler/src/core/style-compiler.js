@@ -88,6 +88,7 @@ if (!isMainThread) {
  *  编译样式文件
  */
 async function compileSS(pages, root, progress, options = {}) {
+	compileRes.clear()
 	// page 样式
 	for (const page of pages) {
 		const result = await buildCompileCss(page, new Set(), options)
@@ -291,7 +292,10 @@ function createStyleTransformPlugin(module, absolutePath, importResults, options
 
 			const importPath = node.params.replace(/^['"]|['"]$/g, '')
 			const importFullPath = resolveStyleImportPath(absolutePath, importPath)
-			node.remove()
+			// Keep an import placeholder in the rule stream until its compilation completes.
+			// Hoisting every import would change WXSS cascade order.
+			node.name = 'dimina-style-import'
+			node.params = String(importResults.length)
 			importResults.push(buildCompileCss({
 				absolutePath: importFullPath,
 				id: module.id,
@@ -339,6 +343,11 @@ async function enhanceCSS(module, options = {}) {
 		// 样式文件不存在
 		return { code: '', map: null }
 	}
+	const importPaths = options.importPaths || new Set()
+	if (importPaths.has(absolutePath)) {
+		throw createStyleCompileError('import', absolutePath, new Error('A WXSS file cannot import itself, directly or indirectly'))
+	}
+	const childOptions = { ...options, importPaths: new Set(importPaths).add(absolutePath) }
 	const graphOwnerPath = module.ownerPath || module.path
 	if (graphOwnerPath) {
 		getDependencyGraph().addFile(graphOwnerPath, absolutePath, 'style')
@@ -355,11 +364,13 @@ async function enhanceCSS(module, options = {}) {
 	}
 
 	// 预处理器编译
-	let processedCSS = normalizeRootStyleImports(inputCSS)
+	const ext = path.extname(absolutePath).toLowerCase()
+	let processedCSS = ['.less', '.scss', '.sass'].includes(ext)
+		? normalizeRootStyleImports(inputCSS)
+		: inputCSS
 	let processedMap = options.sourcemap
 		? createLineSourcemap(processedCSS, getStyleSourcePath(absolutePath), inputCSS)
 		: null
-	const ext = path.extname(absolutePath).toLowerCase()
 
 	try {
 		if (ext === '.less') {
@@ -416,7 +427,7 @@ async function enhanceCSS(module, options = {}) {
 			scoped: !!moduleId,
 			inMap: options.sourcemap ? processedMap : undefined,
 			postcssPlugins: [
-				createStyleTransformPlugin(module, absolutePath, importResults, options),
+				createStyleTransformPlugin(module, absolutePath, importResults, childOptions),
 			],
 		})
 		if (scopedResult.errors.length > 0) {
@@ -430,47 +441,47 @@ async function enhanceCSS(module, options = {}) {
 		throw createStyleCompileError(stage, absolutePath, error)
 	}
 
-	// external-class 与 autoprefixer/cssnano 共享一次 PostCSS 解析。
-	let finalResult
+	const importedChunks = await Promise.all(importResults)
+
+	let result
 	try {
-		const postcssPlugins = [createExternalClassPlugin(moduleId), autoprefixerPlugin]
+		const transformed = await postcss([createExternalClassPlugin(moduleId), autoprefixerPlugin])
+			.process(scopedResult.code, {
+				from: getStyleSourcePath(absolutePath),
+				map: getPostcssMapOptions(options.sourcemap, scopedResult.map),
+			})
+		const assembledRoot = transformed.root
+		assembledRoot.walkAtRules('dimina-style-import', (node) => {
+			const index = Number(node.params)
+			const imported = importedChunks[index]
+			if (!imported?.code) {
+				node.remove()
+				return
+			}
+			const importedRoot = postcss.parse(imported.code, {
+				from: getStyleSourcePath(absolutePath) + '.import-' + index,
+				map: options.sourcemap ? { prev: imported.map } : false,
+			})
+			node.replaceWith(importedRoot.nodes)
+		})
+		// Optimize only after replacing imports, so a minifier cannot merge local
+		// rules across a placeholder and move declarations past the imported CSS.
 		if (options.sourcemap) {
 			const cssnano = await loadCssnano()
-			postcssPlugins.push(cssnano())
-			finalResult = await postcss(postcssPlugins).process(scopedResult.code, {
-				from: undefined,
-				map: getPostcssMapOptions(true, scopedResult.map),
+			const finalResult = await postcss([cssnano()]).process(assembledRoot, {
+				from: getStyleSourcePath(absolutePath),
+				map: getPostcssMapOptions(true),
 			})
+			result = { code: finalResult.css, map: finalResult.map.toString() }
 		}
 		else {
-			const prefixedResult = await postcss(postcssPlugins).process(scopedResult.code, { from: undefined })
-			const minifiedResult = await transform(prefixedResult.css, {
-				loader: 'css',
-				minify: true,
-			})
-			finalResult = { css: minifiedResult.code, map: null }
+			const minified = await transform(assembledRoot.toString(), { loader: 'css', minify: true })
+			result = { code: minified.code, map: null }
 		}
 	}
 	catch (error) {
 		const stage = error?.plugin === 'dimina-external-class' ? 'external-class' : 'postprocess'
 		throw createStyleCompileError(stage, absolutePath, error)
-	}
-
-	// 处理导入的样式
-	const importedChunks = (await Promise.all(importResults)).filter(result => result.code)
-	let result
-	if (options.sourcemap) {
-		const { code, sourcemap: map } = concatSourcemap([
-			...importedChunks,
-			{ code: finalResult.css, map: finalResult.map.toString() },
-		])
-		result = { code, map }
-	}
-	else {
-		result = {
-			code: importedChunks.map(chunk => chunk.code).join('') + finalResult.css,
-			map: null,
-		}
 	}
 
 	compileRes.set(cacheKey, result)

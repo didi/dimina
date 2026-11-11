@@ -1,8 +1,10 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { callback as callbackRegistry } from '@dimina/common'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import hostEnv from '../src/core/host-env.js'
 import {
 	getAppBaseInfo,
 	getDeviceInfo,
+	getSystemInfo,
 	getSystemInfoSync,
 	getWindowInfo,
 	offThemeChange,
@@ -96,5 +98,32 @@ describe('system info api', () => {
 		hostEnv.update({ systemInfo: { theme: 'dark' } })
 
 		expect(listener).toHaveBeenCalledWith({ theme: 'dark' })
+	})
+})
+
+describe('getSystemInfo callback and Promise overloads', () => {
+	beforeEach(() => { vi.stubGlobal('DiminaServiceBridge', { ...globalThis.DiminaServiceBridge, invoke: vi.fn() }) })
+	afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
+
+	it('returns undefined for callback calls while preserving success and complete', () => {
+		const success = vi.fn()
+		const complete = vi.fn()
+		const result = { errMsg: 'getSystemInfo:ok', platform: 'android' }
+		vi.spyOn(globalThis.DiminaServiceBridge, 'invoke').mockImplementation(({ body }) => {
+			callbackRegistry.invoke(body.params.success, result)
+			callbackRegistry.invoke(body.params.complete, result)
+			return result
+		})
+		expect(getSystemInfo({ success, complete })).toBeUndefined()
+		expect(success).toHaveBeenCalledExactlyOnceWith(result)
+		expect(complete).toHaveBeenCalledExactlyOnceWith(result)
+	})
+
+	it('returns a Promise without callback options and forwards failure', async () => {
+		const failure = { errMsg: 'getSystemInfo:fail unavailable' }
+		vi.spyOn(globalThis.DiminaServiceBridge, 'invoke').mockImplementation(({ body }) => {
+			callbackRegistry.invoke(body.params.fail, failure)
+		})
+		await expect(getSystemInfo()).rejects.toEqual(failure)
 	})
 })

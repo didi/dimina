@@ -15,11 +15,18 @@ export class Module {
 
 	setInitialData(props) {
 		this.builtinBehaviors = new Set(props?.__diminaMeta?.builtinBehaviors || [])
+		const pattern = props?.__diminaMeta?.pureDataPattern
+		this.pureDataPattern = pattern ? new RegExp(...pattern) : null
 		const serializedProps = props ? { ...props } : props
 		if (serializedProps) delete serializedProps.__diminaMeta
 		const { propertySchemas, vueProps } = this.unSerializeProps(serializedProps)
 		this.propertySchemas = propertySchemas
 		this.props = vueProps
+	}
+
+	filterRenderData(data) {
+		if (!this.pureDataPattern) return data
+		return Object.fromEntries(Object.entries(data || {}).filter(([key]) => !this.pureDataPattern.test(key)))
 	}
 
 	unSerializeProps(properties) {

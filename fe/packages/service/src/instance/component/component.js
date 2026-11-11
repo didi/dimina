@@ -1,3 +1,4 @@
+import { filterRenderData } from '../../core/pure-data'
 import { cloneDeep, isFunction, normalizePropertyDefinition, parsePath, resolvePropertyValue } from '@dimina/common'
 import { createSelectorQuery } from '../../api/core/wxml/selector-query'
 import { createIntersectionObserver } from '../../api/core/wxml/intersection-observer'
@@ -8,7 +9,7 @@ import runtime from '../../core/runtime'
 import { applyDataUpdates, invokeDataObservers, invokePropertyChanges } from '../../core/data-update'
 import { invokeSafely, invokeSafelyAll } from '../../core/safe-callback'
 import { beginUpdateBatch, createUpdateCallback, endUpdateBatch, enqueueUpdate } from '../../core/update-queue'
-import { deepEqual, isChildComponent, matchComponent, resolveEventBinding, syncUpdateChildrenProps } from '../../core/utils'
+import { deepEqual, isChildComponent, matchComponent, resolveComponentExport, resolveEventBinding, syncUpdateChildrenProps } from '../../core/utils'
 
 // 组件生命周期
 const componentLifetimes = ['created', 'attached', 'ready', 'moved', 'detached', 'error']
@@ -125,7 +126,7 @@ export class Component {
 			body: {
 				bridgeId: this.bridgeId,
 				path: this.is,
-				data: this.data,
+				data: filterRenderData(this.data, this.__info__.options?.pureDataPattern),
 			},
 		})
 	}
@@ -536,14 +537,7 @@ export class Component {
 			return null
 		}
 
-		// 检查组件是否使用了 wx://component-export behavior
-		if (matchedComponent.hasBehavior('wx://component-export') && matchedComponent.export) {
-			// 如果组件定义了 export 方法，返回自定义的导出结果
-			return matchedComponent.export()
-		}
-
-		// 默认返回组件实例本身
-		return matchedComponent
+		return resolveComponentExport(matchedComponent, this)
 	}
 
 	/**
@@ -555,7 +549,7 @@ export class Component {
 		// 遍历所有组件查找匹配的子组件
 		return children.filter(item =>
 			isChildComponent(item, this.__id__, children) && matchComponent(selector, item),
-		)
+		).map(component => resolveComponentExport(component, this))
 	}
 
 	/**
@@ -563,10 +557,7 @@ export class Component {
 	 */
 	selectOwnerComponent() {
 		const owner = runtime.instances[this.bridgeId]?.[this.__ownerId__]
-		if (owner?.hasBehavior?.('wx://component-export') && owner.export) {
-			return owner.export()
-		}
-		return owner || null
+		return resolveComponentExport(owner, this)
 	}
 
 	/**
@@ -694,7 +685,7 @@ export class Component {
 	 * @param {*} detail // detail对象，提供给事件监听函数
 	 * @param {*} options // 触发事件的选项
 	 */
-	async triggerEvent(methodName, detail, options = {}) {
+	triggerEvent(methodName, detail, options = {}) {
 		if (!methodName) {
 			return
 		}
@@ -735,7 +726,7 @@ export class Component {
 		})
 
 		const eventPath = Component.prototype.getCustomEventPath.call(this, normalizedOptions.composed)
-		const dispatch = async (node, capture) => {
+		const dispatch = (node, capture) => {
 			const binding = resolveEventBinding(node.eventAttr, type)
 			if (!binding) {
 				return
@@ -749,7 +740,13 @@ export class Component {
 			}
 
 			event.currentTarget = node.currentTarget
-			const result = await runtime.triggerEvent({
+			const instance = runtime.instances[this.bridgeId]?.[node.moduleId]
+			if (!instance) return
+
+			// Service custom events run in the current stack, including attached.
+			// Only render-originated events need runtime.triggerEvent's ready queue.
+			const result = runtime.dispatchEvent({
+				instance,
 				bridgeId: this.bridgeId,
 				moduleId: node.moduleId,
 				methodName,
@@ -769,7 +766,7 @@ export class Component {
 		// 就先按根 -> 目标的顺序执行 capture-bind/capture-catch。
 		if (normalizedOptions.capturePhase) {
 			for (let i = eventPath.length - 1; i >= 0 && !stopped; i--) {
-				await dispatch(eventPath[i], true)
+				dispatch(eventPath[i], true)
 			}
 		}
 
@@ -780,7 +777,7 @@ export class Component {
 		// 普通阶段始终检查目标节点；bubbles 只控制是否继续走祖先节点。
 		const bubblePath = normalizedOptions.bubbles ? eventPath : eventPath.slice(0, 1)
 		for (const node of bubblePath) {
-			await dispatch(node, false)
+			dispatch(node, false)
 			if (stopped) {
 				break
 			}

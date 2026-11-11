@@ -66,4 +66,35 @@ class RouteApiTest {
         assertTrue(failure.completeCarriesResult)
         assertTrue(failure.value.getString("errMsg").startsWith("restartMiniProgram:fail"))
     }
+
+    @Test
+    fun `navigateBack normalizes delta like the WeChat service`() {
+        assertEquals(1, navigationBackDelta(org.json.JSONObject()))
+        assertEquals(1, navigationBackDelta(org.json.JSONObject().put("delta", "2")))
+        assertEquals(1, navigationBackDelta(org.json.JSONObject().put("delta", 0)))
+        assertEquals(1, navigationBackDelta(org.json.JSONObject().put("delta", -3)))
+        assertEquals(2, navigationBackDelta(org.json.JSONObject().put("delta", 2.9)))
+        assertEquals(3, navigationBackDelta(org.json.JSONObject().put("delta", 3)))
+    }
+
+    @Test
+    fun `navigateBack forwards delta and reports a first page failure to complete`() {
+        val registry = com.didi.dimina.ui.container.MiniProgramActivityRegistry<String>()
+        listOf("root", "page-1", "page-2").forEach { registry.register("app", it) }
+        val closed = mutableListOf<String>()
+
+        val success = pageNavigationBackResult(org.json.JSONObject().put("delta", 2)) {
+            registry.navigateBack("app", it, closed::add)
+        }
+        assertEquals(listOf("page-2", "page-1"), closed)
+        assertEquals("navigateBack:ok", success.value.getString("errMsg"))
+        assertTrue(success.completeCarriesResult)
+
+        val failure = pageNavigationBackResult(org.json.JSONObject()) {
+            registry.navigateBack("app", it, closed::add)
+        }
+        assertEquals("navigateBack:fail cannot navigate back at first page.", failure.value.getString("errMsg"))
+        assertTrue(failure.completeCarriesResult)
+        assertEquals(listOf("root"), registry.snapshot("app"))
+    }
 }

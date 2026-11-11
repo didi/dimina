@@ -30,6 +30,34 @@ class StorageApi : BaseApiHandler() {
         private const val GET_STORAGE_INFO_SYNC = "getStorageInfoSync"
         private const val GET_STORAGE_INFO = "getStorageInfo"
 
+        internal fun storageSyncValue(value: Any?): JSValue = when (value) {
+            JSONObject.NULL -> JSValue.createNull()
+            is String -> JSValue.createString(value)
+            is Int -> JSValue.createNumber(value.toDouble())
+            is Double -> JSValue.createNumber(value)
+            is Float -> JSValue.createNumber(value.toDouble())
+            is Long -> JSValue.createNumber(value.toDouble())
+            is Boolean -> JSValue.createBoolean(value)
+            is JSONArray -> JSValue.createObject(value.toString())
+            is JSONObject -> JSValue.createObject(value.toString())
+            else -> JSValue.createString("")
+        }
+
+        internal fun storageReadResult(value: Any?): JSONObject = JSONObject().apply {
+            if (value == null) {
+                put("errMsg", "$GET_STORAGE:fail data not found")
+            } else {
+                put("data", value)
+                put("errMsg", "$GET_STORAGE:ok")
+            }
+        }
+
+        internal fun storageInfoResult(values: Map<String, Int>): JSONObject = JSONObject().apply {
+            put("keys", JSONArray(values.keys))
+            put("currentSize", (values.values.sumOf { it.toLong() } + 1023) / 1024)
+            put("limitSize", 10 * 1024)
+        }
+
         internal fun clearAllStorage(appId: String) {
             MMKV.mmkvWithID(appId).clearAll()
             MMKV.mmkvWithID(StorageRecordCodec.storageId(appId)).clearAll()
@@ -69,17 +97,7 @@ class StorageApi : BaseApiHandler() {
 
             GET_STORAGE_SYNC -> {
                 val key = params.optString("args")
-                return when (val value = get(key, storage, legacyStorage)) {
-                    is String -> SyncResult(JSValue.createString(value))
-                    is Int -> SyncResult(JSValue.createNumber(value.toDouble()))
-                    is Double -> SyncResult(JSValue.createNumber(value))
-                    is Float -> SyncResult(JSValue.createNumber(value.toDouble()))
-                    is Long -> SyncResult(JSValue.createNumber(value.toDouble()))
-                    is Boolean -> SyncResult(JSValue.createBoolean(value))
-                    is JSONArray -> SyncResult(JSValue.createObject(value.toString()))
-                    is JSONObject -> SyncResult(JSValue.createObject(value.toString()))
-                    else -> SyncResult(JSValue.createString(""))
-                }
+                SyncResult(storageSyncValue(get(key, storage, legacyStorage)))
             }
 
             REMOVE_STORAGE_SYNC -> {
@@ -108,10 +126,7 @@ class StorageApi : BaseApiHandler() {
             GET_STORAGE -> {
                 val key = params.optString("key")
                 val value = get(key, storage, legacyStorage)
-                AsyncResult(JSONObject().apply {
-                    put("data", value)
-                    put("errMsg", "$GET_STORAGE:ok")
-                })
+                AsyncResult(storageReadResult(value))
             }
 
             REMOVE_STORAGE -> {
@@ -208,11 +223,7 @@ class StorageApi : BaseApiHandler() {
             val value = getLegacy(legacyKey, legacyStorage) ?: return@forEach
             values[legacyKey] = value.toString().toByteArray().size
         }
-        return JSONObject().apply {
-            put("keys", JSONArray(values.keys))
-            put("currentSize", values.values.sum())
-            put("limitSize", 10 * 1024 * 1024)
-        }
+        return storageInfoResult(values)
     }
 }
 

@@ -210,7 +210,6 @@ const wxsModuleRegistry = new Set()
 
 // wxs 文件路径映射表，用于快速查找模块对应的文件路径
 const wxsFilePathMap = new Map()
-let wxsScannedWorkPath = null
 
 let enableSourcemap = false
 
@@ -219,7 +218,6 @@ if (!isMainThread) {
 		try {
 			resetStoreInfo(storeInfo)
 			enableSourcemap = !!sourcemap
-			wxsScannedWorkPath = null
 
 			const progress = {
 				_completedTasks: 0,
@@ -244,7 +242,6 @@ if (!isMainThread) {
 			templateRenderCache.clear()
 			wxsModuleRegistry.clear()
 			wxsFilePathMap.clear()
-			wxsScannedWorkPath = null
 			optionalChainingCache.clear()
 
 			parentPort.postMessage({
@@ -259,7 +256,6 @@ if (!isMainThread) {
 			templateRenderCache.clear()
 			wxsModuleRegistry.clear()
 			wxsFilePathMap.clear()
-			wxsScannedWorkPath = null
 			optionalChainingCache.clear()
 
 			parentPort.postMessage({
@@ -280,11 +276,13 @@ if (!isMainThread) {
 async function compileML(pages, root, progress) {
 	const workPath = getWorkPath()
 
-	// 主包和所有分包共享同一 npm WXS 索引；一次 Worker 任务只扫描一次。
-	if (wxsScannedWorkPath !== workPath) {
-		initWxsFilePathMap(workPath)
-		wxsScannedWorkPath = workPath
-	}
+	// Caches belong to one compilation call. Reuse them across its pages, but
+	// never reuse WXML/WXS factories after sources change at the same workPath.
+	compileResCache.clear()
+	templateRenderCache.clear()
+	wxsModuleRegistry.clear()
+	optionalChainingCache.clear()
+	initWxsFilePathMap(workPath)
 
 	for (const page of pages) {
 		const scriptRes = new Map()
@@ -464,7 +462,7 @@ function compileTemplateModuleRender(tm, moduleId, scriptModule, scriptRes) {
 	})
 	const result = {
 		path: tm.path,
-		...insertWxsToRenderResult(compiledTemplate.code, scriptModule, scriptRes, tm.path, compiledTemplate.map),
+		...insertWxsToRenderResult(compiledTemplate.code, scriptModule, scriptRes, tm.path, compiledTemplate.map, tm.templatePath),
 	}
 	templateRenderCache.set(cacheKey, result)
 	return result
@@ -625,7 +623,7 @@ function compileModule(module, isComponent, scriptRes, options = {}) {
 		// 返回更新后的 instruction，包含所有 wxs 模块
 		return {
 			...instruction,
-			scriptModule: allWxsModules
+			scriptModule: instruction.scriptModule
 		}
 	}
 
@@ -731,6 +729,7 @@ function processWxsContent(wxsContent, wxsFilePath, scriptModule, workPath, file
 	}
 
 	const replacements = []
+	const wxsImporterPath = wxsFilePath || (filePath && workPath ? path.join(workPath, filePath) : null)
 
 	// 遍历并处理各种转换
 	walk(wxsAst, {
@@ -775,8 +774,8 @@ function processWxsContent(wxsContent, wxsFilePath, scriptModule, workPath, file
 						value: `new Date(${args})`,
 					})
 				}
-				// 处理 wxs 文件内部的 require 调用（仅对外部文件）
-				else if (calleeName === 'require' && node.arguments.length > 0 && wxsFilePath) {
+				// Inline WXS resolves require relative to its declaring WXML file.
+				else if (calleeName === 'require' && node.arguments.length > 0 && wxsImporterPath) {
 					const requirePath = node.arguments[0].value
 
 					if (requirePath && typeof requirePath === 'string') {
@@ -785,7 +784,7 @@ function processWxsContent(wxsContent, wxsFilePath, scriptModule, workPath, file
 
 						if (filePath && filePath.includes('/miniprogram_npm/')) {
 							// 对于 npm 组件中的 wxs，需要特殊处理相对路径
-							const currentWxsDir = path.dirname(wxsFilePath)
+							const currentWxsDir = path.dirname(wxsImporterPath)
 							resolvedWxsPath = path.resolve(currentWxsDir, requirePath)
 
 							// 转换为相对于工作目录的路径，并移除视图脚本扩展名
@@ -806,7 +805,7 @@ function processWxsContent(wxsContent, wxsFilePath, scriptModule, workPath, file
 						}
 						else {
 							// 对于普通组件，使用原有逻辑
-							const currentWxsDir = path.dirname(wxsFilePath)
+							const currentWxsDir = path.dirname(wxsImporterPath)
 							resolvedWxsPath = path.resolve(currentWxsDir, requirePath)
 							const relativePath = stripViewScriptExt(resolvedWxsPath.replace(workPath, ''))
 							const depModuleName = relativePath.replace(/[\/\\@\-]/g, '_').replace(/^_/, '')
@@ -1114,74 +1113,95 @@ function toCompileTemplate(isComponent, path, components, componentPlaceholder, 
 
 	// 处理 include 节点
 	// 可以将目标文件除了 <template/> <wxs/> 外的整个代码引入，相当于是拷贝到 include 位置
-	const includeNodes = $('include')
-	includeNodes.each((_, elem) => {
-		const src = $(elem).attr('src')
-		// 将目标文件除了 <template/> <wxs/> 外的整个代码引入，相当于是拷贝到 include 位置
-		if (src) {
-			const includeFullPath = resolveTemplateDependencyPath(workPath, sourcePath, src)
-			getDependencyGraph().addFile(path, includeFullPath, 'view')
-			// 计算被包含文件的路径（去掉扩展名），用于 wxs 路径解析
-			let includePath = includeFullPath.replace(workPath, '').replace(buildExtStripRegex(getTemplateExts()), '')
-			const includeDiagnosticSource = includeFullPath.startsWith(workPath)
-				? includeFullPath.slice(workPath.length)
-				: includePath
+	const activeIncludePaths = new Set()
+	const expandIncludes = (includeDom, ownerSourcePath) => {
+		const includeNodes = includeDom('include')
+		includeNodes.each((_, elem) => {
+			const src = includeDom(elem).attr('src')
+			// 将目标文件除了 <template/> <wxs/> 外的整个代码引入，相当于是拷贝到 include 位置
+			if (src) {
+				const includeFullPath = resolveTemplateDependencyPath(workPath, ownerSourcePath, src)
+				getDependencyGraph().addFile(path, includeFullPath, 'view')
+				if (activeIncludePaths.has(includeFullPath)) {
+					console.warn('[view] Circular include skipped: ' + includeFullPath)
+					includeDom(elem).remove()
+					return
+				}
+				activeIncludePaths.add(includeFullPath)
+				// 计算被包含文件的路径（去掉扩展名），用于 wxs 路径解析
+				let includePath = includeFullPath.replace(workPath, '').replace(buildExtStripRegex(getTemplateExts()), '')
+				const includeDiagnosticSource = includeFullPath.startsWith(workPath)
+					? includeFullPath.slice(workPath.length)
+					: includePath
 
-			// 确保路径以 / 开头
-			if (!includePath.startsWith('/')) {
-				includePath = '/' + includePath
-			}
+				// 确保路径以 / 开头
+				if (!includePath.startsWith('/')) {
+					includePath = '/' + includePath
+				}
 
-			const includeContent = getContentByPath(includeFullPath)
-			if (includeContent.trim()) {
-				checkTemplateCompatibility(includeContent, includeDiagnosticSource, components)
+				const includeContent = getContentByPath(includeFullPath)
+				if (includeContent.trim()) {
+					checkTemplateCompatibility(includeContent, includeDiagnosticSource, components)
 
-				const $includeContent = cheerio.load(includeContent, {
-					xmlMode: true,
-					decodeEntities: false,
-					_useHtmlParser2: true,
-					withStartIndices: true,
-					withEndIndices: true,
-				})
-				const componentTags = collectIncludedComponentTags($includeContent, components)
+					const $includeContent = cheerio.load(includeContent, {
+						xmlMode: true,
+						decodeEntities: false,
+						_useHtmlParser2: true,
+						withStartIndices: true,
+						withEndIndices: true,
+					})
+					expandIncludes($includeContent, includePath)
+					// Imported template paths still belong to the included file after its
+					// nodes are moved into the caller's DOM.
+					$includeContent('import').each((_, imported) => {
+						const importedSrc = $includeContent(imported).attr('src')
+						if (importedSrc) {
+							const importedPath = resolveTemplateDependencyPath(workPath, includePath, importedSrc)
+							$includeContent(imported).attr('src', toMiniProgramModuleId(importedPath, workPath))
+						}
+					})
+					const componentTags = collectIncludedComponentTags($includeContent, components)
 
-				// 提取其中的 template 节点
-				transTagTemplate(
-					$includeContent,
-					templateModule,
-					includePath,
-					components,
-					componentPlaceholder,
-					{ path: includeDiagnosticSource, content: includeContent },
-					path,
-				)
+					// 提取其中的 template 节点
+					transTagTemplate(
+						$includeContent,
+						templateModule,
+						includePath,
+						components,
+						componentPlaceholder,
+						{ path: includeDiagnosticSource, content: includeContent },
+						path,
+					)
 
-				// 提取其中的 wxs 节点
-				transTagWxs(
-					$includeContent,
-					scriptModule,
-					includePath,
-					path,
-				)
+					// 提取其中的 wxs 节点
+					transTagWxs(
+						$includeContent,
+						scriptModule,
+						includePath,
+						path,
+					)
 
-				// 处理被引入文件中的组件 wxs 依赖
-				processIncludedFileWxsDependencies(componentTags, includePath, scriptModule, components, processedPaths)
+					// 处理被引入文件中的组件 wxs 依赖
+					processIncludedFileWxsDependencies(componentTags, includePath, scriptModule, components, processedPaths)
 
-				$includeContent('template').remove()
-				$includeContent(getViewScriptTags().join(',')).remove()
+					$includeContent('template').remove()
+					$includeContent(getViewScriptTags().join(',')).remove()
 
-				// 处理条件属性并替换
-				const processedContent = processIncludeConditionalAttrs($, elem, $includeContent.html())
-				$(elem).replaceWith(processedContent)
+					// 处理条件属性并替换
+					const processedContent = processIncludeConditionalAttrs(includeDom, elem, $includeContent.html())
+					includeDom(elem).replaceWith(processedContent)
+				} else {
+					// 如果没有内容，直接移除节点
+					includeDom(elem).remove()
+				}
+				activeIncludePaths.delete(includeFullPath)
 			} else {
-				// 如果没有内容，直接移除节点
-				$(elem).remove()
+				// 如果没有 src 属性，直接移除节点
+				includeDom(elem).remove()
 			}
-		} else {
-			// 如果没有 src 属性，直接移除节点
-			$(elem).remove()
-		}
-	})
+		})
+	}
+	expandIncludes($, sourcePath)
 
 	// 处理 template 节点
 	// https://developers.weixin.qq.com/miniprogram/dev/reference/wxml/template.html
@@ -1294,6 +1314,7 @@ function transTagTemplate($, templateModule, path, components, componentPlacehol
 
 		templateModule.push({
 			path: `tpl-${name}`,
+			templatePath: path,
 			tpl: res.join(''),
 			sourceInfo: sourceInfo
 				? {
@@ -1656,7 +1677,7 @@ function getProps(attrs, tag, components, scopes, scope) {
 			// do noting
 		}
 		else if (templateDirective === 'key') {
-			const tranValue = parseKeyExpression(value, getForItemName(attrs), getForIndexName(attrs))
+			const tranValue = addOptionalChaining(parseKeyExpression(value, getForItemName(attrs), getForIndexName(attrs)))
 			attrsList.push({
 				name: ':key',
 				value: tranValue,
@@ -1924,8 +1945,8 @@ function parseKeyExpression(exp, itemName = 'item', indexName = 'index') {
 
 	// https://developers.weixin.qq.com/miniprogram/dev/reference/wxml/list.html#wx:key
 	// 保留关键字 *this 代表在 for 循环中的 item 本身，这种表示需要 item 本身是一个唯一的字符串或者数字
-	if (/\*this/.test(exp) || /\*item/.test(exp)) {
-		return `${itemName}.toString()`
+	if (exp === '*this' || exp === '*item') {
+		return itemName
 	}
 
 	// 处理简单无表达式的情况
@@ -1934,18 +1955,19 @@ function parseKeyExpression(exp, itemName = 'item', indexName = 'index') {
 		if (/^-?\d+(\.\d+)?$/.test(exp)) {
 			return exp
 		}
-		// 特殊处理索引变量名 - 直接返回索引变量名，不添加 item 前缀
-		if (exp === indexName) {
-			return indexName
+		// A static key is an item property name, including names matching the loop
+		// index alias or starting with the item alias (index, itemId, etc.).
+		if (/^[A-Za-z_$][\w$]*$/.test(exp)) {
+			return `${itemName}.${exp}`
 		}
-		return exp.startsWith(itemName) ? `${exp}` : `${itemName}.${exp}`
+		return exp.startsWith(`${itemName}.`) ? exp : `${itemName}.${exp}`
 	}
 
 	// 处理 '{{xxx}}' 的情况
 	if (exp.startsWith('{{') && exp.endsWith('}}')) {
 		const content = exp.slice(2, -2).trim()
 		if (content === 'this') {
-			return `${itemName}.toString()`
+			return itemName
 		} else if (content === indexName) {
 			// 特殊处理索引变量名 - 直接返回索引变量名
 			return indexName
@@ -2198,8 +2220,9 @@ function transTagWxs($, scriptModule, filePath, graphOwnerPath = filePath) {
 
 		if (smName) {
 			let wxsContent
-			let uniqueModuleName = smName
-			let cacheKey = smName
+			// Inline WXS is a file-local module, even when another template uses the same alias.
+			let uniqueModuleName = `wxs-inline:${filePath}#${smName}`
+			let cacheKey = `${getWorkPath()}:${uniqueModuleName}`
 
 			const src = $(elem).attr('src')
 			let wxsFilePath = null
@@ -2233,7 +2256,13 @@ function transTagWxs($, scriptModule, filePath, graphOwnerPath = filePath) {
 			}
 
 			if (compileResCache.has(cacheKey)) {
-				wxsContent = compileResCache.get(cacheKey)
+				const cached = compileResCache.get(cacheKey)
+				wxsContent = cached.code
+				for (const dependency of cached.dependencies) {
+					if (!scriptModule.some(sm => sm.path === dependency.path)) {
+						scriptModule.push(dependency)
+					}
+				}
 			}
 			else {
 				if (src && wxsFilePath) {
@@ -2255,7 +2284,20 @@ function transTagWxs($, scriptModule, filePath, graphOwnerPath = filePath) {
 				// 使用公共的处理函数
 				wxsContent = processWxsContent(wxsContent, wxsFilePath, scriptModule, workPath, filePath, graphOwnerPath)
 
-				compileResCache.set(cacheKey, wxsContent)
+				const dependencies = []
+				const visited = new Set()
+				const pending = extractWxsDependencies(wxsContent)
+				while (pending.length > 0) {
+					const dependencyPath = pending.pop()
+					if (visited.has(dependencyPath)) continue
+					visited.add(dependencyPath)
+					const dependency = scriptModule.find(sm => sm.path === dependencyPath)
+					if (dependency) {
+						dependencies.push(dependency)
+						pending.push(...extractWxsDependencies(dependency.code))
+					}
+				}
+				compileResCache.set(cacheKey, { code: wxsContent, dependencies })
 			}
 			if (wxsContent) {
 				// 注册为 wxs 模块（因为这是从 wxs 节点加载的，一定是 wxs 脚本）
@@ -2265,6 +2307,7 @@ function transTagWxs($, scriptModule, filePath, graphOwnerPath = filePath) {
 					path: uniqueModuleName,
 					code: wxsContent,
 					originalName: smName, // 保存原始模块名用于模板中的引用
+					templatePath: filePath,
 				})
 			}
 		}
@@ -2389,7 +2432,7 @@ function extractWxsDependencies(moduleCode) {
 	return dependencies
 }
 
-function insertWxsToRenderResult(code, scriptModule, scriptRes, filename = 'render.js', inputMap = null) {
+function insertWxsToRenderResult(code, scriptModule, scriptRes, filename = 'render.js', inputMap = null, templatePath = filename) {
 	const wxsBindings = []
 	const codeReplacements = []
 	const ast = parseJs(code, filename)
@@ -2398,10 +2441,14 @@ function insertWxsToRenderResult(code, scriptModule, scriptRes, filename = 'rend
 	const renderBody = renderExpression?.body
 	const declarations = []
 
-	for (const [index, sm] of scriptModule.entries()) {
+	for (const sm of scriptModule) {
 		if (!scriptRes.has(sm.path)) {
 			scriptRes.set(sm.path, sm.code)
 		}
+	}
+	const ownerPath = templatePath.startsWith('/') ? templatePath : `/${templatePath}`
+	const localModules = scriptModule.filter(sm => sm.originalName && sm.templatePath === ownerPath)
+	for (const [index, sm] of localModules.entries()) {
 
 		// 使用原始模块名作为模板中的属性名，唯一模块名作为 require 的参数
 		const templatePropertyName = sm.originalName || sm.path

@@ -245,11 +245,12 @@ export class DMPNavigator {
     this.dispatchPageShow(newWebViewId)
   }
 
-  async pop(delta: number = 1, animated: boolean = true, canDestroy = true, isReLaunch = false) {
+  async pop(delta: number = 1, animated: boolean = true, canDestroy = true, isReLaunch = false, throwOnFailure: boolean = false) {
     if (this.app.navigatorManager.isRetainedInBackground) throw new Error('navigation: mini program is in background')
     DMPLogger.i(Tags.NAVIGATOR, 'pop')
     try {
       if (this.app.container.isNavigating) {
+        if (throwOnFailure) throw new Error('navigateBack:fail navigation is in progress')
         return
       }
       //处理多栈
@@ -296,6 +297,7 @@ export class DMPNavigator {
 
     } catch (err) {
       DMPLogger.e(Tags.BRIDGE, `msg: ${(err as BusinessError).message}`)
+      if (throwOnFailure) throw err
     }
   }
 
@@ -327,7 +329,7 @@ export class DMPNavigator {
 
   async navigateBack(delta: number, animated: boolean = true, canDestroy = true, isReLaunch = false) {
     DMPLogger.d(Tags.NAVIGATOR, 'navigateBack')
-    this.pop(delta, animated, canDestroy, isReLaunch)
+    await this.pop(delta, animated, canDestroy, isReLaunch, !isReLaunch)
   }
 
   /**

@@ -115,6 +115,10 @@ export class DMPNavigatorManager {
     return this._navigatorDelegateStack.peek()
   }
 
+  navigationPageCount(): number {
+    return this.globalPageRecordStack.size()
+  }
+
   getTopPageRecord() {
     return this.globalPageRecordStack.peek()
   }

@@ -10,6 +10,18 @@ import com.didi.dimina.core.MiniApp
 import com.didi.dimina.ui.container.DiminaActivity
 import org.json.JSONObject
 
+internal fun navigationBackDelta(params: JSONObject): Int =
+    (params.opt("delta") as? Number)?.toDouble()?.toInt()?.coerceAtLeast(1) ?: 1
+
+internal fun pageNavigationBackResult(params: JSONObject, navigateBack: (Int) -> Boolean): AsyncResult {
+    val message = if (navigateBack(navigationBackDelta(params))) {
+        "navigateBack:ok"
+    } else {
+        "navigateBack:fail cannot navigate back at first page."
+    }
+    return AsyncResult(JSONObject().put("errMsg", message))
+}
+
 internal fun miniProgramSuccessResult(apiName: String, afterComplete: () -> Unit): AsyncResult {
     return AsyncResult(
         value = JSONObject().apply { put("errMsg", "$apiName:ok") },
@@ -145,17 +157,7 @@ class RouteApi : BaseApiHandler() {
                 })
             }
 
-            NAVIGATE_BACK -> {
-                // Implementation of navigating back
-                activity.runOnUiThread {
-                    activity.onBackPressed()
-                }
-
-                // Send success response
-                AsyncResult(JSONObject().apply {
-                    put("errMsg", "$NAVIGATE_BACK:ok")
-                })
-            }
+            NAVIGATE_BACK -> pageNavigationBackResult(params, activity::navigateBack)
 
             // 关闭所有页面，打开到应用内的某个页面
             RE_LAUNCH -> {

@@ -214,6 +214,9 @@ async function buildJSByPath(packageName, module, compileRes, mainCompileRes, ad
 	if (module.component) {
 		extraInfo.component = true
 	}
+	if (typeof module.pureDataPattern === 'string') {
+		extraInfo.pureDataPattern = module.pureDataPattern
+	}
 
 	if (module.usingComponents) {
 		const componentsObj = {}
