@@ -117,6 +117,8 @@ const supportedWxApis = [
 	"setNavigationBarTitle",
 	"setNavigationBarColor",
 	"pageScrollTo",
+	"startPullDownRefresh",
+	"stopPullDownRefresh",
 	"getMenuButtonBoundingClientRect",
 	"onMenuButtonBoundingClientRectWeightChange",
 	"offMenuButtonBoundingClientRectWeightChange",

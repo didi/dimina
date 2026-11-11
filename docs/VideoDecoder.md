@@ -41,28 +41,15 @@ Android 的 YUV 转换在 C++ 中同步读取解码器的直接缓冲区，复�
 
 `stop()` 可以取消尚未完成的 `start()`，被取消的 Promise 会拒绝；旧控制回复不会恢复播放状态。停止完成后可以重新 `start()`。iOS 的停止和移除操作会取消正在进行的远程下载。
 
-## Android / iOS 取帧验证
+## 性能与兼容性
 
-2026-10-19，同机对照使用 H.264、720×1080、120 帧、`mode: 1`，前 8 帧预热。下表是解码、RGBA 转换和交付 JS `ArrayBuffer` 的取帧吞吐，包含测试驱动开销，不是完整 PAG 播放或物理上屏帧率。
+取帧吞吐包含系统解码、RGBA 转换和向 JavaScript 交付缓冲区的开销。完整动画还包含纹理传输、WebGL 执行和页面合成，需结合业务素材、构建配置及宿主环境评估。
 
-| 真机 | 旧路径 | 二进制交付及像素转换优化后 |
-| --- | --- | --- |
-| PLK110 / Android 16 | 约 7.62 FPS | 两轮约 28.74 / 28.54 FPS |
-| iPhone 14 Pro / iOS 27.0.1 | 两轮约 3.66 / 3.50 FPS | 两轮约 273.84 / 255.71 FPS |
-
-Android 用真实 MediaCodec 和 QuickJS 原生桥；iOS 用真实 AVAssetReader、JavaScriptCore 和随包 Service SDK，两组均为 Release 优化、启用测试所需的 DEBUG 编译条件，每帧在 JS 任务间让出 2 ms。iOS 用同一解码器 seek 后测量第二轮，检查返回缓冲区在 stop / remove 后仍有效。移除二进制交付的旧路径在原生字节类型断言处失败，恢复后通过。Android 的 359 项单元测试、2 项真机回归、Service 的 11 项视频接口回归，以及 iOS 真机 7 项 XCTest 和 4 组像素校验通过；iOS 像素转换另通过独立主机 Address Sanitizer 检查。其他机型、编码及完整 PAG 场景的持续播放性能需分别验证。
-
-### Android Debug 像素转换
-
-2026-10-19，在 PLK110 / Android 16 上，解码测试的 CPU 采样中约 89% 开销位于 Kotlin 逐像素转换及其 `DirectByteBuffer.get`、边界检查、`coerceIn` 和属性访问。将该循环移到现有原生库后，仍保留 `android:debuggable=true`、WebView 远程调试和原有调试配置。使用双精度运算并禁止浮点乘加收缩，保持已有像素的截断和舍入结果；原生端不保留解码器缓冲区地址。
-
-不挂 CPU 采样的前后对照中，720×1080 取帧吞吐从 13.25 FPS 提升到 149.00 / 150.22 FPS，前 8 帧预热，总计 120 帧；Release 的同一路径为 151.55 FPS。完整视频 PAG 使用真实 libpag 4.5.85 和官方 `video.pag`，预热 2 秒后各采样约 10 秒：本轮旧 Kotlin Debug 路径为 3.00 FPS（此前不同轮次为 6.90–7.80 FPS），原生转换的两轮 Debug 为 25.05 / 25.00 FPS。0% / 50% / 90% 进度的已呈现画布像素哈希与旧路径一致。此处为完成的 `PAG.flush`，尚未验收长期连续源帧和物理上屏帧率。
-
-Debug / Release 各 359 项单元测试通过；Debug 的 7 项真机回归及 Release 的 5 项像素与解码回归通过。JNI 用例逐字节比较原 Kotlin 算法，覆盖只读及切片缓冲区、非零 position、平面及交错色度、奇数裁切、颜色范围、无效步幅、截短平面、所有权和堆缓冲区回退。主机原生回归的 360 组颜色、布局及所有权校验和非法元数据检查通过 Address Sanitizer / UndefinedBehaviorSanitizer；入口为 `native/media/tests`。完整 PAG 测试保持屏幕唤醒并检查 WebView 前台焦点，避免把后台暂停计入性能数据。
+Android 原生像素转换使用双精度运算并禁止浮点乘加收缩，以保留像素截断和舍入规则；原生端不保留解码器缓冲区地址。直接缓冲区、行步幅、裁切、色彩范围和输出所有权的实现说明及检查入口位于 `native/media/tests`。
 
 ## Web 支持范围
 
-Web 要求 HTTPS 或 localhost 安全上下文，浏览器提供 `VideoDecoder`、`EncodedVideoChunk` 和 `OffscreenCanvas`。`canIUse` 检查这些接口，不能保证任意编码都可解码；`start` 会调用浏览器的编码能力检查，失败时拒绝 Promise。已验证 H.264 MP4 和完整 libpag 4.5.85 的视频 PAG，其他编码、浏览器和显卡组合需要分别验收。
+Web 要求 HTTPS 或 localhost 安全上下文，浏览器提供 `VideoDecoder`、`EncodedVideoChunk` 和 `OffscreenCanvas`。`canIUse` 检查这些接口，不能保证任意编码都可解码；`start` 会调用浏览器的编码能力检查，失败时拒绝 Promise。MP4 中的具体编码、浏览器与显卡组合决定实际可用范围。
 
 支持 MP4 包内路径、异步文件系统可读的沙箱文件和 HTTP(S) 地址，远程地址遵守浏览器 CORS。单个源文件最多 128 MiB；超限报错。MP4 保留解码顺序、PTS 和前置编辑时间偏移，按 WebCodecs 的呈现顺序输出帧，并串行复制 RGBA 以保留顺序。一个编码样本不保证产生一个输出帧。seek 从前一个关键帧解码并丢弃目标时间之前的帧。多段或变速的 MP4 编辑列表明确拒绝。`stop` / `remove` 取消远程读取和待处理控制，关闭旧解码器并丢弃过期输出。
 
@@ -74,4 +61,4 @@ libpag 写出的 MP4 使用 Worker 运行时文件，关闭小程序后消失。
 
 完整 `libpag-miniprogram@4.5.85` 所需的逻辑层 `WXWebAssembly` 已接入真实 Wasm 引擎，支持业务模块导入前初始化、JS imports、Memory / Table 和包内 `.wasm.br` 加载。平台要求、接入示例和执行范围见 [WXWebAssembly 说明](./WXWebAssembly.md)。Render WebView 的 WebAssembly 与逻辑层执行能力分别检测。
 
-Wasm 初始化及 PAG 数据解析已有真实库回归；完整播放器还需要可用的逻辑层 WebGL Canvas。含视频序列的 PAG 需要同时验证本接口输出、纹理上传和动画播放，三端真机效果仍需验收。
+完整播放器还需要可用的逻辑层 WebGL Canvas。含视频序列的 PAG 需同时具备视频解码、纹理上传和动画调度能力；Wasm 初始化或数据解析成功不能单独保证最终画面与播放性能。

@@ -11,7 +11,7 @@ import * as htmlparser2 from 'htmlparser2'
 import { checkTemplateCompatibility, getTemplateDirectiveName, takeCompatibilityWarnings } from '../common/compatibility.js'
 import { toMiniProgramModuleId } from '../common/path-utils.js'
 import { collectAssets, getAbsolutePath, isCollectableImageAsset, resolveAssetSourcePath, tagWhiteList, transformRpx, uuid } from '../common/utils.js'
-import { getAppId, getComponent, getContentByPath, getDependencyGraph, getTargetPath, getTemplateExts, getViewScriptExts, getViewScriptTags, getWorkPath, resetStoreInfo } from '../env.js'
+import { getAppConfigInfo, getAppId, getComponent, getContentByPath, getDependencyGraph, getPageConfigInfo, getTargetPath, getTemplateExts, getViewScriptExts, getViewScriptTags, getWorkPath, resetStoreInfo } from '../env.js'
 import { extractDependencies, parseBindings } from '../common/expression-parser.js'
 import { concatSourcemap, createLineSourcemap, mergeSourcemap, remapSourcemap } from './sourcemap.js'
 import { createWxsRuntime, createWxsScopeTracker, decodeWxsString, transformWxs, WXS_RUNTIME_MODULE } from './wxs-runtime.js'
@@ -542,6 +542,15 @@ function buildCompileView(module, isComponent = false, scriptRes, activePaths = 
  * @param {*} module
  */
 function compileModule(module, isComponent, scriptRes, options = {}) {
+	const pageConfig = {}
+	if (!isComponent) {
+		const globalWindow = getAppConfigInfo().window || {}
+		const pageWindow = getPageConfigInfo()[module.path] || {}
+		for (const key of ['enablePullDownRefresh', 'onReachBottomDistance', 'backgroundColor', 'backgroundTextStyle']) {
+			const value = pageWindow[key] ?? globalWindow[key]
+			if (value !== undefined) pageConfig[key] = value
+		}
+	}
 	const sourceMapRes = options.sourceMapRes || new Map()
 	const { tpl, instruction, sourceInfo } = toCompileTemplate(isComponent, module.path, module.usingComponents, module.componentPlaceholder)
 	if (!tpl) {
@@ -646,6 +655,7 @@ function compileModule(module, isComponent, scriptRes, options = {}) {
 		usingComponents: ${JSON.stringify(module.usingComponents)},
 		componentPlaceholder: ${JSON.stringify(module.componentPlaceholder || {})},
 		customTabBar: ${JSON.stringify(module.customTabBar || null)},
+		pageConfig: ${JSON.stringify(pageConfig)},
 		tplComponents: {`]
 	for (const templateResult of templateResults) {
 		moduleChunks.push(`'${templateResult.path}':`, templateResult, ',')

@@ -166,7 +166,7 @@ try await DMPAppManager.sharedInstance().destroyAllMiniPrograms()
 
 ## Objective-C 工程接入
 
-OC 工程也通过上面的 Swift Package Manager 步骤添加 **Dimina** product，不需要把宿主迁移为 Swift。以下 `DMPObjC*` 接口需使用包含本次适配的源码版本；旧版本没有这些类。
+OC 工程也通过上面的 Swift Package Manager 步骤添加 **Dimina** product，不需要把宿主迁移为 Swift。以下示例要求 SDK 提供 `DMPObjC*` 接口；未提供这些类的旧版本需要先升级。
 
 在 `.m` 文件导入 SwiftPM 生成的模块（`Enable Modules (C and Objective-C)` 设为 `YES`，不需要宿主 Bridging Header）：
 
@@ -232,22 +232,20 @@ open iOS/dimina.xcodeproj
 
 ## 运行测试
 
-在 Xcode 中选择已安装的 iPhone 模拟器，再执行 **Product > Test**。例如，安装 iOS 26.5 runtime 后，可以在仓库根目录运行：
+在 Xcode 中选择已安装的 iOS 模拟器，再执行 **Product > Test**。命令行可先用 `xcrun simctl list devices available` 获取设备标识，在仓库根目录运行：
 
 ```bash
 xcodebuild test \
   -project iOS/dimina.xcodeproj \
   -scheme dimina \
-  -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' \
+  -destination 'platform=iOS Simulator,id=<SIMULATOR_UDID>' \
   -resultBundlePath /tmp/DiminaTests.xcresult
 ```
 
 GitHub Actions 固定使用 macOS 26 和 Xcode 26.5，并选择与 iOS Simulator SDK 主次版本一致的 runtime。缺少对应模拟器时会创建或安装，等待启动完成后再执行完整测试，不会回退到旧 runtime。
 
-### iOS 模拟器的 JavaScriptCore 地址截断
+### 模拟器的 JavaScriptCore 兼容性
 
-在 macOS 27.0.1、Xcode 27.2、iOS 26.2 模拟器上，PAG 重复播放会崩于 `JSRopeString::resolveToBuffer`，也可能转移到 JSC 编译线程。调试现场确认，字符串的完整指针为 `0x702069c860`，该 runtime 内部的 `0xfffffffff`（36 位）掩码将其截成了无效的 `0x2069c860`；转换前的字符串字段本身仍保存着完整地址。同一个构建产物切到 iOS 26.5 后，三轮 PAG 播放均通过，其中也覆盖了 `0x70…` 高地址。
+部分模拟器 runtime 的 JavaScriptCore 地址处理差异可能导致 PAG 重复播放时在 `JSRopeString::resolveToBuffer` 或 JSC 编译线程崩溃。出现此类问题时，应保留完整指针、崩溃指令和 runtime 版本，并用同一构建产物检查 runtime 兼容性。
 
-- 遇到此类崩溃，先保留完整指针、崩溃指令和 runtime 版本，用同一产物对比 runtime，区分系统兼容问题与 SDK 内存破坏。
-- 这组本地环境使用 iOS 26.5 模拟器进行回归。选择新 runtime 后仍需保留 PAG 的两种传输方式、像素比对和完整测试，不能以更换对象转换方式或修改业务 ID 代替验证。
-- 模拟器结论不能外推为 iOS 26.2 真机存在相同缺陷，也不能替代真机回归。这项模拟器兼容问题不改变 SDK 的最低 iOS 支持版本。
+选择 runtime 后需检查 PAG 的两种传输方式、像素结果和完整播放流程。模拟器的兼容性限制不改变 SDK 的最低 iOS 支持版本。

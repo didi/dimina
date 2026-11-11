@@ -95,7 +95,7 @@ for (const mode of [{ debug: true }, { debug: false, hostDebug: true }, { debug:
       const info = await f.install(f.make())
       assert.equal(info.currentJsAppBundleConfig.versionCode, 2)
     }
-    assert.equal(f.calls.localReads, 2, 'unchanged host must not reload bundled configs')
+    assert.equal(f.calls.localReads, 8, 'each package preparation must compare bundled resource versions')
     f.hostBundle.versionCode++
     const info = await f.install(f.make())
     assert.equal(info.currentJsAppBundleConfig.versionCode, 2)
@@ -115,11 +115,83 @@ for (const mode of [{ debug: true }, { debug: false, hostDebug: true }, { debug:
       assert.equal(f.calls.errors.length, 0)
     })
   }
+  for (const resource of ['app', 'sdk', 'both']) {
+    test(`bundled ${resource} update is detected with unchanged host version ${JSON.stringify(mode)}`, async () => {
+      const localAppConfig = { versionCode: 7 }, localSdkConfig = { versionCode: 50 }
+      const f = loaderFixture({ ...mode, localAppConfig, localSdkConfig })
+      await f.install(f.make())
+      if (resource !== 'sdk') localAppConfig.versionCode++
+      if (resource !== 'app') localSdkConfig.versionCode++
+      const info = await f.install(f.make())
+      assert.equal(f.hostBundle.versionCode, 1)
+      assert.equal(info.currentJsAppBundleConfig.versionCode, localAppConfig.versionCode)
+      assert.equal(info.currentJsSdkBundleConfig.versionCode, localSdkConfig.versionCode)
+      await f.install(f.make())
+      assert.equal(f.calls.copyApp, resource !== 'sdk' ? 1 : 0)
+      assert.equal(f.calls.copySdk, resource !== 'app' ? 1 : 0)
+      assert.equal(f.calls.ready, 3)
+      assert.equal(f.calls.errors.length, 0)
+    })
+  }
 }
+test('missing cached configs are restored without a host version change', async () => {
+  const f = loaderFixture({ localAppConfig: { versionCode: 7 }, localSdkConfig: { versionCode: 50 } })
+  await f.install(f.make())
+  f.disk.appConfig = null
+  f.disk.sdkConfig = null
+  await f.install(f.make())
+  assert.equal(f.calls.ready, 2)
+  assert.equal(f.calls.copyApp, 1)
+  assert.equal(f.calls.copySdk, 1)
+  assert.equal(f.calls.errors.length, 0)
+})
+test('resource versions remain authoritative when the host version decreases', async () => {
+  const localAppConfig = { versionCode: 7 }, localSdkConfig = { versionCode: 50 }
+  const f = loaderFixture({ localAppConfig, localSdkConfig })
+  await f.install(f.make())
+  f.hostBundle.versionCode = 0
+  localAppConfig.versionCode++
+  localSdkConfig.versionCode++
+  const info = await f.install(f.make())
+  assert.equal(info.currentJsAppBundleConfig.versionCode, 8)
+  assert.equal(info.currentJsSdkBundleConfig.versionCode, 51)
+  localAppConfig.versionCode = 6
+  localSdkConfig.versionCode = 49
+  const reopened = await f.install(f.make())
+  assert.equal(reopened.currentJsAppBundleConfig.versionCode, 8)
+  assert.equal(reopened.currentJsSdkBundleConfig.versionCode, 51)
+  assert.equal(f.calls.copyApp, 1)
+  assert.equal(f.calls.copySdk, 1)
+  assert.equal(f.calls.errors.length, 0)
+})
+test('failed bundled SDK update retries with unchanged host version', async () => {
+  const localSdkConfig = { versionCode: 50 }
+  const f = loaderFixture({ localSdkConfig })
+  await f.install(f.make())
+  localSdkConfig.versionCode++
+  const copy = f.files.copyJSSDKAndUnZip
+  f.files.copyJSSDKAndUnZip = async () => { throw new Error('unzip failed') }
+  await f.install(f.make())
+  assert.equal(f.calls.ready, 1)
+  assert.equal(f.calls.errors.length, 1)
+  assert.equal(f.calls.cleanup, 2, 'failed update must not clean up cached packages')
+  assert.equal(f.disk.sdkConfig.versionCode, 50)
+  f.files.copyJSSDKAndUnZip = copy
+  const info = await f.install(f.make())
+  assert.equal(info.currentJsSdkBundleConfig.versionCode, 51)
+  assert.equal(f.calls.ready, 2)
+  assert.equal(f.calls.errors.length, 1)
+})
 test('host-managed package remains authoritative over a newer bundled package', async () => {
-  const f = loaderFixture({ appConfig: { versionCode: 1, hostManaged: true }, localAppConfig: { versionCode: 2 } })
+  const localAppConfig = { versionCode: 2 }, localSdkConfig = { versionCode: 50 }
+  const f = loaderFixture({ appConfig: { versionCode: 1, hostManaged: true }, localAppConfig, localSdkConfig })
   const info = await f.install(f.make())
   assert.equal(info.currentJsAppBundleConfig.versionCode, 1)
+  localAppConfig.versionCode++
+  localSdkConfig.versionCode++
+  const reopened = await f.install(f.make())
+  assert.equal(reopened.currentJsAppBundleConfig.versionCode, 1)
+  assert.equal(reopened.currentJsSdkBundleConfig.versionCode, 51)
   assert.equal(f.calls.copyApp, 0)
   assert.equal(f.calls.errors.length, 0)
 })

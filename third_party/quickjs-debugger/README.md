@@ -5,7 +5,7 @@ developed in [`koush/quickjs`](https://github.com/koush/quickjs). The port is
 compiled only when `DIMINA_ENABLE_QUICKJS_DEBUGGER` is enabled.
 
 `patches/quickjs.patch` targets upstream QuickJS commit
-`712e8c0ca26949477c38f91dbaf955cc48e2f261` (commit date 2026-11-02). It adds the
+`712e8c0ca26949477c38f91dbaf955cc48e2f261`. It adds the
 small set of interpreter hooks and internal adapters required by the debugger.
 The remaining source files implement the DAP-compatible wire protocol and the
 POSIX TCP transport used by Harmony and prepared for future Android/iOS

@@ -73,7 +73,7 @@ Android 使用仓库现有的原生组件兼容路径：原生组件层位于透
 - 原生 cover-view / cover-image 的层级高于地图，不依赖挂载先后顺序。
 - 页面清理时销毁地图；Activity 前后台切换及地图隐藏时同步暂停/恢复。
 
-这条兼容路径有明确限制：**地图及其 DOM 祖先背景必须透明**，否则 WebView 中的不透明背景仍会盖住下方原生地图。应把页面背景设在宿主容器，或放在地图区域之外的兄弟节点。它不等同于任意 CSS 的完整同层合成；旋转/斜切 transform、复杂 mask、圆角祖先裁剪、CSS 动画位移和多个原生组件的任意 CSS stacking context 不在本次支持范围。升级或更换系统 WebView 后仍需真机验证合成、滚动与触摸；单元测试不能证明 GPU 合成效果。
+这条兼容路径有明确限制：**地图及其 DOM 祖先背景必须透明**，否则 WebView 中的不透明背景仍会盖住下方原生地图。应把页面背景设在宿主容器，或放在地图区域之外的兄弟节点。它不等同于任意 CSS 的完整同层合成；旋转/斜切 transform、复杂 mask、圆角祖先裁剪、CSS 动画位移和多个原生组件的任意 CSS stacking context 不在支持范围。升级或更换系统 WebView 后仍需真机验证合成、滚动与触摸；单元测试不能证明 GPU 合成效果。
 
 ## iOS
 
@@ -132,8 +132,6 @@ DMPMapProviders.register('amap', new DMPAMapProvider(context, apiKey, () => priv
 
 同层 `NodeContainer` 使用 embed 的实际尺寸约束内容，px 通过所属 `UIContext` 转成 vp 并保留小数；尺寸状态在创建、更新、销毁时同步，避免整页地图纹理缩放到较小 embed 后变形。高德 `getMapAsync` 完成初始化后通知 ready；地图结果和事件通过 `ContainerToRender` 发给小程序 Render，不能走内嵌 `<web-view>` 的 `subController` 通道。
 
-2026-09-08 真机验证：修复前首页列表滑动无变化、地图文字图标被纵向压缩且 15 秒后超时；修复后首页可滚动到底部，基础组件和官方分包地图显示正常，读取中心与显示全部地点返回成功。动态改为 260×160 CSS px 并恢复原尺寸后，地图比例正常。签名 HAP 构建、安装通过；本轮未验证真实定位、横屏和其他同层原生组件，未新增自动化回归用例或执行独立机制消融。
-
 ## Web
 
 ### 运行仓库中的 Web 演示
@@ -180,7 +178,7 @@ Web 自定义 provider 的类型从 `@dimina/components/map-provider` 导入；�
 
 ## 基础能力与差异
 
-兼容目标参考[微信 map 组件](https://developers.weixin.qq.com/miniprogram/dev/component/map.html)。本次实现基础子集：
+兼容目标参考[微信 map 组件](https://developers.weixin.qq.com/miniprogram/dev/component/map.html)。当前支持以下基础子集：
 
 | 能力 | Android 原生 | iOS 原生 | Harmony 原生 | Web |
 | --- | --- | --- | --- | --- |
@@ -249,7 +247,7 @@ Page({
 
 命令在 SDK 初始化后顺序执行。缺少 provider/Key、隐私拒绝、定位拒绝、不支持的方法均有错误；success/fail 后调用 complete，不传回调时返回 Promise。初始化与命令默认 15 秒超时；命令超时会销毁实例，避免晚完成的操作在报告失败后继续修改地图，重试需重建组件。
 
-SDK 隐私授权与系统定位权限分别处理，Key 使用对应平台产品并配置包名/签名或 Bundle ID。隐私拒绝时不初始化 SDK。本次只接通地图自身的定位能力，没有改变独立 `wx.getLocation` 的既有原生实现状态。
+SDK 隐私授权与系统定位权限分别处理，Key 使用对应平台产品并配置包名/签名或 Bundle ID。隐私拒绝时不初始化 SDK。地图自身的定位能力与独立 `wx.getLocation` 的原生实现分别接入。
 
 ## 验证边界
 

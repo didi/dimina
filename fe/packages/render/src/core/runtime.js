@@ -51,6 +51,7 @@ import { invokeMapContext } from './map-context'
 import { FontFaceLoader } from './font-face'
 import { initializeTemplateBinding, PropertyBindingBucket, resolveTemplateBinding } from './template-binding'
 import { collectRenderedWxmlTree, findRenderedNode } from './rendered-wxml-tree'
+import { createPageScrollController } from './page-scroll'
 
 const COMPONENT_HOST_ATTRIBUTE = 'data-dd-component-host'
 const STYLE_ISOLATION_ATTRIBUTE = 'data-dd-style-isolation'
@@ -965,24 +966,10 @@ class Runtime {
 							let stopStyleScopeSync = () => {}
 							let clearPageFrameStyleScopes = () => {}
 
-							let ticking = false
-							const handleScroll = () => {
-								if (!ticking) {
-									window.requestAnimationFrame(() => {
-										message.send({
-											type: 'pageScroll',
-											target: 'service',
-											body: {
-												bridgeId,
-												moduleId: that.pageId,
-												scrollTop: window.scrollY,
-											},
-										})
-										ticking = false
-									})
-									ticking = true
-								}
-							}
+							let pageScrollController
+							const sendPageEvent = (type, detail = {}) => message.send({
+								type, target: 'service', body: { bridgeId, moduleId: pageId, ...detail },
+							})
 
 							onMounted(() => {
 								clearPageFrameStyleScopes = installPageFrameStyleScopes(globalStyleScopeIds)
@@ -991,7 +978,13 @@ class Runtime {
 									globalStyleScopeIds,
 									sId,
 								)
-								window.addEventListener('scroll', handleScroll, { passive: true })
+								pageScrollController = createPageScrollController({
+									config: pageModule.moduleInfo.pageConfig,
+									onScroll: scrollTop => sendPageEvent('pageScroll', { scrollTop }),
+									onReachBottom: () => sendPageEvent('pageReachBottom'),
+									onPullDownRefresh: () => sendPageEvent('pagePullDownRefresh'),
+								})
+								that.pageScrollController = pageScrollController
 								nextTick(() => {
 									that.publishWxmlTree(bridgeId)
 									message.send({
@@ -1016,7 +1009,8 @@ class Runtime {
 							onUnmounted(() => {
 								stopStyleScopeSync()
 								clearPageFrameStyleScopes()
-								window.removeEventListener('scroll', handleScroll)
+								pageScrollController?.dispose()
+								if (that.pageScrollController === pageScrollController) that.pageScrollController = null
 							})
 
 						const { data, templateData } = createTemplateData()
@@ -3238,6 +3232,22 @@ class Runtime {
 			target: 'service',
 			body,
 		})
+	}
+
+	startPullDownRefresh(options) {
+		this.invokePullDownRefresh('startPullDownRefresh', 'start', options)
+	}
+
+	stopPullDownRefresh(options) {
+		this.invokePullDownRefresh('stopPullDownRefresh', 'stop', options)
+	}
+
+	invokePullDownRefresh(name, action, { bridgeId, params = {} }) {
+		const available = bridgeId === this.bridgeId && this.pageScrollController
+		const result = { errMsg: available ? `${name}:ok` : `${name}:fail page not ready` }
+		if (available) this.pageScrollController[action]()
+		this.triggerCallback(bridgeId, available ? params.success : params.fail, result, result)
+		this.triggerCallback(bridgeId, params.complete, result, result)
 	}
 
 	async loadFontFace({ bridgeId, params }) {

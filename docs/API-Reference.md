@@ -73,7 +73,7 @@ Dimina 的 render runtime 使用 Vue，但模板编译器和组件 runtime 会�
 
     启用 `wx://component-export` 后，`selectComponent()`、`selectAllComponents()` 和 `selectOwnerComponent()` 均会调用目标的 `export(owner)`，其中 owner 是查询发起者。返回 `undefined` 时使用目标组件实例，返回 `null` 或其它值时保留该结果。
 
-    查询支持 `#id`、`.class` 及其复合形式、后代、`>`、跨组件边界的 `>>>` 和逗号分组。结果按 WXML 逻辑节点顺序返回，并遵循组件和 slot 边界；匹配普通视图时保留 `null`，不会跳过该节点查找后续组件。标签名和属性选择器不在支持范围内。行为与验证范围见[运行时行为走查](./Runtime-Behavior-Review.md)。
+    查询支持 `#id`、`.class` 及其复合形式、后代、`>`、跨组件边界的 `>>>` 和逗号分组。结果按 WXML 逻辑节点顺序返回，并遵循组件和 slot 边界；匹配普通视图时保留 `null`，不会跳过该节点查找后续组件。标签名和属性选择器不在支持范围内。行为与适用范围见[运行时行为参考](./Runtime-Behavior-Review.md)。
 
 ## 组件列表
 
@@ -215,11 +215,28 @@ DMPAppManager.sharedInstance().setup(
 DMPApp.init(context, { virtualFilePrefix: 'host-file://' })
 ```
 
+## 页面滚动与下拉刷新
+
+页面支持 `onPullDownRefresh` 和 `onReachBottom`，使用 `Page` 或 `Component` 注册的页面均可接收。`app.json` 的 `window` 配置作为默认值，页面 JSON 中的同名字段优先，包含显式的 `false` 和 `0`。
+
+| 配置 | 默认值 | 说明 |
+| --- | --- | --- |
+| enablePullDownRefresh | false | 开启页面顶部下拉刷新手势 |
+| onReachBottomDistance | 50 | 触底距离，单位为 CSS px；进入范围触发一次，离开后可再次触发 |
+| backgroundColor | #fff | 下拉刷新区域背景色 |
+| backgroundTextStyle | dark | 刷新指示器颜色，支持 dark / light |
+
+刷新结束时调用 `wx.stopPullDownRefresh()`；也可通过 `wx.startPullDownRefresh()` 主动开始刷新，触发同一个页面事件。刷新进行中不会重复触发。`scroll-view` 的内部滚动和刷新继续使用组件自己的事件。
+
+升级时需同步更新渲染、逻辑运行时，并使用新版编译器重新编译小程序，使页面滚动配置进入渲染产物。仅替换原生安装包不能补充旧产物缺少的配置。
+
+鸿蒙底包更新还需递增宿主应用的 `versionCode`，触发底包版本检查；只提高渲染资源版本后用同版本宿主覆盖安装，可能继续使用缓存资源。
+
 ## API 列表
 
 状态说明：`✓` 表示该平台已有对应实现；`✗` 表示当前未提供。能力入口存在但目标平台未实现时，仍按不支持处理。本表是已经完成源码链路核对的兼容性基线；API 尚未列入表格只表示“未完成兼容性确认”，不能据此判断它未实现。
 
-地图 `createMapContext` 通过共享 Render 路由到宿主选择的 provider。移动端需接入可选原生 provider 模块，Web 需配置 JS provider；未配置时调用会失败。支持的方法、服务商差异和真机验证边界见[地图接入](./Map-Integration.md)。
+地图 `createMapContext` 通过共享 Render 路由到宿主选择的 provider。移动端需接入可选原生 provider 模块，Web 需配置 JS provider；未配置时调用会失败。支持的方法、服务商差异和平台接入限制见[地图接入](./Map-Integration.md)。
 
 蓝牙能力还要求宿主声明系统权限。仓库示例已经补齐 Android 蓝牙/定位权限、iOS 蓝牙用途说明和 HarmonyOS `ohos.permission.ACCESS_BLUETOOTH`；集成 SDK 的宿主应用需要提供等价配置。
 
@@ -306,6 +323,8 @@ DMPApp.init(context, { virtualFilePrefix: 'host-file://' })
 | 界面 - 导航栏 | setNavigationBarTitle            | ✓       | ✓   | ✓       | ✓   |
 |               | setNavigationBarColor            | ✓       | ✓   | ✓       | ✓   |
 | 界面 - 滚动   | pageScrollTo                     | ✓       | ✓   | ✓       | ✓   |
+| 界面 - 下拉刷新 | startPullDownRefresh             | ✓       | ✓   | ✓       | ✓   |
+| 界面 - 下拉刷新 | stopPullDownRefresh              | ✓       | ✓   | ✓       | ✓   |
 | 界面 - 菜单   | getMenuButtonBoundingClientRect  | ✓       | ✓   | ✓       | ✓   |
 |               | onMenuButtonBoundingClientRectWeightChange | ✓ | ✓ | ✓ | ✓ |
 |               | offMenuButtonBoundingClientRectWeightChange | ✓ | ✓ | ✓ | ✓ |
@@ -447,7 +466,7 @@ DMPApp.init(context, { virtualFilePrefix: 'host-file://' })
 - 兼容性确认按完整链路验收：service 公开入口、目标平台注册与参数/返回契约、持续事件的多监听/注销语义、权限与资源销毁、文档行以及 compiler 兼容性基线必须一起核对。service 中存在入口不代表四个平台都已完成容器实现；反过来，表中暂时缺行也不代表 native 已有实现不存在。`scanCode` 就是一次“原生三端已实现、表格漏登记”的存量审计结果。
 - Web 的 `authorize` 当前支持浏览器可请求的相机、麦克风和定位 scope；浏览器无法打开系统应用权限页，因此 `openSetting` 明确不支持。Web 的 `chooseVideo` 返回会话期 `blob:` 临时路径；视频相册写入和编码压缩没有浏览器等价系统能力，`saveVideoToPhotosAlbum`、`compressVideo` 明确不支持。
 - `compressVideo` 的精细编码参数受平台编码器能力约束：Android 和 HarmonyOS 会请求目标码率/分辨率，iOS 依据 `quality`/`resolution` 选择系统导出预设；编码器可能降级参数，但不会用原文件复制冒充压缩结果。
-- `createVideoDecoder` 提供后台逐帧解码、同步 RGBA 取帧、异步控制和 `start` / `stop` / `seek` / `ended` 事件；编码格式受系统解码器限制，三端真机播放仍需验收；Web 需安全上下文、OffscreenCanvas 和 WebCodecs，并在 start 时检查 MP4 编码支持。`bufferchange` 和音轨暂不支持。接入与 libpag 的 Wasm 能力边界见[视频解码说明](./VideoDecoder.md)。
+- `createVideoDecoder` 提供后台逐帧解码、同步 RGBA 取帧、异步控制和 `start` / `stop` / `seek` / `ended` 事件；编码格式受系统解码器限制，最终播放效果还取决于纹理上传与渲染链路；Web 需安全上下文、OffscreenCanvas 和 WebCodecs，并在 start 时检查 MP4 编码支持。`bufferchange` 和音轨暂不支持。接入与 libpag 的 Wasm 能力边界见[视频解码说明](./VideoDecoder.md)。
 - 全局 `WXWebAssembly` 提供 libpag 4.5.85 所需的真实 Wasm 执行，包含同步 imports / exports、线性内存扩容、Table 取函数及包内 Brotli 加载；通过 `wx.canIUse('WXWebAssembly')` 检查。iOS 需要系统 JavaScriptCore 支持 ArrayBuffer 分离（iOS 17.4+）。它不属于 `wx` 对象上的方法，支持范围和接入方式见 [WXWebAssembly](./WXWebAssembly.md)。
 - `getUpdateManager` 只负责更新状态通知和重启入口，包下载、校验和动态下发流程请参考[小程序包更新说明](./MiniProgram-Update.md)。
 - `chooseMessageFile` 在 Android、iOS 和 HarmonyOS 上使用系统文件选择器。宿主无法访问微信会话记录，因此 `time` 返回文件修改时间（取不到时为选择时间），不是微信会话发送时间；选中文件会先复制到当前小程序的临时沙箱并返回 `difile://` 路径。

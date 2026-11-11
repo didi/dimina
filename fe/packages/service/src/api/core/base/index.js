@@ -16,6 +16,8 @@ export const env = {
 // JS 层内置支持的API列表
 const builtInAPIs = new Set([
 	'nextTick',
+	'startPullDownRefresh',
+	'stopPullDownRefresh',
 	'onError',
 	'offError',
 	'onAppShow',

@@ -7,7 +7,7 @@ Dimina Harmony SDK 用于在 HarmonyOS 应用中加载和运行小程序，并�
 - HarmonyOS 5.0.0+
 - `compatibleSdkVersion`: 12
 
-命令行构建使用 JDK 17，并确保 `JAVA_HOME` 和 `PATH` 指向同一版本。不要直接复用新版 IDE 的 JBR：本机 CLI `6.0.2.640` 的打包器在 JBR 25 下存在空路径清理问题，可能删除构建工作目录。CI 配置固定 JDK 17；其他 CLI 版本也应先确认其 Java 兼容范围。
+命令行构建使用 JDK 17，并确保 `JAVA_HOME` 和 `PATH` 指向同一版本。不要直接复用新版 IDE 的 JBR：CLI `6.0.2.640` 的打包器在 JBR 25 下存在空路径清理问题，可能删除构建工作目录。CI 配置固定 JDK 17；其他 CLI 版本也应先确认其 Java 兼容范围。
 
 ## 快速接入
 
