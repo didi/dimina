@@ -342,28 +342,71 @@ final class DMPVideoDecoderTests: XCTestCase {
             kCVPixelBufferWidthKey as String: width, kCVPixelBufferHeightKey as String: height,
         ])
         writer.add(input)
-        XCTAssertTrue(writer.startWriting())
-        writer.startSession(atSourceTime: .zero)
-        for index in 0..<frames {
-            var buffer: CVPixelBuffer?
-            XCTAssertEqual(CVPixelBufferCreate(kCFAllocatorDefault, width, height, kCVPixelFormatType_32BGRA, nil, &buffer), kCVReturnSuccess)
-            let image = try XCTUnwrap(buffer)
-            CVPixelBufferLockBaseAddress(image, [])
-            let bytes = try XCTUnwrap(CVPixelBufferGetBaseAddress(image)).assumingMemoryBound(to: UInt8.self)
-            let stride = CVPixelBufferGetBytesPerRow(image)
-            let color: [UInt8] = [index % 3 == 2 ? 255 : 0, index % 3 == 1 ? 255 : 0, index % 3 == 0 ? 255 : 0, 255]
-            color.withUnsafeBytes { memset_pattern4(bytes, $0.baseAddress!, stride * height) }
-            CVPixelBufferUnlockBaseAddress(image, [])
-            let deadline = Date().addingTimeInterval(5)
-            while !input.isReadyForMoreMediaData && Date() < deadline { Thread.sleep(forTimeInterval: 0.005) }
-            XCTAssertTrue(adaptor.append(image, withPresentationTime: CMTime(value: Int64(index), timescale: fps)))
+        guard writer.startWriting() else {
+            throw writer.error ?? NSError(domain: "VideoFixture", code: 1)
         }
-        input.markAsFinished()
+        writer.startSession(atSourceTime: .zero)
+        let queue = DispatchQueue(label: "VideoDecoderTests.Fixture", qos: .userInitiated)
+        let state = VideoFixtureEncodingState()
         let finished = expectation(description: "fixture video encoded")
-        writer.finishWriting { finished.fulfill() }
-        wait(for: [finished], timeout: 5)
-        XCTAssertEqual(writer.status, .completed, writer.error?.localizedDescription ?? "encoding failed")
+        // A busy encoder can remain unready longer than a polling deadline.
+        // Let AVFoundation resume this producer instead of appending anyway.
+        input.requestMediaDataWhenReady(on: queue) {
+            guard state.result == nil else { return }
+            do {
+                while input.isReadyForMoreMediaData && state.nextFrame < frames {
+                    try autoreleasepool {
+                        var buffer: CVPixelBuffer?
+                        let status = CVPixelBufferCreate(kCFAllocatorDefault, width, height, kCVPixelFormatType_32BGRA, nil, &buffer)
+                        guard status == kCVReturnSuccess, let image = buffer else {
+                            throw NSError(domain: "VideoFixture.PixelBuffer", code: Int(status))
+                        }
+                        let index = state.nextFrame
+                        do {
+                            CVPixelBufferLockBaseAddress(image, [])
+                            defer { CVPixelBufferUnlockBaseAddress(image, []) }
+                            let bytes = try XCTUnwrap(CVPixelBufferGetBaseAddress(image)).assumingMemoryBound(to: UInt8.self)
+                            let stride = CVPixelBufferGetBytesPerRow(image)
+                            let color: [UInt8] = [index % 3 == 2 ? 255 : 0, index % 3 == 1 ? 255 : 0, index % 3 == 0 ? 255 : 0, 255]
+                            color.withUnsafeBytes { memset_pattern4(bytes, $0.baseAddress!, stride * height) }
+                        }
+                        guard adaptor.append(image, withPresentationTime: CMTime(value: Int64(index), timescale: fps)) else {
+                            throw writer.error ?? NSError(domain: "VideoFixture.Append", code: 1)
+                        }
+                    }
+                    state.nextFrame += 1
+                }
+                guard state.nextFrame == frames else { return }
+                state.result = .success(())
+                input.markAsFinished()
+                writer.finishWriting { finished.fulfill() }
+            } catch {
+                state.result = .failure(error)
+                writer.cancelWriting()
+                finished.fulfill()
+            }
+        }
+        // This deadline only fails fixture creation; it never permits a write
+        // while unready or lets the decoder consume an incomplete fixture.
+        let status = XCTWaiter.wait(for: [finished], timeout: 60)
+        let result = queue.sync {
+            if status != .completed {
+                state.result = .failure(NSError(domain: "VideoFixture.EncodingTimedOut", code: 1))
+                writer.cancelWriting()
+            }
+            return state.result
+        }
+        try XCTUnwrap(result).get()
+        guard writer.status == .completed else {
+            throw writer.error ?? NSError(domain: "VideoFixture.Incomplete", code: 1)
+        }
     }
+}
+
+// Accessed only on the fixture's serial encoding queue, including result reads.
+private final class VideoFixtureEncodingState {
+    var nextFrame = 0
+    var result: Result<Void, Error>?
 }
 
 struct VideoFramePixelsTests {
