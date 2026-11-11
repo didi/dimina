@@ -3,6 +3,7 @@
 // https://developers.weixin.qq.com/miniprogram/dev/component/picker.html
 
 import { triggerEvent, useInfo } from '@/common/events'
+import { attachTouchEvents } from '@/common/touchGestures'
 import { useTouchEvents } from '@/common/useTouchEvents'
 import PickerColumn from './PickerColumn.vue'
 
@@ -209,16 +210,6 @@ const unregisterFormControl = registerFormControl?.({
 })
 onBeforeUnmount(() => unregisterFormControl?.())
 
-// 遮罩层点击
-const handleMaskClick = () => {
-	handleCancel()
-}
-
-// 阻止事件冒泡
-const stopPropagation = (e) => {
-	e.stopPropagation()
-}
-
 // 计算显示的选项数据
 const displayOptions = computed(() => {
 	switch (props.mode) {
@@ -400,6 +391,25 @@ function handleTap({ event }) {
 }
 
 useTouchEvents(info, rootRef, { tapHandler: handleTap })
+
+const popupRef = ref(null)
+const cancelRef = ref(null)
+const confirmRef = ref(null)
+watch(popupRef, (element, _previous, onCleanup) => {
+	if (!element) return
+	// 弹层在 touchend 后创建，浏览器补发的 click 可能重新命中遮罩或按钮。
+	// 复用手势状态机，只响应在弹层上开始的完整操作，不把开启动作当成取消或确认。
+	const detach = attachTouchEvents({ attrs: {} }, element, {
+		tapHandler: ({ event }) => {
+			if (event.target === element || cancelRef.value?.contains(event.target)) {
+				handleCancel(event)
+			} else if (confirmRef.value?.contains(event.target)) {
+				handleConfirm(event)
+			}
+		},
+	})
+	onCleanup(detach)
+}, { flush: 'post' })
 </script>
 
 <template>
@@ -408,13 +418,13 @@ useTouchEvents(info, rootRef, { tapHandler: handleTap })
 	</div>
 	
 	<!-- 选择器弹窗 -->
-	<div v-if="showPicker" class="dd-picker-overlay" @click="handleMaskClick">
-		<div class="dd-picker-container" @click="stopPropagation">
+	<div v-if="showPicker" ref="popupRef" class="dd-picker-overlay" @click.stop>
+		<div class="dd-picker-container">
 			<!-- 标题栏 -->
 			<div class="dd-picker-header">
-				<div class="dd-picker-action dd-picker-cancel" @click="handleCancel">取消</div>
+				<div ref="cancelRef" class="dd-picker-action dd-picker-cancel">取消</div>
 				<div class="dd-picker-title">{{ headerText || '' }}</div>
-				<div class="dd-picker-action dd-picker-confirm" @click="handleConfirm">确定</div>
+				<div ref="confirmRef" class="dd-picker-action dd-picker-confirm">确定</div>
 			</div>
 			
 			<!-- 选择器内容 -->

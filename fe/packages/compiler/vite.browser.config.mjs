@@ -12,7 +12,8 @@ export default defineConfig({
 		{ find: /^esbuild$/, replacement: local('transform') },
 		{ find: /^@vue\/compiler-sfc$/, replacement: '@vue/compiler-sfc/dist/compiler-sfc.esm-browser.js' },
 		{ find: /^cheerio$/, replacement: 'cheerio/slim' },
-		{ find: /^(?:autoprefixer|cssnano|less|sass)$/, replacement: local('postcss') },
+		{ find: /^autoprefixer$/, replacement: local('autoprefixer') },
+		{ find: /^(?:cssnano|less|sass)$/, replacement: local('postcss') },
 	] },
 	define: { 'process.env.NODE_ENV': '"production"' },
 	build: {
