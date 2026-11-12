@@ -312,13 +312,18 @@ class ImageApi : BaseApiHandler() {
             PREVIEW_IMAGE -> {
                 val urls = params.optJSONArray("urls")
                 if (urls != null && urls.length() > 0) {
-                    var current = params.optString("current", urls.getString(0))
-                    var showMenu = params.optBoolean("showmenu", true) // 是否显示长按菜单
-                    val urlList = mutableListOf<String>()
-                    for (i in 0 until urls.length()) {
-                        urlList.add(urls.optString(i))
+                    val sources = List(urls.length()) { urls.optString(it) }
+                    val currentIndex = sources.indexOf(params.optString("current", sources.first()))
+                        .coerceAtLeast(0)
+                    val urlList = try {
+                        sources.map { resolvePreviewPath(activity, appId, it) }
+                    } catch (_: IllegalArgumentException) {
+                        return AsyncResult(JSONObject().apply {
+                            put("errMsg", "$PREVIEW_IMAGE:fail invalid url")
+                        })
                     }
-                    ImagePreviewActivity.launch(activity, urlList, current, showMenu)
+                    val showMenu = params.optBoolean("showmenu", true) // 是否显示长按菜单
+                    ImagePreviewActivity.launch(activity, urlList, urlList[currentIndex], showMenu)
                     AsyncResult(JSONObject().apply {
                         put("errMsg", "$PREVIEW_IMAGE:ok")
                     })
