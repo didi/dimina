@@ -27,6 +27,18 @@ jobs:
       - name: Validate pinned native dependencies
         run: ./scripts/update-native-dependencies.sh --check
 
+  harmony:
+    needs: native-dependency-versions
+    permissions:
+      contents: read
+    uses: ./.github/workflows/harmony-tests.yml
+    with:
+      release_tag: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+    secrets:
+      HARMONY_OHPM_PRIVATE_KEY: ${{ secrets.HARMONY_OHPM_PRIVATE_KEY }}
+      HARMONY_OHPM_KEY_PASSPHRASE: ${{ secrets.HARMONY_OHPM_KEY_PASSPHRASE }}
+      HARMONY_OHPM_PUBLISH_ID: ${{ secrets.HARMONY_OHPM_PUBLISH_ID }}
+
   changelog:
     if: github.event_name == 'push' || !inputs.skip_changelog
     needs: native-dependency-versions

@@ -2,6 +2,9 @@ name: Harmony Tests
 
 on:
   push:
+    # Tag releases run this workflow through Release instead.
+    branches:
+      - '**'
     paths:
       - 'harmony/**'
       - 'shared/**'
@@ -14,13 +17,42 @@ on:
       - 'cmake/**'
       - '.github/workflows/harmony-tests.yml'
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Optional existing release tag to validate or publish'
+        required: false
+        type: string
+      dry_run:
+        description: 'Validate publishing credentials without uploading packages'
+        required: false
+        type: boolean
+        default: true
+  workflow_call:
+    inputs:
+      release_tag:
+        description: 'Release tag to validate and publish to OHPM'
+        required: true
+        type: string
+      dry_run:
+        description: 'Validate publishing credentials without uploading packages'
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      HARMONY_OHPM_PRIVATE_KEY:
+        required: true
+      HARMONY_OHPM_KEY_PASSPHRASE:
+        required: true
+      HARMONY_OHPM_PUBLISH_ID:
+        required: true
 
 permissions:
   contents: read
 
 concurrency:
-  group: harmony-tests-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: harmony-tests-${{ github.workflow }}-${{ inputs.release_tag || github.ref }}
+  # Never interrupt an OHPM release after the core package has been published.
+  cancel-in-progress: ${{ !inputs.release_tag }}
 
 jobs:
   portable-runtime:
@@ -30,6 +62,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.ref }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -53,6 +87,7 @@ jobs:
 
   local-test:
     name: Harmony Local Tests (macOS)
+    needs: portable-runtime
     runs-on: macos-15
     timeout-minutes: 30
     env:
@@ -64,6 +99,35 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.ref }}
+
+      - name: Validate Harmony release version and credentials
+        if: inputs.release_tag != ''
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          HARMONY_OHPM_PRIVATE_KEY: ${{ secrets.HARMONY_OHPM_PRIVATE_KEY }}
+          HARMONY_OHPM_KEY_PASSPHRASE: ${{ secrets.HARMONY_OHPM_KEY_PASSPHRASE }}
+          HARMONY_OHPM_PUBLISH_ID: ${{ secrets.HARMONY_OHPM_PUBLISH_ID }}
+        run: |
+          set -euo pipefail
+          test -n "$HARMONY_OHPM_PRIVATE_KEY" || { echo 'Missing HARMONY_OHPM_PRIVATE_KEY secret' >&2; exit 1; }
+          test -n "$HARMONY_OHPM_KEY_PASSPHRASE" || { echo 'Missing HARMONY_OHPM_KEY_PASSPHRASE secret' >&2; exit 1; }
+          test -n "$HARMONY_OHPM_PUBLISH_ID" || { echo 'Missing HARMONY_OHPM_PUBLISH_ID secret' >&2; exit 1; }
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          tag = os.environ['RELEASE_TAG']
+          core = json.loads(Path('harmony/dimina/oh-package.json5').read_text())
+          adapter = json.loads(Path('harmony/map_amap/oh-package.json5').read_text())
+          if tag != 'v' + core['version'] or adapter['version'] != core['version']:
+              raise SystemExit('Release tag, core version and AMap adapter version must match')
+          if adapter['dependencies'][core['name']] != core['version']:
+              raise SystemExit('AMap adapter must depend on the released core version')
+          print(f'Validated Harmony release {tag}')
+          PY
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -138,10 +202,11 @@ jobs:
       - name: Cache ohpm packages
         uses: actions/cache@v4
         with:
-          path: ~/.ohpm
-          key: harmony-ohpm-${{ runner.os }}-${{ hashFiles('harmony/**/oh-package.json5', 'harmony/**/oh-package-lock.json5') }}
+          # Cache package downloads only; publishing credentials must never be cached.
+          path: ~/.ohpm/cache
+          key: harmony-ohpm-packages-${{ runner.os }}-${{ hashFiles('harmony/**/oh-package.json5', 'harmony/**/oh-package-lock.json5') }}
           restore-keys: |
-            harmony-ohpm-${{ runner.os }}-
+            harmony-ohpm-packages-${{ runner.os }}-
 
       - name: Install Harmony dependencies
         working-directory: ./harmony
@@ -179,34 +244,8 @@ jobs:
           printf '%s\n' "$test_summary"
           printf '%s\n' "$test_summary" | grep -Eq '^Tests run: [1-9][0-9]*, Failure: 0, Error: 0, Pass: [1-9][0-9]*, Ignore: [0-9]+$'
 
-      - name: Build Harmony SDK
-        working-directory: ./harmony
-        run: >-
-          hvigorw --mode module
-          -p product=default
-          -p module=dimina@default
-          -p buildMode=release
-          assembleHar
-          --analyze=normal
-          --parallel
-          --no-daemon
-
-      - name: Verify core HAR publication metadata
-        working-directory: ./harmony
-        run: python3 scripts/check-core-publication.py
-
-      - name: Build optional AMap HAR
-        working-directory: ./harmony
-        run: >-
-          hvigorw --mode module
-          -p product=default
-          -p module=map_amap@default
-          -p buildMode=release
-          assembleHar --no-daemon
-
-      - name: Verify AMap HAR publication metadata
-        working-directory: ./harmony
-        run: python3 scripts/check-map-publication.py
+      - name: Build and validate Harmony SDK packages
+        run: bash harmony/upload.sh --build-only
 
       - name: Build Harmony example app
         working-directory: ./harmony
@@ -218,6 +257,29 @@ jobs:
           --analyze=normal
           --parallel
           --no-daemon
+
+      # Older release tags do not contain the CI authentication helper. Always
+      # use automation from this run's commit while building the exact tag above.
+      - name: Checkout Harmony release automation
+        if: inputs.release_tag != ''
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: .release-automation
+          sparse-checkout: harmony/scripts/publish-ci.sh
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: ${{ inputs.dry_run && 'Validate OHPM publishing credentials (dry run)' || 'Publish Harmony SDK packages to OHPM' }}
+        if: inputs.release_tag != ''
+        timeout-minutes: 10
+        env:
+          HARMONY_OHPM_PRIVATE_KEY: ${{ secrets.HARMONY_OHPM_PRIVATE_KEY }}
+          HARMONY_OHPM_KEY_PASSPHRASE: ${{ secrets.HARMONY_OHPM_KEY_PASSPHRASE }}
+          HARMONY_OHPM_PUBLISH_ID: ${{ secrets.HARMONY_OHPM_PUBLISH_ID }}
+          HARMONY_OHPM_DRY_RUN: ${{ inputs.dry_run }}
+          HARMONY_UPLOAD_SCRIPT: ${{ github.workspace }}/harmony/upload.sh
+        run: bash .release-automation/harmony/scripts/publish-ci.sh
 
       - name: Upload Harmony test reports
         if: always()

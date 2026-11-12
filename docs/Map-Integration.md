@@ -259,6 +259,10 @@ SDK 隐私授权与系统定位权限分别处理，Key 使用对应平台产品
 
 - Android：根 `jitpack.yml` 显式安装 `engine_qjs`、`dimina`、`map-amap` 的 Maven publication。可用 `./gradlew :map-amap:publishReleasePublicationToMavenLocal` 本地检查 AAR、源码包和 POM。
 - iOS：Release 工作流生成本地 Swift Package ZIP 和两个 XCFramework ZIP；主仓库直接提供 `DiminaMapAMap` product，具体步骤见 [Swift Package 发布说明](../iOS/MapAMap/README.md#发布维护)。本地执行 `python3 scripts/package-ios-amap.py --version <核心版本> --output /tmp/dimina-map-release` 仅生成文件，不上传。
-- Harmony：`bash harmony/upload.sh --build-only` 构建两个 release HAR；确认发布凭据后，`bash harmony/upload.sh` 依次发布核心和地图适配器。若核心该版本已发布，可单独执行 `ohpm publish harmony/map_amap/build/default/outputs/default/map_amap.har`。
+- Harmony：推送 `v*` tag 后，Release 工作流复用 Harmony 测试和构建流程，检查 tag、核心包、地图适配器及其核心依赖的版本一致，再调用 `harmony/upload.sh`，依次发布核心和地图适配器。也可在 Release 工作流中手动指定 tag。仅本地构建可执行 `bash harmony/upload.sh --build-only`；本地发布执行 `bash harmony/upload.sh`。若核心该版本已发布，可单独执行 `ohpm publish harmony/map_amap/build/default/outputs/default/map_amap.har`；不要重新推送同版本 tag 来补发适配器。
+
+Harmony CI 发布凭据通过仓库的 Actions Secrets 管理，完成或失败后清理临时认证文件；依赖缓存只包含下载的包。普通分支和 PR 测试不会发布。
+
+要验证已有版本的发布流程，可手动运行 Harmony Tests，填写已有 tag 并保持 `dry_run` 开启。这会构建和校验该 tag 的产物、验证本地发布凭据配置，但不上传包，也不验证 OHPM 服务端发布权限。
 
 以上配置在新版本实际发布后才形成可用的远程制品；不能将本地构建成功等同于 JitPack/OHPM 已上线。地图 Key、隐私授权和地图功能的真机验证仍由接入流程完成。
