@@ -463,13 +463,13 @@ public class ImageAPI: DMPContainerApi {
         let current = param.getMap()["current"] as? String ?? urls.first!
         let showMenu = param.getMap()["showmenu"] as? Bool ?? true
         
-        // 在这里实现图片预览功能，可以使用第三方库或自定义UIViewController
         DispatchQueue.main.async {
             let realUrls: [String] = urls.map { url in
-                let realUrl = DMPFileUtil.sandboxPathFromVPath(from: url, appId: env.appId)
+                let realUrl = DMPFileUtil.appAccessiblePath(from: url, appId: env.appId)
                 return realUrl ?? url
             }
-            let previewVC = DMPImagePreviewViewController(urls: realUrls, current: current, showMenu: showMenu)
+            let currentIndex = urls.firstIndex(of: current) ?? 0
+            let previewVC = DMPImagePreviewViewController(urls: realUrls, current: realUrls[currentIndex], showMenu: showMenu)
 
             if let topVC = DMPUIManager.getCurrentWindow()?.rootViewController?.topMostViewController() {
                 topVC.present(previewVC, animated: true) {

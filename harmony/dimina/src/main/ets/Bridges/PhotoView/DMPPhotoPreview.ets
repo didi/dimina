@@ -1,4 +1,5 @@
 import { PhotoView } from '@ohos/photoview';
+import { fileUri } from '@kit.CoreFileKit';
 import { DMPWindowUtil } from '../../Utils/DMPWindowUtils';
 import { DMPApp } from '../../DApp/DMPApp';
 import { display } from '@kit.ArkUI';
@@ -52,7 +53,7 @@ export struct DMPPhotoPreview {
     this.mediaSources.forEach((item: DMPMediaPreviewItem) => {
       const data = new PhotoView.Model();
       if (item.type === 'image') {
-        data.setImageURI(item.url)
+        data.setImageURI(item.url.startsWith('/') ? fileUri.getUriFromPath(item.url) : item.url)
           .setScale(1, false)
           .setImageFit(ImageFit.Contain)
           .setZoomable(false)

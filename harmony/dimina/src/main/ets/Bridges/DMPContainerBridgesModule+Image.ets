@@ -410,7 +410,10 @@ export class DMPContainerBridgesModuleImage extends DMPContainerBridgesModule {
     if (src.startsWith('http://') || src.startsWith('https://')) {
       return src;
     }
-    return DMPFilePathResolver.resolve(src, this.currentAppId(), this.app.bundleManager.getCurrentJSAppDir());
+    const appId = this.currentAppId();
+    const packagePrefix = `/${appId}/`;
+    const localPath = src.startsWith(packagePrefix) ? src.substring(packagePrefix.length) : src;
+    return DMPFilePathResolver.resolve(localPath, appId, this.app.bundleManager.getCurrentJSAppDir());
   }
 
   private mediaTempDirectory(name: string): string {
