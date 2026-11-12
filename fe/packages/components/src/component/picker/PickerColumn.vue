@@ -203,10 +203,30 @@ const handleMouseDown = (e) => {
 		right: 0;
 		height: 44px;
 		margin-top: -22px;
-		border-top: 1px solid #d9d9d9;
-		border-bottom: 1px solid #d9d9d9;
 		pointer-events: none;
-		z-index: 1;
+		z-index: 3;
+
+		&::before,
+		&::after {
+			content: '';
+			position: absolute;
+			left: 0;
+			right: 0;
+			height: 1px;
+			transform: scaleY(0.5);
+		}
+
+		&::before {
+			top: 0;
+			border-top: 1px solid rgba(0, 0, 0, 0.1);
+			transform-origin: 0 0;
+		}
+
+		&::after {
+			bottom: 0;
+			border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+			transform-origin: 0 100%;
+		}
 	}
 	
 	.dd-picker-column-content {

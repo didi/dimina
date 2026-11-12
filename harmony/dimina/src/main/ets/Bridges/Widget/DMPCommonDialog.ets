@@ -1,61 +1,82 @@
+export const MODAL_DIVIDER_COLOR: string = '#1A000000'
+export const MODAL_DIVIDER_WIDTH: number = 0.5
+
 @CustomDialog
 export struct DMPCommonDialog {
   controller: CustomDialogController
   option?: ModalOption
 
   build() {
-    Column() {
+    Flex({ direction: FlexDirection.Column }) {
       Text(this.option?.title ?? $r("app.string.dialog_title"))
-        .fontSize(18)
+        .fontSize(17)
         .fontWeight(FontWeight.Bold)
-        .fontColor(0x333333).margin({ top: 18 })
+        .fontColor('#E6000000')
+        .lineHeight('23.8fp')
+        .textAlign(TextAlign.Center)
+        .width('100%')
+        .padding({ top: 32, bottom: 16, left: 24, right: 24 })
+        .flexShrink(0)
 
       Scroll() {
         Text(this.option?.content ?? '')
-          .fontSize(16)
-          .fontColor(0x666666)
-          .margin({ top: 17, bottom: 17 })
+          .fontSize(17)
+          .fontColor('#80000000')
+          .lineHeight('23.8fp')
+          .textAlign(TextAlign.Center)
+          .padding({ left: 24, right: 24 })
           .width('100%')
       }
       .width('100%')
+      .margin({ bottom: 32 })
       .flexShrink(1)
       .edgeEffect(EdgeEffect.None)
 
-      Divider().strokeWidth(1).color('#c8c8c8')
+      Divider()
+        .strokeWidth(MODAL_DIVIDER_WIDTH)
+        .color(MODAL_DIVIDER_COLOR)
+        .flexShrink(0)
 
-      Flex({ justifyContent: FlexAlign.SpaceEvenly, alignItems: ItemAlign.Center }) {
+      Row() {
         Text(this.option?.cancelText ?? $r("app.string.dmp_dialog_button_cancel"))
-          .fontSize(16)
+          .fontSize(17)
+          .fontWeight(FontWeight.Bold)
           .fontColor(this.option?.cancelColor ?? 0x333333)
           .textAlign(TextAlign.Center)
           .height('100%')
-          .width('50%')
+          .layoutWeight(1)
           .onClick(() => {
             this.option?.cancel?.();
           })
-          .visibility(this.option?.showCancel ? Visibility.Visible : Visibility.None)
+          .visibility((this.option?.showCancel ?? true) ? Visibility.Visible : Visibility.None)
         Divider()
           .vertical(true)
-          .strokeWidth(1)
-          .color('#c8c8c8')
-          .visibility(this.option?.showCancel ? Visibility.Visible : Visibility.None)
-          .backgroundColor('#ff0000')
-        Text(this.option?.confirmText ?? $r("app.string.dmp_dialog_button_confirm"))
-          .fontSize(16)
-          .textAlign(TextAlign.Center)
-          .fontColor('#576B95')
+          .strokeWidth(MODAL_DIVIDER_WIDTH)
+          .width(MODAL_DIVIDER_WIDTH)
           .height('100%')
-          .width('50%')
+          .color(MODAL_DIVIDER_COLOR)
+          .visibility((this.option?.showCancel ?? true) ? Visibility.Visible : Visibility.None)
+        Text(this.option?.confirmText ?? $r("app.string.dmp_dialog_button_confirm"))
+          .fontSize(17)
+          .fontWeight(FontWeight.Bold)
+          .textAlign(TextAlign.Center)
+          .fontColor(this.option?.confirmColor ?? '#576B95')
+          .height('100%')
+          .layoutWeight(1)
           .onClick(() => {
             this.option?.confirm?.();
           })
       }
-      .height(45)
+      .width('100%')
+      .height(56)
+      .flexShrink(0)
     }
+    .height('auto')
     .constraintSize({ maxHeight: '90%' })
     .backgroundColor(0xffffff)
-    .margin({ left: 40, right: 40 })
-    .borderRadius(6)
+    .width('80%')
+    .borderRadius(12)
+    .clip(true)
   }
 }
 

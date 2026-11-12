@@ -515,13 +515,26 @@ watch(popupRef, (element, _previous, onCleanup) => {
 }
 
 .dd-picker-header {
+	position: relative;
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
 	padding: 16px 20px;
-	border-bottom: 1px solid #e5e5e5;
 	background-color: #fafafa;
 	border-radius: 12px 12px 0 0;
+
+	&::after {
+		content: '';
+		position: absolute;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		height: 1px;
+		border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+		transform: scaleY(0.5);
+		transform-origin: 0 100%;
+		pointer-events: none;
+	}
 }
 
 .dd-picker-action {

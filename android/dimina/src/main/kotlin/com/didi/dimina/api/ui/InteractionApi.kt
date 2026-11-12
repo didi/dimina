@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -34,6 +33,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.res.painterResource
@@ -53,6 +53,8 @@ import kotlinx.coroutines.delay
 import org.json.JSONObject
 
 private const val MODAL_MAX_HEIGHT_FRACTION = 0.9f
+private val MODAL_DIVIDER_COLOR = Color.Black.copy(alpha = 0.1f)
+private val MODAL_DIVIDER_THICKNESS = 0.5.dp
 
 /**
  * Author: Doslin
@@ -453,23 +455,25 @@ fun ModalContent(
         val contentScrollState = rememberScrollState()
         Column(
             modifier = Modifier
-                .width(280.dp)
+                .fillMaxWidth(0.8f)
                 .heightIn(max = maxHeight * MODAL_MAX_HEIGHT_FRACTION)
-                .background(Color.White, RoundedCornerShape(8.dp))
-                .padding(top = 16.dp),
+                .background(Color.White, RoundedCornerShape(12.dp))
+                .clip(RoundedCornerShape(12.dp))
+                .padding(top = 32.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             // Title
             if (title.isNotEmpty()) {
                 Text(
                     text = title,
-                    color = Color.Black,
-                    fontSize = 16.sp,
+                    color = Color.Black.copy(alpha = 0.9f),
+                    fontSize = 17.sp,
+                    lineHeight = 23.8.sp,
                     fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = 24.dp, end = 24.dp, bottom = 8.dp)
+                        .padding(start = 24.dp, end = 24.dp, bottom = 16.dp)
                 )
             }
 
@@ -480,12 +484,18 @@ fun ModalContent(
                         .weight(1f, fill = false)
                         .fillMaxWidth()
                         .verticalScroll(contentScrollState)
-                        .padding(start = 24.dp, top = 12.dp, end = 24.dp, bottom = 20.dp)
+                        .padding(
+                            start = 24.dp,
+                            top = if (title.isEmpty()) 16.dp else 0.dp,
+                            end = 24.dp,
+                            bottom = 32.dp
+                        )
                 ) {
                     Text(
                         text = content,
-                        color = Color(0xFF7F7F7F),
-                        fontSize = 16.sp,
+                        color = Color.Black.copy(alpha = 0.5f),
+                        fontSize = 17.sp,
+                        lineHeight = 23.8.sp,
                         textAlign = TextAlign.Center,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -493,17 +503,16 @@ fun ModalContent(
             }
 
             HorizontalDivider(
-                modifier = Modifier
-                    .height(1.dp)
-                    .fillMaxWidth(),
-                color = Color.LightGray
+                modifier = Modifier.fillMaxWidth(),
+                thickness = MODAL_DIVIDER_THICKNESS,
+                color = MODAL_DIVIDER_COLOR
             )
 
             // Buttons
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(48.dp),
+                    .height(56.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
                 if (showCancel) {
@@ -516,15 +525,15 @@ fun ModalContent(
                         Text(
                             text = cancelText.take(4),
                             color = cancelColor,
-                            fontSize = 16.sp
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold
                         )
                     }
 
                     VerticalDivider(
-                        modifier = Modifier
-                            .width(1.dp)
-                            .fillMaxHeight(),
-                        color = Color.LightGray
+                        modifier = Modifier.fillMaxHeight(),
+                        thickness = MODAL_DIVIDER_THICKNESS,
+                        color = MODAL_DIVIDER_COLOR
                     )
                 }
 
@@ -537,7 +546,8 @@ fun ModalContent(
                     Text(
                         text = confirmText.take(4),
                         color = confirmColor,
-                        fontSize = 16.sp
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold
                     )
                 }
             }

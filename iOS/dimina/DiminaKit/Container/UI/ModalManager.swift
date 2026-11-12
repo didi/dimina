@@ -139,6 +139,12 @@ public class ModalManager {
         completion: @escaping ModalCompletionHandler
     ) {
         guard let window = self.modalWindow, let rootView = window.rootViewController?.view else { return }
+        let dividerThickness: CGFloat = 0.5
+        let dividerColor = UIColor.black.withAlphaComponent(0.1)
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.alignment = .center
+        paragraphStyle.minimumLineHeight = 17 * 1.4
+        paragraphStyle.maximumLineHeight = 17 * 1.4
         
         // Create modal container
         let container = UIView()
@@ -154,9 +160,9 @@ public class ModalManager {
         
         // Create title label
         let titleLabel = UILabel()
-        titleLabel.text = title
-        titleLabel.textColor = .black
-        titleLabel.font = UIFont.systemFont(ofSize: 17, weight: .medium)
+        titleLabel.attributedText = NSAttributedString(string: title, attributes: [.paragraphStyle: paragraphStyle])
+        titleLabel.textColor = UIColor.black.withAlphaComponent(0.9)
+        titleLabel.font = UIFont.systemFont(ofSize: 17, weight: .bold)
         titleLabel.textAlignment = .center
         titleLabel.numberOfLines = 0
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -175,9 +181,9 @@ public class ModalManager {
 
         // Create content label
         let contentLabel = UILabel()
-        contentLabel.text = content
-        contentLabel.textColor = UIColor.darkGray
-        contentLabel.font = UIFont.systemFont(ofSize: 15)
+        contentLabel.attributedText = NSAttributedString(string: content, attributes: [.paragraphStyle: paragraphStyle])
+        contentLabel.textColor = UIColor.black.withAlphaComponent(0.5)
+        contentLabel.font = UIFont.systemFont(ofSize: 17)
         contentLabel.textAlignment = .center
         contentLabel.numberOfLines = 0
         contentLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -185,7 +191,7 @@ public class ModalManager {
         
         // Create separator line
         let separatorLine = UIView()
-        separatorLine.backgroundColor = UIColor.lightGray.withAlphaComponent(0.3)
+        separatorLine.backgroundColor = dividerColor
         separatorLine.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(separatorLine)
         
@@ -198,7 +204,7 @@ public class ModalManager {
         let confirmButton = UIButton(type: .system)
         confirmButton.setTitle(confirmText, for: .normal)
         confirmButton.setTitleColor(UIColor(hexString: confirmColor), for: .normal)
-        confirmButton.titleLabel?.font = UIFont.systemFont(ofSize: 16, weight: .medium)
+        confirmButton.titleLabel?.font = UIFont.systemFont(ofSize: 17, weight: .bold)
         confirmButton.translatesAutoresizingMaskIntoConstraints = false
         confirmButton.addTarget(self, action: #selector(confirmButtonTapped(_:)), for: .touchUpInside)
         buttonsContainer.addSubview(confirmButton)
@@ -210,7 +216,7 @@ public class ModalManager {
         var buttonConstraints = [
             confirmButton.topAnchor.constraint(equalTo: buttonsContainer.topAnchor),
             confirmButton.bottomAnchor.constraint(equalTo: buttonsContainer.bottomAnchor),
-            confirmButton.heightAnchor.constraint(equalToConstant: 44)
+            confirmButton.heightAnchor.constraint(equalToConstant: 56)
         ]
         
         // Add cancel button if needed
@@ -218,7 +224,7 @@ public class ModalManager {
             let cancelButton = UIButton(type: .system)
             cancelButton.setTitle(cancelText, for: .normal)
             cancelButton.setTitleColor(UIColor(hexString: cancelColor), for: .normal)
-            cancelButton.titleLabel?.font = UIFont.systemFont(ofSize: 16)
+            cancelButton.titleLabel?.font = UIFont.systemFont(ofSize: 17, weight: .bold)
             cancelButton.translatesAutoresizingMaskIntoConstraints = false
             cancelButton.addTarget(self, action: #selector(cancelButtonTapped(_:)), for: .touchUpInside)
             buttonsContainer.addSubview(cancelButton)
@@ -228,7 +234,7 @@ public class ModalManager {
             
             // Add vertical separator between buttons
             let buttonSeparator = UIView()
-            buttonSeparator.backgroundColor = UIColor.lightGray.withAlphaComponent(0.3)
+            buttonSeparator.backgroundColor = dividerColor
             buttonSeparator.translatesAutoresizingMaskIntoConstraints = false
             buttonsContainer.addSubview(buttonSeparator)
             
@@ -241,7 +247,7 @@ public class ModalManager {
                 
                 buttonSeparator.topAnchor.constraint(equalTo: buttonsContainer.topAnchor),
                 buttonSeparator.bottomAnchor.constraint(equalTo: buttonsContainer.bottomAnchor),
-                buttonSeparator.widthAnchor.constraint(equalToConstant: 1),
+                buttonSeparator.widthAnchor.constraint(equalToConstant: dividerThickness),
                 buttonSeparator.leadingAnchor.constraint(equalTo: cancelButton.trailingAnchor),
                 
                 confirmButton.leadingAnchor.constraint(equalTo: buttonSeparator.trailingAnchor),
@@ -262,36 +268,37 @@ public class ModalManager {
             equalTo: contentLabel.heightAnchor,
             constant: 0
         )
-        contentHeightConstraint.priority = .defaultHigh
+        // Let the scrolling viewport shrink before compressing the full message.
+        contentHeightConstraint.priority = .defaultLow
 
         // Set up main container constraints
         var containerConstraints = [
             // Container constraints
             container.centerXAnchor.constraint(equalTo: rootView.centerXAnchor),
             container.centerYAnchor.constraint(equalTo: rootView.centerYAnchor),
-            container.widthAnchor.constraint(equalToConstant: 280),
+            container.widthAnchor.constraint(equalTo: rootView.safeAreaLayoutGuide.widthAnchor, multiplier: 0.8),
             container.heightAnchor.constraint(lessThanOrEqualTo: rootView.safeAreaLayoutGuide.heightAnchor, multiplier: 0.9),
             
             // Title constraints
-            titleLabel.topAnchor.constraint(equalTo: container.topAnchor, constant: 20),
-            titleLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
-            titleLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
+            titleLabel.topAnchor.constraint(equalTo: container.topAnchor, constant: 32),
+            titleLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
+            titleLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -24),
             
             // Content constraints
-            contentScrollView.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 12),
+            contentScrollView.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 16),
             contentScrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             contentScrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             contentLabel.topAnchor.constraint(equalTo: contentScrollView.contentLayoutGuide.topAnchor),
             contentLabel.bottomAnchor.constraint(equalTo: contentScrollView.contentLayoutGuide.bottomAnchor),
-            contentLabel.leadingAnchor.constraint(equalTo: contentScrollView.contentLayoutGuide.leadingAnchor, constant: 16),
-            contentLabel.trailingAnchor.constraint(equalTo: contentScrollView.contentLayoutGuide.trailingAnchor, constant: -16),
-            contentLabel.widthAnchor.constraint(equalTo: contentScrollView.frameLayoutGuide.widthAnchor, constant: -32),
+            contentLabel.leadingAnchor.constraint(equalTo: contentScrollView.contentLayoutGuide.leadingAnchor, constant: 24),
+            contentLabel.trailingAnchor.constraint(equalTo: contentScrollView.contentLayoutGuide.trailingAnchor, constant: -24),
+            contentLabel.widthAnchor.constraint(equalTo: contentScrollView.frameLayoutGuide.widthAnchor, constant: -48),
             
             // Separator line constraints
-            separatorLine.topAnchor.constraint(equalTo: contentScrollView.bottomAnchor, constant: 20),
+            separatorLine.topAnchor.constraint(equalTo: contentScrollView.bottomAnchor, constant: 32),
             separatorLine.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             separatorLine.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            separatorLine.heightAnchor.constraint(equalToConstant: 1),
+            separatorLine.heightAnchor.constraint(equalToConstant: dividerThickness),
             
             // Buttons container constraints
             buttonsContainer.topAnchor.constraint(equalTo: separatorLine.bottomAnchor),
