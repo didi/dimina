@@ -114,6 +114,7 @@ jobs:
         env:
           DIMINA_DESKTOP_SDK: '1'
         run: |
+          node --test desktop/scripts/sync-mobile-apis.test.mjs 2>&1 | tee .build/test-results/mobile-api-manifest-tests.log
           node desktop/scripts/sync-mobile-apis.mjs --check
           pnpm --dir fe --filter @dimina/desktop... build 2>&1 | tee .build/test-results/frontend-build.log
       - name: Check shared UI and desktop frontend

@@ -16,7 +16,8 @@ if (!names.has('getNetworkType') || !names.has('scanCode')) throw new Error('Mob
 const output = JSON.stringify([...names].sort(), null, 2) + '\n'
 const target = new URL('../mobile_api_names.json', import.meta.url)
 if (process.argv.includes('--check')) {
-  if (readFileSync(target, 'utf8') !== output) {
+  // Windows checkout may convert generated JSON to CRLF without changing APIs.
+  if (readFileSync(target, 'utf8').replace(/\r\n/g, '\n') !== output) {
     throw new Error('Mobile API manifest is stale; run node desktop/scripts/sync-mobile-apis.mjs')
   }
 } else writeFileSync(target, output)

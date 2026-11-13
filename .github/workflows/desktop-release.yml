@@ -102,7 +102,7 @@ jobs:
       - name: Prepare versions and test release tooling
         run: |
           python3 -m unittest discover -s desktop/scripts/tests -p 'test_*.py'
-          node --test desktop/scripts/publish.test.mjs
+          node --test desktop/scripts/publish.test.mjs desktop/scripts/sync-mobile-apis.test.mjs
           python3 desktop/scripts/release.py prepare --tag "$RELEASE_TAG"
       - name: Package npm, Cargo and NuGet artifacts
         run: |

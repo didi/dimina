@@ -2,3 +2,6 @@
 # intentionally contains whitespace that would otherwise make diff --check
 # report errors when the snapshot is added or replaced.
 third_party/quickjs/upstream/** -whitespace
+
+# Generated API snapshots use the same line endings on every platform.
+desktop/mobile_api_names.json text eol=lf
