@@ -1,5 +1,8 @@
 {
 	"name": "@dimina/server",
+	"volta": {
+		"extends": "../../package.json"
+	},
 	"description": "后台网络服务",
 	"main": "index.js",
 	"type": "module",

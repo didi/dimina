@@ -1,5 +1,8 @@
 {
   "name": "@dimina/benchmark",
+  "volta": {
+    "extends": "../../package.json"
+  },
   "private": true,
   "type": "module",
   "engines": {

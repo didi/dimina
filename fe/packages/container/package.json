@@ -1,5 +1,8 @@
 {
 	"name": "@dimina/container",
+	"volta": {
+		"extends": "../../package.json"
+	},
 	"author": "doslin",
 	"description": "Web端容器",
 	"private": true,

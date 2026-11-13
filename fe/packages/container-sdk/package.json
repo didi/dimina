@@ -1,5 +1,8 @@
 {
 	"name": "@dimina/fe-container-sdk",
+	"volta": {
+		"extends": "../../package.json"
+	},
 	"author": "doslin",
 	"description": "Web 端小程序容器运行时 SDK",
 	"type": "module",

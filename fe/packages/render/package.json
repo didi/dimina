@@ -1,5 +1,8 @@
 {
 	"name": "@dimina/render",
+	"volta": {
+		"extends": "../../package.json"
+	},
 	"private": true,
 	"author": "doslin",
 	"description": "渲染线程 SDK",

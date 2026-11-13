@@ -1,5 +1,8 @@
 {
 	"name": "@dimina/service",
+	"volta": {
+		"extends": "../../package.json"
+	},
 	"author": "doslin",
 	"private": true,
 	"description": "逻辑线程 SDK",

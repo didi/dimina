@@ -1,5 +1,8 @@
 {
   "name": "@dimina/generator",
+  "volta": {
+    "extends": "../../package.json"
+  },
   "version": "0.1.0",
   "type": "module",
   "description": "Browser-local mini-program generation with developer-provided models",

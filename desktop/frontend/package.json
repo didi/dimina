@@ -1,5 +1,8 @@
 {
   "name": "@dimina/desktop",
+  "volta": {
+    "extends": "../../fe/package.json"
+  },
   "private": true,
   "type": "module",
   "scripts": {

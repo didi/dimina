@@ -19,6 +19,8 @@
 
 要求使用 Node.js 22.22.3+ 和 pnpm 12.2.0+。仓库已配置 Volta Node.js 22.22.3，并通过 `packageManager` 固定 pnpm 12.2.0；如果使用 Volta，可直接在 `fe/` 目录执行 pnpm 命令。
 
+工作区各子包通过 `volta.extends` 继承 `fe/package.json` 中的 Node.js 版本，避免进入子包执行脚本时回退到全局默认版本。新增工作区包时也应配置该继承关系；升级 Node.js 只需修改 `fe/package.json` 中的 Volta 配置，并同步 `.nvmrc` 和 `engines.node`。
+
 ## 开始使用
  
 ### 安装说明

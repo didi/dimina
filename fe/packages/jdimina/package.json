@@ -1,5 +1,8 @@
 {
 	"name": "jdimina-next",
+	"volta": {
+		"extends": "../../package.json"
+	},
 	"version": "0.0.1",
 	"private": true,
 	"author": "dujichong",

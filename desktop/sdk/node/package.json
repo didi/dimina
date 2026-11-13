@@ -3,6 +3,14 @@
   "version": "0.1.0",
   "license": "Apache-2.0",
   "description": "Standalone Dimina mini-program windows for Node.js, Electron and Tauri hosts",
+  "homepage": "https://github.com/didi/dimina/tree/main/desktop/sdk",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/didi/dimina.git",
+    "directory": "desktop/sdk/node"
+  },
+  "bugs": { "url": "https://github.com/didi/dimina/issues" },
+  "publishConfig": { "access": "public", "registry": "https://registry.npmjs.org" },
   "type": "module",
   "main": "./index.js",
   "types": "./index.d.ts",
