@@ -1,0 +1,25 @@
+docs/Desktop-Releasing.md
+  4a4094a264a29efa 20,22,49,55
+.github/workflows/desktop-release.yml
+  4a4094a264a29efa 233-240,265-272,297-304
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "36fa66152726d0e19fee390b240da43df3291953",
+  "prompts": {
+    "4a4094a264a29efa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1cf8b-7df5-77e3-bf0e-c9596c3413c4",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 29,
+      "total_deletions": 22,
+      "accepted_lines": 4494,
+      "overriden_lines": 3
+    }
+  }
+}
