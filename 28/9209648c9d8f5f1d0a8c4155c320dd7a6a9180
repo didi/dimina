@@ -1,0 +1,31 @@
+fe/packages/container/src/services/index.js
+  4a4094a264a29efa 1-2,26
+fe/packages/container/src/services/app-logo.js
+  4a4094a264a29efa 1-112
+desktop/server_test.go
+  4a4094a264a29efa 1-131
+desktop/frontend/src/style.css
+  4a4094a264a29efa 1-384
+script/build_and_run.sh
+  4a4094a264a29efa 1-26
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "289209648c9d8f5f1d0a8c4155c320dd7a6a9180",
+  "prompts": {
+    "4a4094a264a29efa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1cf8b-7df5-77e3-bf0e-c9596c3413c4",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 2342,
+      "total_deletions": 382,
+      "accepted_lines": 656,
+      "overriden_lines": 0
+    }
+  }
+}
