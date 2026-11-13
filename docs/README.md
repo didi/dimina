@@ -9,6 +9,7 @@ Dimina（星河小程序）由 DMCC 编译器、逻辑层与渲染层运行时�
 | 你的目标 | 建议先读 | 接下来 |
 | --- | --- | --- |
 | 了解 Dimina 如何工作 | [架构总览](./Architecture-Diagram.md) | [实现细节](./Architecture-Details.md) |
+| 在 Electron / Tauri / Qt / .NET 中打开小程序 | [桌面客户端接入](./Desktop-Integration.md) | [独立窗口 SDK](../desktop/sdk/README.md) |
 | 构建桌面端小程序宿主 | [桌面容器](../desktop/README.md) | 构建、运行与宿主能力 |
 | 在 Web 用自有模型生成小程序 | [Web AI 小程序生成](./AI-MiniProgram-Web.md) | 本地编译、隔离预览与模型协议 |
 | 判断某项能力是否可用 | [能力参考](./API-Reference.md) | 对应平台的 SDK 接入文档 |

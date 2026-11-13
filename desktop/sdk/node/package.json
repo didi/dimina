@@ -1,0 +1,22 @@
+{
+  "name": "@dimina/desktop-sdk",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "description": "Standalone Dimina mini-program windows for Node.js, Electron and Tauri hosts",
+  "type": "module",
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": { "types": "./index.d.ts", "default": "./index.js" },
+    "./tauri": { "types": "./tauri.d.ts", "default": "./tauri.js" }
+  },
+  "engines": { "node": ">=22" },
+  "files": ["*.js", "*.d.ts", "README.md"],
+  "peerDependencies": { "@tauri-apps/api": "^2.0.0" },
+  "peerDependenciesMeta": { "@tauri-apps/api": { "optional": true } },
+  "devDependencies": { "@tauri-apps/api": "^2.0.0", "typescript": "^5.9.3" },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "typecheck": "tsc --noEmit --strict --module NodeNext --moduleResolution NodeNext --target ES2022 test/types.ts"
+  }
+}

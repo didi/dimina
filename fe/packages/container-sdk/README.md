@@ -2,6 +2,8 @@
 
 Web 端小程序容器运行时 SDK：管理小程序的启动、导航栈与生命周期。
 
+已有 Electron、Tauri、Qt、.NET 客户端需要直接调用独立小程序窗口时，优先使用封装好的 [桌面窗口 SDK](../../../desktop/sdk/README.md)。本包用于自行承载 Web 容器的场景。
+
 - 核心不包含应用列表、手机壳等展示 UI，这些内容由宿主提供。SDK 另带可选的基础状态栏 `createDefaultShell()`。
 - 分层对齐 Android / iOS / Harmony 三端的「管理器 + App 实例」模型。
 - `fe/packages/container` demo 是参考消费者实现。

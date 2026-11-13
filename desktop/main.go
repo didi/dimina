@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"embed"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"io/fs"
@@ -14,10 +17,12 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/egoist/mygo"
@@ -30,6 +35,7 @@ import (
 var frontend embed.FS
 
 type appWindow struct {
+	id         string
 	app        miniProgram
 	window     *mygo.Window
 	storage    *appStorage
@@ -38,26 +44,64 @@ type appWindow struct {
 	// Window presentation state is read and changed only on the UI thread.
 	presented bool
 	closing   bool
+	ready     chan struct{}
+	readyOnce sync.Once
+	readyErr  error
+	closed    chan struct{}
 }
 
 type Desktop struct {
-	resources *resourceServer
-	openMu    sync.Mutex
-	mu        sync.Mutex
-	launcher  *mygo.Window
-	windows   map[*mygo.Window]*appWindow
-	apps      map[string]*appWindow
+	sessionNamespace string
+	resources        *resourceServer
+	openMu           sync.Mutex
+	mu               sync.Mutex
+	launcher         *mygo.Window
+	windows          map[*mygo.Window]*appWindow
+	apps             map[string]*appWindow
 }
 
 var visibility = mygo.NewEvent[bool]("desktop:visible")
+var closeRequested = mygo.NewEvent[bool]("desktop:close")
 
 func main() {
+	var sdkMode bool
+	for _, arg := range os.Args[1:] {
+		if arg == "--sdk-host" {
+			sdkMode = true
+		}
+	}
+	var sdkData, sdkPackages string
+	if sdkMode {
+		flags := flag.NewFlagSet("Dimina SDK host", flag.ExitOnError)
+		flags.Bool("sdk-host", true, "run as a managed standalone-window container")
+		flags.StringVar(&sdkData, "data-dir", "", "host application data directory")
+		flags.StringVar(&sdkPackages, "packages-dir", "", "compiled mini-program directory")
+		_ = flags.Parse(os.Args[1:])
+		if sdkData == "" || sdkPackages == "" {
+			log.Fatal("--data-dir and --packages-dir are required in SDK mode")
+		}
+		var err error
+		sdkData, err = filepath.Abs(sdkData)
+		if err != nil {
+			log.Fatal(err)
+		}
+		sdkPackages, err = filepath.Abs(sdkPackages)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if info, err := os.Stat(sdkPackages); err != nil || !info.IsDir() {
+			log.Fatal("invalid packages directory")
+		}
+	}
 	mygo.App.SetName("Dimina Desktop")
 	dataDir, err := os.UserConfigDir()
 	if err != nil {
 		log.Fatal(err)
 	}
 	dataDir = filepath.Join(dataDir, "dimina-desktop")
+	if sdkMode {
+		dataDir = sdkData
+	}
 	if err = os.MkdirAll(dataDir, 0700); err != nil {
 		log.Fatal(err)
 	}
@@ -76,16 +120,37 @@ func main() {
 		log.Fatal(err)
 	}
 	defer resources.http.Close()
+	resources.packageRoot = sdkPackages
 	host := &Desktop{resources: resources, windows: map[*mygo.Window]*appWindow{}, apps: map[string]*appWindow{}}
+	if sdkMode {
+		sum := sha256.Sum256([]byte(dataDir))
+		host.sessionNamespace = hex.EncodeToString(sum[:8]) + "-"
+	}
+	if sdkMode {
+		resources.sdk = newSDKControl(host)
+	}
 	mygo.Bind(host)
-	mygo.App.WhenReady(func() { host.showLauncher() })
+	mygo.App.WhenReady(func() {
+		if !sdkMode {
+			host.showLauncher()
+			return
+		}
+		_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"protocol": 1, "baseUrl": resources.base + "sdk/control/", "token": resources.sdk.token})
+		go func() { _, _ = io.Copy(io.Discard, os.Stdin); mygo.App.Quit() }()
+		go func() {
+			signals := make(chan os.Signal, 1)
+			signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+			<-signals
+			mygo.App.Quit()
+		}()
+	})
 	mygo.App.OnActivate(func(hasVisibleWindows bool) {
-		if !hasVisibleWindows {
+		if !sdkMode && !hasVisibleWindows {
 			host.showLauncher()
 		}
 	})
 	mygo.App.OnWindowAllClosed(func() {
-		if runtime.GOOS != "darwin" {
+		if !sdkMode && runtime.GOOS != "darwin" {
 			mygo.App.Quit()
 		}
 	})
@@ -162,9 +227,6 @@ func (d *Desktop) ImportApp(ctx context.Context) (miniProgram, error) {
 }
 
 func (d *Desktop) OpenApp(ctx context.Context, appID string) error {
-	openedAt := time.Now()
-	d.openMu.Lock()
-	defer d.openMu.Unlock()
 	if _, ok := d.caller(ctx); !ok {
 		return errors.New("unknown window")
 	}
@@ -183,6 +245,15 @@ func (d *Desktop) OpenApp(ctx context.Context, appID string) error {
 	if target == nil {
 		return errors.New("小程序不存在")
 	}
+	_, err = d.openProgram(*target)
+	return err
+}
+
+func (d *Desktop) openProgram(target miniProgram) (*appWindow, error) {
+	openedAt := time.Now()
+	d.openMu.Lock()
+	defer d.openMu.Unlock()
+	appID := target.AppID
 	d.mu.Lock()
 	existing := d.apps[appID]
 	d.mu.Unlock()
@@ -193,20 +264,20 @@ func (d *Desktop) OpenApp(ctx context.Context, appID string) error {
 				existing.window.Focus()
 			}
 		})
-		return nil
+		return existing, nil
 	}
 	key, storage, err := d.resources.addStorage(appID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	win := mygo.NewWindow(mygo.WindowOptions{
 		Title: target.Name, URL: d.resources.base,
 		Width: 460, Height: 780, MinWidth: 340, MinHeight: 400, UseContentSize: true,
 		TitleBarStyle: mygo.TitleBarHidden, HideWindowButtons: true,
 		Hidden: true, BackgroundColor: "#fff",
-		Page: d.pageOptions(mygo.NewSession("miniapp-" + appID)),
+		Page: d.pageOptions(mygo.NewSession("miniapp-" + d.sessionNamespace + appID)),
 	})
-	state := &appWindow{app: *target, window: win, storage: storage, storageKey: key, openedAt: openedAt}
+	state := &appWindow{id: secret(), app: target, window: win, storage: storage, storageKey: key, openedAt: openedAt, ready: make(chan struct{}), closed: make(chan struct{})}
 	log.Printf("[desktop] startup appId=%s stage=window elapsed_ms=%d", appID, time.Since(openedAt).Milliseconds())
 	d.mu.Lock()
 	d.windows[win] = state
@@ -218,6 +289,7 @@ func (d *Desktop) OpenApp(ctx context.Context, appID string) error {
 	win.OnShow(func() { _ = visibility.Emit(win, true) })
 	win.OnClosed(func() {
 		state.closing = true
+		state.finishReady(errors.New("window closed before startup completed"))
 		d.mu.Lock()
 		delete(d.windows, win)
 		if d.apps[appID] == state {
@@ -225,8 +297,13 @@ func (d *Desktop) OpenApp(ctx context.Context, appID string) error {
 		}
 		d.mu.Unlock()
 		d.resources.removeStorage(key)
+		close(state.closed)
 	})
-	return nil
+	return state, nil
+}
+
+func (w *appWindow) finishReady(err error) {
+	w.readyOnce.Do(func() { w.readyErr = err; close(w.ready) })
 }
 
 func (d *Desktop) Bootstrap(ctx context.Context) (map[string]any, error) {
@@ -250,6 +327,16 @@ func (d *Desktop) RuntimeReady(ctx context.Context) error {
 		return errors.New("unknown app window")
 	}
 	log.Printf("[desktop] startup appId=%s stage=ready elapsed_ms=%d", state.app.AppID, time.Since(state.openedAt).Milliseconds())
+	state.finishReady(nil)
+	return nil
+}
+
+func (d *Desktop) RuntimeFailed(ctx context.Context, message string) error {
+	state, ok := d.caller(ctx)
+	if !ok || state == nil {
+		return errors.New("unknown app window")
+	}
+	state.finishReady(errors.New(message))
 	return nil
 }
 

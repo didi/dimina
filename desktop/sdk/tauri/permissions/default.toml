@@ -1,0 +1,6 @@
+[default]
+description = "Open and manage standalone mini-program windows using the host-configured runtime."
+permissions = [
+  "allow-start", "allow-open", "allow-focus", "allow-close",
+  "allow-close-all", "allow-windows", "allow-dispose"
+]

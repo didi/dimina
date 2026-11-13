@@ -7,6 +7,8 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const project = join(root, 'desktop')
 const args = process.argv.slice(2)
 const platformArg = args.find(arg => arg.startsWith('--platform='))
+const outputArg = args.find(arg => arg.startsWith('--out='))
+const output = outputArg ? resolve(outputArg.slice('--out='.length)) : join(project, 'build')
 const target = platformArg?.slice('--platform='.length) || `${process.platform === 'win32' ? 'windows' : process.platform}/${process.arch === 'x64' ? 'amd64' : process.arch}`
 if (!/^(darwin|windows|linux)\/(arm64|amd64|universal)$/.test(target)) throw new Error(`Unsupported platform: ${target}`)
 const env = { ...process.env, PATH: `${dirname(process.execPath)}${process.platform === 'win32' ? ';' : ':'}${process.env.PATH}`, GOTOOLCHAIN: 'local' }
@@ -20,5 +22,5 @@ function run(command, argv, cwd = project) {
 
 run(go, ['version'])
 run('pnpm', ['--filter', '@dimina/desktop...', 'build'], join(root, 'fe'))
-run(go, ['run', 'github.com/egoist/mygo/cmd/mygo@v0.9.0', 'build', '-platform', target, '-skip-dmg', '-skip-installer'])
-console.log(`Desktop build: ${join(project, 'build', target.replace('/', '-'))}`)
+run(go, ['run', 'github.com/egoist/mygo/cmd/mygo@v0.9.0', 'build', '-platform', target, '-skip-dmg', '-skip-installer', '-o', output])
+console.log(`Desktop build: ${join(output, target.replace('/', '-'))}`)

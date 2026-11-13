@@ -123,6 +123,10 @@ async function openMiniProgram(bootstrap) {
 		else container.application.sleepActiveView()
 	}
 	window.mygo.on('desktop:visible', setVisible)
+	window.mygo.on('desktop:close', () => {
+		if (container.application.views.length) container.closeApp()
+		else window.mygo.window.close()
+	})
 	document.addEventListener('visibilitychange', () => setVisible(!document.hidden))
 	window.addEventListener('pagehide', () => container.closeApp())
 	const app = await container.openApp({ appId: bootstrap.app.appId, path: bootstrap.app.path })
@@ -143,6 +147,8 @@ try {
 catch (error) {
 	showError(error)
 	if (bootstrap?.app) {
+		try { await desktop.runtimeFailed(error?.message || String(error)) }
+		catch (reportError) { console.error('[desktop] cannot report startup error', reportError) }
 		try { await presentWindow() }
 		catch (presentationError) { console.error('[desktop] cannot present error window', presentationError) }
 	}

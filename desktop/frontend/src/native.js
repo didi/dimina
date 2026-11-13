@@ -11,6 +11,7 @@ export const desktop = {
 	presentWindow: () => call('PresentWindow'),
 	prepareToClose: () => call('PrepareToClose'),
 	runtimeReady: () => call('RuntimeReady'),
+	runtimeFailed: message => call('RuntimeFailed', message),
 	invoke: (method, params) => call('Invoke', method, params),
 }
 

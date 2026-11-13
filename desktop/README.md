@@ -2,6 +2,8 @@
 
 基于 MyGo 的桌面小程序宿主。复用 DMCC、Service、Render 和 Web 容器，通过系统 WebView 运行小程序，提供独立窗口和本地系统能力。
 
+在现有 Electron、Tauri、Qt、.NET 客户端中调用独立小程序窗口，使用 [桌面窗口 SDK](./sdk/README.md)，无需自行实现资源服务或小程序桥接。
+
 ## 构建与运行
 
 需要 Go **1.27.3+**、Node.js **22.22.3+**、pnpm **12.2.0+**。MyGo 固定为 `v0.9.0`。

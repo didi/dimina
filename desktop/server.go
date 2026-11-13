@@ -30,6 +30,8 @@ type resourceServer struct {
 	mu                   sync.RWMutex
 	stores               map[string]*appStorage
 	files                map[string]selectedFile
+	packageRoot          string
+	sdk                  *sdkControl
 }
 
 type selectedFile struct{ path, owner string }
@@ -85,6 +87,10 @@ func (s *resourceServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, s.prefix)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Referrer-Policy", "no-referrer")
+	if s.sdk != nil && strings.HasPrefix(path, "sdk/control/") {
+		s.sdk.serve(w, r, strings.TrimPrefix(path, "sdk/control/"))
+		return
+	}
 	if strings.HasPrefix(path, "sync/") {
 		if r.Method != http.MethodPost {
 			http.Error(w, "POST required", 405)
@@ -137,6 +143,8 @@ func (s *resourceServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var source fs.FS = s.assets
 		if info, err := os.Stat(filepath.Join(s.dataDir, "packages", parts[0])); err == nil && info.IsDir() {
 			source = os.DirFS(filepath.Join(s.dataDir, "packages"))
+		} else if s.packageRoot != "" {
+			source = os.DirFS(s.packageRoot)
 		}
 		http.StripPrefix(s.prefix+"packages/", http.FileServerFS(source)).ServeHTTP(w, r)
 		return
