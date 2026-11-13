@@ -1,0 +1,101 @@
+desktop/sdk/node/test/client.test.mjs
+  4a4094a264a29efa 1-90
+desktop/sdk/qt/CMakeLists.txt
+  4a4094a264a29efa 1-14
+desktop/sdk/qt/DiminaDesktop.cpp
+  4a4094a264a29efa 1-192
+desktop/scripts/build.mjs
+  4a4094a264a29efa 10-11,25-26
+desktop/sdk/node/package.json
+  4a4094a264a29efa 1-22
+desktop/sdk_control.go
+  4a4094a264a29efa 1-231
+docs/README.md
+  4a4094a264a29efa 12
+desktop/sdk/node/README.md
+  4a4094a264a29efa 1-21
+desktop/sdk/node/index.d.ts
+  4a4094a264a29efa 1-20
+desktop/README.md
+  4a4094a264a29efa 5-6
+desktop/sdk/README.md
+  4a4094a264a29efa 1-191
+desktop/sdk/tauri/tests/lifecycle.rs
+  4a4094a264a29efa 1-95
+desktop/sdk/node/tauri.d.ts
+  4a4094a264a29efa 1-14
+desktop/sdk/node/test/types.ts
+  4a4094a264a29efa 1-15
+desktop/sdk/dotnet/DiminaDesktop.cs
+  4a4094a264a29efa 1-218
+desktop/main.go
+  4a4094a264a29efa 5,8,11,20,25,38,47-50,54-60,64,67-95,102-104,123,125-131,133-146,148,153,248-256,267,271,278,280,292,300,302-306,330-339
+desktop/sdk/build.mjs
+  4a4094a264a29efa 1-48
+desktop/sdk/node/types.d.ts
+  4a4094a264a29efa 1-11
+desktop/sdk/node/window.js
+  4a4094a264a29efa 1-11
+desktop/sdk/node/tauri.js
+  4a4094a264a29efa 1-28
+desktop/sdk/tauri/build.rs
+  4a4094a264a29efa 1-13
+desktop/sdk/tauri/src/runtime.rs
+  4a4094a264a29efa 1-239
+desktop/server.go
+  4a4094a264a29efa 33-34,90-93,146-147
+desktop/frontend/vite.config.mjs
+  4a4094a264a29efa 6-7
+docs/Desktop-Integration.md
+  4a4094a264a29efa 1-27
+desktop/sdk/tauri/README.md
+  4a4094a264a29efa 1-92
+desktop/sdk/tauri/permissions/default.toml
+  4a4094a264a29efa 1-6
+desktop/sdk/tauri/Cargo.toml
+  4a4094a264a29efa 1-21
+desktop/sdk/node/LICENSE
+  4a4094a264a29efa 1-202
+desktop/frontend/src/native.js
+  4a4094a264a29efa 14
+desktop/frontend/src/app-info.test.js
+  4a4094a264a29efa 1,7-8,15,23-28,59-88
+fe/packages/container-sdk/README.md
+  4a4094a264a29efa 5-6
+desktop/sdk/qt/DiminaDesktop.h
+  4a4094a264a29efa 1-51
+desktop/sdk/tauri/src/lib.rs
+  4a4094a264a29efa 1-153
+desktop/frontend/src/index.js
+  4a4094a264a29efa 126-129,150-151
+desktop/sdk/dotnet/Dimina.Desktop.csproj
+  4a4094a264a29efa 1-11
+desktop/sdk_control_test.go
+  4a4094a264a29efa 1-110
+desktop/.gitignore
+  4a4094a264a29efa 4-12
+desktop/sdk/node/test/tauri.test.mjs
+  4a4094a264a29efa 1-45
+desktop/sdk/node/index.js
+  4a4094a264a29efa 1-92
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "9d9bbeb34b57ec99734d2a0bcbb7730a81c824b5",
+  "prompts": {
+    "4a4094a264a29efa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1cf8b-7df5-77e3-bf0e-c9596c3413c4",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 4983,
+      "total_deletions": 1419,
+      "accepted_lines": 3675,
+      "overriden_lines": 0
+    }
+  }
+}
