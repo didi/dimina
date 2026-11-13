@@ -21,3 +21,5 @@ await desktop.dispose()
 完整构建、平台依赖和分发说明见仓库 `desktop/sdk/README.md`。
 
 Tauri 2 前端使用 `import { Dimina } from '@dimina/desktop-sdk/tauri'`，注册配套 Rust 插件和权限后调用 `await Dimina.start()`。运行时路径由 Rust 宿主配置，完整接入步骤见 `desktop/sdk/tauri/README.md`。
+
+源码开发时运行 `pnpm test` 需要 Node.js 22+ 和 Go 1.27.3+，测试会编译跨平台的原生进程夹具；Go 可通过 `GO_BIN` 指定。CI 使用 `DIMINA_TEST_RUNTIME` 指向预编译夹具。业务集成不需要安装这些测试工具。

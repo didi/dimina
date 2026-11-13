@@ -1,52 +1,22 @@
-import { test } from 'node:test'
+import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises'
+import { copyFile, mkdtemp, writeFile, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Dimina } from '../index.js'
+import { buildTestRuntime } from '../../tauri/tests/testdata/runtime/build.mjs'
+
+const fixtureRoot = await mkdtemp(join(tmpdir(), 'dimina native fixture '))
+const executable = process.platform === 'win32' ? 'runtime.exe' : 'runtime'
+const nativeRuntime = process.env.DIMINA_TEST_RUNTIME || buildTestRuntime(join(fixtureRoot, executable))
+after(() => rm(fixtureRoot, { recursive: true, force: true }))
 
 async function fixture(t, mode = 'normal') {
   const dir = await mkdtemp(join(tmpdir(), 'dimina sdk '))
-  const runtimePath = join(dir, 'runtime')
-  const source = `#!/usr/bin/env node
-import http from 'node:http';
-import {writeFileSync} from 'node:fs';
-import {createInterface} from 'node:readline';
-writeFileSync(${JSON.stringify(join(dir, 'pid'))},String(process.pid));
-const mode=${JSON.stringify(mode)};
-if(mode==='hang'){process.stdin.resume();}else{
-const windows=new Map();let next=0;
-const responses=new Map();
-createInterface({input:process.stdin}).on('line',line=>{const reply=JSON.parse(line);responses.get(reply.id)?.(reply);responses.delete(reply.id);});
-const server=http.createServer(async(req,res)=>{
- if(req.headers.authorization!=='Bearer '+ 'f'.repeat(48)){res.writeHead(401);res.end();return;}
- let raw='';for await(const chunk of req)raw+=chunk;
- const body=raw?JSON.parse(raw):{};const method=req.url.split('/').at(-1);let value=null;
- if(mode==='stall-close'&&method==='closeAll')return;
- if(method==='open'){
-  if(body.appId==='broken'){res.writeHead(400);res.end(JSON.stringify({error:'startup failed'}));return;}
-  value=[...windows.values()].find(w=>w.appId===body.appId);
-  if(!value){value={id:String(++next),appId:body.appId,name:body.name||body.appId,ready:true};windows.set(value.id,value);}
-  if(mode==='native'){
-   const id='call-'+next;
-   const pending=new Promise(resolve=>responses.set(id,resolve));
-   const call={type:'native-call',id,windowId:value.id,appId:body.appId,name:body.appId.startsWith('cancel')?'openSetting':'getNetworkType',params:{message:'你好'}};
-   if(body.appId==='cancel-queued'){process.stdout.write(JSON.stringify(call)+'\\n'+JSON.stringify({type:'native-cancel',id})+'\\n');responses.delete(id);}
-   else if(body.appId==='cancel'){console.log(JSON.stringify(call));}
-   else {console.log(JSON.stringify(call));const reply=await pending;value.name=reply.error||reply.value.message;}
-  }
- }else if(method==='windows')value=[...windows.values()];
- else if(method==='close'){if(mode==='native'&&windows.get(body.id)?.appId==='cancel'){const id='call-'+body.id;console.log(JSON.stringify({type:'native-cancel',id}));responses.delete(id);}windows.delete(body.id);}
- else if(method==='closeAll')windows.clear();
- else if(method==='import')value={appId:'imported',name:'Imported',path:'pages/index',imported:true};
- res.setHeader('Content-Type','application/json');res.end(JSON.stringify({value}));
-});
-server.listen(0,'127.0.0.1',()=>console.log(JSON.stringify({protocol:mode==='wrong'?2:1,baseUrl:'http://127.0.0.1:'+server.address().port+'/random/sdk/control/',token:'f'.repeat(48)})));
-process.stdin.on('end',()=>{if(mode==='ignore-shutdown')return;server.closeAllConnections();server.close(()=>process.exit(0));});if(mode==='ignore-shutdown')process.on('SIGTERM',()=>{});process.stdin.resume();
-}
-`
-  await writeFile(runtimePath, source, { mode: 0o700 })
-  t.after(() => rm(dir, { recursive: true, force: true }))
+  const runtimePath = join(dir, executable)
+  await copyFile(nativeRuntime, runtimePath)
+  await writeFile(join(dir, 'fixture.json'), JSON.stringify({ mode }))
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }))
   return { runtimePath, packagesDir: dir, dataDir: dir }
 }
 
@@ -62,7 +32,7 @@ async function assertRuntimeExited(options) {
   assert.fail('SDK left its runtime process running')
 }
 
-test('opens, focuses, lists, imports and closes through the managed protocol', { skip: process.platform === 'win32' }, async t => {
+test('opens, focuses, lists, imports and closes through the managed protocol', async t => {
   const options = await fixture(t)
   const host = await Dimina.start(options)
   try {
@@ -85,13 +55,13 @@ test('opens, focuses, lists, imports and closes through the managed protocol', {
   await assertRuntimeExited(options)
 })
 
-test('rejects a mismatched runtime protocol', { skip: process.platform === 'win32' }, async t => {
+test('rejects a mismatched runtime protocol', async t => {
   const options = await fixture(t, 'wrong')
   await assert.rejects(Dimina.start(options), /handshake/)
   await assertRuntimeExited(options)
 })
 
-test('bounds runtime startup and cleans up a child that never responds', { skip: process.platform === 'win32' }, async t => {
+test('bounds runtime startup and cleans up a child that never responds', async t => {
   const options = await fixture(t, 'hang')
   await assert.rejects(Dimina.start({ ...options, startupTimeoutMs: 2000 }), /timed out/)
   await assertRuntimeExited(options)
@@ -101,7 +71,7 @@ test('rejects ambiguous relative executable and data locations', async () => {
   await assert.rejects(Dimina.start({ runtimePath: 'relative', packagesDir: '/apps', dataDir: '/data' }), /absolute/)
 })
 
-test('dispatches native requests over private stdio with identity, results and cancellation', { skip: process.platform === 'win32' }, async t => {
+test('dispatches native requests over private stdio with identity, results and cancellation', async t => {
   const options = await fixture(t, 'native')
   const host = await Dimina.start(options)
   let cancelled, started
@@ -129,7 +99,7 @@ test('dispatches native requests over private stdio with identity, results and c
   await assertRuntimeExited(options)
 })
 
-for (const mode of ['stall-close', 'ignore-shutdown']) test(`bounds disposal when runtime ${mode} and shares concurrent disposal`, { skip: process.platform === 'win32' }, async t => {
+for (const mode of ['stall-close', 'ignore-shutdown']) test(`bounds disposal when runtime ${mode} and shares concurrent disposal`, async t => {
   const options = await fixture(t, mode)
   const host = await Dimina.start(options)
   const first = host.dispose(), second = host.dispose()
@@ -147,7 +117,7 @@ for (const mode of ['stall-close', 'ignore-shutdown']) test(`bounds disposal whe
   }
 })
 
-test('does not dispatch a queued native request after its cancellation arrives', { skip: process.platform === 'win32' }, async t => {
+test('does not dispatch a queued native request after its cancellation arrives', async t => {
   const options = await fixture(t, 'native'), host = await Dimina.start(options)
   let invoked = 0
   try {

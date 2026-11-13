@@ -1,0 +1,154 @@
+name: Desktop Tests
+
+on:
+  push:
+    branches: ['**']
+    paths:
+      - 'desktop/**'
+      - 'fe/**'
+      - 'docs/API-Reference.md'
+      - '.github/workflows/desktop*.yml'
+      - '.github/workflows/release.yml'
+  pull_request:
+    paths:
+      - 'desktop/**'
+      - 'fe/**'
+      - 'docs/API-Reference.md'
+      - '.github/workflows/desktop*.yml'
+      - '.github/workflows/release.yml'
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      checkout_ref:
+        description: 'Optional exact revision used by the release workflow'
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-tests-${{ github.workflow }}-${{ inputs.checkout_ref || github.ref }}
+  cancel-in-progress: ${{ !inputs.checkout_ref }}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  test:
+    name: Desktop logic (${{ matrix.runner }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-2025
+            qt_arch: win64_msvc2022_64
+          - runner: ubuntu-24.04
+            qt_arch: ''
+          - runner: macos-15
+            qt_arch: clang_64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.checkout_ref || github.ref }}
+          persist-credentials: false
+      - name: Prepare test logs
+        run: mkdir -p .build/test-results
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: fe/.nvmrc
+      - uses: pnpm/setup@v2
+        with:
+          version: 12.2.0
+          package-json-file: fe/package.json
+          install: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: desktop/go.mod
+          cache-dependency-path: desktop/go.sum
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache Rust dependencies and builds
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            desktop/sdk/tauri/target
+            desktop/device-bridge/target
+          key: ${{ runner.os }}-${{ runner.arch }}-desktop-tests-rust-${{ hashFiles('desktop/sdk/tauri/Cargo.toml', 'desktop/device-bridge/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-${{ runner.arch }}-desktop-tests-rust-
+      - name: Install Linux system libraries and Qt
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libdbus-1-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev qt6-base-dev
+      - name: Install Qt on Windows and macOS
+        if: runner.os != 'Linux'
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.3'
+          target: desktop
+          arch: ${{ matrix.qt_arch }}
+          archives: qtbase
+          cache: true
+      - name: Install frontend and SDK test dependencies
+        run: |
+          pnpm --dir fe install --no-frozen-lockfile
+          pnpm --dir desktop/sdk/node install --frozen-lockfile
+      - name: Build native protocol fixture
+        run: |
+          node --input-type=module - <<'JS'
+          import { appendFileSync } from 'node:fs';
+          import { resolve } from 'node:path';
+          import { buildTestRuntime } from './desktop/sdk/tauri/tests/testdata/runtime/build.mjs';
+          const file = buildTestRuntime(resolve('.build/sdk-test-runtime' + (process.platform === 'win32' ? '.exe' : '')));
+          appendFileSync(process.env.GITHUB_ENV, `DIMINA_TEST_RUNTIME=${file}\n`);
+          JS
+      - name: Build frontend resources for Go embedding
+        env:
+          DIMINA_DESKTOP_SDK: '1'
+        run: |
+          node desktop/scripts/sync-mobile-apis.mjs --check
+          pnpm --dir fe --filter @dimina/desktop... build 2>&1 | tee .build/test-results/frontend-build.log
+      - name: Check shared UI and desktop frontend
+        run: |
+          pnpm --dir fe --filter @dimina/container test 2>&1 | tee .build/test-results/web-tests.log
+          pnpm --dir fe --filter @dimina/desktop test 2>&1 | tee .build/test-results/desktop-tests.log
+      - name: Check Go networking, files, storage and native bridge
+        working-directory: desktop
+        run: |
+          go vet ./... 2>&1 | tee ../.build/test-results/go-vet.log
+          if [ "$RUNNER_OS" = Windows ]; then
+            go test -json ./... 2>&1 | tee ../.build/test-results/go-tests.jsonl
+          else
+            go test -race -json ./... 2>&1 | tee ../.build/test-results/go-tests.jsonl
+          fi
+      - name: Check Node and Tauri frontend SDKs
+        run: |
+          pnpm --dir desktop/sdk/node test 2>&1 | tee .build/test-results/node-tests.log
+          pnpm --dir desktop/sdk/node typecheck 2>&1 | tee .build/test-results/node-types.log
+      - name: Check Rust SDK lifecycle and BLE protocol logic
+        run: |
+          cargo test --manifest-path desktop/sdk/tauri/Cargo.toml 2>&1 | tee .build/test-results/tauri-tests.log
+          cargo test --locked --manifest-path desktop/device-bridge/Cargo.toml 2>&1 | tee .build/test-results/ble-tests.log
+      - name: Check Qt SDK lifecycle
+        run: |
+          cmake -S desktop/sdk/qt -B .build/qt-ci -DDIMINA_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Release 2>&1 | tee .build/test-results/qt-configure.log
+          cmake --build .build/qt-ci --config Release --parallel 2 2>&1 | tee .build/test-results/qt-build.log
+          ctest --test-dir .build/qt-ci -C Release --output-on-failure --output-junit "$GITHUB_WORKSPACE/.build/test-results/qt-tests.xml" 2>&1 | tee .build/test-results/qt-tests.log
+      - name: Check .NET SDK lifecycle
+        run: dotnet run --project desktop/sdk/dotnet/tests/Dimina.Desktop.Tests.csproj -c Release 2>&1 | tee .build/test-results/dotnet-tests.log
+      - name: Preserve test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          # Avoid the release artifact pattern "desktop-*".
+          name: test-results-desktop-${{ runner.os }}-${{ runner.arch }}
+          path: .build/test-results/
+          if-no-files-found: warn

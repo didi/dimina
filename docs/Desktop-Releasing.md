@@ -31,6 +31,18 @@ npm 发布生成 provenance，工作流已配置 `id-token: write` 和仓库元�
 
 ## 发布前验证
 
+日常分支推送和 PR 会触发 [Desktop Tests](../.github/workflows/desktop-tests.yml)，也可在 Actions 中手动运行。它在 Windows 2025 x64、Ubuntu 24.04 x64、macOS 15 ARM64 上分别执行，无需发布凭据。正式发布复用同一测试流程，全部通过后才会上传制品。
+
+| 范围 | CI 执行内容 |
+| --- | --- |
+| Go 运行时 | HTTP/文件传输、TCP/UDP 回环连接、文件授权、存储持久化、原生桥接身份与取消；macOS/Linux 启用 race 检查 |
+| 前端 | 公共列表、Web 容器、桌面适配与 API 注册回归 |
+| Node / Electron、Tauri | 使用原生测试进程验证握手、标准输入输出通信、错误、取消、关闭超时及子进程回收；Node 类型检查 |
+| Qt / .NET | 各系统原生编译并执行 SDK 进程生命周期用例；Qt 使用 Qt 6 |
+| BLE helper | 状态转换、取消、超时和通知协议的单元测试 |
+
+Node 和 Rust SDK 用例共用可跨平台编译的测试运行时，Windows 不再跳过这些进程协议测试。测试运行时不创建 WebView 窗口，不代替真实桌面运行时的界面验收。相机扫描、真实 BLE 连接、系统权限弹窗、窗口视觉和焦点行为仍需目标设备或具备相应硬件的 runner 验证。三系统测试日志保存在 `test-results-desktop-*` Actions artifacts；发布运行时的 x64/ARM64 构建矩阵保持不变。
+
 将流程配置合入后，在包含该配置的提交上创建发布标签。在 Actions 中手动运行 **Desktop SDK Release**：
 
 - `release_tag`：已有标签，例如 `v2.0.1-beta.1`。

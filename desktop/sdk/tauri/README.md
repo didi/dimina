@@ -92,3 +92,7 @@ await dimina.dispose()
 Tauri 前端使用 `/tauri` 子入口，Node/Electron 主进程使用包根入口；两者均使用 `Dimina.start()`，无需编写自己的 IPC 转发层。Qt 与 .NET 的接入方式见 [SDK 指南](../README.md)。
 
 需要为移动 SDK 已有 API 接入 Rust 原生实现时，通过 `PluginOptions.api(name, options, handler)` 注册；完整示例与取消约定见 [原生 API 接入](../Native-APIs.md#tauri--rust)。
+
+## 开发测试
+
+`cargo test` 的生命周期用例支持 Windows、macOS 和 Linux。测试会用 Node.js 22+ 和 Go 1.27.3+ 编译 `tests/testdata/runtime/` 中的原生进程夹具，验证启动、取消、管道背压及退出回收；无需相机、蓝牙设备或桌面窗口。Go 可由 `GO_BIN` 指定，也可从 PATH 查找。CI 通过 `DIMINA_TEST_RUNTIME` 复用提前编译的夹具。以上工具仅用于运行开发测试，不是集成 Rust 插件时的运行依赖。

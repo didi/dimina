@@ -1,27 +1,51 @@
-#![cfg(unix)]
 use std::{
     fs,
-    os::unix::fs::PermissionsExt,
-    process::{Command, Stdio},
+    path::{Path, PathBuf},
+    process::Command,
     time::Duration,
 };
 use tauri_plugin_dimina::{Dimina, NativeApiOptions, Options};
+
+fn native_runtime(directory: &Path, mode: &str) -> PathBuf {
+    let runtime = directory.join(if cfg!(windows) {
+        "runtime.exe"
+    } else {
+        "runtime"
+    });
+    if let Some(source) = std::env::var_os("DIMINA_TEST_RUNTIME") {
+        fs::copy(source, &runtime).unwrap();
+    } else {
+        // Also works from the published crate: the fixture sources are included.
+        let builder =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/testdata/runtime/build.mjs");
+        assert!(Command::new("node")
+            .arg(builder)
+            .arg("--out")
+            .arg(&runtime)
+            .status()
+            .unwrap()
+            .success());
+    }
+    fs::write(
+        directory.join("fixture.json"),
+        serde_json::to_vec(&serde_json::json!({"mode":mode})).unwrap(),
+    )
+    .unwrap();
+    runtime
+}
 
 fn fixture(protocol: Option<u32>) -> (tempfile::TempDir, Options) {
     let dir = tempfile::Builder::new()
         .prefix("dimina sdk ")
         .tempdir()
         .unwrap();
-    let runtime = dir.path().join("runtime");
-    let hello = protocol.map(|version| format!("printf '%s\\n' '{{\"protocol\":{version},\"baseUrl\":\"http://127.0.0.1:1/random/sdk/control/\",\"token\":\"ffffffffffffffffffffffffffffffffffffffffffffffff\"}}'\n")).unwrap_or_default();
-    fs::write(
-        &runtime,
-        format!("#!/bin/sh\necho $$ > \"${{0%/*}}/pid\"\n{hello}exec sleep 60\n"),
-    )
-    .unwrap();
-    fs::set_permissions(&runtime, fs::Permissions::from_mode(0o700)).unwrap();
+    let mode = match protocol {
+        None => "hang",
+        Some(1) => "control-failure",
+        _ => "wrong",
+    };
     let options = Options {
-        runtime_path: runtime,
+        runtime_path: native_runtime(dir.path(), mode),
         packages_dir: dir.path().into(),
         data_dir: dir.path().into(),
         startup_timeout: Duration::from_secs(3),
@@ -32,19 +56,19 @@ fn fixture(protocol: Option<u32>) -> (tempfile::TempDir, Options) {
 async fn assert_reaped(options: &Options) {
     let pid = fs::read_to_string(options.data_dir.join("pid")).unwrap();
     for _ in 0..100 {
-        let alive = Command::new("kill")
-            .args(["-0", pid.trim()])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
+        if !Command::new(&options.runtime_path)
+            .args(["--is-running", pid.trim()])
             .status()
             .unwrap()
-            .success();
-        if !alive {
+            .success()
+        {
             return;
         }
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
-    let _ = Command::new("kill").args(["-KILL", pid.trim()]).status();
+    let _ = Command::new(&options.runtime_path)
+        .args(["--kill", pid.trim()])
+        .status();
     panic!("SDK left its runtime process running");
 }
 
@@ -100,26 +124,7 @@ async fn dispose_reaps_runtime_when_native_reply_fills_stdin() {
         .prefix("dimina pipe ")
         .tempdir()
         .unwrap();
-    let runtime_path = dir.path().join("runtime.mjs");
-    let source=r##"#!/usr/bin/env node
-import http from 'node:http';
-import {writeFileSync} from 'node:fs';
-const directory=__DIRECTORY__;
-writeFileSync(directory+'/pid',String(process.pid));
-const server=http.createServer((request,response)=>{
-  request.resume();
-  request.on('end',()=>{
-    response.setHeader('Content-Type','application/json');response.end('{"value":null}');
-    if(request.url.endsWith('/registerApi')) console.log(JSON.stringify({type:'native-call',id:'blocked',appId:'test',windowId:'window',name:'getClipboardData',params:{}}));
-  });
-});
-server.listen(0,'127.0.0.1',()=>console.log(JSON.stringify({protocol:1,baseUrl:`http://127.0.0.1:${server.address().port}/random/sdk/control/`,token:'f'.repeat(48)})));
-// Leave data unconsumed. Once Node's bounded buffer and the OS pipe fill,
-// the SDK response writer holds the stdin lock until the child is killed.
-process.stdin.on('readable',()=>writeFileSync(directory+'/blocked',String(process.stdin.readableLength)));
-"##.replace("__DIRECTORY__",&serde_json::to_string(dir.path()).unwrap());
-    fs::write(&runtime_path, source).unwrap();
-    fs::set_permissions(&runtime_path, fs::Permissions::from_mode(0o700)).unwrap();
+    let runtime_path = native_runtime(dir.path(), "backpressure");
     let options = Options {
         runtime_path,
         packages_dir: dir.path().into(),

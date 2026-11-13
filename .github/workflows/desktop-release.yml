@@ -70,6 +70,12 @@ jobs:
             fi
           done
 
+  tests:
+    needs: version
+    uses: ./.github/workflows/desktop-tests.yml
+    with:
+      checkout_ref: refs/tags/${{ inputs.release_tag }}
+
   packages:
     needs: version
     runs-on: ubuntu-24.04
@@ -85,11 +91,6 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version-file: fe/.nvmrc
-      - uses: pnpm/setup@v2
-        with:
-          version: 12.2.0
-          package-json-file: fe/package.json
-          install: false
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '10.0.x'
@@ -97,28 +98,12 @@ jobs:
       - name: Install native SDK build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libdbus-1-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev qt6-base-dev
+          sudo apt-get install -y libdbus-1-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev
       - name: Prepare versions and test release tooling
         run: |
           python3 -m unittest discover -s desktop/scripts/tests -p 'test_*.py'
           node --test desktop/scripts/publish.test.mjs
           python3 desktop/scripts/release.py prepare --tag "$RELEASE_TAG"
-      - name: Check Node and Tauri frontend SDKs
-        run: |
-          pnpm --dir desktop/sdk/node install --frozen-lockfile
-          pnpm --dir desktop/sdk/node test
-          pnpm --dir desktop/sdk/node typecheck
-      - name: Check Rust SDK and BLE helper
-        run: |
-          cargo test --manifest-path desktop/sdk/tauri/Cargo.toml
-          cargo test --locked --manifest-path desktop/device-bridge/Cargo.toml
-      - name: Check Qt SDK
-        run: |
-          cmake -S desktop/sdk/qt -B .build/qt-ci -DDIMINA_BUILD_TESTS=ON
-          cmake --build .build/qt-ci --parallel 2
-          ctest --test-dir .build/qt-ci --output-on-failure
-      - name: Check .NET SDK
-        run: dotnet run --project desktop/sdk/dotnet/tests/Dimina.Desktop.Tests.csproj -c Release
       - name: Package npm, Cargo and NuGet artifacts
         run: |
           mkdir -p .build/desktop-packages
@@ -215,7 +200,7 @@ jobs:
           compression-level: 0
 
   assets:
-    needs: [version, packages, runtime]
+    needs: [version, tests, packages, runtime]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
