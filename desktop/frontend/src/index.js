@@ -2,6 +2,7 @@ import { createContainer } from '@dimina/fe-container-sdk'
 import '@dimina/fe-container-sdk/style.css'
 import { desktop, registerDesktopApis, registerHostApis, dispatchRuntimeEvent } from './native.js'
 import { AppListView, getAppInfo } from '@dimina/container-ui'
+import desktopConfig from '../../mygo.json'
 import '@dimina/container-ui/style.css'
 import './style.css'
 import './app-list.css'
@@ -76,7 +77,7 @@ async function openMiniProgram(bootstrap) {
 		pageFrameUrl: new URL('pageFrame.html', bootstrap.baseUrl).href,
 		allowedOrigins: [location.origin],
 		synchronousApiUrl: bootstrap.synchronousApiUrl,
-		hostSystemInfo: { platform: bootstrap.platform, brand: 'desktop', model: bootstrap.arch, system: bootstrap.system, version: '0.1.0' },
+		hostSystemInfo: { platform: bootstrap.platform, brand: 'desktop', model: bootstrap.arch, system: bootstrap.system, version: desktopConfig.version },
 		getAppInfo: () => appInfo,
 		onAppWillDismiss: () => desktop.prepareToClose(),
 		onAppDismiss: () => { if (!container.application.views.length) window.mygo.window.close() },

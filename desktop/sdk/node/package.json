@@ -1,6 +1,6 @@
 {
   "name": "@dimina/desktop-sdk",
-  "version": "0.1.0",
+  "version": "1.9.0",
   "license": "Apache-2.0",
   "description": "Standalone Dimina mini-program windows for Node.js, Electron and Tauri hosts",
   "homepage": "https://github.com/didi/dimina/tree/main/desktop/sdk",

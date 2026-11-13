@@ -45,7 +45,7 @@ Node 和 Rust SDK 用例共用可跨平台编译的测试运行时，Windows 不
 
 将流程配置合入后，在包含该配置的提交上创建发布标签。在 Actions 中手动运行 **Desktop SDK Release**：
 
-- `release_tag`：已有标签，例如 `v2.0.1-beta.1`。
+- `release_tag`：已有标签，例如 `v1.9.0-beta.1`。
 - `dry_run`：保持 `true`。
 
 工作流校验 checkout 与标签一致，执行 Node/Tauri 前端、Rust、BLE helper、Qt、.NET、桌面前端和 Go 检查，并构建六组运行时。全部完成后，`desktop-release` Actions artifact 提供完整制品和校验和，供下载检查。此模式不会创建 GitHub Release，也不会向 registry 上传。

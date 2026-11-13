@@ -4,7 +4,7 @@
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <PackageId>Dimina.Desktop</PackageId>
-    <Version>0.1.0</Version>
+    <Version>1.9.0</Version>
     <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
     <Description>Standalone Dimina mini-program windows for desktop .NET hosts</Description>
     <Authors>Dimina Contributors</Authors>

@@ -1,5 +1,6 @@
 {
 	"name": "@dimina/fe-container-sdk",
+	"version": "1.9.0",
 	"volta": {
 		"extends": "../../package.json"
 	},
