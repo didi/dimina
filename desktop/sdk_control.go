@@ -34,11 +34,14 @@ type sdkWindowHost interface {
 	sdkImport(string) (miniProgram, error)
 }
 type sdkControl struct {
-	host  sdkWindowHost
-	token string
+	host   sdkWindowHost
+	token  string
+	native *nativeBridge
 }
 
-func newSDKControl(host sdkWindowHost) *sdkControl { return &sdkControl{host: host, token: secret()} }
+func newSDKControl(host sdkWindowHost) *sdkControl {
+	return &sdkControl{host: host, token: secret(), native: newNativeBridge(os.Stdout)}
+}
 
 func (s *sdkControl) serve(w http.ResponseWriter, r *http.Request, method string) {
 	w.Header().Set("Cache-Control", "no-store")
@@ -63,6 +66,16 @@ func (s *sdkControl) serve(w http.ResponseWriter, r *http.Request, method string
 	var value any
 	var err error
 	switch method {
+	case "registerApi":
+		var options nativeRegistration
+		if err = decode(&options); err == nil {
+			err = s.native.register(options)
+			if err == nil {
+				if host, ok := s.host.(*Desktop); ok {
+					host.publishNativeAPIs()
+				}
+			}
+		}
 	case "open":
 		var options sdkOpenOptions
 		if err = decode(&options); err == nil {
@@ -112,6 +125,35 @@ func (s *sdkControl) serve(w http.ResponseWriter, r *http.Request, method string
 	writeResult(w, value, err)
 }
 
+var nativeAPIsChanged = mygo.NewEvent[[]string]("desktop:native-apis")
+
+func (d *Desktop) publishNativeAPIs() {
+	d.mu.Lock()
+	windows := make([]*appWindow, 0, len(d.windows))
+	for _, state := range d.windows {
+		windows = append(windows, state)
+	}
+	d.mu.Unlock()
+	mygo.RunOnMain(func() {
+		for _, state := range windows {
+			if !state.closing {
+				_ = nativeAPIsChanged.Emit(state.window, d.resources.sdk.native.names(state.app.AppID))
+			}
+		}
+	})
+}
+
+func (d *Desktop) InvokeHostApi(ctx context.Context, name string, params json.RawMessage) (json.RawMessage, error) {
+	state, ok := d.caller(ctx)
+	if !ok || state == nil || d.resources.sdk == nil {
+		return nil, errors.New("native SDK host is unavailable")
+	}
+	if len(params) == 0 {
+		params = json.RawMessage(`{}`)
+	}
+	return d.resources.sdk.native.invoke(ctx, state, name, params)
+}
+
 func describeSDKWindow(state *appWindow) sdkWindow {
 	info := sdkWindow{ID: state.id, AppID: state.app.AppID, Name: state.app.Name}
 	select {
@@ -158,24 +200,31 @@ func (d *Desktop) sdkClose(id string) error {
 	if state == nil {
 		return nil
 	}
-	var err error
 	mygo.RunOnMain(func() {
-		if state.presented && !state.closing {
-			err = closeRequested.Emit(state.window, true)
-		} else if !state.closing {
-			state.closing = true
-			state.window.Hide()
-			state.window.Close()
+		if state.closing {
+			return
 		}
+		// Mark the close transaction before asking the renderer to dismiss.
+		// Concurrent open requests must not reuse this window during that roundtrip.
+		state.beginClosing()
+		if state.presented && closeRequested.Emit(state.window, true) == nil {
+			return
+		}
+		state.window.Hide()
+		state.window.Close()
 	})
-	if err != nil {
-		return err
-	}
 	select {
 	case <-state.closed:
 		return nil
 	case <-time.After(10 * time.Second):
-		return errors.New("window did not close")
+		// A stalled renderer cannot prevent the host from disposing its window.
+		mygo.RunOnMain(func() { state.window.Hide(); state.window.Close() })
+		select {
+		case <-state.closed:
+			return nil
+		case <-time.After(5 * time.Second):
+			return errors.New("window did not close")
+		}
 	}
 }
 func (d *Desktop) sdkImport(path string) (miniProgram, error) {
@@ -215,7 +264,7 @@ func (d *Desktop) sdkOpen(ctx context.Context, options sdkOpenOptions) (sdkWindo
 	if strings.TrimSpace(options.Name) == "" {
 		options.Name = options.AppID
 	}
-	state, err := d.openProgram(miniProgram{AppID: options.AppID, Path: options.Path, Name: options.Name})
+	state, err := d.openProgram(ctx, miniProgram{AppID: options.AppID, Path: options.Path, Name: options.Name})
 	if err != nil {
 		return empty, err
 	}

@@ -13,6 +13,8 @@
 
 **从 [SDK 接入指南](../desktop/sdk/README.md) 开始**，其中包含构建命令、各技术栈的最小调用示例、API 对照、运行时分发与平台依赖。
 
+需要调用现有客户端的原生能力时，参见 [原生 API 接入](../desktop/sdk/Native-APIs.md)。宿主为移动 SDK 已有 API 注册处理器后，小程序保持原有 `wx` 调用方式，支持异步结果、失败回调、appId 授权及取消。
+
 ```js
 import { Dimina } from '@dimina/desktop-sdk'
 

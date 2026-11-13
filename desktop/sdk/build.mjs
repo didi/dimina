@@ -2,6 +2,7 @@ import { cpSync, mkdirSync, existsSync, readdirSync, readFileSync, writeFileSync
 import { resolve, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
+import { createRequire } from 'node:module'
 
 const sdk = dirname(fileURLToPath(import.meta.url))
 const root = resolve(sdk, '../..')
@@ -25,6 +26,8 @@ for (const language of ['qt', 'dotnet', 'tauri']) {
 }
 writeFileSync(join(out, 'README.md'), readFileSync(join(sdk, 'README.md'), 'utf8')
   .replaceAll('](../README.md', '](https://github.com/didi/dimina/blob/main/desktop/README.md'))
+writeFileSync(join(out, 'Native-APIs.md'), readFileSync(join(sdk, 'Native-APIs.md'), 'utf8')
+  .replaceAll('](../../docs/API-Reference.md', '](https://github.com/didi/dimina/blob/main/docs/API-Reference.md'))
 for (const name of ['LICENSE', 'LICENSE.md']) if (existsSync(join(root, name))) cpSync(join(root, name), join(out, name))
 cpSync(join(root, 'fe/packages/container-sdk/THIRD-PARTY-NOTICES.md'), join(out, 'THIRD-PARTY-NOTICES.md'))
 // Keep the licenses of the native runtime and its Go dependencies with the bundle.
@@ -46,3 +49,28 @@ const toolchain = spawnSync(go, ['env', 'GOROOT'], { encoding: 'utf8', env: { ..
 if (toolchain.status !== 0) throw toolchain.error || new Error(toolchain.stderr)
 cpSync(join(toolchain.stdout.trim(), 'LICENSE'), join(out, 'licenses', 'Go-LICENSE'))
 console.log(`Desktop SDK: ${out}`)
+
+// Include the license texts of the bundled native BLE helper's dependencies.
+const crates = spawnSync('cargo', ['metadata', '--format-version=1', '--locked', '--manifest-path', join(root, 'desktop/device-bridge/Cargo.toml')], { encoding: 'utf8', maxBuffer: 16 << 20 })
+if (crates.status !== 0) throw crates.error || new Error(crates.stderr)
+for (const pkg of JSON.parse(crates.stdout).packages) {
+  if (!pkg.source) continue
+  const directory = dirname(pkg.manifest_path)
+  const destination = join(out, 'licenses', `rust_${pkg.name}@${pkg.version}`)
+  mkdirSync(destination, { recursive: true })
+  writeFileSync(join(destination, 'package.json'), JSON.stringify({ name: pkg.name, version: pkg.version, license: pkg.license, repository: pkg.repository }, null, 2))
+  for (const file of readdirSync(directory).filter(name => /^(LICENSE|COPYING|NOTICE|LICENCE)([._-]|$)/i.test(name))) cpSync(join(directory, file), join(destination, file), { recursive: true })
+}
+
+const visited = new Set()
+function copyJavaScriptLicenses(name, parent) {
+  const manifest = createRequire(join(parent, 'package.json')).resolve(`${name}/package.json`)
+  if (visited.has(manifest)) return
+  visited.add(manifest)
+  const pkg = JSON.parse(readFileSync(manifest, 'utf8')), directory = dirname(manifest)
+  const destination = join(out, 'licenses', `js_${pkg.name.replaceAll('/', '_')}@${pkg.version}`)
+  mkdirSync(destination, { recursive: true })
+  for (const file of readdirSync(directory).filter(name => /^(LICENSE|COPYING|NOTICE)([._-]|$)/i.test(name))) cpSync(join(directory, file), join(destination, file), { recursive: true })
+  for (const dependency of Object.keys({ ...pkg.dependencies, ...pkg.optionalDependencies })) copyJavaScriptLicenses(dependency, directory)
+}
+for (const name of ['@zxing/browser', '@zxing/library']) copyJavaScriptLicenses(name, join(root, 'desktop/frontend'))

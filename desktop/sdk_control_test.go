@@ -108,3 +108,17 @@ func TestSDKReadinessCannotBeOverwrittenByLaterClose(t *testing.T) {
 		t.Fatal("late ready overwrote failed startup")
 	}
 }
+
+func TestSDKClosingDuringStartupRejectsLateReady(t *testing.T) {
+	state := &appWindow{ready: make(chan struct{})}
+	state.beginClosing()
+	state.finishReady(nil)
+	select {
+	case <-state.ready:
+		if state.readyErr == nil || describeSDKWindow(state).Ready {
+			t.Fatal("closing startup accepted a late successful ready notification")
+		}
+	default:
+		t.Fatal("closing did not unblock startup waiters")
+	}
+}

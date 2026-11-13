@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"crypto/sha256"
 	"embed"
@@ -40,6 +41,7 @@ type appWindow struct {
 	window     *mygo.Window
 	storage    *appStorage
 	storageKey string
+	runtime    *desktopRuntime
 	openedAt   time.Time
 	// Window presentation state is read and changed only on the UI thread.
 	presented bool
@@ -58,9 +60,12 @@ type Desktop struct {
 	launcher         *mygo.Window
 	windows          map[*mygo.Window]*appWindow
 	apps             map[string]*appWindow
+	scanners         map[*mygo.Window]*scanSession
+	scanOwners       map[string]bool
 }
 
 var visibility = mygo.NewEvent[bool]("desktop:visible")
+var nativeRuntimeEvent = mygo.NewEvent[runtimeEvent]("desktop:event")
 var closeRequested = mygo.NewEvent[bool]("desktop:close")
 
 func main() {
@@ -120,6 +125,7 @@ func main() {
 		log.Fatal(err)
 	}
 	defer resources.http.Close()
+	defer devices.close()
 	resources.packageRoot = sdkPackages
 	host := &Desktop{resources: resources, windows: map[*mygo.Window]*appWindow{}, apps: map[string]*appWindow{}}
 	if sdkMode {
@@ -135,8 +141,19 @@ func main() {
 			host.showLauncher()
 			return
 		}
-		_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"protocol": 1, "baseUrl": resources.base + "sdk/control/", "token": resources.sdk.token})
-		go func() { _, _ = io.Copy(io.Discard, os.Stdin); mygo.App.Quit() }()
+		_ = resources.sdk.native.write(map[string]any{"protocol": 1, "baseUrl": resources.base + "sdk/control/", "token": resources.sdk.token})
+		go func() {
+			scanner := bufio.NewScanner(os.Stdin)
+			scanner.Buffer(make([]byte, 4096), 2*maxNativePayload)
+			for scanner.Scan() {
+				var response nativeReply
+				if json.Unmarshal(scanner.Bytes(), &response) == nil {
+					resources.sdk.native.reply(response)
+				}
+			}
+			resources.sdk.native.shutdown()
+			mygo.App.Quit()
+		}()
 		go func() {
 			signals := make(chan os.Signal, 1)
 			signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
@@ -245,27 +262,55 @@ func (d *Desktop) OpenApp(ctx context.Context, appID string) error {
 	if target == nil {
 		return errors.New("小程序不存在")
 	}
-	_, err = d.openProgram(*target)
+	_, err = d.openProgram(ctx, *target)
 	return err
 }
 
-func (d *Desktop) openProgram(target miniProgram) (*appWindow, error) {
+func (d *Desktop) openProgram(ctx context.Context, target miniProgram) (*appWindow, error) {
 	openedAt := time.Now()
-	d.openMu.Lock()
-	defer d.openMu.Unlock()
-	appID := target.AppID
-	d.mu.Lock()
-	existing := d.apps[appID]
-	d.mu.Unlock()
-	if existing != nil {
-		mygo.RunOnMain(func() {
-			if existing.presented && !existing.closing {
-				existing.window.Show()
-				existing.window.Focus()
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		d.openMu.Lock()
+		if err := ctx.Err(); err != nil {
+			d.openMu.Unlock()
+			return nil, err
+		}
+		d.mu.Lock()
+		existing := d.apps[target.AppID]
+		d.mu.Unlock()
+		if existing != nil {
+			var closing bool
+			mygo.RunOnMain(func() {
+				closing = existing.closing
+				if existing.presented && !closing {
+					existing.window.Show()
+					existing.window.Focus()
+				}
+			})
+			d.openMu.Unlock()
+			if !closing {
+				return existing, nil
 			}
-		})
-		return existing, nil
+			// The close acknowledgement belongs to the old window. Do not hold
+			// either lock or block the UI while waiting to create its replacement.
+			select {
+			case <-existing.closed:
+				continue
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+		state, err := d.createProgramWindow(target, openedAt)
+		d.openMu.Unlock()
+		return state, err
 	}
+}
+
+// The caller holds openMu until the new window has been published in both maps.
+func (d *Desktop) createProgramWindow(target miniProgram, openedAt time.Time) (*appWindow, error) {
+	appID := target.AppID
 	key, storage, err := d.resources.addStorage(appID)
 	if err != nil {
 		return nil, err
@@ -278,6 +323,10 @@ func (d *Desktop) openProgram(target miniProgram) (*appWindow, error) {
 		Page: d.pageOptions(mygo.NewSession("miniapp-" + d.sessionNamespace + appID)),
 	})
 	state := &appWindow{id: secret(), app: target, window: win, storage: storage, storageKey: key, openedAt: openedAt, ready: make(chan struct{}), closed: make(chan struct{})}
+	state.runtime = newDesktopRuntime(d.resources, key, appID, func(event runtimeEvent) { _ = nativeRuntimeEvent.Emit(win, event) })
+	d.resources.mu.Lock()
+	d.resources.runtimes[key] = state.runtime
+	d.resources.mu.Unlock()
 	log.Printf("[desktop] startup appId=%s stage=window elapsed_ms=%d", appID, time.Since(openedAt).Milliseconds())
 	d.mu.Lock()
 	d.windows[win] = state
@@ -288,18 +337,24 @@ func (d *Desktop) openProgram(target miniProgram) (*appWindow, error) {
 	win.OnRestore(func() { _ = visibility.Emit(win, true) })
 	win.OnShow(func() { _ = visibility.Emit(win, true) })
 	win.OnClosed(func() {
-		state.closing = true
-		state.finishReady(errors.New("window closed before startup completed"))
+		state.beginClosing()
 		d.mu.Lock()
 		delete(d.windows, win)
 		if d.apps[appID] == state {
 			delete(d.apps, appID)
 		}
 		d.mu.Unlock()
+		state.runtime.close()
 		d.resources.removeStorage(key)
 		close(state.closed)
 	})
 	return state, nil
+}
+
+// UI thread only. Cancel startup waiters before asking the renderer to dismiss.
+func (w *appWindow) beginClosing() {
+	w.closing = true
+	w.finishReady(errors.New("window closed before startup completed"))
 }
 
 func (w *appWindow) finishReady(err error) {
@@ -314,9 +369,13 @@ func (d *Desktop) Bootstrap(ctx context.Context) (map[string]any, error) {
 	platform := map[string]string{"darwin": "mac", "windows": "windows", "linux": "linux"}[runtime.GOOS]
 	result := map[string]any{"baseUrl": d.resources.base, "platform": platform, "system": runtime.GOOS, "arch": runtime.GOARCH}
 	if state != nil {
+		result["runtimeApis"] = runtimeAPIs
 		result["app"] = state.app
 		result["resourceBaseUrl"] = d.resources.base + "packages/"
 		result["synchronousApiUrl"] = d.resources.base + "sync/" + state.storageKey
+		if d.resources.sdk != nil {
+			result["nativeApis"] = d.resources.sdk.native.names(state.app.AppID)
+		}
 	}
 	return result, nil
 }
@@ -326,9 +385,17 @@ func (d *Desktop) RuntimeReady(ctx context.Context) error {
 	if !ok || state == nil {
 		return errors.New("unknown app window")
 	}
-	log.Printf("[desktop] startup appId=%s stage=ready elapsed_ms=%d", state.app.AppID, time.Since(state.openedAt).Milliseconds())
-	state.finishReady(nil)
-	return nil
+	var err error
+	mygo.RunOnMain(func() {
+		if state.closing {
+			err = errors.New("window is closing")
+			state.finishReady(err)
+			return
+		}
+		log.Printf("[desktop] startup appId=%s stage=ready elapsed_ms=%d", state.app.AppID, time.Since(state.openedAt).Milliseconds())
+		state.finishReady(nil)
+	})
+	return err
 }
 
 func (d *Desktop) RuntimeFailed(ctx context.Context, message string) error {
@@ -366,7 +433,7 @@ func (d *Desktop) PrepareToClose(ctx context.Context) error {
 		return errors.New("unknown app window")
 	}
 	mygo.RunOnMain(func() {
-		state.closing = true
+		state.beginClosing()
 		state.window.Hide()
 	})
 	return nil
@@ -397,7 +464,13 @@ func (d *Desktop) Invoke(ctx context.Context, method string, params json.RawMess
 	case "getClipboardData":
 		return map[string]any{"data": mygo.Clipboard.ReadText()}, nil
 	case "request":
-		return makeRequest(ctx, params)
+		requestCtx, cancel := context.WithCancel(ctx)
+		stop := context.AfterFunc(state.runtime.ctx, cancel)
+		defer cancel()
+		defer stop()
+		return makeRequest(requestCtx, params)
+	case "scanCode":
+		return d.scanCode(ctx, state, p)
 	case "chooseMessageFile":
 		count := 1
 		if n, ok := p["count"].(float64); ok && n > 0 {
@@ -454,7 +527,12 @@ func (d *Desktop) Invoke(ctx context.Context, method string, params json.RawMess
 		}
 		return map[string]any{"tempFiles": files}, nil
 	default:
-		return nil, fmt.Errorf("%s is not supported on desktop", method)
+		value, err := state.runtime.invoke(ctx, method, params)
+		var api *apiError
+		if errors.As(err, &api) {
+			return map[string]any{"errMsg": method + ":fail " + api.message, "errCode": api.code}, nil
+		}
+		return value, err
 	}
 }
 
@@ -542,5 +620,11 @@ func makeRequest(ctx context.Context, raw json.RawMessage) (any, error) {
 	if len(b) > 32<<20 {
 		return nil, errors.New("response exceeds 32 MiB")
 	}
-	return map[string]any{"statusCode": res.StatusCode, "data": string(b), "base64": base64.StdEncoding.EncodeToString(b), "header": res.Header}, nil
+	result := map[string]any{"statusCode": res.StatusCode, "header": res.Header}
+	if strings.EqualFold(p.ResponseType, "arraybuffer") {
+		result["base64"] = base64.StdEncoding.EncodeToString(b)
+	} else {
+		result["data"] = strings.ToValidUTF8(string(b), "\uFFFD")
+	}
+	return result, nil
 }

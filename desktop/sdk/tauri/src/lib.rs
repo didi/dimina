@@ -1,6 +1,9 @@
 mod runtime;
 use runtime::Result;
-pub use runtime::{Dimina, ImportedApp, OpenAppOptions, Options, WindowInfo};
+pub use runtime::{
+    Dimina, ImportedApp, NativeApiContext, NativeApiHandler, NativeApiOptions, OpenAppOptions,
+    Options, WindowInfo,
+};
 use std::{
     path::PathBuf,
     sync::{
@@ -21,6 +24,7 @@ pub struct PluginOptions {
     pub packages_dir: PathBuf,
     pub data_dir: Option<PathBuf>,
     pub startup_timeout: Duration,
+    api_handlers: Vec<(String, NativeApiOptions, NativeApiHandler)>,
 }
 impl PluginOptions {
     pub fn new(runtime_path: impl Into<PathBuf>, packages_dir: impl Into<PathBuf>) -> Self {
@@ -29,7 +33,25 @@ impl PluginOptions {
             packages_dir: packages_dir.into(),
             data_dir: None,
             startup_timeout: Duration::from_secs(30),
+            api_handlers: Vec::new(),
         }
+    }
+    pub fn api<F, Fut>(
+        mut self,
+        name: impl Into<String>,
+        options: NativeApiOptions,
+        handler: F,
+    ) -> Self
+    where
+        F: Fn(serde_json::Value, NativeApiContext) -> Fut + Send + Sync + 'static,
+        Fut: std::future::Future<Output = Result<serde_json::Value>> + Send + 'static,
+    {
+        self.api_handlers.push((
+            name.into(),
+            options,
+            Arc::new(move |params, context| Box::pin(handler(params, context))),
+        ));
+        self
     }
 }
 
@@ -38,6 +60,7 @@ struct PluginState {
     runtime: Mutex<Option<Arc<Dimina>>>,
     exiting: AtomicBool,
     exit: Notify,
+    api_handlers: Vec<(String, NativeApiOptions, NativeApiHandler)>,
 }
 impl PluginState {
     async fn client(&self) -> Result<Arc<Dimina>> {
@@ -70,8 +93,17 @@ async fn start(state: State<'_, PluginState>) -> Result<()> {
             return Ok(());
         }
     }
+    let initialize = async {
+        let runtime = Dimina::start(&state.options).await?;
+        for (name, options, handler) in &state.api_handlers {
+            runtime
+                .register_handler(name, options.clone(), handler.clone())
+                .await?;
+        }
+        Ok::<_, String>(runtime)
+    };
     let runtime = tokio::select! {
-        runtime = Dimina::start(&state.options) => runtime?,
+        runtime = initialize => runtime?,
         _ = state.exit.notified() => return Err("Host application is exiting".into()),
     };
     *slot = Some(Arc::new(runtime));
@@ -136,6 +168,7 @@ pub fn init<R: Runtime>(options: PluginOptions) -> TauriPlugin<R> {
                 runtime: Mutex::new(None),
                 exiting: AtomicBool::new(false),
                 exit: Notify::new(),
+                api_handlers: options.api_handlers,
             });
             Ok(())
         })

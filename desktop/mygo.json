@@ -3,5 +3,12 @@
   "slug": "dimina-desktop",
   "identifier": "com.didi.dimina.desktop",
   "version": "0.1.0",
-  "out": "build"
+  "out": "build",
+  "macos": {
+    "infoPlist": {
+      "NSCameraUsageDescription": "用于扫描小程序中的二维码和条码",
+      "NSBluetoothAlwaysUsageDescription": "用于连接小程序使用的蓝牙设备",
+      "NSLocalNetworkUsageDescription": "用于连接小程序使用的局域网设备"
+    }
+  }
 }

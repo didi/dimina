@@ -3,7 +3,7 @@
  * an endpoint keep their existing bridge. Blocking work stays off the UI thread.
  */
 export function invokeSynchronousAPI(msg) {
-	if (msg.type !== 'invokeAPI' || msg.target !== 'container' || !msg.body?.name?.endsWith('Sync')) {
+	if (msg.type !== 'invokeAPI' || msg.target !== 'container' || !(msg.body?.name?.endsWith('Sync') || msg.body?.name === 'canIUse' || /^(?:(UDP|TCP)Socket\.|(on|off)(Bluetooth|BLE))/.test(msg.body?.name))) {
 		return { handled: false }
 	}
 	let endpoint

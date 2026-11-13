@@ -28,7 +28,9 @@ type resourceServer struct {
 	origin, base, prefix string
 	http                 *http.Server
 	mu                   sync.RWMutex
+	runtimes             map[string]*desktopRuntime
 	stores               map[string]*appStorage
+	namespaces           map[string]*appStorage
 	files                map[string]selectedFile
 	packageRoot          string
 	sdk                  *sdkControl
@@ -41,7 +43,7 @@ func startResources(assets fs.FS, dataDir string) (*resourceServer, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &resourceServer{assets: assets, dataDir: dataDir, stores: map[string]*appStorage{}, files: map[string]selectedFile{}}
+	s := &resourceServer{assets: assets, dataDir: dataDir, runtimes: map[string]*desktopRuntime{}, stores: map[string]*appStorage{}, files: map[string]selectedFile{}}
 	s.origin = "http://" + ln.Addr().String()
 	s.prefix = "/" + secret() + "/"
 	s.base = s.origin + s.prefix
@@ -53,9 +55,19 @@ func startResources(assets fs.FS, dataDir string) (*resourceServer, error) {
 func (s *resourceServer) addStorage(appID string) (string, *appStorage, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	store, err := openStorage(filepath.Join(s.dataDir, "storage", appID+".json"))
-	if err != nil {
-		return "", nil, err
+	if s.namespaces == nil {
+		s.namespaces = map[string]*appStorage{}
+	}
+	store := s.namespaces[appID]
+	if store == nil {
+		var err error
+		store, err = openStorage(filepath.Join(s.dataDir, "storage", appID+".json"))
+		if err != nil {
+			return "", nil, err
+		}
+		// Retain one transaction lock and snapshot per namespace across window
+		// lifetimes; accepted calls from a closing window may still be finishing.
+		s.namespaces[appID] = store
 	}
 	key := secret()
 	s.stores[key] = store
@@ -65,6 +77,7 @@ func (s *resourceServer) addStorage(appID string) (string, *appStorage, error) {
 func (s *resourceServer) removeStorage(key string) {
 	s.mu.Lock()
 	delete(s.stores, key)
+	delete(s.runtimes, key)
 	for id, file := range s.files {
 		if file.owner == key {
 			delete(s.files, id)
@@ -98,6 +111,7 @@ func (s *resourceServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		s.mu.RLock()
 		store := s.stores[strings.TrimPrefix(path, "sync/")]
+		runtime := s.runtimes[strings.TrimPrefix(path, "sync/")]
 		s.mu.RUnlock()
 		if store == nil {
 			http.NotFound(w, r)
@@ -109,6 +123,26 @@ func (s *resourceServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 12<<20)).Decode(&req); err != nil {
 			writeResult(w, nil, err)
+			return
+		}
+		if runtime != nil && (strings.HasPrefix(req.Name, "UDPSocket.") || strings.HasPrefix(req.Name, "TCPSocket.") || ((strings.HasPrefix(req.Name, "onBluetooth") || strings.HasPrefix(req.Name, "offBluetooth") || strings.HasPrefix(req.Name, "onBLE") || strings.HasPrefix(req.Name, "offBLE")) && runtime.supports(req.Name)) || req.Name == "canIUse") {
+			if req.Name == "canIUse" {
+				var schema string
+				err := json.Unmarshal(req.Params, &schema)
+				supported := runtime.supports(schema)
+				if !supported && s.sdk != nil {
+					for _, name := range s.sdk.native.names(runtime.appID) {
+						if name == schema {
+							supported = true
+							break
+						}
+					}
+				}
+				writeResult(w, supported, err)
+			} else {
+				value, err := runtime.invoke(r.Context(), req.Name, req.Params)
+				writeResult(w, value, err)
+			}
 			return
 		}
 		if !strings.HasSuffix(req.Name, "Sync") {
@@ -131,7 +165,20 @@ func (s *resourceServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.NotFound(w, r)
 			return
 		}
-		http.ServeFile(w, r, file.path)
+		content, err := os.Open(file.path)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		defer content.Close()
+		info, err := content.Stat()
+		if err != nil || !info.Mode().IsRegular() {
+			http.NotFound(w, r)
+			return
+		}
+		// ServeFile redirects a URL ending in index.html to its directory,
+		// which is not a granted file URL. Serve the selected file itself.
+		http.ServeContent(w, r, info.Name(), info.ModTime(), content)
 		return
 	}
 	if strings.HasPrefix(path, "packages/") {

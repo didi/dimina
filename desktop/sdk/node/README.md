@@ -16,6 +16,8 @@ await desktop.dispose()
 
 还提供 `windows()`、`closeAll()`、`importApp(absolutePath)`。重复打开同 appId 会复用已有窗口；首次打开可传 `path` 指定入口。客户端退出时等待 `dispose()`，不要把 SDK 实例暴露给 renderer 或小程序。
 
+主进程可用 `await desktop.registerApi(name, handler, { appIds, timeoutMs })` 注册原生能力，为移动 SDK 已有 API 提供桌面原生实现。处理器接收 `(params, { appId, windowId, signal })`，返回 JSON 对象或 Promise；异步操作可使用 `signal` 参与取消。
+
 完整构建、平台依赖和分发说明见仓库 `desktop/sdk/README.md`。
 
 Tauri 2 前端使用 `import { Dimina } from '@dimina/desktop-sdk/tauri'`，注册配套 Rust 插件和权限后调用 `await Dimina.start()`。运行时路径由 Rust 宿主配置，完整接入步骤见 `desktop/sdk/tauri/README.md`。

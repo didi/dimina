@@ -1,6 +1,6 @@
 import { createContainer } from '@dimina/fe-container-sdk'
 import '@dimina/fe-container-sdk/style.css'
-import { desktop, registerDesktopApis } from './native.js'
+import { desktop, registerDesktopApis, registerHostApis, dispatchRuntimeEvent } from './native.js'
 import { getDesktopAppInfo } from './app-info.js'
 import searchIcon from '../../../fe/packages/container/public/images/search.jpg'
 import './style.css'
@@ -117,7 +117,9 @@ async function openMiniProgram(bootstrap) {
 		onAppDismiss: () => { if (!container.application.views.length) window.mygo.window.close() },
 		onAppLaunchError: error => showError(error || new Error('小程序启动失败')),
 	})
-	registerDesktopApis(container)
+	registerDesktopApis(container, bootstrap.runtimeApis)
+	if (Array.isArray(bootstrap.nativeApis)) registerHostApis(container, bootstrap.nativeApis)
+	window.mygo.on('desktop:native-apis', names => registerHostApis(container, names))
 	const setVisible = (visible) => {
 		if (visible) container.application.wakeActiveView()
 		else container.application.sleepActiveView()
@@ -129,7 +131,13 @@ async function openMiniProgram(bootstrap) {
 	})
 	document.addEventListener('visibilitychange', () => setVisible(!document.hidden))
 	window.addEventListener('pagehide', () => container.closeApp())
+	let currentApp
+	const pendingEvents = []
+	window.mygo.on('desktop:event', event => currentApp ? dispatchRuntimeEvent(currentApp, event) : pendingEvents.push(event))
 	const app = await container.openApp({ appId: bootstrap.app.appId, path: bootstrap.app.path })
+	currentApp = app
+	for (const event of pendingEvents) dispatchRuntimeEvent(app, event)
+	pendingEvents.length = 0
 	await presentWindow()
 	await app.whenReady()
 	const observer = new ResizeObserver(() => app.notifyViewportChange())

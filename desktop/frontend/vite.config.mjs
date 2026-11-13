@@ -10,6 +10,7 @@ export default defineConfig({
 		assetsInlineLimit: 0,
 		rollupOptions: {
 			input: {
+				scan: fileURLToPath(new URL('./scan.html', import.meta.url)),
 				index: fileURLToPath(new URL('./index.html', import.meta.url)),
 				pageFrame: fileURLToPath(new URL('./pageFrame.html', import.meta.url)),
 			},

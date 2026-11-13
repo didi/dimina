@@ -53,3 +53,15 @@ describe('desktop Worker synchronous API transport', () => {
 		expect(xhr).not.toHaveBeenCalled()
 	})
 })
+
+it.each(['UDPSocket.bind', 'UDPSocket.onListening', 'UDPSocket.send', 'TCPSocket.onConnect', 'TCPSocket.connect', 'canIUse'])('orders desktop %s with native subscriptions and returns the result synchronously', (name) => {
+	configure()
+	vi.stubGlobal('XMLHttpRequest', class {
+		status = 200
+		responseText = '{"value":12345}'
+		open(_method, _url, async) { expect(async).toBe(false) }
+		setRequestHeader() {}
+		send() {}
+	})
+	expect(invokeSynchronousAPI({ ...message, body: { name, params: { socketId: 'udp' } } })).toEqual({ handled: true, value: 12345 })
+})

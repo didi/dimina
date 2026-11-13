@@ -5,7 +5,7 @@ use std::{
     process::{Command, Stdio},
     time::Duration,
 };
-use tauri_plugin_dimina::{Dimina, Options};
+use tauri_plugin_dimina::{Dimina, NativeApiOptions, Options};
 
 fn fixture(protocol: Option<u32>) -> (tempfile::TempDir, Options) {
     let dir = tempfile::Builder::new()
@@ -92,4 +92,61 @@ async fn dispose_reaps_an_unresponsive_runtime_after_control_failure() {
     assert!(runtime.dispose().await.is_err());
     assert!(!runtime.is_running().await);
     assert_reaped(&options).await;
+}
+
+#[tokio::test]
+async fn dispose_reaps_runtime_when_native_reply_fills_stdin() {
+    let dir = tempfile::Builder::new()
+        .prefix("dimina pipe ")
+        .tempdir()
+        .unwrap();
+    let runtime_path = dir.path().join("runtime.mjs");
+    let source=r##"#!/usr/bin/env node
+import http from 'node:http';
+import {writeFileSync} from 'node:fs';
+const directory=__DIRECTORY__;
+writeFileSync(directory+'/pid',String(process.pid));
+const server=http.createServer((request,response)=>{
+  request.resume();
+  request.on('end',()=>{
+    response.setHeader('Content-Type','application/json');response.end('{"value":null}');
+    if(request.url.endsWith('/registerApi')) console.log(JSON.stringify({type:'native-call',id:'blocked',appId:'test',windowId:'window',name:'getClipboardData',params:{}}));
+  });
+});
+server.listen(0,'127.0.0.1',()=>console.log(JSON.stringify({protocol:1,baseUrl:`http://127.0.0.1:${server.address().port}/random/sdk/control/`,token:'f'.repeat(48)})));
+// Leave data unconsumed. Once Node's bounded buffer and the OS pipe fill,
+// the SDK response writer holds the stdin lock until the child is killed.
+process.stdin.on('readable',()=>writeFileSync(directory+'/blocked',String(process.stdin.readableLength)));
+"##.replace("__DIRECTORY__",&serde_json::to_string(dir.path()).unwrap());
+    fs::write(&runtime_path, source).unwrap();
+    fs::set_permissions(&runtime_path, fs::Permissions::from_mode(0o700)).unwrap();
+    let options = Options {
+        runtime_path,
+        packages_dir: dir.path().into(),
+        data_dir: dir.path().into(),
+        startup_timeout: Duration::from_secs(3),
+    };
+    let runtime = Dimina::start(&options).await.unwrap();
+    runtime
+        .register_api(
+            "getClipboardData",
+            NativeApiOptions::default(),
+            |_, _| async { Ok(serde_json::json!({"data":"x".repeat(512<<10)})) },
+        )
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while !dir.path().join("blocked").exists() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("native response did not enter stdin");
+    let result = tokio::time::timeout(Duration::from_secs(7), runtime.dispose()).await;
+    drop(runtime);
+    assert_reaped(&options).await;
+    assert!(
+        result.is_ok(),
+        "dispose blocked on a native response stdin lock"
+    );
 }

@@ -8,4 +8,5 @@
     <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
     <Description>Standalone Dimina mini-program windows for desktop .NET hosts</Description>
   </PropertyGroup>
+  <ItemGroup><Compile Remove="tests/**/*.cs" /></ItemGroup>
 </Project>

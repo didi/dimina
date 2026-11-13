@@ -1,9 +1,12 @@
 package main
 
 import (
+	jsonv2 "encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -104,6 +107,9 @@ func TestRequestPreservesBinary(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := result.(map[string]any)
+	if _, err := jsonv2.Marshal(m); err != nil {
+		t.Fatalf("native bridge cannot encode binary response: %v", err)
+	}
 	if m["base64"] != "AP8B" {
 		t.Fatalf("binary changed: %#v", m)
 	}
@@ -127,5 +133,79 @@ func TestRequestFormAndHTTPErrorResponse(t *testing.T) {
 	}
 	if result.(map[string]any)["statusCode"] != 422 {
 		t.Fatalf("HTTP errors must reach the success callback: %v", result)
+	}
+}
+
+func TestReopenedStorageKeepsInflightWritesFromClosingWindow(t *testing.T) {
+	s, err := startResources(fstest.MapFS{}, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.http.Close()
+	oldKey, oldStore, err := s.addStorage("demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Model a native storage operation that obtained its window's namespace
+	// before close and is queued behind another storage operation.
+	oldStore.mu.Lock()
+	started, done := make(chan struct{}), make(chan error, 1)
+	go func() {
+		close(started)
+		_, err := oldStore.call("setStorage", []byte(`{"key":"before-close","data":42}`))
+		done <- err
+	}()
+	<-started
+	s.removeStorage(oldKey)
+	newKey, newStore, err := s.addStorage("demo")
+	if err != nil {
+		oldStore.mu.Unlock()
+		t.Fatal(err)
+	}
+	defer s.removeStorage(newKey)
+	oldStore.mu.Unlock()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newStore.call("setStorage", []byte(`{"key":"after-reopen","data":43}`)); err != nil {
+		t.Fatal(err)
+	}
+	persisted, err := openStorage(newStore.file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := persisted.call("getStorage", []byte(`{"key":"before-close"}`)); err != nil {
+		t.Fatalf("reopened namespace overwrote an accepted write from the closing window: %v", err)
+	}
+}
+
+func TestGrantedIndexHTMLIsServedAsAFile(t *testing.T) {
+	s, err := startResources(fstest.MapFS{}, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.http.Close()
+	key, _, err := s.addStorage("demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "index.html")
+	if err := os.WriteFile(path, []byte("selected-file-content"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	s.mu.Lock()
+	s.files["grant/index.html"] = selectedFile{path: path, owner: key}
+	s.mu.Unlock()
+	response, err := http.Get(s.base + "files/grant/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.StatusCode != http.StatusOK || string(body) != "selected-file-content" {
+		t.Fatalf("granted index.html redirected or failed: status=%d body=%q", response.StatusCode, body)
 	}
 }

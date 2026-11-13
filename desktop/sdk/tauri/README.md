@@ -90,3 +90,5 @@ await dimina.dispose()
 一个 Tauri 应用共享一个由插件管理的运行时。`Dimina.start()` 会复用运行中的实例，`dispose()` 会关闭该应用的全部小程序窗口；如需再次使用，可重新 `start()`。不要在组件卸载或热更新时自动销毁整个运行时。宿主应用真正退出时，插件会回收它拥有的运行时；宿主异常退出后，运行时也会通过控制管道断开退出。
 
 Tauri 前端使用 `/tauri` 子入口，Node/Electron 主进程使用包根入口；两者均使用 `Dimina.start()`，无需编写自己的 IPC 转发层。Qt 与 .NET 的接入方式见 [SDK 指南](../README.md)。
+
+需要为移动 SDK 已有 API 接入 Rust 原生实现时，通过 `PluginOptions.api(name, options, handler)` 注册；完整示例与取消约定见 [原生 API 接入](../Native-APIs.md#tauri--rust)。

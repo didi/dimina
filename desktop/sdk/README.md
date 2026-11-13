@@ -4,6 +4,8 @@
 
 业务侧不需要编写 HTML、资源服务器或 WebView 桥接，也不需要安装 Go。嵌入现有窗口、Widget 或 Control 的模式尚未提供。
 
+需要让小程序调用现有客户端的原生能力时，使用 [原生 API 接入](./Native-APIs.md)：宿主为移动 SDK 已有 API 注册处理器，小程序保持原有 `wx` 调用方式，无需自行实现跨进程协议。
+
 ## 获取运行时与调用库
 
 准备 [桌面构建环境](../README.md#构建与运行)，从仓库的 `fe/` 目录构建 SDK：
@@ -26,6 +28,7 @@ dist/
 ├── dotnet/                    # .NET 类库项目
 ├── tauri/                     # Tauri 2 Rust 插件源码
 ├── licenses/                  # 原生依赖许可证
+├── Native-APIs.md              # 移动 API 的桌面原生适配
 └── README.md
 ```
 
@@ -166,6 +169,7 @@ WPF / WinForms 的按钮事件可直接 `await OpenAppAsync()`，不需要手动
 | 操作 | Node / Electron | Tauri 前端 | Qt | .NET |
 | --- | --- | --- | --- | --- |
 | 启动容器运行时 | `Dimina.start(options)` | `Dimina.start()` | `start(options)` → `started` | `StartAsync(options)` |
+| 注册原生能力 | `registerApi(name, handler, options)` | Rust `PluginOptions.api(...)` | `registerApi(...)` → `nativeApiRegistered` | `RegisterApiAsync<TParams,TResult>(...)` |
 | 打开并等待首屏 DOM | `openApp(options)` | `openApp(options)` | `openApp(appId, path, name)` → `appOpened` | `OpenAppAsync(options)` |
 | 聚焦已有窗口 | `window.focus()` / `focus(id)` | 同左 | `focus(id)` | `FocusAsync(id)` |
 | 关闭指定窗口 | `window.close()` / `closeApp(id)` | 同左 | `closeApp(id)` | `CloseAppAsync(id)` |
@@ -174,7 +178,8 @@ WPF / WinForms 的按钮事件可直接 `await OpenAppAsync()`，不需要手动
 | 关闭全部小程序窗口 | `closeAll()` | `closeAll()` | `closeAll()` | `CloseAllAsync()` |
 | 退出并回收运行时 | `dispose()` | `dispose()` / 宿主退出 | `stop()` / 析构 | `DisposeAsync()` / `Dispose()` |
 
-- 同一 SDK 实例中，同 appId 重复打开会聚焦并复用已有窗口。`path` 在新建窗口时生效；需要以不同入口重新启动时，先关闭已有窗口。
+- 同一 SDK 实例中，同 appId 重复打开会聚焦并复用已有窗口；已进入关闭状态时，等待旧窗口关闭后创建新窗口。`path` 在新建窗口时生效；需要以不同入口重新启动时，先关闭已有窗口。
+- 释放 SDK 时先请求关闭窗口，再回收运行时；控制通道或页面无响应时，在有限宽限期后强制回收。宿主应等待异步释放完成；Qt 宿主可通过 `stopped` 信号确认退出。
 - 窗口标识 `id` 由运行时生成，与 appId 不同。用户点击胶囊关闭后，该 id 失效；关闭已退出的窗口是幂等操作，可通过窗口列表获取实际状态。
 - `openApp` 等待资源与首屏 DOM 就绪，失败会 reject / 发出失败信号。错误窗口可能仍用于展示原因，可通过窗口列表关闭；请求取消不等于关闭窗口。
 - 只支持 Dimina 编译产物。新源码先编译；导入不会覆盖同 appId 的已有导入包。导入包优先于 `packagesDir` 中的同名目录。

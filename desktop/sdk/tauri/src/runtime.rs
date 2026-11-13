@@ -2,18 +2,69 @@ use reqwest::{Client, Url};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
+    collections::HashMap,
+    future::Future,
     path::PathBuf,
+    pin::Pin,
     process::Stdio,
-    sync::atomic::{AtomicBool, Ordering},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     time::Duration,
 };
 use tokio::{
-    io::{AsyncBufReadExt, BufReader},
+    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     process::{Child, ChildStdin, Command},
-    sync::Mutex,
+    sync::{watch, Mutex, RwLock},
 };
 
 pub type Result<T> = std::result::Result<T, String>;
+pub type NativeApiHandler = Arc<
+    dyn Fn(Value, NativeApiContext) -> Pin<Box<dyn Future<Output = Result<Value>> + Send>>
+        + Send
+        + Sync,
+>;
+
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeApiOptions {
+    pub app_ids: Vec<String>,
+    pub timeout_ms: u32,
+}
+#[derive(Clone)]
+pub struct NativeApiContext {
+    pub app_id: String,
+    pub window_id: String,
+    cancellation: watch::Receiver<bool>,
+}
+impl NativeApiContext {
+    pub fn is_cancelled(&self) -> bool {
+        *self.cancellation.borrow()
+    }
+    pub async fn cancelled(&mut self) {
+        while !*self.cancellation.borrow() {
+            if self.cancellation.changed().await.is_err() {
+                break;
+            }
+        }
+    }
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct NativeCall {
+    #[serde(rename = "type")]
+    kind: String,
+    id: String,
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    app_id: String,
+    #[serde(default)]
+    window_id: String,
+    #[serde(default)]
+    params: Value,
+}
 
 /// Absolute paths, resolved by the host rather than frontend content.
 #[derive(Clone)]
@@ -63,7 +114,8 @@ struct Handshake {
 /// Owns one runtime process. Dropping it also closes stdin and kills the child.
 pub struct Dimina {
     child: Mutex<Child>,
-    stdin: Mutex<Option<ChildStdin>>,
+    stdin: Arc<Mutex<Option<ChildStdin>>>,
+    handlers: Arc<RwLock<HashMap<String, NativeApiHandler>>>,
     http: Client,
     base: Url,
     token: String,
@@ -71,6 +123,55 @@ pub struct Dimina {
 }
 
 impl Dimina {
+    pub async fn register_api<F, Fut>(
+        &self,
+        name: &str,
+        options: NativeApiOptions,
+        handler: F,
+    ) -> Result<()>
+    where
+        F: Fn(Value, NativeApiContext) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<Value>> + Send + 'static,
+    {
+        self.register_handler(
+            name,
+            options,
+            Arc::new(move |params, context| Box::pin(handler(params, context))),
+        )
+        .await
+    }
+    pub(crate) async fn register_handler(
+        &self,
+        name: &str,
+        options: NativeApiOptions,
+        handler: NativeApiHandler,
+    ) -> Result<()> {
+        let previous = self
+            .handlers
+            .write()
+            .await
+            .insert(name.into(), handler.clone());
+        let result = self
+            .call(
+                "registerApi",
+                Some(json!({"name":name,"appIds":options.app_ids,"timeoutMs":options.timeout_ms})),
+            )
+            .await;
+        if result.is_err() {
+            let mut handlers = self.handlers.write().await;
+            if handlers
+                .get(name)
+                .is_some_and(|current| Arc::ptr_eq(current, &handler))
+            {
+                if let Some(previous) = previous {
+                    handlers.insert(name.into(), previous);
+                } else {
+                    handlers.remove(name);
+                }
+            }
+        }
+        result
+    }
     pub async fn start(options: &Options) -> Result<Self> {
         if [
             &options.runtime_path,
@@ -140,11 +241,79 @@ impl Dimina {
         {
             return Err("Unsupported runtime handshake".into());
         }
-        tokio::spawn(async move { while let Ok(Some(_)) = lines.next_line().await {} });
-        let stdin = child.stdin.take();
+        let stdin = Arc::new(Mutex::new(child.stdin.take()));
+        let handlers: Arc<RwLock<HashMap<String, NativeApiHandler>>> = Arc::default();
+        let pending: Arc<Mutex<HashMap<String, watch::Sender<bool>>>> = Arc::default();
+        let input = stdin.clone();
+        let registry = handlers.clone();
+        tokio::spawn(async move {
+            while let Ok(Some(line)) = lines.next_line().await {
+                let Ok(call) = serde_json::from_str::<NativeCall>(&line) else {
+                    continue;
+                };
+                if call.kind == "native-cancel" {
+                    if let Some(cancel) = pending.lock().await.remove(&call.id) {
+                        let _ = cancel.send(true);
+                    }
+                    continue;
+                }
+                if call.kind != "native-call" {
+                    continue;
+                }
+                let handler = registry.read().await.get(&call.name).cloned();
+                let (cancel, cancellation) = watch::channel(false);
+                pending.lock().await.insert(call.id.clone(), cancel);
+                let input = input.clone();
+                let pending = pending.clone();
+                tokio::spawn(async move {
+                    let context = NativeApiContext {
+                        app_id: call.app_id,
+                        window_id: call.window_id,
+                        cancellation,
+                    };
+                    let mut monitor = context.clone();
+                    let work = async {
+                        match handler {
+                            Some(handler) => handler(call.params, context).await,
+                            None => Err("Native API handler is unavailable".into()),
+                        }
+                    };
+                    let result = tokio::select! {biased; _=monitor.cancelled()=>None, result=work=>Some(result)};
+                    if let Some(result) = result.filter(|_| !monitor.is_cancelled()) {
+                        let response = match result {
+                            Ok(value) if value.is_object() => {
+                                json!({"type":"native-result","id":call.id,"value":value})
+                            }
+                            Ok(Value::Null) => {
+                                json!({"type":"native-result","id":call.id,"value":{}})
+                            }
+                            Ok(_) => {
+                                json!({"type":"native-result","id":call.id,"error":"Native API must return a JSON object"})
+                            }
+                            Err(error) => {
+                                json!({"type":"native-result","id":call.id,"error":error})
+                            }
+                        };
+                        let mut bytes = serde_json::to_vec(&response).unwrap_or_default();
+                        if bytes.len() > 1 << 20 {
+                            bytes=serde_json::to_vec(&json!({"type":"native-result","id":call.id,"error":"Native API result exceeds 1 MiB"})).unwrap_or_default();
+                        }
+                        bytes.push(b'\n');
+                        if let Some(stdin) = input.lock().await.as_mut() {
+                            let _ = stdin.write_all(&bytes).await;
+                        }
+                    }
+                    pending.lock().await.remove(&call.id);
+                });
+            }
+            for (_, cancel) in pending.lock().await.drain() {
+                let _ = cancel.send(true);
+            }
+        });
         Ok(Self {
             child: Mutex::new(child),
-            stdin: Mutex::new(stdin),
+            stdin,
+            handlers,
             base,
             token: hello.token,
             http: Client::builder()
@@ -226,14 +395,25 @@ impl Dimina {
         let result =
             tokio::time::timeout(Duration::from_secs(3), self.request::<()>("closeAll", None))
                 .await;
-        self.stdin.lock().await.take();
         let mut child = self.child.lock().await;
-        if tokio::time::timeout(Duration::from_secs(3), child.wait())
+        // A native result may hold the stdin lock while the runtime stops
+        // reading. Bound lock acquisition together with graceful EOF/exit.
+        let exit = async {
+            self.stdin.lock().await.take();
+            child.wait().await
+        };
+        if tokio::time::timeout(Duration::from_secs(3), exit)
             .await
             .is_err()
         {
             child.kill().await.map_err(|e| e.to_string())?;
         }
+        // Killing the child releases any blocked native write. Cleanup must
+        // itself stay bounded if that task has not been scheduled yet.
+        let _ = tokio::time::timeout(Duration::from_secs(1), async {
+            self.stdin.lock().await.take();
+        })
+        .await;
         result.map_err(|_| "Runtime close timed out".to_string())?
     }
 }

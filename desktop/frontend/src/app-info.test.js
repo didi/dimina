@@ -18,7 +18,7 @@ const mocks = vi.hoisted(() => {
 })
 
 vi.mock('@dimina/fe-container-sdk', () => ({ createContainer: mocks.createContainer }))
-vi.mock('./native.js', () => ({ desktop: mocks.desktop, registerDesktopApis: vi.fn() }))
+vi.mock('./native.js', () => ({ desktop: mocks.desktop, registerDesktopApis: vi.fn(), registerHostApis: vi.fn() }))
 
 beforeEach(() => {
 	vi.resetModules()

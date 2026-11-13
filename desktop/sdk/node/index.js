@@ -12,6 +12,9 @@ export class Dimina {
   #token
   #stopped = false
   #exit
+  #disposal
+  #apis = new Map()
+  #calls = new Map()
 
   static async start(options) {
     for (const name of ['runtimePath', 'packagesDir', 'dataDir']) {
@@ -24,7 +27,11 @@ export class Dimina {
     host.#process = child
     child.stdin.on('error', () => {})
     host.#exit = new Promise(resolve => child.once('exit', resolve))
-    child.once('exit', () => { host.#stopped = true })
+    child.once('exit', () => {
+      host.#stopped = true
+      for (const controller of host.#calls.values()) controller.abort()
+      host.#calls.clear()
+    })
     let diagnostics = ''
     child.stderr.on('data', bytes => {
       diagnostics = (diagnostics + bytes).slice(-4096)
@@ -49,21 +56,75 @@ export class Dimina {
       }
       host.#base = base
       host.#token = hello.token
+      lines.on('line', line => {
+        try { host.#native(JSON.parse(line)) } catch { /* Ignore non-protocol output. */ }
+      })
+      child.once('exit', () => lines.close())
       return host
     } catch (error) {
       child.stdin.end()
-      child.kill()
+      child.kill('SIGKILL')
+      lines.close()
+      child.stdout.resume()
       throw error
-    } finally { lines.close(); child.stdout.resume() }
+    }
+  }
+
+  #native(message) {
+    if (message.type === 'native-cancel') {
+      this.#calls.get(message.id)?.abort()
+      this.#calls.delete(message.id)
+      return
+    }
+    if (message.type !== 'native-call' || this.#stopped) return
+    const controller = new AbortController()
+    this.#calls.set(message.id, controller)
+    const context = { appId: message.appId, windowId: message.windowId, signal: controller.signal }
+    const respond = response => {
+      if (!controller.signal.aborted && !this.#stopped) {
+        let encoded = JSON.stringify({ type: 'native-result', id: message.id, ...response })
+        if (Buffer.byteLength(encoded) > 1 << 20) encoded = JSON.stringify({ type: 'native-result', id: message.id, error: 'Native API result exceeds 1 MiB' })
+        this.#process.stdin.write(encoded + '\n')
+      }
+    }
+    Promise.resolve().then(() => {
+      if (controller.signal.aborted || this.#stopped) return
+      const handler = this.#apis.get(message.name)
+      if (!handler) throw new Error('Native API handler is unavailable')
+      return handler(message.params, context)
+    }).then(value => {
+      if (value != null && (typeof value !== 'object' || Array.isArray(value))) throw new Error('Native API must return a JSON object')
+      respond({ value: value ?? {} })
+    }).catch(error => {
+      try { respond({ error: error?.message || String(error) }) } catch { /* The host may already be exiting. */ }
+    }).finally(() => this.#calls.delete(message.id))
+  }
+
+  async registerApi(name, handler, options = {}) {
+    if (typeof handler !== 'function') throw new TypeError('Native API handler must be a function')
+    const previous = this.#apis.get(name)
+    this.#apis.set(name, handler)
+    try { await this.#call('registerApi', { name, appIds: options.appIds, timeoutMs: options.timeoutMs }) }
+    catch (error) {
+      if (this.#apis.get(name) === handler) {
+        if (previous) this.#apis.set(name, previous)
+        else this.#apis.delete(name)
+      }
+      throw error
+    }
   }
 
   async #call(method, payload, verb = 'POST') {
-    if (this.#stopped) throw new Error('Dimina runtime is stopped')
+    if (this.#stopped || this.#disposal) throw new Error('Dimina runtime is stopped')
+    return this.#request(method, payload, verb)
+  }
+
+  async #request(method, payload, verb = 'POST', signal = AbortSignal.timeout(100000)) {
     const response = await fetch(new URL(method, this.#base), {
       method: verb,
       headers: { Authorization: `Bearer ${this.#token}`, 'Content-Type': 'application/json' },
       body: verb === 'GET' ? undefined : JSON.stringify(payload ?? {}),
-      signal: AbortSignal.timeout(100000),
+      signal,
     })
     let result
     try { result = await response.json() } catch { throw new Error(`Invalid runtime response (HTTP ${response.status})`) }
@@ -78,12 +139,17 @@ export class Dimina {
   async windows() { return (await this.#call('windows', undefined, 'GET')).map(info => new DiminaWindow(this, info)) }
   importApp(path) { return this.#call('import', { path }) }
 
-  async dispose() {
+  dispose() {
+    return this.#disposal ??= this.#disposeRuntime()
+  }
+  async #disposeRuntime() {
     if (this.#stopped) return
-    try { await this.closeAll() } finally {
+    try { await this.#request('closeAll', undefined, 'POST', AbortSignal.timeout(3000)) } finally {
       this.#stopped = true
+      for (const controller of this.#calls.values()) controller.abort()
+      this.#calls.clear()
       this.#process.stdin.end()
-      const timer = setTimeout(() => this.#process.kill(), 3000)
+      const timer = setTimeout(() => this.#process.kill('SIGKILL'), 3000)
       try { await this.#exit } finally { clearTimeout(timer) }
     }
   }

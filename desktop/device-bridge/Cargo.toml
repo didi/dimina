@@ -1,0 +1,22 @@
+[package]
+name = "dimina-device-bridge"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[dependencies]
+btleplug = "=0.13.5"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "io-std", "sync", "time"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+futures-util = "0.3"
+uuid = "1"
+base64 = "0.22"
+
+[profile.release]
+lto = "thin"
+strip = true
+
+[dev-dependencies]
+tokio = { version = "1", features = ["test-util"] }
