@@ -1,0 +1,143 @@
+desktop/README.md
+  4a4094a264a29efa 9,33,50-54,60,68,70,74
+desktop/mygo.json
+  4a4094a264a29efa 6-13
+desktop/socket_options_unix.go
+  4a4094a264a29efa 1-21
+desktop/sdk/qt/CMakeLists.txt
+  4a4094a264a29efa 15-22
+desktop/sdk/tauri/src/runtime.rs
+  4a4094a264a29efa 5-6,8,10-13,17,19,23-67,117-118,126-174,244-312,315-316,399-405,411-416
+desktop/frontend/src/scan.test.js
+  4a4094a264a29efa 1-18
+desktop/sdk_control.go
+  4a4094a264a29efa 37-39,42-44,69-78,128-156,204-211,213-214,220-227,267
+desktop/scripts/build.mjs
+  4a4094a264a29efa 1,24,26-43
+desktop/frontend/src/scan.css
+  4a4094a264a29efa 1
+desktop/frontend/src/native.test.js
+  4a4094a264a29efa 1-73
+desktop/devices.go
+  4a4094a264a29efa 1-186
+desktop/sdk/dotnet/Dimina.Desktop.csproj
+  4a4094a264a29efa 11
+desktop/sockets.go
+  4a4094a264a29efa 1-323
+desktop/scripts/sync-mobile-apis.mjs
+  4a4094a264a29efa 1-23
+desktop/sdk/node/index.d.ts
+  4a4094a264a29efa 8,13
+desktop/sdk/Native-APIs.md
+  4a4094a264a29efa 1-139
+desktop/scanner.go
+  4a4094a264a29efa 1-95
+desktop/runtime_test.go
+  4a4094a264a29efa 1-236
+desktop/native_bridge_test.go
+  4a4094a264a29efa 1-265
+desktop/frontend/src/native-registration.test.js
+  4a4094a264a29efa 1-31
+desktop/io_review_test.go
+  4a4094a264a29efa 1-158
+desktop/native_bridge.go
+  4a4094a264a29efa 1-336
+desktop/sdk/build.mjs
+  4a4094a264a29efa 5,29-30,52-76
+desktop/sdk/tauri/README.md
+  4a4094a264a29efa 93-94
+desktop/server_test.go
+  4a4094a264a29efa 4,8-9,110-112,138-211
+desktop/sdk/node/test/types.ts
+  4a4094a264a29efa 8
+desktop/sdk/tauri/src/lib.rs
+  4a4094a264a29efa 3-6,27,36,39-55,63,96-104,106,171
+desktop/sdk/node/test/client.test.mjs
+  4a4094a264a29efa 14,19-20,25,30-37,39,45,103-157
+desktop/sdk/dotnet/tests/Program.cs
+  4a4094a264a29efa 1-80
+desktop/sdk/qt/DiminaDesktop.h
+  4a4094a264a29efa 2,10,12,19-26,41-42,51-52,65-68
+desktop/sdk/qt/tests/lifecycle.cpp
+  4a4094a264a29efa 1-50
+fe/packages/service/__tests__/synchronous-api.spec.js
+  4a4094a264a29efa 56-67
+desktop/sdk/tauri/tests/lifecycle.rs
+  4a4094a264a29efa 8,96-151
+desktop/server.go
+  4a4094a264a29efa 31,33,46,58-70,80,114,128-147,168-181
+desktop/.gitignore
+  4a4094a264a29efa 13-15
+desktop/frontend/package.json
+  4a4094a264a29efa 10-12
+desktop/sdk/node/index.js
+  4a4094a264a29efa 15-17,30-34,59-62,66-112,114,118-122,127,142-145,147,149-150,152
+desktop/main.go
+  4a4094a264a29efa 4,44,63-64,68,128,144-156,265,269,271-294,296-307,309-313,326-329,340,347,354-359,372,376-378,388-398,436,467-473,530-535,623-629
+desktop/frontend/src/native.js
+  4a4094a264a29efa 16-68,89,98-108,114-115,125-127
+desktop/transfers.go
+  4a4094a264a29efa 1-311
+desktop/frontend/vite.config.mjs
+  4a4094a264a29efa 13
+desktop/frontend/src/scan.js
+  4a4094a264a29efa 1-49
+desktop/device-bridge/src/main.rs
+  4a4094a264a29efa 1-851
+desktop/frontend/src/index.js
+  4a4094a264a29efa 3,120-122,134-136,138-140
+desktop/sdk/README.md
+  4a4094a264a29efa 7-8,31,172,181-182
+desktop/mobile_api_names.json
+  4a4094a264a29efa 1-212
+desktop/sdk/node/types.d.ts
+  4a4094a264a29efa 3-5
+desktop/sdk_control_test.go
+  4a4094a264a29efa 111-124
+desktop/sdk/dotnet/tests/Dimina.Desktop.Tests.csproj
+  4a4094a264a29efa 1-8
+docs/Desktop-Integration.md
+  4a4094a264a29efa 16-17
+desktop/socket_options_windows.go
+  4a4094a264a29efa 1-21
+desktop/device-bridge/Cargo.toml
+  4a4094a264a29efa 1-22
+desktop/sdk/dotnet/DiminaDesktop.cs
+  4a4094a264a29efa 47-84,109-114,121-122,125,140-146,178,191,193,195,201,203-305,332-340,343-344,348,362-363
+desktop/frontend/scan.html
+  4a4094a264a29efa 1
+desktop/sdk/node/README.md
+  4a4094a264a29efa 19-20
+desktop/frontend/src/scan-formats.js
+  4a4094a264a29efa 1-18
+fe/packages/service/src/core/synchronous-api.js
+  4a4094a264a29efa 6
+desktop/runtime.go
+  4a4094a264a29efa 1-236
+desktop/frontend/src/app-info.test.js
+  4a4094a264a29efa 21
+desktop/go.mod
+  4a4094a264a29efa 5-8,12
+desktop/sdk/qt/DiminaDesktop.cpp
+  4a4094a264a29efa 8,10,44-45,50-51,56-84,90,119-120,188-231,233-261,263-265,268-293
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "743d53b2dca514a9079881b43cc81e5443878a3c",
+  "prompts": {
+    "4a4094a264a29efa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1cf8b-7df5-77e3-bf0e-c9596c3413c4",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 6226,
+      "total_deletions": 675,
+      "accepted_lines": 6824,
+      "overriden_lines": 0
+    }
+  }
+}
