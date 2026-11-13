@@ -1,0 +1,39 @@
+desktop/sdk/build.mjs
+  4a4094a264a29efa 28-29,78-82
+desktop/scripts/publish.test.mjs
+  4a4094a264a29efa 1-106
+fe/packages/container/__tests__/shared-app-list.spec.js
+  4a4094a264a29efa 1-140
+desktop/scripts/tests/test_release.py
+  4a4094a264a29efa 1-117
+fe/packages/container/__tests__/app-list-navigation.spec.js
+  4a4094a264a29efa 5,17-18,24,32,50,53
+desktop/scripts/publish.mjs
+  4a4094a264a29efa 1-124
+desktop/scripts/release.py
+  4a4094a264a29efa 1-179
+desktop/frontend/src/app-list.css
+  4a4094a264a29efa 41,48,56,71,75-76,87,96,106,112,121,126,140-141,149-150,163,167-169,195,203-205,211-212,215,218,222-234
+desktop/frontend/src/index.js
+  4a4094a264a29efa 4-5,38-52,54-63,67
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "d0c37614ddd7a78a3d5b958bbfb414bbd5f07685",
+  "prompts": {
+    "4a4094a264a29efa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1cf8b-7df5-77e3-bf0e-c9596c3413c4",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 2049,
+      "total_deletions": 311,
+      "accepted_lines": 4311,
+      "overriden_lines": 0
+    }
+  }
+}
