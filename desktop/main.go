@@ -112,7 +112,7 @@ func (d *Desktop) showLauncher() {
 		return
 	}
 	d.mu.Unlock()
-	win := mygo.NewWindow(mygo.WindowOptions{Title: "星河小程序", URL: d.resources.base, Width: 980, Height: 720, MinWidth: 640, MinHeight: 480, Page: d.pageOptions(nil)})
+	win := mygo.NewWindow(mygo.WindowOptions{Title: "星河小程序", URL: d.resources.base, Width: 600, Height: 720, MinWidth: 420, MinHeight: 480, Page: d.pageOptions(nil)})
 	d.mu.Lock()
 	d.launcher = win
 	d.mu.Unlock()
