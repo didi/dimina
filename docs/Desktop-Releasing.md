@@ -17,15 +17,9 @@
 
 ## 首次配置
 
-在仓库 **Settings → Secrets and variables → Actions** 添加以下 Repository secrets：
+各 registry 的发布账号须拥有对应包名或作用域，并在仓库 **Settings → Secrets and variables → Actions** 中配置仓库级发布凭据。具体配置项见 [Desktop SDK Release 工作流](../.github/workflows/desktop-release.yml) 中的各发布任务。
 
-| Secret | 用途 |
-| --- | --- |
-| `DESKTOP_NPM_TOKEN` | npm granular access token，具有 `@dimina/desktop-sdk` 发布权限，并允许 CI 无交互发布 |
-| `DESKTOP_CARGO_REGISTRY_TOKEN` | crates.io API token，具有 `tauri-plugin-dimina` 首次创建或后续更新权限 |
-| `DESKTOP_NUGET_API_KEY` | NuGet API key，允许发布 `Dimina.Desktop` 的新包或新版本 |
-
-发布账号须拥有对应包名或作用域。正式发布会先检查三个 Secret 是否齐全；`dry_run` 不需要发布凭据。GitHub Release 使用内置 `GITHUB_TOKEN`，无需额外配置 PAT。
+测试、构建、打包及 GitHub Release 附件发布不依赖 registry 凭据。npm、crates.io、NuGet 在各自发布任务中独立检查凭据：缺少凭据的渠道会明确失败，不影响其他渠道和 GitHub 附件，也不会被标记为已发布。`dry_run` 不执行 registry 发布任务；GitHub Release 使用工作流内置授权，无需额外配置个人访问令牌。
 
 npm 发布生成 provenance，工作流已配置 `id-token: write` 和仓库元数据。Token 不写入源码、制品或日志。凭据有效期和包权限由对应 registry 管理；参考 [npm 发布来源证明](https://docs.npmjs.com/generating-provenance-statements/)、[Cargo 发布说明](https://doc.rust-lang.org/cargo/reference/publishing.html)、[NuGet 发布说明](https://learn.microsoft.com/en-us/nuget/nuget-org/publish-a-package)。
 
@@ -52,11 +46,13 @@ Node 和 Rust SDK 用例共用可跨平台编译的测试运行时，Windows 不
 
 ## 正式发布与重试
 
-推送 `v1.2.3` 或 `v1.2.3-beta.1` 格式的标签会由主 Release 流程自动发布桌面 SDK。也可以针对已有标签手动运行 **Desktop SDK Release**，将 `dry_run` 设为 `false`。发布阶段等待所有 SDK 检查和六个平台构建通过；先上传 GitHub Release 附件，再发布各 registry 的调用库。
+推送 `v1.2.3` 或 `v1.2.3-beta.1` 格式的标签会由主 Release 流程自动发布桌面 SDK。也可以针对已有标签手动运行 **Desktop SDK Release**，将 `dry_run` 设为 `false`。发布阶段等待所有 SDK 检查和六个平台构建通过；先上传 GitHub Release 附件，再分别发布各 registry 的调用库。完整发布需所有渠道成功；只有附件成功时，仍可下载 SDK 包中的调用库进行接入。
 
 稳定版本使用 npm 的 `latest` 标签；预发布版本使用 `next`，GitHub Release 同时标记为 prerelease。标签不接受 SemVer build metadata（`+...`），以避免不同 registry 的版本规范化产生歧义。
 
 重试时优先使用 **Re-run failed jobs**，复用本次已经验证的构建产物。已有 GitHub 附件、npm 包或 Cargo 包只有在校验和相同时才跳过；内容冲突会失败，不会覆盖。NuGet 使用 `--skip-duplicate` 跳过已发布的版本。完整重跑会重新构建运行时，压缩包可能因构建时间等信息产生不同校验和；需要更改已发布内容时，应使用新版本。
+
+补齐凭据后，可重跑对应的失败任务。若修改了工作流本身，应从包含该修改的分支手动启动 **Desktop SDK Release**，指定已有的 `release_tag`；旧运行的重试仍使用原工作流版本。
 
 各 registry 独立发布，无法跨服务原子提交；部分发布失败后，可补跑对应失败任务。制品校验和只覆盖桌面附件，不替换其他平台已有的校验文件。
 
