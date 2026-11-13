@@ -4,6 +4,8 @@
 /sdk/dist/
 /sdk/dotnet/bin/
 /sdk/dotnet/obj/
+/sdk/dotnet/tests/bin/
+/sdk/dotnet/tests/obj/
 /sdk/qt/build/
 /sdk/node/node_modules/
 /sdk/tauri/target/

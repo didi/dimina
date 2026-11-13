@@ -8,6 +8,10 @@
 
 ## 获取运行时与调用库
 
+已有发布版本时，从对应 [GitHub Release](https://github.com/didi/dimina/releases) 下载目标平台的 `dimina-desktop-sdk-{version}-{os}-{arch}` 压缩包，解压后使用下述目录结构。Node/Electron、Tauri 和 .NET 调用库也可分别从 npm、crates.io、NuGet 安装；版本需与运行时配套，调用库不会自动下载运行时。Qt 调用库随 SDK 包提供 CMake 源码。
+
+从源码构建：
+
 准备 [桌面构建环境](../README.md#构建与运行)，从仓库的 `fe/` 目录构建 SDK：
 
 ```sh
@@ -28,6 +32,7 @@ dist/
 ├── dotnet/                    # .NET 类库项目
 ├── tauri/                     # Tauri 2 Rust 插件源码
 ├── licenses/                  # 原生依赖许可证
+├── version.json               # 版本与目标平台
 ├── Native-APIs.md              # 移动 API 的桌面原生适配
 └── README.md
 ```
@@ -55,7 +60,7 @@ your-product/
 
 `runtimePath`、`packagesDir`、`dataDir` 都使用绝对路径。`packagesDir` 是包含多个 appId 子目录的只读资源根目录；`dataDir` 是当前产品独占的可写数据目录。每个客户端维护一个 SDK 实例；不同产品或账号使用不同的数据目录，不要让多个运行时同时写同一目录。
 
-源码调用库可直接从 `node/`、`qt/`、`dotnet/`、`tauri/` 引用，也可打包成内部制品；这里没有要求从公共 registry 安装某个已发布版本。
+源码调用库可直接从 `node/`、`qt/`、`dotnet/`、`tauri/` 引用，也可打包成内部制品。维护者的标签、凭据、CI 验证与自动发布配置见 [桌面 SDK 发布](../../docs/Desktop-Releasing.md)。
 
 ## Node.js / Electron
 

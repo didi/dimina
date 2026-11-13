@@ -1,4 +1,4 @@
-import { generateAppLogo } from './app-logo.js'
+import { getAppInfo } from '@dimina/container-ui'
 
 function memoize(func) {
 	const cache = new Map()
@@ -16,19 +16,7 @@ function memoize(func) {
 
 export const getAppList = memoize(async () => {
 	const appList = await fetch(`${import.meta.env.BASE_URL}appList.json`).then(res => res.json())
-	appList.forEach((appInfo) => {
-		const key = JSON.stringify(appInfo)
-		const logo = sessionStorage.getItem(key)
-		if (logo) {
-			appInfo.logo = logo
-		}
-		else {
-			const result = generateAppLogo(appInfo)
-			sessionStorage.setItem(key, result)
-			appInfo.logo = result
-		}
-	})
-	return appList
+	return appList.map(getAppInfo)
 })
 
 // 模拟调用开放平台接口，获取应用信息

@@ -1,8 +1,8 @@
 import { createContainer } from '@dimina/fe-container-sdk'
 import '@dimina/fe-container-sdk/style.css'
 import { desktop, registerDesktopApis, registerHostApis, dispatchRuntimeEvent } from './native.js'
-import { getDesktopAppInfo } from './app-info.js'
-import searchIcon from '../../../fe/packages/container/public/images/search.jpg'
+import { AppListView, getAppInfo } from '@dimina/container-ui'
+import '@dimina/container-ui/style.css'
 import './style.css'
 import './app-list.css'
 
@@ -33,73 +33,38 @@ function showError(error) {
 async function launcher() {
 	root.innerHTML = `<main class="desktop-library">
 		<header class="desktop-library__navigation"><h1>星河小程序</h1></header>
-		<div class="desktop-library__search-bar"><label class="desktop-library__search"><input id="search" type="search" aria-label="搜索小程序" placeholder="搜索小程序" autocomplete="off"></label><button id="refresh" class="desktop-library__refresh">刷新</button></div>
 		<div id="status" role="alert" hidden></div>
-		<section class="desktop-library__applications" aria-labelledby="apps-title"><div class="desktop-library__section-heading"><h2 id="apps-title">应用列表</h2><button id="import" class="desktop-library__import">导入小程序 <span aria-hidden="true">↗</span></button></div>
-		<ul id="apps" class="desktop-library__list" aria-live="polite"></ul></section>
 	</main>`
-	const grid = document.getElementById('apps')
-	const search = document.getElementById('search')
-	search.style.backgroundImage = `url("${searchIcon}")`
-	let apps = []
-	function render() {
-		grid.replaceChildren()
-		const query = search.value.trim().toLowerCase()
-		const visible = apps.filter(app => `${app.name} ${app.appId}`.toLowerCase().includes(query))
-		for (const app of visible) {
-			const item = document.createElement('li')
-			item.className = 'desktop-library__item'
-			const button = document.createElement('button')
-			button.className = 'desktop-library__open'
-			button.type = 'button'
-			const icon = document.createElement('img')
-			icon.className = 'desktop-library__logo'
-			icon.src = app.logo
-			icon.alt = ''
-			icon.draggable = false
-			const title = document.createElement('span')
-			title.className = 'desktop-library__name'
-			title.textContent = app.name
-			button.append(icon, title)
-			button.addEventListener('click', async () => {
-				button.disabled = true
-				button.dataset.state = 'loading'
-				button.setAttribute('aria-busy', 'true')
-				try { await desktop.openApp(app.appId); button.dataset.state = 'success' }
-				catch (error) { button.dataset.state = 'error'; button.setAttribute('aria-describedby', 'status'); showError(error) }
-				finally { button.disabled = false; button.removeAttribute('aria-busy') }
-			})
-			item.appendChild(button)
-			grid.appendChild(item)
-		}
-		if (!visible.length) {
-			const empty = document.createElement('li')
-			empty.className = 'desktop-library__empty'
-			empty.textContent = query ? '未找到匹配的小程序' : '暂无应用'
-			grid.appendChild(empty)
-		}
-	}
-	async function refresh() {
-		grid.setAttribute('aria-busy', 'true')
-		try { apps = (await desktop.listApps()).map(getDesktopAppInfo); render() }
-		finally { grid.removeAttribute('aria-busy') }
-	}
-	search.addEventListener('input', render)
-	document.getElementById('refresh').addEventListener('click', () => refresh().catch(showError))
-	document.getElementById('import').addEventListener('click', async (event) => {
-		event.currentTarget.disabled = true
-		try { await desktop.importApp(); document.getElementById('status').hidden = true; await refresh() }
-		catch (error) { if (!String(error.message).includes('已取消导入')) showError(error) }
-		finally { document.getElementById('import').disabled = false }
+	const library = new AppListView({
+		loadApps: async () => (await desktop.listApps()).map(getAppInfo),
+		onOpen: app => desktop.openApp(app.appId),
+		refreshable: true,
+		action: {
+			label: '导入小程序',
+			refreshAfter: true,
+			onClick: async () => {
+				try { await desktop.importApp() }
+				catch (error) {
+					if (String(error?.message).includes('已取消导入')) return false
+					throw error
+				}
+			},
+		},
 	})
-	window.addEventListener('keydown', (event) => {
-		if ((event.metaKey || event.ctrlKey) && event.key === 'f') { event.preventDefault(); search.focus() }
-	})
-	await refresh()
+	root.firstElementChild.appendChild(library.el)
+	const onFind = (event) => {
+		if ((event.metaKey || event.ctrlKey) && event.key === 'f') { event.preventDefault(); library.search.focus() }
+	}
+	window.addEventListener('keydown', onFind)
+	window.addEventListener('pagehide', () => {
+		library.destroy()
+		window.removeEventListener('keydown', onFind)
+	}, { once: true })
+	await library.refresh()
 }
 
 async function openMiniProgram(bootstrap) {
-	const appInfo = getDesktopAppInfo(bootstrap.app)
+	const appInfo = getAppInfo(bootstrap.app)
 	root.replaceChildren()
 	root.classList.add('runtime')
 	document.title = bootstrap.app.name

@@ -25,7 +25,8 @@ for (const language of ['qt', 'dotnet', 'tauri']) {
   })
 }
 writeFileSync(join(out, 'README.md'), readFileSync(join(sdk, 'README.md'), 'utf8')
-  .replaceAll('](../README.md', '](https://github.com/didi/dimina/blob/main/desktop/README.md'))
+  .replaceAll('](../README.md', '](https://github.com/didi/dimina/blob/main/desktop/README.md')
+  .replaceAll('](../../docs/Desktop-Releasing.md', '](https://github.com/didi/dimina/blob/main/docs/Desktop-Releasing.md'))
 writeFileSync(join(out, 'Native-APIs.md'), readFileSync(join(sdk, 'Native-APIs.md'), 'utf8')
   .replaceAll('](../../docs/API-Reference.md', '](https://github.com/didi/dimina/blob/main/docs/API-Reference.md'))
 for (const name of ['LICENSE', 'LICENSE.md']) if (existsSync(join(root, name))) cpSync(join(root, name), join(out, name))
@@ -74,3 +75,8 @@ function copyJavaScriptLicenses(name, parent) {
   for (const dependency of Object.keys({ ...pkg.dependencies, ...pkg.optionalDependencies })) copyJavaScriptLicenses(dependency, directory)
 }
 for (const name of ['@zxing/browser', '@zxing/library']) copyJavaScriptLicenses(name, join(root, 'desktop/frontend'))
+
+writeFileSync(join(out, 'version.json'), JSON.stringify({
+  version: JSON.parse(readFileSync(join(sdk, 'node/package.json'), 'utf8')).version,
+  platform,
+}, null, 2) + '\n')

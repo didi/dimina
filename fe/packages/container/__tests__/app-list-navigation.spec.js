@@ -2,14 +2,10 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { getAppList, getMiniAppInfo } = vi.hoisted(() => ({
-	getAppList: vi.fn(() => new Promise(() => {})),
-	getMiniAppInfo: vi.fn(),
-}))
+const { getAppList } = vi.hoisted(() => ({ getAppList: vi.fn() }))
 
 vi.mock('@/services', () => ({
 	getAppList,
-	getMiniAppInfo,
 }))
 
 import { AppList } from '../src/pages/appList/appList.js'
@@ -18,22 +14,22 @@ describe('app list navigation', () => {
 	let page
 	let list
 
-	beforeEach(() => {
+	beforeEach(async () => {
+		getAppList.mockResolvedValue([{ appId: 'retained-a', name: 'A', path: 'pages/index', logo: '/logo.png' }])
 		getAppList.mockClear()
-		getMiniAppInfo.mockReset()
 		page = new AppList({ openApp: vi.fn() })
 		page.parent = { shell: { updateStatusBarColor: vi.fn() } }
 		page.viewDidLoad()
 		list = page.el.querySelector('.dimina-app__mini-used-list')
+		await vi.waitFor(() => expect(list.children).toHaveLength(1))
 	})
 
 	it('opens list entries without requesting destruction of retained apps', async () => {
-		page.renderAppList([{ appId: 'retained-a', name: 'A' }])
-		getMiniAppInfo.mockResolvedValue({ path: 'pages/index' })
 		list.querySelector('[data-appid="retained-a"]').click()
 		await vi.waitFor(() => expect(page.container.openApp).toHaveBeenCalledOnce())
 		const options = page.container.openApp.mock.calls[0][0]
 		expect(options.appId).toBe('retained-a')
+		expect(options.path).toBe('pages/index')
 		expect(options.destroy).not.toBe(true)
 	})
 
@@ -51,9 +47,10 @@ describe('app list navigation', () => {
 		page.el.querySelector('.dimina-app__generator-link').click()
 		expect(onCreate).toHaveBeenCalledOnce()
 		page.setGeneratedProjects([{ id: 'local-app', name: '我的打卡本' }])
+		const requests = getAppList.mock.calls.length
 		page.el.querySelector('[data-appid="local-app"]').click()
 		expect(onOpenGenerated).toHaveBeenCalledWith('local-app')
-		expect(getMiniAppInfo).not.toHaveBeenCalled()
+		expect(getAppList.mock.calls.length).toBe(requests)
 		expect(page.container.openApp).not.toHaveBeenCalled()
 	})
 })

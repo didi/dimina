@@ -7,6 +7,14 @@
     <Version>0.1.0</Version>
     <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
     <Description>Standalone Dimina mini-program windows for desktop .NET hosts</Description>
+    <Authors>Dimina Contributors</Authors>
+    <RepositoryUrl>https://github.com/didi/dimina</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageProjectUrl>https://github.com/didi/dimina/tree/main/desktop/sdk</PackageProjectUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
-  <ItemGroup><Compile Remove="tests/**/*.cs" /></ItemGroup>
+  <ItemGroup>
+    <Compile Remove="tests/**/*.cs" />
+    <None Include="README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
 </Project>

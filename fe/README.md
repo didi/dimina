@@ -8,6 +8,7 @@
 - **compiler**：小程序源码编译工具。
 - **components**：内置小程序标准组件。
 - **container-sdk**：Web 端小程序容器运行时 SDK（`createContainer`，不含 UI），宿主可嵌入接入，用法见其 [README](./packages/container-sdk/README.md)。
+- **container-ui**：Web 与桌面宿主共用的应用列表、搜索、状态提示和 Logo 处理，通过宿主回调加载、打开及导入应用。
 - **generator**：开发者自有模型接入、浏览器本地编译和隔离运行，入口集成在 Web 演示的「AI 创建」工作区，见 [Web AI 小程序生成](../docs/AI-MiniProgram-Web.md)。
 - **container**：容器 demo，消费 container-sdk，`index.html` 为演示入口（应用列表 + 手机壳）。
 - **jdimina**：webview sdk，为 webview 组件提供调用协议。

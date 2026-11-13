@@ -1,0 +1,324 @@
+name: Desktop SDK Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Existing release tag (v1.2.3 or v1.2.3-beta.1)'
+        required: true
+        type: string
+      dry_run:
+        description: 'Build and validate without publishing'
+        type: boolean
+        default: true
+  workflow_call:
+    inputs:
+      release_tag:
+        required: true
+        type: string
+      dry_run:
+        type: boolean
+        default: false
+    secrets:
+      DESKTOP_NPM_TOKEN:
+        required: false
+      DESKTOP_CARGO_REGISTRY_TOKEN:
+        required: false
+      DESKTOP_NUGET_API_KEY:
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-release-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  version:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      npm_tag: ${{ steps.version.outputs.npm_tag }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ inputs.release_tag }}
+          persist-credentials: false
+      - name: Validate tag and prepare release versions
+        id: version
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: python3 desktop/scripts/release.py prepare --tag "$RELEASE_TAG" --github-output "$GITHUB_OUTPUT"
+      - name: Check publishing credentials
+        if: ${{ !inputs.dry_run }}
+        env:
+          DESKTOP_NPM_TOKEN: ${{ secrets.DESKTOP_NPM_TOKEN }}
+          DESKTOP_CARGO_REGISTRY_TOKEN: ${{ secrets.DESKTOP_CARGO_REGISTRY_TOKEN }}
+          DESKTOP_NUGET_API_KEY: ${{ secrets.DESKTOP_NUGET_API_KEY }}
+        run: |
+          for credential in DESKTOP_NPM_TOKEN DESKTOP_CARGO_REGISTRY_TOKEN DESKTOP_NUGET_API_KEY; do
+            if [ -z "${!credential}" ]; then
+              echo "::error::Missing repository secret: $credential"
+              exit 1
+            fi
+          done
+
+  packages:
+    needs: version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      RELEASE_VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ inputs.release_tag }}
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: fe/.nvmrc
+      - uses: pnpm/setup@v2
+        with:
+          version: 12.2.0
+          package-json-file: fe/package.json
+          install: false
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install native SDK build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libdbus-1-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev qt6-base-dev
+      - name: Prepare versions and test release tooling
+        run: |
+          python3 -m unittest discover -s desktop/scripts/tests -p 'test_*.py'
+          node --test desktop/scripts/publish.test.mjs
+          python3 desktop/scripts/release.py prepare --tag "$RELEASE_TAG"
+      - name: Check Node and Tauri frontend SDKs
+        run: |
+          pnpm --dir desktop/sdk/node install --frozen-lockfile
+          pnpm --dir desktop/sdk/node test
+          pnpm --dir desktop/sdk/node typecheck
+      - name: Check Rust SDK and BLE helper
+        run: |
+          cargo test --manifest-path desktop/sdk/tauri/Cargo.toml
+          cargo test --locked --manifest-path desktop/device-bridge/Cargo.toml
+      - name: Check Qt SDK
+        run: |
+          cmake -S desktop/sdk/qt -B .build/qt-ci -DDIMINA_BUILD_TESTS=ON
+          cmake --build .build/qt-ci --parallel 2
+          ctest --test-dir .build/qt-ci --output-on-failure
+      - name: Check .NET SDK
+        run: dotnet run --project desktop/sdk/dotnet/tests/Dimina.Desktop.Tests.csproj -c Release
+      - name: Package npm, Cargo and NuGet artifacts
+        run: |
+          mkdir -p .build/desktop-packages
+          npm pack ./desktop/sdk/node --pack-destination .build/desktop-packages
+          cargo package --allow-dirty --manifest-path desktop/sdk/tauri/Cargo.toml
+          cp "desktop/sdk/tauri/target/package/tauri-plugin-dimina-$RELEASE_VERSION.crate" .build/desktop-packages/
+          python3 desktop/scripts/release.py cargo-metadata --tag "$RELEASE_TAG" --output .build/desktop-packages
+          dotnet pack desktop/sdk/dotnet/Dimina.Desktop.csproj -c Release -o .build/desktop-packages -p:ContinuousIntegrationBuild=true
+      - uses: actions/upload-artifact@v7
+        with:
+          name: desktop-packages
+          path: .build/desktop-packages/*
+          if-no-files-found: error
+          compression-level: 0
+
+  runtime:
+    needs: version
+    name: Runtime (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            platform: darwin/arm64
+            artifact: darwin-arm64
+          - runner: macos-15-intel
+            platform: darwin/amd64
+            artifact: darwin-amd64
+          - runner: windows-2025
+            platform: windows/amd64
+            artifact: windows-amd64
+          - runner: windows-11-arm
+            platform: windows/arm64
+            artifact: windows-arm64
+          - runner: ubuntu-24.04
+            platform: linux/amd64
+            artifact: linux-amd64
+          - runner: ubuntu-24.04-arm
+            platform: linux/arm64
+            artifact: linux-arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      RELEASE_PLATFORM: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ inputs.release_tag }}
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: fe/.nvmrc
+      - uses: pnpm/setup@v2
+        with:
+          version: 12.2.0
+          package-json-file: fe/package.json
+          install: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: desktop/go.mod
+          cache-dependency-path: desktop/go.sum
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Linux runtime build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libdbus-1-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev
+      - name: Prepare release versions
+        run: python3 desktop/scripts/release.py prepare --tag "$RELEASE_TAG"
+      - name: Install frontend dependencies
+        # The frontend workspace intentionally does not track pnpm-lock.yaml.
+        run: pnpm --dir fe install --no-frozen-lockfile
+      - name: Build complete SDK runtime bundle
+        run: node desktop/sdk/build.mjs --platform="$RELEASE_PLATFORM"
+      - name: Check desktop frontend
+        run: pnpm --dir fe --filter @dimina/desktop test
+      - name: Check Go runtime
+        working-directory: desktop
+        run: |
+          go vet ./...
+          if [ "$RUNNER_OS" = Windows ]; then
+            go test ./...
+          else
+            go test -race ./...
+          fi
+      - name: Archive runtime, calling libraries and licenses
+        run: python3 desktop/scripts/release.py bundle --tag "$RELEASE_TAG" --platform "$RELEASE_PLATFORM" --output .build/desktop-bundles
+      - uses: actions/upload-artifact@v7
+        with:
+          name: desktop-runtime-${{ matrix.artifact }}
+          path: .build/desktop-bundles/*
+          if-no-files-found: error
+          compression-level: 0
+
+  assets:
+    needs: [version, packages, runtime]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ inputs.release_tag }}
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: fe/.nvmrc
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: desktop-*
+          merge-multiple: true
+          path: .build/desktop-release
+      - name: Check complete artifact set and generate checksums
+        run: python3 desktop/scripts/release.py checksums --tag "$RELEASE_TAG" --directory .build/desktop-release
+      - uses: actions/upload-artifact@v7
+        with:
+          name: desktop-release
+          path: .build/desktop-release/*
+          if-no-files-found: error
+          compression-level: 0
+      - name: Attach immutable desktop artifacts to GitHub Release
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node desktop/scripts/publish.mjs assets --tag "$RELEASE_TAG" --directory .build/desktop-release
+
+  publish-npm:
+    needs: [version, assets]
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ inputs.release_tag }}
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: fe/.nvmrc
+          registry-url: https://registry.npmjs.org
+      - uses: actions/download-artifact@v8
+        with:
+          name: desktop-packages
+          path: .build/desktop-packages
+      - name: Publish npm SDK with provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.DESKTOP_NPM_TOKEN }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: node desktop/scripts/publish.mjs npm --tag "$RELEASE_TAG" --directory .build/desktop-packages
+
+  publish-cargo:
+    needs: [version, assets]
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ inputs.release_tag }}
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: fe/.nvmrc
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/download-artifact@v8
+        with:
+          name: desktop-packages
+          path: .build/desktop-packages
+      - name: Publish verified Cargo package
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.DESKTOP_CARGO_REGISTRY_TOKEN }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: node desktop/scripts/publish.mjs cargo --tag "$RELEASE_TAG" --directory .build/desktop-packages
+
+  publish-nuget:
+    needs: [version, assets]
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ inputs.release_tag }}
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/download-artifact@v8
+        with:
+          name: desktop-packages
+          path: .build/desktop-packages
+      - name: Publish NuGet SDK
+        env:
+          NUGET_API_KEY: ${{ secrets.DESKTOP_NUGET_API_KEY }}
+          RELEASE_VERSION: ${{ needs.version.outputs.version }}
+        run: dotnet nuget push ".build/desktop-packages/Dimina.Desktop.$RELEASE_VERSION.nupkg" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate

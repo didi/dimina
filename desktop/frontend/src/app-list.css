@@ -38,14 +38,14 @@
 	letter-spacing: normal;
 }
 
-.desktop-library__search-bar {
+.desktop-library .dimina-app__mini-search {
 	display: flex;
 	gap: var(--space-sm);
 	padding: var(--space-sm) var(--space-md) var(--space-lg);
 	flex: 0 0 auto;
 }
 
-.desktop-library__search {
+.desktop-library .dimina-app__mini-search-input {
 	display: flex;
 	flex: 1;
 	min-width: 0;
@@ -53,7 +53,7 @@
 	border-radius: 6px;
 }
 
-.desktop-library__search input {
+.desktop-library .dimina-app__mini-search-input input {
 	width: 100%;
 	min-width: 0;
 	height: 42px;
@@ -68,12 +68,12 @@
 	font: 400 16px/1.4 var(--font-body);
 }
 
-.desktop-library__search input::placeholder {
+.desktop-library .dimina-app__mini-search-input input::placeholder {
 	color: var(--color-muted);
 }
 
-.desktop-library__refresh,
-.desktop-library__import {
+.desktop-library .dimina-app__mini-refresh,
+.desktop-library .dimina-app__generator-link {
 	min-height: 44px;
 	padding: 0 var(--space-sm);
 	border: 0;
@@ -84,7 +84,7 @@
 	white-space: nowrap;
 }
 
-.desktop-library__applications {
+.desktop-library .dimina-app__mini-used {
 	display: flex;
 	flex: 1;
 	flex-direction: column;
@@ -93,7 +93,7 @@
 	border-block: 1px solid var(--color-rule);
 }
 
-.desktop-library__section-heading {
+.desktop-library .dimina-app__mini-used-header {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
@@ -103,13 +103,13 @@
 	flex: 0 0 auto;
 }
 
-.desktop-library__section-heading h2 {
+.desktop-library .dimina-app__mini-used-header h2 {
 	margin: 0;
 	color: var(--color-muted);
 	font: 400 14px/1.4 var(--font-body);
 }
 
-.desktop-library__list {
+.desktop-library .dimina-app__mini-used-list {
 	flex: 1;
 	min-height: 0;
 	margin: 0;
@@ -118,12 +118,12 @@
 	list-style: none;
 }
 
-.desktop-library__item {
+.desktop-library .dimina-app__mini-used-list-item {
 	margin: 0;
 	padding: 0;
 }
 
-.desktop-library__open {
+.desktop-library .dimina-app__mini-used-open {
 	display: flex;
 	align-items: center;
 	gap: var(--space-lg);
@@ -137,7 +137,8 @@
 	font-family: var(--font-body);
 }
 
-.desktop-library__logo {
+.desktop-library .dimina-app__mini-used-logo {
+	overflow: hidden;
 	flex: 0 0 auto;
 	width: 52px;
 	height: 52px;
@@ -145,7 +146,8 @@
 	object-fit: cover;
 }
 
-.desktop-library__name {
+.desktop-library .dimina-app__mini-used-name {
+	margin: 0;
 	display: flex;
 	align-items: center;
 	flex: 1;
@@ -158,13 +160,13 @@
 	overflow-wrap: anywhere;
 }
 
-.desktop-library__item:last-child .desktop-library__name {
+.desktop-library .dimina-app__mini-used-list-item:last-child .dimina-app__mini-used-name {
 	border-bottom: 0;
 }
 
-.desktop-library__open:active,
-.desktop-library__refresh:active,
-.desktop-library__import:active {
+.desktop-library .dimina-app__mini-used-open:active,
+.desktop-library .dimina-app__mini-refresh:active,
+.desktop-library .dimina-app__generator-link:active {
 	background: var(--color-active);
 }
 
@@ -190,7 +192,7 @@
 	color: var(--color-ink);
 }
 
-.desktop-library__empty {
+.desktop-library .dimina-app__mini-used-state {
 	padding: 56px var(--space-md);
 	color: var(--color-muted);
 	text-align: center;
@@ -198,22 +200,36 @@
 }
 
 @media (hover: hover) and (pointer: fine) {
-	.desktop-library__open:hover:not(:disabled),
-	.desktop-library__refresh:hover:not(:disabled),
-	.desktop-library__import:hover:not(:disabled) {
+	.desktop-library .dimina-app__mini-used-open:hover:not(:disabled),
+	.desktop-library .dimina-app__mini-refresh:hover:not(:disabled),
+	.desktop-library .dimina-app__generator-link:hover:not(:disabled) {
 		background: var(--color-hover);
 	}
 }
 
 @media (max-width: 480px) {
-	.desktop-library__list,
-	.desktop-library__section-heading {
+	.desktop-library .dimina-app__mini-used-list,
+	.desktop-library .dimina-app__mini-used-header {
 		padding-inline: var(--space-sm);
 	}
-	.desktop-library__open {
+	.desktop-library .dimina-app__mini-used-open {
 		gap: var(--space-md);
 	}
-	.desktop-library__name {
+	.desktop-library .dimina-app__mini-used-name {
 		font-size: 16px;
 	}
+}
+
+.desktop-library .dimina-app__mini-content {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	min-height: 0;
+}
+.desktop-library .dimina-app__mini-used-list:empty {
+	flex: 0;
+}
+.desktop-library .dimina-app__mini-used-state {
+	margin: 0;
+	flex: 0 0 auto;
 }

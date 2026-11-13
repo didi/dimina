@@ -1,0 +1,28 @@
+.dimina-app__mini-content [hidden] {
+	display: none !important;
+}
+.dimina-app__mini-used-open {
+	display: block;
+	width: 100%;
+	padding: 0;
+	border: 0;
+	border-radius: inherit;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	text-align: left;
+	cursor: pointer;
+}
+.dimina-app__mini-used-open:focus-visible {
+	outline: 2px solid var(--color-focus, #1769aa);
+	outline-offset: -2px;
+}
+.dimina-app__mini-used-logo img {
+	display: block;
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+}
+.dimina-app__mini-used-open:disabled {
+	cursor: progress;
+}

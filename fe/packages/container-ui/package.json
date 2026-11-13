@@ -1,0 +1,11 @@
+{
+  "name": "@dimina/container-ui",
+  "volta": { "extends": "../../package.json" },
+  "private": true,
+  "type": "module",
+  "description": "Shared application library UI for Web and desktop hosts",
+  "exports": {
+    ".": "./src/index.js",
+    "./style.css": "./src/app-list.css"
+  }
+}

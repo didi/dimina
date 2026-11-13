@@ -16,6 +16,7 @@
 		"coverage": "vitest run --coverage"
 	},
 	"dependencies": {
+		"@dimina/container-ui": "workspace:^",
 		"@dimina/common": "workspace:^",
 		"@dimina/fe-container-sdk": "workspace:^",
 		"@dimina/generator": "workspace:^",

@@ -98,7 +98,8 @@
 		color: #000000;
 		font-weight: 300;
 		text-align: left;
-		background: url('@images/search.jpg') no-repeat logic(40px) center;
+		background-repeat: no-repeat;
+		background-position: logic(40px) center;
 		background-size: logic(33px) logic(33px);
 		border: none;
 		outline: none;
