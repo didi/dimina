@@ -77,6 +77,9 @@ resourceBaseUrl/
 | 字段 | 说明 |
 |---|---|
 | `mount` | 必填，容器根元素 |
+| `appTransitions` | 整个小程序进入/退出容器时是否播放动画，默认 `true`；传 `false` 同时取消为进场动画保留的加载等待，页面内部导航动画不受影响 |
+| `onAppWillDismiss` | 离开展示栈前通知宿主，可返回 Promise；SDK 等待完成后才开始退出/清理，原生宿主可先隐藏窗口。回调异常记录日志后继续清理 |
+| `onAppDismiss` | 小程序完成退出、离开展示栈后通知宿主 |
 | `shell.getStatusBarRect` | 宿主提供状态栏几何（`{top,left,width,height,...}`），用于自定义导航栏 / 胶囊按钮布局对齐 |
 | `shell.updateStatusBarColor` | 状态栏前景色（黑/白）变化通知，供宿主壳联动切换深浅色 |
 | `resourceBaseUrl` | 小程序资源请求基路径，缺省 `/`。经真实 `URL` 解析归一化为绝对 URL（相对路径按 `window.location.origin` 解析），畸形输入同步抛错。宿主部署在非根路径时必须显式传入 |
@@ -91,6 +94,10 @@ resourceBaseUrl/
 | `onAppLaunchError(error, {appId})` | 小程序启动失败（配置不可达/为空/非法等）通知。`openApp` 不因此 reject（与 Native 端「打开成功但内容加载失败走回调」对称）；容器销毁打断不触发 |
 | `apis` | 启动阶段注册的容器级 API（`{name: handler}`），等价于拿到容器实例后立刻逐个调用 `registerApi`，但保证严格早于任何 `openApp()`（见下方「registerApi 边界」） |
 | `extModules` | 启动阶段注册的第三方扩展模块（`{name: handler}`），等价于立刻逐个调用 `registerExtModule` |
+
+### 加载页过渡
+
+宿主可在挂载元素上设置 `--dimina-launch-screen-fade-ms: 150ms`，让加载页在首屏 DOM 就绪后淡出。默认直接隐藏；淡出不会延迟 `whenReady()`，也不会拦截已就绪页面的点击。开启系统“减少动态效果”时，淡出不超过 100ms。
 
 ### 地址栏同步
 

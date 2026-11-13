@@ -61,6 +61,7 @@ export class JSCore {
 		// 使它们在 wx（globalApi Proxy）上可被 Object.keys 枚举。
 		const registeredApis = Object.keys(this.parent.apiRegistry ?? {})
 		const workerName = JSON.stringify({
+			synchronousApiUrl: this.parent.parent?.synchronousApiUrl,
 			apiNamespaces: namespaces,
 			registeredApis,
 			virtualFilePrefix: this.parent.appInfo.virtualFilePrefix,

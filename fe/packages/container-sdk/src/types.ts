@@ -122,6 +122,16 @@ export type ExtModuleHandler = (payload: {
 }) => (() => void) | void
 
 export interface CreateContainerOptions {
+	/** Awaited before dismissal changes the view, allowing native hosts to hide their window first. */
+	onAppWillDismiss?: (appId: string) => void | Promise<void>
+	/** Called after a mini program has finished leaving the container's view stack. */
+	onAppDismiss?: (appId: string) => void
+	/** Animate whole mini-program presentation/dismissal and keep its loading screen through entrance. Page navigation is unaffected. */
+	appTransitions?: boolean
+	/** Desktop/native hosts may provide a same-origin Worker-only synchronous API endpoint. */
+	synchronousApiUrl?: string
+	/** Host identity; viewport dimensions continue to come from the container. */
+	hostSystemInfo?: { platform?: string, brand?: string, model?: string, system?: string, version?: string, abi?: string }
 	retention?: import('./core/retention.js').RetentionPolicy
 	/** 容器根元素，SDK 把应用视图树挂到这里 */
 	mount: HTMLElement

@@ -1,0 +1,7 @@
+{
+  "name": "Dimina Desktop",
+  "slug": "dimina-desktop",
+  "identifier": "com.didi.dimina.desktop",
+  "version": "0.1.0",
+  "out": "build"
+}

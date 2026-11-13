@@ -816,6 +816,7 @@ export class MiniApp {
 	}
 
 	private startupPromise?: Promise<void>
+	private launchScreenTransition?: Animation
 
 	/** Resolves after the entry page has loaded resources and rendered its first DOM. */
 	whenReady(): Promise<void> {
@@ -859,12 +860,13 @@ export class MiniApp {
 			await this.jscore.init()
 			this._bindThemeChange()
 
-			// 2. 读取配置文件，同时保证 LaunchScreen 最少展示一个略长于 present 的时长
+			// 2. Embedded presentation keeps its loading screen through the entrance
+			// animation. Native window hosts have no such animation to wait for.
 			const root = 'main'
 			const configPath = `${this.appInfo.appId}/${root}/app-config.json`
 			const [configContent] = await Promise.all([
 				this.appInfo.resourceContents?.[`${root}/app-config.json`] ?? readFile(this.appInfo.resourceUrls?.[`${root}/app-config.json`] ?? `${this.getResourceBaseUrl()}${configPath}`),
-				sleep(LAUNCH_SCREEN_MIN_MS),
+				this.parent?.appTransitions === false ? undefined : sleep(LAUNCH_SCREEN_MIN_MS),
 			])
 
 			// 正常的容器销毁不算加载失败，安静退出。
@@ -1169,6 +1171,7 @@ export class MiniApp {
 	}
 
 	showLaunchScreen(): void {
+		this.cancelLaunchScreenTransition()
 		const launchScreen = this.el.querySelector<HTMLElement>('.dimina-mini-app__launch-screen')!
 		const name = this.el.querySelector<HTMLElement>('.dimina-mini-app__name')!
 		const logo = this.el.querySelector<HTMLImageElement>('.dimina-mini-app__logo-img-url')!
@@ -1176,12 +1179,42 @@ export class MiniApp {
 		this.updateActionColorStyle('black')
 		name.textContent = this.appInfo.name ?? null
 		logo.src = this.appInfo.logo || ''
+		launchScreen.style.removeProperty('pointer-events')
 		launchScreen.style.display = 'block'
 	}
 
 	hideLaunchScreen(): void {
 		const startPage = this.el.querySelector<HTMLElement>('.dimina-mini-app__launch-screen')!
-		startPage.style.display = 'none'
+		if (this.launchScreenTransition || startPage.style.display === 'none') return
+		const requested = typeof startPage.animate === 'function'
+			? Number.parseFloat(getComputedStyle(startPage).getPropertyValue('--dimina-launch-screen-fade-ms'))
+			: 0
+		if (!Number.isFinite(requested) || requested <= 0) {
+			startPage.style.display = 'none'
+			return
+		}
+		const reduce = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
+		// The page is already ready for interaction; the visual handoff must not
+		// add another startup barrier or swallow the user's first click.
+		startPage.style.pointerEvents = 'none'
+		const animation = startPage.animate([{ opacity: 1 }, { opacity: 0 }], {
+			duration: reduce ? Math.min(requested, 100) : requested,
+			easing: 'cubic-bezier(0.23, 1, 0.32, 1)',
+			fill: 'forwards',
+		})
+		this.launchScreenTransition = animation
+		void animation.finished.then(() => {
+			if (this.launchScreenTransition !== animation) return
+			this.launchScreenTransition = undefined
+			startPage.style.display = 'none'
+			animation.cancel()
+		}, () => {})
+	}
+
+	private cancelLaunchScreenTransition(): void {
+		const animation = this.launchScreenTransition
+		this.launchScreenTransition = undefined
+		animation?.cancel()
 	}
 
 	updateActionColorStyle(color: string | null): void {
@@ -2398,6 +2431,7 @@ export class MiniApp {
 
 	destroy(): void {
 		this._destroyed = true
+		this.cancelLaunchScreenTransition()
 		// Destructive APIs call this before their flush barrier. Keep this idempotent fallback for
 		// non-API cleanup paths so Bridge-owned resources are never silently skipped.
 		this.queueDestructionLifecycle()
@@ -2601,6 +2635,7 @@ export class MiniApp {
 			model: 'web',
 			platform: 'devtools',
 			system: 'web',
+			...this.parent?.hostSystemInfo,
 			deviceOrientation: 'portrait',
 			SDKVersion: '3.0.0',
 			language: 'zh_CN',
@@ -2634,6 +2669,7 @@ export class MiniApp {
 
 		const handler = () => {
 			const { windowWidth, windowHeight, deviceOrientation = 'portrait' } = this.getSystemInfoSync()
+			this.jscore.postMessage({ type: 'hostEnvUpdate', body: this.getHostEnvSnapshot() })
 			onResize({
 				size: { windowWidth, windowHeight },
 				deviceOrientation,
@@ -2673,6 +2709,18 @@ export class MiniApp {
 		return {
 			menuRect: this.getMenuButtonBoundingClientRect(),
 			systemInfo: this.getSystemInfoSync(),
+		}
+	}
+
+	/** Hosts call this after their viewport changes; update sync snapshots before page callbacks. */
+	notifyViewportChange(): void {
+		if (this._destroyed) return
+		const snapshot = this.getHostEnvSnapshot()
+		this.jscore.postMessage({ type: 'hostEnvUpdate', body: snapshot })
+		const { windowWidth, windowHeight } = snapshot.systemInfo
+		const size = { size: { windowWidth, windowHeight }, deviceOrientation: windowWidth > windowHeight ? 'landscape' : 'portrait' }
+		for (const bridge of new Set([...this.navigator.getStack(), ...this.navigator.getTabBridges()])) {
+			if (!bridge.destroyed) this.jscore.postMessage({ type: 'pageResize', body: { bridgeId: bridge.id, size } })
 		}
 	}
 
@@ -2717,6 +2765,7 @@ export class MiniApp {
 			model: 'web',
 			platform: 'devtools',
 			system: 'web',
+			...this.parent?.hostSystemInfo,
 			SDKVersion: '3.0.0', // vant组件库 判断  canIUseModel version 需要大于 2.9.3
 			pixelRatio: globalThis.devicePixelRatio || 1,
 			screenWidth: width,
@@ -2735,11 +2784,11 @@ export class MiniApp {
 			enableDebug: false,
 			host: { appId: '' },
 			language: navigator.language || 'zh_CN',
-			version: '',
+			version: this.parent?.hostSystemInfo?.version ?? '',
 			theme: globalThis.matchMedia?.('(prefers-color-scheme: dark)')?.matches ? 'dark' : 'light',
 			fontSizeScaleFactor: 1,
 			fontSizeSetting: 16,
-			deviceOrientation: 'portrait' as const,
+			deviceOrientation: width > height ? 'landscape' as const : 'portrait' as const,
 		}
 	}
 

@@ -4,6 +4,7 @@ import mitt from 'mitt'
 import { dispatchBackgroundWork } from './background-scheduler'
 import { reportAppError } from './app-events'
 import { decodeDataFunctions, encodeDataFunctions } from './data-function'
+import { invokeSynchronousAPI } from './synchronous-api'
 
 // Resource/lifecycle control must remain live while business work is suspended.
 const controlMessages = new Set([
@@ -82,6 +83,8 @@ class Message {
 	invoke(msg) {
 		if (isWebWorker) {
 			Message.prototype.invoke = function (msg) {
+				const sync = invokeSynchronousAPI(msg)
+				if (sync.handled) return sync.value
 				msg.method = 'invoke'
 				globalThis.postMessage(msg)
 			}

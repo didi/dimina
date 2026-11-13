@@ -1,5 +1,5 @@
 import type { MiniApp } from '../miniApp/miniApp.js'
-import type { ContainerView, GetAppInfo, OnAppLaunchError, ResolvedShell, ShellAdapter, StorageAdapter, UrlSyncAdapter } from '../../types.js'
+import type { ContainerView, CreateContainerOptions, GetAppInfo, OnAppLaunchError, ResolvedShell, ShellAdapter, StorageAdapter, UrlSyncAdapter } from '../../types.js'
 import { WAIT_TRANSITION_TIMEOUT_MS } from '../../constants/animation.js'
 import { resolveApiNamespaces, resolveGetAppInfo, resolvePageFrameUrl, resolveResourceBaseUrl, resolveShell, resolveStorageAdapter, resolveUrlSync, resolveVirtualFilePrefix } from '../../config.js'
 import { AppManager } from '../../core/appManager.js'
@@ -23,6 +23,11 @@ const waitTransitionEnd = (el: HTMLElement, property: string, timeout = WAIT_TRA
 	})
 
 export interface ApplicationOptions {
+	onAppWillDismiss?: CreateContainerOptions['onAppWillDismiss']
+	onAppDismiss?: (appId: string) => void
+	appTransitions?: boolean
+	synchronousApiUrl?: string
+	hostSystemInfo?: CreateContainerOptions['hostSystemInfo']
 	/** 宿主 shell 适配器（状态栏几何/颜色），缺省安全降级 */
 	shell?: ShellAdapter
 	/** 小程序资源基路径，缺省 '/' */
@@ -56,6 +61,11 @@ export interface DismissViewOptions {
 }
 
 export class Application {
+	onAppWillDismiss?: CreateContainerOptions['onAppWillDismiss']
+	onAppDismiss?: (appId: string) => void
+	appTransitions: boolean
+	synchronousApiUrl?: string
+	hostSystemInfo?: CreateContainerOptions['hostSystemInfo']
 	el!: HTMLElement
 	window!: HTMLElement
 	root: ContainerView | null
@@ -82,6 +92,11 @@ export class Application {
 	appManager: AppManager
 
 	constructor(opts: ApplicationOptions = {}) {
+		this.onAppWillDismiss = opts.onAppWillDismiss
+		this.onAppDismiss = opts.onAppDismiss
+		this.appTransitions = opts.appTransitions !== false
+		this.synchronousApiUrl = opts.synchronousApiUrl
+		this.hostSystemInfo = opts.hostSystemInfo
 		this.runtimeAssets = opts.runtimeAssets
 		this.root = null
 		this.views = []
@@ -198,11 +213,13 @@ export class Application {
 			const preView = this.views[this.views.length - 1] ?? this.rootView
 			view.parent = this
 			view.el.style.zIndex = String(this.views.length + 1)
-			view.el.classList.add('dimina-native-view--before-present')
-			view.el.classList.add('dimina-native-view--enter-anima')
-			preView?.el.classList.add('dimina-native-view--before-presenting')
+			if (this.appTransitions) {
+				view.el.classList.add('dimina-native-view--before-present')
+				view.el.classList.add('dimina-native-view--enter-anima')
+				preView?.el.classList.add('dimina-native-view--before-presenting')
+				preView?.el.classList.add('dimina-native-view--enter-anima')
+			}
 			preView?.el.classList.remove('dimina-native-view--instage')
-			preView?.el.classList.add('dimina-native-view--enter-anima')
 			preView?.onPresentOut?.()
 			// Application 处于 sleeping 状态时不能主动触发前台生命周期——
 			// sleepActiveView() 只隐藏当前栈顶，不改变 views；这里若继续呈现新
@@ -234,10 +251,10 @@ export class Application {
 			// 转场剩余的提交工作。
 			useCache && this.safeRestoreColorStyle(view)
 
-			await nextFrame()
+			if (this.appTransitions) await nextFrame()
 			preView?.el.classList.add('dimina-native-view--presenting')
 			view.el.classList.add('dimina-native-view--instage')
-			await waitTransitionEnd(view.el, 'transform')
+			if (this.appTransitions) await waitTransitionEnd(view.el, 'transform')
 			view.el.classList.remove('dimina-native-view--before-present')
 			view.el.classList.remove('dimina-native-view--enter-anima')
 			preView?.el.classList.remove('dimina-native-view--enter-anima')
@@ -250,7 +267,18 @@ export class Application {
 	}
 
 	dismissView(view: MiniApp, opts: DismissViewOptions = {}): Promise<void> {
-		return this._enqueue(() => this._dismissView(view, opts))
+		return this._enqueue(async () => {
+			const wasPresented = this.views.includes(view)
+			if (wasPresented) {
+				try { await this.onAppWillDismiss?.(view.appId) }
+				catch (error) { console.error('[container] onAppWillDismiss failed:', error) }
+			}
+			await this._dismissView(view, opts)
+			if (wasPresented && !this.views.includes(view)) {
+				try { this.onAppDismiss?.(view.appId) }
+				catch (error) { console.error('[container] onAppDismiss failed:', error) }
+			}
+		})
 	}
 
 	/**
@@ -347,10 +375,12 @@ export class Application {
 			const preView = this.views[this.views.length - 2] ?? this.rootView
 			const currentView = view
 
-			currentView.el.classList.add('dimina-native-view--enter-anima')
-			preView?.el.classList.add('dimina-native-view--enter-anima')
-			preView?.el.classList.add('dimina-native-view--before-presenting')
-			await nextFrame()
+			if (this.appTransitions) {
+				currentView.el.classList.add('dimina-native-view--enter-anima')
+				preView?.el.classList.add('dimina-native-view--enter-anima')
+				preView?.el.classList.add('dimina-native-view--before-presenting')
+				await nextFrame()
+			}
 			currentView.el.classList.add('dimina-native-view--before-present')
 			currentView.el.classList.remove('dimina-native-view--instage')
 			preView?.el.classList.remove('dimina-native-view--presenting')
@@ -362,7 +392,7 @@ export class Application {
 			}
 			currentView?.onPresentOut()
 
-			await waitTransitionEnd(currentView.el, 'transform')
+			if (this.appTransitions) await waitTransitionEnd(currentView.el, 'transform')
 
 			if (destroy) {
 				try {
