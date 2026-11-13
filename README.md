@@ -3,25 +3,26 @@
 </p>
 
 <p align="center">
-  <img src="./assets/hero.svg" width="100%" alt="Dimina 星河小程序：将小程序源码编译并运行在 Android、iOS、Harmony 和 Web">
+  <img src="./assets/hero.svg" width="100%" alt="Dimina 星河小程序：将小程序源码编译并运行在移动端、Web 和桌面端">
 </p>
 
 <p align="center">
   <a href="https://github.com/didi/dimina/blob/HEAD/LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-6E56CF" alt="Apache 2.0 License"></a>
-  <a href="#平台运行时"><img src="https://img.shields.io/badge/Platforms-Android%20%7C%20iOS%20%7C%20Harmony%20%7C%20Web-0070F3" alt="Android, iOS, Harmony and Web"></a>
+  <a href="#平台运行时"><img src="https://img.shields.io/badge/Platforms-Android%20%7C%20iOS%20%7C%20Harmony%20%7C%20Web%20%7C%20Desktop-0070F3" alt="Android, iOS, Harmony, Web and Desktop"></a>
   <a href="https://github.com/didi/dimina/blob/HEAD/CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-Welcome-0D9488" alt="Pull requests welcome"></a>
 </p>
 
 <p align="center">
   <a href="https://didi.github.io/dimina/"><strong>在线体验</strong></a> ·
   <a href="#最快上手">最快上手</a> ·
+  <a href="#桌面端接入">桌面端接入</a> ·
   <a href="./docs/API-Reference.md">能力参考</a> ·
   <a href="./CHANGELOG.md">更新日志</a> ·
   <a href="./docs/README.md">架构文档</a> ·
   <a href="#参与共建">参与共建</a>
 </p>
 
-Dimina（星河小程序）是滴滴开源的跨端小程序框架。它将 WXML、WXSS 与 JavaScript / TypeScript 源码编译为统一资源包，再交由 Android、iOS、Harmony 和 Web 容器加载。你可以把已有小程序作为独立模块嵌入 App，也可以继续使用熟悉的小程序语法开发跨端页面。
+Dimina（星河小程序）是滴滴开源的跨端小程序框架。它将 WXML、WXSS 与 JavaScript / TypeScript 源码编译为统一资源包，再交由 Android、iOS、Harmony、Web 和桌面容器加载。已有小程序可以接入移动 App，也可以在桌面客户端中以独立窗口打开，继续使用熟悉的小程序语法。
 
 ## 一份小程序，三端真实运行
 
@@ -46,17 +47,17 @@ Dimina（星河小程序）是滴滴开源的跨端小程序框架。它将 WXML
 
 ## 让小程序成为可嵌入的跨端模块
 
-Dimina 不止提供 Web 预览。它包含小程序编译器、逻辑与视图运行时、标准组件、原生能力桥接，以及 Android、iOS、Harmony 和 Web 容器。已有小程序可以整体嵌入宿主 App，新页面也能保留熟悉的开发方式。
+Dimina 不止提供 Web 预览。它包含小程序编译器、逻辑与视图运行时、标准组件、原生能力桥接，以及移动、Web 和桌面容器。已有小程序可以整体嵌入移动 App，也能由 Electron、Tauri、Qt、.NET 客户端打开独立小程序窗口。
 
 - **资源包可离线**：小程序包由宿主提供并保存在本地，减少运行时网络依赖。
 - **逻辑与视图分开运行**：业务逻辑运行在独立 JS 引擎或 Worker 中，视图交给 WebView / Browser 渲染。
 - **原生能力有统一入口**：标准 API 与扩展 Bridge 负责连接宿主能力，平台逻辑不必散落在业务页面里。
 - **页面语义由运行时承接**：运行时处理页面预热、路由、生命周期、组件和跨线程消息。
 
-## 一份源码，如何抵达四端
+## 一份源码，连接移动、Web 与桌面
 
 <p align="center">
-  <img src="./assets/runtime.svg" width="100%" alt="Dimina 将小程序源码经 DMCC 编译为资源包，并通过统一运行时契约运行在四个平台">
+  <img src="./assets/runtime.svg" width="100%" alt="Dimina 将小程序源码经 DMCC 编译为资源包，并通过统一运行时契约加载到移动、Web 与桌面容器">
 </p>
 
 DMCC 将小程序源码转换为逻辑、视图、样式和配置资源。进入容器后，消息通道会连接逻辑层、视图层与原生能力，让同一套小程序语义在不同平台上保持一致。
@@ -69,6 +70,7 @@ DMCC 将小程序源码转换为逻辑、视图、样式和配置资源。进入
 | iOS | JavaScriptCore | WKWebView |
 | Harmony | QuickJS | Harmony WebView |
 | Web | Web Worker | Browser |
+| 桌面（macOS / Windows / Linux） | Web Worker | 系统 WebView（WKWebView / WebView2 / WebKitGTK） |
 
 ## 最快上手
 
@@ -90,6 +92,23 @@ pnpm dev
 - [iOS 接入说明](./iOS/README.md)
 - [Harmony 接入说明](./harmony/dimina/README.md)
 - [Flutter 宿主接入说明](./docs/Flutter-Integration.md)
+- [桌面客户端接入说明](./docs/Desktop-Integration.md)
+
+## 桌面端接入
+
+桌面端面向 macOS、Windows 和 Linux，复用同一份 Dimina 编译产物。可以单独运行[桌面示例](./desktop/README.md)，也可以通过[独立窗口 SDK](./desktop/sdk/README.md)接入已有 Electron、Tauri、Qt、.NET 客户端。
+
+先按 SDK 文档构建运行时与调用库，再由宿主管理窗口。下面以 Electron 主进程 / Node.js 为例，三个路径参数均使用绝对路径：
+
+```js
+import { Dimina } from '@dimina/desktop-sdk'
+
+const dimina = await Dimina.start({ runtimePath, packagesDir, dataDir })
+await dimina.openApp({ appId: 'your-app-id' })
+// 客户端退出时调用 await dimina.dispose() 回收运行时
+```
+
+桌面端内置 HTTP 请求与上传下载、TCP/UDP、存储、文件选择、剪贴板、扫码和 BLE，沿用移动 SDK 的 `wx` API 入口。系统依赖与具体能力范围见[桌面原生 API 说明](./desktop/sdk/Native-APIs.md)。当前提供独立窗口模式，暂不支持嵌入宿主窗口或面板。
 
 ## 能力边界与延伸阅读
 
@@ -100,6 +119,7 @@ Dimina 正在持续对齐小程序标准与微信小程序的主要能力，目�
 | 已支持的组件、API 与平台差异 | [能力参考指南](./docs/API-Reference.md) |
 | 编译流程、双线程模型与整体架构 | [技术文档](./docs/README.md) |
 | DMCC 安装、命令与编译产物 | [编译器使用说明](./fe/packages/compiler/README.md) |
+| Electron / Tauri / Qt / .NET 的独立小程序窗口 | [桌面 SDK 接入](./desktop/sdk/README.md) |
 | 小程序包更新与动态下发职责 | [更新机制说明](./docs/MiniProgram-Update.md) |
 | 共享资源如何流向各端示例工程 | [共享资源说明](./shared/README.md) |
 

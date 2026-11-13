@@ -1,6 +1,6 @@
 # Dimina 文档中心
 
-Dimina（星河小程序）由 DMCC 编译器、逻辑层与渲染层运行时、内置组件，以及 Android、iOS、Harmony 和 Web 容器组成。本目录用于解释这些模块如何协作，并提供能力边界、生命周期和小程序包更新等专题说明。
+Dimina（星河小程序）由 DMCC 编译器、逻辑层与渲染层运行时、内置组件，以及 Android、iOS、Harmony、Web 和桌面容器组成。本目录用于解释这些模块如何协作，并提供能力边界、生命周期和小程序包更新等专题说明。
 
 > 如果你只想运行示例，请先回到[项目首页](../README.md#最快上手)。这里更适合准备接入 SDK、排查跨端差异或参与框架开发的读者。
 
@@ -31,7 +31,7 @@ Dimina（星河小程序）由 DMCC 编译器、逻辑层与渲染层运行时�
 
 ## 核心阅读路径
 
-1. [架构总览](./Architecture-Diagram.md)：从源码、编译产物到四端容器的完整链路。
+1. [架构总览](./Architecture-Diagram.md)：从源码、编译产物到各端容器的运行链路。
 2. [实现细节](./Architecture-Details.md)：编译器产物结构、双线程模型、通信通道与页面容器。
 3. [生命周期](./Architecture-Lifecycle.md)：App、页面和组件的关键调用时机与约束。
 4. [能力参考](./API-Reference.md)：模板标签、内置组件、API 和扩展 Bridge 的支持状态。
@@ -51,6 +51,7 @@ Dimina（星河小程序）由 DMCC 编译器、逻辑层与渲染层运行时�
 | iOS | JavaScriptCore | WKWebView | [iOS SDK](../iOS/README.md) |
 | Harmony | QuickJS | Harmony WebView | [Harmony SDK](../harmony/dimina/README.md) |
 | Web | Web Worker | Browser | [前端框架与容器](../fe/README.md) |
+| 桌面（macOS / Windows / Linux） | Web Worker | 系统 WebView | [独立窗口 SDK](../desktop/sdk/README.md) |
 
 Flutter 应用通过原生全屏容器接入三端 SDK，参见 [Flutter 宿主接入](./Flutter-Integration.md)。
 
@@ -62,6 +63,7 @@ dimina/
 ├── android/     # Android SDK、QuickJS 引擎与示例
 ├── iOS/         # iOS SDK 与示例
 ├── harmony/     # Harmony SDK 与示例
+├── desktop/     # 桌面运行时与 Electron / Tauri / Qt / .NET 调用库
 ├── shared/      # 各原生端共享的小程序包与 JS SDK
 ├── docs/        # 架构、能力和机制文档
 └── static/      # README 与文档引用的图片

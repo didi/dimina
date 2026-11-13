@@ -27,7 +27,7 @@ describe('device stage markup', () => {
 		expect(markup).toContain('device-stage__orbit')
 		expect(markup).toContain('device-stage__orbit-light')
 		expect(markup).toContain('device-stage__statement')
-		expect(markup).toContain('<h1>一份小程序<br>在<span>四个平台</span>运行</h1>')
+		expect(markup).toContain('<h1>一份小程序<br>在<span>五个平台</span>运行</h1>')
 		expect(markup).toContain('aria-label="小程序实时预览"')
 		expect(markup).toMatch(/<li class="is-current">Web<\/li>\s*<li><a href="https:\/\/github\.com\/didi\/dimina\/blob\/HEAD\/android\/README\.md" target="_blank" rel="noreferrer">Android 接入文档<\/a><\/li>\s*<li><a href="https:\/\/github\.com\/didi\/dimina\/blob\/HEAD\/iOS\/README\.md" target="_blank" rel="noreferrer">iOS 接入文档<\/a><\/li>\s*<li><a href="https:\/\/github\.com\/didi\/dimina\/blob\/HEAD\/harmony\/dimina\/README\.md" target="_blank" rel="noreferrer">Harmony 接入文档<\/a><\/li>/)
 		expect(markup).toContain('class="device-stage__device"')
