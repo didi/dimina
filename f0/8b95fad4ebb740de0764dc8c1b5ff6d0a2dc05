@@ -1,0 +1,47 @@
+fe/packages/render/package.json
+  4a4094a264a29efa 3-5
+fe/packages/server/package.json
+  4a4094a264a29efa 3-5
+fe/packages/compiler/package.json
+  4a4094a264a29efa 3-5
+fe/packages/container-sdk/package.json
+  4a4094a264a29efa 3-5
+fe/packages/container/package.json
+  4a4094a264a29efa 3-5
+shared/jssdk/config.json
+  4a4094a264a29efa 2-3
+fe/packages/generator/package.json
+  4a4094a264a29efa 3-5
+fe/packages/jdimina/package.json
+  4a4094a264a29efa 3-5
+fe/packages/common/package.json
+  4a4094a264a29efa 3-5
+fe/packages/components/package.json
+  4a4094a264a29efa 3-5
+fe/packages/service/package.json
+  4a4094a264a29efa 3-5
+fe/packages/benchmark/package.json
+  4a4094a264a29efa 3-5
+fe/README.md
+  4a4094a264a29efa 22-23
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "f08b95fad4ebb740de0764dc8c1b5ff6d0a2dc05",
+  "prompts": {
+    "4a4094a264a29efa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1cf8b-7df5-77e3-bf0e-c9596c3413c4",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 239,
+      "total_deletions": 2,
+      "accepted_lines": 2304,
+      "overriden_lines": 0
+    }
+  }
+}
