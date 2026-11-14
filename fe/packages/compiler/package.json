@@ -48,7 +48,7 @@
 		"星河"
 	],
 	"dependencies": {
-		"@noble/hashes": "2.0.1",
+		"@noble/hashes": "2.4.0",
 		"@oxc-parser/binding-wasm32-wasip1": "0.156.0",
 		"@vue/compiler-sfc": "^3.5.45",
 		"@vue/shared": "^3.5.45",
