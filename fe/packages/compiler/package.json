@@ -49,7 +49,7 @@
 	],
 	"dependencies": {
 		"@noble/hashes": "2.0.1",
-		"@oxc-parser/binding-wasm32-wasip1": "0.156.0",
+		"@oxc-parser/binding-wasm32-wasip1": "0.158.0",
 		"@vue/compiler-sfc": "^3.5.45",
 		"@vue/shared": "^3.5.45",
 		"autoprefixer": "^10.6.2",
