@@ -19,13 +19,6 @@ on:
       dry_run:
         type: boolean
         default: false
-    secrets:
-      DESKTOP_NPM_TOKEN:
-        required: false
-      DESKTOP_CARGO_REGISTRY_TOKEN:
-        required: false
-      DESKTOP_NUGET_API_KEY:
-        required: false
 
 permissions:
   contents: read
@@ -230,14 +223,6 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - name: Check npm publishing credential
-        env:
-          PUBLISH_TOKEN: ${{ secrets.DESKTOP_NPM_TOKEN }}
-        run: |
-          if [ -z "$PUBLISH_TOKEN" ]; then
-            echo "::error::npm SDK was not published: configure the DESKTOP_NPM_TOKEN repository secret. GitHub Release artifacts are available independently."
-            exit 1
-          fi
       - uses: actions/checkout@v7
         with:
           ref: refs/tags/${{ inputs.release_tag }}
@@ -245,14 +230,15 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version-file: fe/.nvmrc
-          registry-url: https://registry.npmjs.org
+      # Keep OIDC support independent of the npm version bundled with Node.
+      - name: Install npm with OIDC support
+        run: npm install --global npm@12.2.2 --registry https://registry.npmjs.org
       - uses: actions/download-artifact@v8
         with:
           name: desktop-packages
           path: .build/desktop-packages
-      - name: Publish npm SDK with provenance
+      - name: Publish npm SDK with OIDC and provenance
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.DESKTOP_NPM_TOKEN }}
           RELEASE_TAG: ${{ inputs.release_tag }}
         run: node desktop/scripts/publish.mjs npm --tag "$RELEASE_TAG" --directory .build/desktop-packages
 
@@ -261,15 +247,10 @@ jobs:
     if: ${{ !inputs.dry_run }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
     steps:
-      - name: Check crates.io publishing credential
-        env:
-          PUBLISH_TOKEN: ${{ secrets.DESKTOP_CARGO_REGISTRY_TOKEN }}
-        run: |
-          if [ -z "$PUBLISH_TOKEN" ]; then
-            echo "::error::Cargo SDK was not published: configure the DESKTOP_CARGO_REGISTRY_TOKEN repository secret. GitHub Release artifacts are available independently."
-            exit 1
-          fi
       - uses: actions/checkout@v7
         with:
           ref: refs/tags/${{ inputs.release_tag }}
@@ -282,9 +263,12 @@ jobs:
         with:
           name: desktop-packages
           path: .build/desktop-packages
+      - name: Authenticate to crates.io with OIDC
+        id: auth
+        uses: rust-lang/crates-io-auth-action@v1
       - name: Publish verified Cargo package
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.DESKTOP_CARGO_REGISTRY_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
           RELEASE_TAG: ${{ inputs.release_tag }}
         run: node desktop/scripts/publish.mjs cargo --tag "$RELEASE_TAG" --directory .build/desktop-packages
 
@@ -293,13 +277,16 @@ jobs:
     if: ${{ !inputs.dry_run }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
     steps:
-      - name: Check NuGet publishing credential
+      - name: Check NuGet publishing account
         env:
-          PUBLISH_TOKEN: ${{ secrets.DESKTOP_NUGET_API_KEY }}
+          NUGET_USER: ${{ vars.DESKTOP_NUGET_USER }}
         run: |
-          if [ -z "$PUBLISH_TOKEN" ]; then
-            echo "::error::NuGet SDK was not published: configure the DESKTOP_NUGET_API_KEY repository secret. GitHub Release artifacts are available independently."
+          if [ -z "$NUGET_USER" ]; then
+            echo "::error::Configure the DESKTOP_NUGET_USER repository variable with the NuGet account username that owns the Trusted Publishing policy."
             exit 1
           fi
       - uses: actions/checkout@v7
@@ -313,8 +300,13 @@ jobs:
         with:
           name: desktop-packages
           path: .build/desktop-packages
+      - name: Authenticate to NuGet with OIDC
+        id: login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ vars.DESKTOP_NUGET_USER }}
       - name: Publish NuGet SDK
         env:
-          NUGET_API_KEY: ${{ secrets.DESKTOP_NUGET_API_KEY }}
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
           RELEASE_VERSION: ${{ needs.version.outputs.version }}
         run: dotnet nuget push ".build/desktop-packages/Dimina.Desktop.$RELEASE_VERSION.nupkg" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
