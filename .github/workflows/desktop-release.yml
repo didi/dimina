@@ -124,9 +124,6 @@ jobs:
           - runner: macos-15
             platform: darwin/arm64
             artifact: darwin-arm64
-          - runner: macos-15-intel
-            platform: darwin/amd64
-            artifact: darwin-amd64
           - runner: windows-2025
             platform: windows/amd64
             artifact: windows-amd64
@@ -210,13 +207,21 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version-file: fe/.nvmrc
+      - name: Checkout release artifact policy
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: .release-automation
+          sparse-checkout: desktop/scripts/release.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
       - uses: actions/download-artifact@v8
         with:
           pattern: desktop-*
           merge-multiple: true
           path: .build/desktop-release
       - name: Check complete artifact set and generate checksums
-        run: python3 desktop/scripts/release.py checksums --tag "$RELEASE_TAG" --directory .build/desktop-release
+        run: python3 .release-automation/desktop/scripts/release.py checksums --tag "$RELEASE_TAG" --directory .build/desktop-release
       - uses: actions/upload-artifact@v7
         with:
           name: desktop-release

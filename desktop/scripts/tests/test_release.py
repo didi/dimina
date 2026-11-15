@@ -100,14 +100,15 @@ class ReleaseTests(unittest.TestCase):
         self.write(directory / "dimina-desktop-sdk-1.9.0.tgz", "npm")
         with self.assertRaisesRegex(ValueError, "missing="):
             release.checksums("v1.9.0", directory)
-        for platform in release.PLATFORMS:
+        for platform in ("darwin/arm64", "windows/amd64", "windows/arm64", "linux/amd64", "linux/arm64"):
             extension = ".zip" if platform.startswith("windows/") else ".tar.gz"
             self.write(directory / f"dimina-desktop-sdk-1.9.0-{platform.replace('/', '-')}{extension}", "runtime")
         for name in ("tauri-plugin-dimina-1.9.0.crate", "tauri-plugin-dimina-1.9.0.metadata.json", "Dimina.Desktop.1.9.0.nupkg"):
             self.write(directory / name, "package")
         sums = release.checksums("v1.9.0", directory).read_text()
         self.assertIn(f"{hashlib.sha256(b'npm').hexdigest()}  dimina-desktop-sdk-1.9.0.tgz", sums)
-        self.assertEqual(len(sums.splitlines()), 10)
+        self.assertEqual(len(sums.splitlines()), 9)
+        self.assertNotIn("darwin-amd64", sums)
         self.write(directory / "wrong-version.zip", "unrelated")
         with self.assertRaisesRegex(ValueError, "extra="):
             release.checksums("v1.9.0", directory)
