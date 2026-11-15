@@ -47,10 +47,6 @@ jobs:
     uses: ./.github/workflows/desktop-release.yml
     with:
       release_tag: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
-    secrets:
-      DESKTOP_NPM_TOKEN: ${{ secrets.DESKTOP_NPM_TOKEN }}
-      DESKTOP_CARGO_REGISTRY_TOKEN: ${{ secrets.DESKTOP_CARGO_REGISTRY_TOKEN }}
-      DESKTOP_NUGET_API_KEY: ${{ secrets.DESKTOP_NUGET_API_KEY }}
 
   changelog:
     if: github.event_name == 'push' || !inputs.skip_changelog

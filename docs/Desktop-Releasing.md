@@ -17,11 +17,19 @@
 
 ## 首次配置
 
-各 registry 的发布账号须拥有对应包名或作用域，并在仓库 **Settings → Secrets and variables → Actions** 中配置仓库级发布凭据。具体配置项见 [Desktop SDK Release 工作流](../.github/workflows/desktop-release.yml) 中的各发布任务。
+三个 registry 使用 **Trusted Publishing（OIDC）**：GitHub Actions 在发布任务中取得短期凭据，无需保存或定期更换 npm、crates.io、NuGet 的长期 Secret。发布账号须拥有对应包名或作用域，并在各 registry 配置对 `didi/dimina` 的信任。
 
-测试、构建、打包及 GitHub Release 附件发布不依赖 registry 凭据。npm、crates.io、NuGet 在各自发布任务中独立检查凭据：缺少凭据的渠道会明确失败，不影响其他渠道和 GitHub 附件，也不会被标记为已发布。`dry_run` 不执行 registry 发布任务；GitHub Release 使用工作流内置授权，无需额外配置个人访问令牌。
+| 渠道 | Trusted Publisher 配置 | 工作流认证 |
+| --- | --- | --- |
+| npm | 包 `@dimina/desktop-sdk` 的 Settings → Trusted publishing；GitHub owner `didi`、repository `dimina`；分别添加 `release.yml` 和 `desktop-release.yml`，允许直接 `npm publish` | npm CLI 自动取得 OIDC 凭据；工作流固定使用支持 OIDC 的 npm 12.2.2，发布时生成 provenance |
+| crates.io | crate `tauri-plugin-dimina` 的 Settings → Trusted Publishing；owner `didi`、repository `dimina`；分别添加 `release.yml` 和 `desktop-release.yml` | 官方 `rust-lang/crates-io-auth-action@v1` 换取 30 分钟 Token，并在任务结束时撤销；上传已验证的 `.crate`，不重新构建 |
+| NuGet | 账号的 Trusted Publishing；Package Owner 选择包所有者，Repository Owner `didi`、Repository `dimina`、Workflow File **`desktop-release.yml`**；仅允许 Push，包模式精确填写 `Dimina.Desktop` | 官方 `NuGet/login@v1` 换取一小时 API Key；仓库 Actions **Variables** 中设置 `DESKTOP_NUGET_USER` 为策略所属的 NuGet 用户名（非邮箱） |
 
-npm 发布生成 provenance，工作流已配置 `id-token: write` 和仓库元数据。Token 不写入源码、制品或日志。凭据有效期和包权限由对应 registry 管理；参考 [npm 发布来源证明](https://docs.npmjs.com/generating-provenance-statements/)、[Cargo 发布说明](https://doc.rust-lang.org/cargo/reference/publishing.html)、[NuGet 发布说明](https://learn.microsoft.com/en-us/nuget/nuget-org/publish-a-package)。
+两种入口的身份规则不同：npm 和 crates.io 校验调用方 `workflow_ref`，自动 Release 对应 `release.yml`，直接手动执行对应 `desktop-release.yml`；NuGet 校验 `job_workflow_ref`，两种入口均对应实际执行发布的 `desktop-release.yml`。文件名区分大小写，只填文件名。当前任务未声明 GitHub environment，registry 中的 Environment 留空；以后添加 environment 时须同步调整信任条件。调用方与发布任务均须保留 `id-token: write`。依据：[npm 官方说明](https://docs.npmjs.com/trusted-publishers/)、[crates.io 身份解析](https://github.com/rust-lang/crates.io/blob/main/crates/crates_io_trustpub/src/github/claims.rs)、[NuGet 身份验证器](https://github.com/NuGet/NuGetGallery/blob/main/src/NuGetGallery.Services/Authentication/Federated/GitHubTokenPolicyValidator.cs)。
+
+**包尚未存在时，不能把上述配置视为已完成。** npm 和 crates.io 目前要求先发布一次包，之后才能在包设置中添加 Trusted Publisher。首次发布应使用经检查的真实版本与制品：npm 可使用账号交互认证；crates.io 需要仅限目标 crate 的临时发布 Token，使用后撤销。不为占位而发布空包，也不将首发凭据保存成长期 Actions Secret。先运行下述 `dry_run` 检查制品，再单独完成首次发布和信任绑定。npm 新建的绑定须在 **2 天内**成功发布一次，否则会过期；完成首轮验证后不受此初始期限限制。NuGet 可在包首发前配置精确包模式；暂时性策略应在页面显示的验证期限内完成首次发布。参考：[crates.io 前提条件](https://crates.io/docs/trusted-publishing)、[npm 配置及初始期限](https://docs.npmjs.com/trusted-publishers/)、[NuGet Trusted Publishing](https://learn.microsoft.com/en-us/nuget/nuget-org/trusted-publishing)。
+
+测试、构建、打包及 GitHub Release 附件发布不依赖 registry 认证。各渠道独立认证和发布：信任或账号配置不完整的渠道会失败，不影响其他渠道和 GitHub 附件，也不会被标记为已发布。`dry_run` 不请求 OIDC 凭据、不执行 registry 发布；GitHub Release 使用工作流内置授权。短期凭据只在发布任务内使用，不写入源码、制品或日志。原 `DESKTOP_NPM_TOKEN`、`DESKTOP_CARGO_REGISTRY_TOKEN`、`DESKTOP_NUGET_API_KEY` 不再被读取；已有长期凭据应在完成 OIDC 发布验证后撤销。
 
 ## 发布前验证
 
@@ -52,7 +60,7 @@ Node 和 Rust SDK 用例共用可跨平台编译的测试运行时，Windows 不
 
 重试时优先使用 **Re-run failed jobs**，复用本次已经验证的构建产物。已有 GitHub 附件、npm 包或 Cargo 包只有在校验和相同时才跳过；内容冲突会失败，不会覆盖。NuGet 使用 `--skip-duplicate` 跳过已发布的版本。完整重跑会重新构建运行时，压缩包可能因构建时间等信息产生不同校验和；需要更改已发布内容时，应使用新版本。
 
-补齐凭据后，可重跑对应的失败任务。若修改了工作流本身，应从包含该修改的分支手动启动 **Desktop SDK Release**，指定已有的 `release_tag`；旧运行的重试仍使用原工作流版本。
+补齐信任配置后，可重跑对应的失败任务。若修改了工作流本身，应从包含该修改的分支手动启动 **Desktop SDK Release**，指定已有的 `release_tag`；旧运行的重试仍使用原工作流版本。
 
 各 registry 独立发布，无法跨服务原子提交；部分发布失败后，可补跑对应失败任务。制品校验和只覆盖桌面附件，不替换其他平台已有的校验文件。
 
