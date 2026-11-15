@@ -1,347 +1,45 @@
-name: Desktop SDK Release
-
+name: Validate desktop SDK OIDC
 on:
   workflow_dispatch:
-    inputs:
-      release_tag:
-        description: 'Existing release tag (v1.2.3 or v1.2.3-beta.1)'
-        required: true
-        type: string
-      dry_run:
-        description: 'Build and validate without publishing'
-        type: boolean
-        default: true
-      bootstrap_registries:
-        description: 'First npm/crates.io publish using temporary bootstrap credentials'
-        type: boolean
-        default: false
   workflow_call:
-    inputs:
-      release_tag:
-        required: true
-        type: string
-      dry_run:
-        type: boolean
-        default: false
-      bootstrap_registries:
-        type: boolean
-        default: false
-    secrets:
-      DESKTOP_NPM_BOOTSTRAP_TOKEN:
-        required: false
-      DESKTOP_CARGO_BOOTSTRAP_TOKEN:
-        required: false
-
 permissions:
   contents: read
-
-concurrency:
-  group: desktop-release-${{ inputs.release_tag }}
-  cancel-in-progress: false
-
-defaults:
-  run:
-    shell: bash
-
+  id-token: write
 jobs:
-  version:
+  npm:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    outputs:
-      version: ${{ steps.version.outputs.version }}
-      npm_tag: ${{ steps.version.outputs.npm_tag }}
-      prerelease: ${{ steps.version.outputs.prerelease }}
     steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: refs/tags/${{ inputs.release_tag }}
-          persist-credentials: false
-      - name: Validate tag and prepare release versions
-        id: version
-        env:
-          RELEASE_TAG: ${{ inputs.release_tag }}
-        run: python3 desktop/scripts/release.py prepare --tag "$RELEASE_TAG" --github-output "$GITHUB_OUTPUT"
-
-  tests:
-    needs: version
-    uses: ./.github/workflows/desktop-tests.yml
-    with:
-      checkout_ref: refs/tags/${{ inputs.release_tag }}
-
-  packages:
-    needs: version
-    runs-on: ubuntu-24.04
-    timeout-minutes: 40
-    env:
-      RELEASE_TAG: ${{ inputs.release_tag }}
-      RELEASE_VERSION: ${{ needs.version.outputs.version }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: refs/tags/${{ inputs.release_tag }}
-          persist-credentials: false
       - uses: actions/setup-node@v6
         with:
-          node-version-file: fe/.nvmrc
-      - uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: '10.0.x'
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Install native SDK build dependencies
+          node-version: '24'
+      - name: Validate npm package-scoped OIDC exchange
+        shell: bash
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libdbus-1-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev
-      - name: Prepare versions and test release tooling
-        run: |
-          python3 -m unittest discover -s desktop/scripts/tests -p 'test_*.py'
-          node --test desktop/scripts/publish.test.mjs desktop/scripts/sync-mobile-apis.test.mjs
-          python3 desktop/scripts/release.py prepare --tag "$RELEASE_TAG"
-      - name: Package npm, Cargo and NuGet artifacts
-        run: |
-          mkdir -p .build/desktop-packages
-          npm pack ./desktop/sdk/node --pack-destination .build/desktop-packages
-          # Tauri generates permissions in the source tree. Include them before
-          # archiving so cargo's clean-tarball verification does not create files.
-          cargo check --manifest-path desktop/sdk/tauri/Cargo.toml
-          cargo package --allow-dirty --manifest-path desktop/sdk/tauri/Cargo.toml
-          cp "desktop/sdk/tauri/target/package/tauri-plugin-dimina-$RELEASE_VERSION.crate" .build/desktop-packages/
-          python3 desktop/scripts/release.py cargo-metadata --tag "$RELEASE_TAG" --output .build/desktop-packages
-          dotnet pack desktop/sdk/dotnet/Dimina.Desktop.csproj -c Release -o .build/desktop-packages -p:ContinuousIntegrationBuild=true
-      - uses: actions/upload-artifact@v7
-        with:
-          name: desktop-packages
-          path: .build/desktop-packages/*
-          if-no-files-found: error
-          compression-level: 0
-
-  runtime:
-    needs: version
-    name: Runtime (${{ matrix.platform }})
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: macos-15
-            platform: darwin/arm64
-            artifact: darwin-arm64
-          - runner: windows-2025
-            platform: windows/amd64
-            artifact: windows-amd64
-          - runner: windows-11-arm
-            platform: windows/arm64
-            artifact: windows-arm64
-          - runner: ubuntu-24.04
-            platform: linux/amd64
-            artifact: linux-amd64
-          - runner: ubuntu-24.04-arm
-            platform: linux/arm64
-            artifact: linux-arm64
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 45
-    env:
-      RELEASE_TAG: ${{ inputs.release_tag }}
-      RELEASE_PLATFORM: ${{ matrix.platform }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: refs/tags/${{ inputs.release_tag }}
-          persist-credentials: false
-      - uses: actions/setup-node@v6
-        with:
-          node-version-file: fe/.nvmrc
-      - uses: pnpm/setup@v2
-        with:
-          version: 12.2.0
-          package-json-file: fe/package.json
-          install: false
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: desktop/go.mod
-          cache-dependency-path: desktop/go.sum
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Install Linux runtime build dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libdbus-1-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev
-      - name: Prepare release versions
-        run: python3 desktop/scripts/release.py prepare --tag "$RELEASE_TAG"
-      - name: Install frontend dependencies
-        # The frontend workspace intentionally does not track pnpm-lock.yaml.
-        run: pnpm --dir fe install --no-frozen-lockfile
-      - name: Build complete SDK runtime bundle
-        run: node desktop/sdk/build.mjs --platform="$RELEASE_PLATFORM"
-      - name: Check desktop frontend
-        run: pnpm --dir fe --filter @dimina/desktop test
-      - name: Check Go runtime
-        working-directory: desktop
-        run: |
-          go vet ./...
-          if [ "$RUNNER_OS" = Windows ]; then
-            go test ./...
-          else
-            go test -race ./...
-          fi
-      - name: Archive runtime, calling libraries and licenses
-        run: python3 desktop/scripts/release.py bundle --tag "$RELEASE_TAG" --platform "$RELEASE_PLATFORM" --output .build/desktop-bundles
-      - uses: actions/upload-artifact@v7
-        with:
-          name: desktop-runtime-${{ matrix.artifact }}
-          path: .build/desktop-bundles/*
-          if-no-files-found: error
-          compression-level: 0
-
-  assets:
-    needs: [version, tests, packages, runtime]
+          node --input-type=module <<'NODE'
+          const url = new URL(process.env.ACTIONS_ID_TOKEN_REQUEST_URL);
+          url.searchParams.set('audience', 'npm:registry.npmjs.org');
+          const identityResponse = await fetch(url, {headers: {Authorization: 'Bearer ' + process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN}});
+          if (!identityResponse.ok) throw new Error('GitHub OIDC request failed: ' + identityResponse.status);
+          const identity = await identityResponse.json();
+          if (!identity.value) throw new Error('Missing GitHub OIDC identity');
+          console.log('::add-mask::' + identity.value);
+          const exchange = await fetch('https://registry.npmjs.org/-/npm/v1/oidc/token/exchange/package/@dimina%2Fdesktop-sdk', {method: 'POST', headers: {Authorization: 'Bearer ' + identity.value}});
+          if (exchange.status !== 201) throw new Error('npm OIDC exchange failed: ' + exchange.status);
+          const credential = await exchange.json();
+          if (!credential.token || credential.token_type !== 'oidc') throw new Error('Missing package-scoped npm OIDC token');
+          console.log('::add-mask::' + credential.token);
+          console.log('npm accepted this workflow for @dimina/desktop-sdk; no version uploaded.');
+          NODE
+  cargo:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    permissions:
-      contents: write
-    env:
-      RELEASE_TAG: ${{ inputs.release_tag }}
     steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: refs/tags/${{ inputs.release_tag }}
-          persist-credentials: false
-      - uses: actions/setup-node@v6
-        with:
-          node-version-file: fe/.nvmrc
-      - name: Checkout release artifact policy
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ github.sha }}
-          path: .release-automation
-          sparse-checkout: desktop/scripts/release.py
-          sparse-checkout-cone-mode: false
-          persist-credentials: false
-      - uses: actions/download-artifact@v8
-        with:
-          pattern: desktop-*
-          merge-multiple: true
-          path: .build/desktop-release
-      - name: Check complete artifact set and generate checksums
-        run: python3 .release-automation/desktop/scripts/release.py checksums --tag "$RELEASE_TAG" --directory .build/desktop-release
-      - uses: actions/upload-artifact@v7
-        with:
-          name: desktop-release
-          path: .build/desktop-release/*
-          if-no-files-found: error
-          compression-level: 0
-      - name: Attach immutable desktop artifacts to GitHub Release
-        if: ${{ !inputs.dry_run }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: node desktop/scripts/publish.mjs assets --tag "$RELEASE_TAG" --directory .build/desktop-release
-
-  publish-npm:
-    needs: [version, assets]
-    if: ${{ !inputs.dry_run }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: refs/tags/${{ inputs.release_tag }}
-          persist-credentials: false
-      - uses: actions/setup-node@v6
-        with:
-          node-version-file: fe/.nvmrc
-      # Keep OIDC support independent of the npm version bundled with Node.
-      - name: Install npm with OIDC support
-        run: npm install --global npm@12.2.2 --registry https://registry.npmjs.org
-      - name: Configure one-time npm bootstrap authentication
-        if: inputs.bootstrap_registries
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.DESKTOP_NPM_BOOTSTRAP_TOKEN }}
-        run: |
-          test -n "$NODE_AUTH_TOKEN" || { echo '::error::Missing temporary DESKTOP_NPM_BOOTSTRAP_TOKEN'; exit 1; }
-          printf '%s\n' '//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}' > "$RUNNER_TEMP/desktop-npm-bootstrap.npmrc"
-          echo "NPM_CONFIG_USERCONFIG=$RUNNER_TEMP/desktop-npm-bootstrap.npmrc" >> "$GITHUB_ENV"
-      - uses: actions/download-artifact@v8
-        with:
-          name: desktop-packages
-          path: .build/desktop-packages
-      - name: Publish npm SDK with provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ inputs.bootstrap_registries && secrets.DESKTOP_NPM_BOOTSTRAP_TOKEN || '' }}
-          RELEASE_TAG: ${{ inputs.release_tag }}
-        run: node desktop/scripts/publish.mjs npm --tag "$RELEASE_TAG" --directory .build/desktop-packages
-
-  publish-cargo:
-    needs: [version, assets]
-    if: ${{ !inputs.dry_run }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: refs/tags/${{ inputs.release_tag }}
-          persist-credentials: false
-      - uses: actions/setup-node@v6
-        with:
-          node-version-file: fe/.nvmrc
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/download-artifact@v8
-        with:
-          name: desktop-packages
-          path: .build/desktop-packages
-      - name: Authenticate to crates.io with OIDC
-        if: ${{ !inputs.bootstrap_registries }}
+      - name: Validate crates.io OIDC exchange
         id: auth
         uses: rust-lang/crates-io-auth-action@v1
-      - name: Check one-time crates.io bootstrap credential
-        if: inputs.bootstrap_registries
+      - name: Check temporary package-scoped credential
+        shell: bash
         env:
-          BOOTSTRAP_TOKEN: ${{ secrets.DESKTOP_CARGO_BOOTSTRAP_TOKEN }}
-        run: test -n "$BOOTSTRAP_TOKEN" || { echo '::error::Missing temporary DESKTOP_CARGO_BOOTSTRAP_TOKEN'; exit 1; }
-      - name: Publish verified Cargo package
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ inputs.bootstrap_registries && secrets.DESKTOP_CARGO_BOOTSTRAP_TOKEN || steps.auth.outputs.token }}
-          RELEASE_TAG: ${{ inputs.release_tag }}
-        run: node desktop/scripts/publish.mjs cargo --tag "$RELEASE_TAG" --directory .build/desktop-packages
-
-  publish-nuget:
-    needs: [version, assets]
-    if: ${{ !inputs.dry_run }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - name: Check NuGet publishing account
-        env:
-          NUGET_USER: ${{ vars.DESKTOP_NUGET_USER }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
         run: |
-          if [ -z "$NUGET_USER" ]; then
-            echo "::error::Configure the DESKTOP_NUGET_USER repository variable with the NuGet account username that owns the Trusted Publishing policy."
-            exit 1
-          fi
-      - uses: actions/checkout@v7
-        with:
-          ref: refs/tags/${{ inputs.release_tag }}
-          persist-credentials: false
-      - uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: '10.0.x'
-      - uses: actions/download-artifact@v8
-        with:
-          name: desktop-packages
-          path: .build/desktop-packages
-      - name: Authenticate to NuGet with OIDC
-        id: login
-        uses: NuGet/login@v1
-        with:
-          user: ${{ vars.DESKTOP_NUGET_USER }}
-      - name: Publish NuGet SDK
-        env:
-          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
-          RELEASE_VERSION: ${{ needs.version.outputs.version }}
-        run: dotnet nuget push ".build/desktop-packages/Dimina.Desktop.$RELEASE_VERSION.nupkg" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
+          test -n "$CARGO_REGISTRY_TOKEN"
+          echo 'crates.io accepted this workflow; no version uploaded.'
