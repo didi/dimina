@@ -11,7 +11,7 @@
 | NuGet | `Dimina.Desktop` |
 | GitHub Release | 各平台完整 SDK 包、上述调用库制品及 `SHA256SUMS-desktop.txt` |
 
-运行时在目标系统原生构建，覆盖 macOS、Windows、Linux 的 x64 和 ARM64。GitHub Release 中的 SDK 包命名为 `dimina-desktop-sdk-{version}-{os}-{arch}.tar.gz`，Windows 使用 `.zip`；架构名称为 `amd64` 或 `arm64`。
+运行时在目标系统原生构建，macOS 仅发布 ARM64，Windows 和 Linux 发布 x64、ARM64。GitHub Release 中的 SDK 包命名为 `dimina-desktop-sdk-{version}-{os}-{arch}.tar.gz`，Windows 使用 `.zip`；架构名称为 `amd64` 或 `arm64`。
 
 每个 SDK 包包含 `runtime/`、Node 调用库、Qt CMake 源码、.NET 项目、Tauri 插件和许可证。macOS 压缩包保留完整 `.app`、符号链接和可执行权限；Windows/Linux 按运行时的安装文件清单收集依赖，避免把中间安装包重复打进去。`version.json` 记录版本与目标平台。
 
@@ -47,7 +47,7 @@ Cargo 打包前执行 `cargo check`，让 Tauri 先生成 `permissions/autogener
 | Qt / .NET | 各系统原生编译并执行 SDK 进程生命周期用例；Qt 使用 Qt 6 |
 | BLE helper | 状态转换、取消、超时和通知协议的单元测试 |
 
-Node 和 Rust SDK 用例共用可跨平台编译的测试运行时，Windows 不再跳过这些进程协议测试。测试运行时不创建 WebView 窗口，不代替真实桌面运行时的界面验收。相机扫描、真实 BLE 连接、系统权限弹窗、窗口视觉和焦点行为仍需目标设备或具备相应硬件的 runner 验证。三系统测试日志保存在 `test-results-desktop-*` Actions artifacts；发布运行时的 x64/ARM64 构建矩阵保持不变。
+Node 和 Rust SDK 用例共用可跨平台编译的测试运行时，Windows 不再跳过这些进程协议测试。测试运行时不创建 WebView 窗口，不代替真实桌面运行时的界面验收。相机扫描、真实 BLE 连接、系统权限弹窗、窗口视觉和焦点行为仍需目标设备或具备相应硬件的 runner 验证。三系统测试日志保存在 `test-results-desktop-*` Actions artifacts；发布构建覆盖 macOS ARM64 以及 Windows、Linux 的 x64/ARM64。
 
 将流程配置合入后，在包含该配置的提交上创建发布标签。在 Actions 中手动运行 **Desktop SDK Release**：
 
@@ -58,7 +58,7 @@ Node 和 Rust SDK 用例共用可跨平台编译的测试运行时，Windows 不
 
 ## 正式发布与重试
 
-推送 `v1.2.3` 或 `v1.2.3-beta.1` 格式的标签会由主 Release 流程自动发布桌面 SDK。也可以针对已有标签手动运行 **Desktop SDK Release**，将 `dry_run` 设为 `false`。发布阶段等待所有 SDK 检查和六个平台构建通过；先上传 GitHub Release 附件，再分别发布各 registry 的调用库。完整发布需所有渠道成功；只有附件成功时，仍可下载 SDK 包中的调用库进行接入。
+推送 `v1.2.3` 或 `v1.2.3-beta.1` 格式的标签会由主 Release 流程自动发布桌面 SDK。也可以针对已有标签手动运行 **Desktop SDK Release**，将 `dry_run` 设为 `false`。发布阶段等待所有 SDK 检查和五个平台构建通过；先上传 GitHub Release 附件，再分别发布各 registry 的调用库。完整发布需所有渠道成功；只有附件成功时，仍可下载 SDK 包中的调用库进行接入。
 
 稳定版本使用 npm 的 `latest` 标签；预发布版本使用 `next`，GitHub Release 同时标记为 prerelease。标签不接受 SemVer build metadata（`+...`），以避免不同 registry 的版本规范化产生歧义。
 
