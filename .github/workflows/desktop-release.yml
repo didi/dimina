@@ -11,6 +11,10 @@ on:
         description: 'Build and validate without publishing'
         type: boolean
         default: true
+      bootstrap_registries:
+        description: 'First npm/crates.io publish using temporary bootstrap credentials'
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       release_tag:
@@ -19,6 +23,14 @@ on:
       dry_run:
         type: boolean
         default: false
+      bootstrap_registries:
+        type: boolean
+        default: false
+    secrets:
+      DESKTOP_NPM_BOOTSTRAP_TOKEN:
+        required: false
+      DESKTOP_CARGO_BOOTSTRAP_TOKEN:
+        required: false
 
 permissions:
   contents: read
@@ -88,6 +100,9 @@ jobs:
         run: |
           mkdir -p .build/desktop-packages
           npm pack ./desktop/sdk/node --pack-destination .build/desktop-packages
+          # Tauri generates permissions in the source tree. Include them before
+          # archiving so cargo's clean-tarball verification does not create files.
+          cargo check --manifest-path desktop/sdk/tauri/Cargo.toml
           cargo package --allow-dirty --manifest-path desktop/sdk/tauri/Cargo.toml
           cp "desktop/sdk/tauri/target/package/tauri-plugin-dimina-$RELEASE_VERSION.crate" .build/desktop-packages/
           python3 desktop/scripts/release.py cargo-metadata --tag "$RELEASE_TAG" --output .build/desktop-packages
@@ -233,12 +248,21 @@ jobs:
       # Keep OIDC support independent of the npm version bundled with Node.
       - name: Install npm with OIDC support
         run: npm install --global npm@12.2.2 --registry https://registry.npmjs.org
+      - name: Configure one-time npm bootstrap authentication
+        if: inputs.bootstrap_registries
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.DESKTOP_NPM_BOOTSTRAP_TOKEN }}
+        run: |
+          test -n "$NODE_AUTH_TOKEN" || { echo '::error::Missing temporary DESKTOP_NPM_BOOTSTRAP_TOKEN'; exit 1; }
+          printf '%s\n' '//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}' > "$RUNNER_TEMP/desktop-npm-bootstrap.npmrc"
+          echo "NPM_CONFIG_USERCONFIG=$RUNNER_TEMP/desktop-npm-bootstrap.npmrc" >> "$GITHUB_ENV"
       - uses: actions/download-artifact@v8
         with:
           name: desktop-packages
           path: .build/desktop-packages
-      - name: Publish npm SDK with OIDC and provenance
+      - name: Publish npm SDK with provenance
         env:
+          NODE_AUTH_TOKEN: ${{ inputs.bootstrap_registries && secrets.DESKTOP_NPM_BOOTSTRAP_TOKEN || '' }}
           RELEASE_TAG: ${{ inputs.release_tag }}
         run: node desktop/scripts/publish.mjs npm --tag "$RELEASE_TAG" --directory .build/desktop-packages
 
@@ -264,11 +288,17 @@ jobs:
           name: desktop-packages
           path: .build/desktop-packages
       - name: Authenticate to crates.io with OIDC
+        if: ${{ !inputs.bootstrap_registries }}
         id: auth
         uses: rust-lang/crates-io-auth-action@v1
+      - name: Check one-time crates.io bootstrap credential
+        if: inputs.bootstrap_registries
+        env:
+          BOOTSTRAP_TOKEN: ${{ secrets.DESKTOP_CARGO_BOOTSTRAP_TOKEN }}
+        run: test -n "$BOOTSTRAP_TOKEN" || { echo '::error::Missing temporary DESKTOP_CARGO_BOOTSTRAP_TOKEN'; exit 1; }
       - name: Publish verified Cargo package
         env:
-          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+          CARGO_REGISTRY_TOKEN: ${{ inputs.bootstrap_registries && secrets.DESKTOP_CARGO_BOOTSTRAP_TOKEN || steps.auth.outputs.token }}
           RELEASE_TAG: ${{ inputs.release_tag }}
         run: node desktop/scripts/publish.mjs cargo --tag "$RELEASE_TAG" --directory .build/desktop-packages
 
