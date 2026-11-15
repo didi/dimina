@@ -9,6 +9,7 @@ describe('SelectorQuery field and batching contracts', () => {
 	beforeEach(() => {
 		element = document.createElement('div')
 		element.style.color = 'red'
+		document.body.append(element)
 		element.getBoundingClientRect = () => ({ left: 1.5, top: 2, right: 4.25, bottom: 6.75, width: 2.75, height: 4.75 })
 		node = { nodeId: 'target', parentId: 's:page', scopeId: 'page', id: 'target', class: 'node',
 			dataset: { object: { value: 1 } }, marks: { nearest: 'target' }, properties: { scrollX: true, value: 7 }, roots: [element] }
@@ -16,7 +17,7 @@ describe('SelectorQuery field and batching contracts', () => {
 		runtime.wxmlSnapshots.set(bridgeId, { tree })
 		vi.spyOn(message, 'send').mockImplementation(() => {})
 	})
-	afterEach(() => { runtime.wxmlSnapshots.delete(bridgeId); vi.restoreAllMocks() })
+	afterEach(() => { element.remove(); runtime.wxmlSnapshots.delete(bridgeId); vi.restoreAllMocks() })
 
 	it('keeps absent results at their request index and measures valid zero-sized nodes without polling', async () => {
 		await runtime.selectorQuery({ bridgeId, params: { success: 'callback', tasks: [
