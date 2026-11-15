@@ -170,7 +170,7 @@ export async function createAMap({ element, props, emit, options: config, getLoc
 		}
 	}
 	function addMarkers(data, clear = false) {
-		if (!Array.isArray(data)) throw new Error('markers must be an array')
+		if (!Array.isArray(data)) throw new TypeError('markers must be an array')
 		const next = new Map()
 		try {
 			for (const item of data) {
@@ -238,7 +238,7 @@ export async function createAMap({ element, props, emit, options: config, getLoc
 		geometries.set(type, next)
 	}
 	async function locate() {
-		if (typeof getLocation !== 'function') throw new Error('host location provider is not configured')
+		if (typeof getLocation !== 'function') throw new TypeError('host location provider is not configured')
 		const location = await getLocation({ type: 'gcj02', signal })
 		assertActive()
 		return point(location)
@@ -309,7 +309,7 @@ export async function createAMap({ element, props, emit, options: config, getLoc
 		getRegion: () => ({ southwest: coordinate(map.getBounds().getSouthWest()), northeast: coordinate(map.getBounds().getNorthEast()) }),
 		addMarkers: data => addMarkers(data.markers, data.clear === true),
 		removeMarkers(data) {
-			if (!Array.isArray(data.markerIds)) throw new Error('markerIds must be an array')
+			if (!Array.isArray(data.markerIds)) throw new TypeError('markerIds must be an array')
 			for (const id of data.markerIds) { markers.get(id)?.dispose(); markers.delete(id) }
 		},
 		includePoints,

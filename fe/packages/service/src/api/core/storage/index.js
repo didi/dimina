@@ -55,7 +55,7 @@ export function clearStorageSync() {
 export function setStorage(opts) {
 	let record
 	try {
-		if (typeof opts?.key !== 'string') throw new Error('parameter.key should be String')
+		if (typeof opts?.key !== 'string') throw new TypeError('parameter.key should be String')
 		record = createStorageEntry(opts.key, opts.data)
 	}
 	catch (error) {
