@@ -24,9 +24,11 @@
 
 Dimina is Didi's open-source framework for running mini programs across platforms. It compiles WXML, WXSS, and JavaScript / TypeScript source into a unified bundle, then loads it through Android, iOS, Harmony, Web, and desktop containers. You can integrate an existing mini program into a mobile app or open it in a standalone desktop window, keeping familiar mini program syntax.
 
-## One mini program, running on three native platforms
+## One mini program across mobile, Web, and desktop
 
-The screenshots below show the same “Official Components Showcase” example running on Android, iOS, and Harmony. To try it yourself, open the [live demo](https://didi.github.io/dimina/) in your browser.
+The same mini program source can run inside Android, iOS, and Harmony apps, in a browser, or in standalone windows opened by macOS, Windows, and Linux desktop clients. A shared API entry point connects mini programs to storage, networking, files, and devices according to host and platform capabilities.
+
+The screenshots below show the repository's “Official Components Showcase” example on the three mobile platforms. For Web, open the [live demo](https://didi.github.io/dimina/). For desktop, run the [desktop example](./desktop/README.md) or integrate the [desktop SDK](./desktop/sdk/README.md) into an existing client.
 
 <table width="100%">
   <thead>

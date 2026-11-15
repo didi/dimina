@@ -24,9 +24,11 @@
 
 Dimina（星河小程序）是滴滴开源的跨端小程序框架。它将 WXML、WXSS 与 JavaScript / TypeScript 源码编译为统一资源包，再交由 Android、iOS、Harmony、Web 和桌面容器加载。已有小程序可以接入移动 App，也可以在桌面客户端中以独立窗口打开，继续使用熟悉的小程序语法。
 
-## 一份小程序，三端真实运行
+## 一份小程序，运行在移动端、Web 与桌面
 
-下图是仓库内同一套“官方组件展示”示例在 Android、iOS 和 Harmony 上的实际运行效果。想直接上手，也可以打开 Web 端的[在线演示](https://didi.github.io/dimina/)。
+同一套小程序源码，可以接入 Android、iOS 和 Harmony 应用，在浏览器中运行，也可以由 macOS、Windows 和 Linux 桌面客户端打开独立窗口。根据宿主与平台能力，小程序通过统一的 API 入口调用存储、网络、文件和设备等功能。
+
+下图展示仓库内“官方组件展示”示例在三个移动平台上的运行效果。Web 端可直接打开[在线演示](https://didi.github.io/dimina/)，桌面端可运行[桌面示例](./desktop/README.md)，或通过[桌面 SDK](./desktop/sdk/README.md)接入已有客户端。
 
 <table width="100%">
   <thead>
