@@ -15,7 +15,6 @@
 <p align="center">
   <a href="https://didi.github.io/dimina/"><strong>在线体验</strong></a> ·
   <a href="#最快上手">最快上手</a> ·
-  <a href="#桌面端接入">桌面端接入</a> ·
   <a href="./docs/API-Reference.md">能力参考</a> ·
   <a href="./CHANGELOG.md">更新日志</a> ·
   <a href="./docs/README.md">架构文档</a> ·
@@ -93,24 +92,8 @@ pnpm dev
 - [Android 接入说明](./android/README.md)
 - [iOS 接入说明](./iOS/README.md)
 - [Harmony 接入说明](./harmony/dimina/README.md)
-- [Flutter 宿主接入说明](./docs/Flutter-Integration.md)
 - [桌面客户端接入说明](./docs/Desktop-Integration.md)
-
-## 桌面端接入
-
-桌面端面向 macOS、Windows 和 Linux，复用同一份 Dimina 编译产物。可以单独运行[桌面示例](./desktop/README.md)，也可以通过[独立窗口 SDK](./desktop/sdk/README.md)接入已有 Electron、Tauri、Qt、.NET 客户端。
-
-先按 SDK 文档构建运行时与调用库，再由宿主管理窗口。下面以 Electron 主进程 / Node.js 为例，三个路径参数均使用绝对路径：
-
-```js
-import { Dimina } from '@dimina/desktop-sdk'
-
-const dimina = await Dimina.start({ runtimePath, packagesDir, dataDir })
-await dimina.openApp({ appId: 'your-app-id' })
-// 客户端退出时调用 await dimina.dispose() 回收运行时
-```
-
-桌面端内置 HTTP 请求与上传下载、TCP/UDP、存储、文件选择、剪贴板、扫码和 BLE，沿用移动 SDK 的 `wx` API 入口。系统依赖与具体能力范围见[桌面原生 API 说明](./desktop/sdk/Native-APIs.md)。当前提供独立窗口模式，暂不支持嵌入宿主窗口或面板。
+- [Flutter 宿主接入说明](./docs/Flutter-Integration.md)
 
 ## 能力边界与延伸阅读
 
