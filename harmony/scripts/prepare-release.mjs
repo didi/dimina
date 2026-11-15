@@ -21,12 +21,27 @@ export function prepareRelease(root, tag) {
   if (core.version !== version && !(match[2] && core.version === match[1])) {
     throw new Error('Release tag must match the source version or its prerelease base')
   }
+  // OHPM requires an entry for the exact version inside each HAR's changelog.
+  // Prepare old tags as well, but never invent notes for an unrelated release.
+  const changelogs = ['dimina', 'map_amap'].map(module => {
+    const path = resolve(root, `harmony/${module}/CHANGELOG.md`)
+    const content = readFileSync(path, 'utf8')
+    const heading = value => new RegExp(`^## \\[v${value.replaceAll('.', '\\.')}\\](?:[^\\r\\n]*)$`, 'm')
+    if (heading(version).test(content)) return { path, content }
+    const base = heading(match[1]).exec(content)
+    if (!match[2] || !base) throw new Error(`${module} changelog must contain release v${version}`)
+    const entry = `## [v${version}]\n\n- v${match[1]} 的预发布版本，变更内容见下方 v${match[1]} 条目。\n\n`
+    return { path, content: content.slice(0, base.index) + entry + content.slice(base.index) }
+  })
   if (core.version !== version) {
     core.version = version
     adapter.version = version
     adapter.dependencies[core.name] = version
     writeFileSync(corePath, `${JSON.stringify(core, null, 2)}\n`)
     writeFileSync(adapterPath, `${JSON.stringify(adapter, null, 2)}\n`)
+  }
+  for (const { path, content } of changelogs) {
+    if (readFileSync(path, 'utf8') !== content) writeFileSync(path, content)
   }
   return version
 }

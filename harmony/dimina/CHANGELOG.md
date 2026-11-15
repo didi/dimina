@@ -1,5 +1,10 @@
 # Changelog
 
+## [v1.9.0-beta.1] 2026-11-15
+
+- 与 Android、iOS 和 Desktop SDK 统一预发布版本号为 `1.9.0-beta.1`。
+- 核心 SDK 与高德地图扩展模块同步发布，功能变更见下方 v1.9.0 条目。
+
 ## [v1.9.0] 2026-11-13
 
 - 与 Android、iOS、Web 容器和 Desktop SDK 统一版本号；核心 SDK 和高德地图扩展模块 `@didi-dimina/map-amap` 同步升级到 1.9.0。
