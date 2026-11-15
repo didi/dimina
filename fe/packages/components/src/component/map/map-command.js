@@ -21,7 +21,7 @@ export function validateMapCommand(command, args) {
 		if (sw.longitude >= ne.longitude || sw.latitude >= ne.latitude) throw new Error('invalid boundary')
 	}
 	if (command === 'translateMarker' || command === 'moveAlong') {
-		if (!Number.isInteger(args.markerId)) throw new Error('invalid markerId')
+		if (!Number.isInteger(args.markerId)) throw new TypeError('invalid markerId')
 		mapNumber(args.duration ?? 1000, 'duration', 0)
 		if (command === 'translateMarker') {
 			mapPoint(args.destination)
@@ -38,7 +38,7 @@ export function validateMapCommand(command, args) {
 // Sample a circular arc once in Mercator space. Every SDK receives the same path;
 // no frame-by-frame bridge traffic or provider-specific interpretation of angle.
 export function arcPoints(args) {
-	if (!Number.isInteger(args.id)) throw new Error('invalid arc id')
+	if (!Number.isInteger(args.id)) throw new TypeError('invalid arc id')
 	mapNumber(args.width ?? 5, 'width', 0)
 	const project = (value) => {
 		mapPoint(value)

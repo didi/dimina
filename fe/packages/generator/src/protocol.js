@@ -10,7 +10,7 @@ export function validateFiles(files) {
 	let size = 0
 	for (const [path, content] of entries) {
 		if (!/^[\w/-]+\.(js|json|wxml|wxss)$/.test(path) || path.startsWith('/') || path.split('/').some(part => part === '..' || forbidden.has(part)) || path.includes('//') || path.startsWith('miniprogram_npm/')) throw new Error(`不支持的文件路径：${path}`)
-		if (typeof content !== 'string') throw new Error(`${path} 内容必须是字符串`)
+		if (typeof content !== 'string') throw new TypeError(`${path} 内容必须是字符串`)
 		size += new TextEncoder().encode(content).length
 		if (size > 1024 * 1024) throw new Error('工程源码不能超过 1 MiB')
 		if (path.endsWith('.json')) { try { JSON.parse(content) } catch { throw new Error(`${path} 不是有效 JSON`) } }

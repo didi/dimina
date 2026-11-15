@@ -9,6 +9,7 @@ function animatedLaunchScreen() {
 	const app = Object.create(MiniApp.prototype) as MiniApp
 	app.el = document.createElement('div')
 	app.el.innerHTML = '<div class="dimina-mini-app__launch-screen" style="display:block;--dimina-launch-screen-fade-ms:150ms"><span class="dimina-mini-app__name"></span><img class="dimina-mini-app__logo-img-url"></div>'
+	document.body.append(app.el)
 	app.appInfo = { name: 'Demo', logo: 'data:image/png;base64,AA==' } as MiniApp['appInfo']
 	app.updateActionColorStyle = vi.fn()
 	const screen = app.el.firstElementChild as HTMLElement
