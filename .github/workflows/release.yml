@@ -15,6 +15,10 @@ on:
         required: false
         type: boolean
         default: false
+      bootstrap_registries:
+        description: 'First desktop npm/crates.io publish with temporary credentials'
+        type: boolean
+        default: false
 
 jobs:
   native-dependency-versions:
@@ -47,6 +51,10 @@ jobs:
     uses: ./.github/workflows/desktop-release.yml
     with:
       release_tag: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+      bootstrap_registries: ${{ inputs.bootstrap_registries || false }}
+    secrets:
+      DESKTOP_NPM_BOOTSTRAP_TOKEN: ${{ secrets.DESKTOP_NPM_BOOTSTRAP_TOKEN }}
+      DESKTOP_CARGO_BOOTSTRAP_TOKEN: ${{ secrets.DESKTOP_CARGO_BOOTSTRAP_TOKEN }}
 
   changelog:
     if: github.event_name == 'push' || !inputs.skip_changelog
