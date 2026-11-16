@@ -13,7 +13,8 @@
 
 > 本文档是编译器兼容性提示清单的唯一数据源。修改组件表或 API 表后，需要在 `fe/` 下运行 `pnpm --filter @dimina/compiler sync:compat` 生成对应 JS 文件；可运行 `pnpm --filter @dimina/compiler check:compat` 只读检查两者是否一致。
 
-宿主字库注册与字体加载的接入方法见[复用宿主 App 的字体](./Host-Fonts.md)。
+宿主字体的注册与使用方法见[复用宿主 App 的字体](./Host-Fonts.md)。
+宿主图片的注册与使用方法见[复用宿主 App 的图片](./Host-Images.md)。
 
 ## 语法兼容处理
 

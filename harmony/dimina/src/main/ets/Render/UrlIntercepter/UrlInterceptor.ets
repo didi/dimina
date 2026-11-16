@@ -7,6 +7,7 @@ import image from '@ohos.multimedia.image';
 import { DMPFilePathResolver } from '../../Bundle/Util/DMPFilePathResolver';
 import { DMPVirtualFileConfig } from '../../Bundle/Util/DMPFileUrlConvertor';
 import { DMPHostFonts } from '../DMPHostFonts';
+import { DMPHostImages } from '../DMPHostImages';
 
 interface InterceptRequestEvent {
   request: WebResourceRequest;
@@ -23,6 +24,8 @@ export class RequestCallback {
     const app = DMPAppManager.sharedInstance().getApp(this.appIndex)
     if (event && app) {
       const url = event.request.getRequestUrl();
+      const imageResponse = DMPHostImages.intercept(url);
+      if (imageResponse) return imageResponse;
       const fontResponse = DMPHostFonts.intercept(url);
       if (fontResponse) return fontResponse;
       DMPLogger.d(Tags.LAUNCH, "webview onInterceptRequest url=" + url);

@@ -2,6 +2,7 @@
 // https://developers.weixin.qq.com/miniprogram/dev/component/image.html
 import { triggerEvent, useInfo } from '@/common/events'
 import { useTouchEvents } from '@/common/useTouchEvents'
+import { resolveImageSource } from '@/common/hostImages'
 
 const props = defineProps({
 	src: {
@@ -103,7 +104,7 @@ const backgroundStyle = computed(() => {
 
 const imgRef = ref(null)
 const conRef = ref(null)
-const renderedSrc = ref(props.lazyLoad ? '' : props.src)
+const renderedSrc = ref(props.lazyLoad ? '' : resolveImageSource(props.src))
 let intersectionObserver
 let resizeObserver
 let originalWidth = ''
@@ -150,7 +151,7 @@ watch(
 
 function showImage() {
 	hasBeenShown = true
-	renderedSrc.value = props.src
+	renderedSrc.value = resolveImageSource(props.src)
 	intersectionObserver?.disconnect()
 	intersectionObserver = undefined
 }

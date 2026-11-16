@@ -76,6 +76,10 @@ enum DMPWebResourceLoader {
             return "image/gif"
         case "svg":
             return "image/svg+xml"
+        case "webp", "bmp", "avif":
+            return "image/\(pathExtension.lowercased())"
+        case "ico":
+            return "image/x-icon"
         case "heic":
             return "image/heic"
         case "heif":
@@ -110,6 +114,20 @@ class DiminaURLSchemeHandler: NSObject, WKURLSchemeHandler {
     func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
         guard let url = urlSchemeTask.request.url else {
             urlSchemeTask.didFailWithError(NSError(domain: "DiminaErrorDomain", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid URL"]))
+            return
+        }
+
+        if url.scheme == "dimina", url.host == nil, url.path.hasPrefix(DMPHostImages.resourcePath) {
+            do {
+                let key = String(url.path.dropFirst(DMPHostImages.resourcePath.count))
+                let payload = try DMPHostImages.load(key)
+                urlSchemeTask.didReceive(URLResponse(url: url, mimeType: payload.mimeType,
+                                                    expectedContentLength: payload.data.count, textEncodingName: nil))
+                urlSchemeTask.didReceive(payload.data)
+                urlSchemeTask.didFinish()
+            } catch {
+                urlSchemeTask.didFailWithError(error)
+            }
             return
         }
 

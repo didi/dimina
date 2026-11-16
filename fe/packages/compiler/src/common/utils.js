@@ -65,7 +65,8 @@ function resetAssetCache() {
 }
 
 function isCollectableImageAsset(src) {
-	return typeof src === 'string' && collectableImageAssetPattern.test(splitAssetReference(src).sourcePath)
+	return typeof src === 'string' && !/^[A-Za-z][A-Za-z\d+.-]*:/.test(src)
+		&& collectableImageAssetPattern.test(splitAssetReference(src).sourcePath)
 }
 
 function isPathInside(rootPath, targetPath) {

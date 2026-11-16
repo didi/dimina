@@ -90,6 +90,96 @@ final class DMPWebResourceLoaderTests: XCTestCase {
         XCTAssertEqual(DMPWebResourceLoader.mimeType(forExtension: "heif"), "image/heif")
     }
 
+    func testHostImagesReadFilesAndConfineDirectoryMappings() throws {
+        let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let root = temporary.appendingPathComponent("images")
+        let nested = root.appendingPathComponent("nested")
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        defer {
+            DMPHostImages.unregister("Light_ON")
+            DMPHostImages.unregister("icons")
+            try? FileManager.default.removeItem(at: temporary)
+        }
+        let file = nested.appendingPathComponent("灯 on.webp")
+        let bytes = Data([1, 2, 3])
+        try bytes.write(to: file)
+        try DMPHostImages.register("Light_ON", fileURL: file)
+        XCTAssertEqual(try DMPHostImages.load("Light_ON").data, bytes)
+        XCTAssertEqual(try DMPHostImages.load("Light_ON").mimeType, "image/webp")
+        try Data([9]).write(to: file)
+        XCTAssertEqual(try DMPHostImages.load("Light_ON").data, Data([9]))
+        XCTAssertThrowsError(try DMPHostImages.load("Light_ON/extra.png"))
+        DMPHostImages.unregister("Light_ON")
+        XCTAssertThrowsError(try DMPHostImages.load("Light_ON"))
+        XCTAssertThrowsError(try DMPHostImages.register("../invalid", fileURL: file))
+
+        try DMPHostImages.registerDirectory("icons", directoryURL: root)
+        XCTAssertEqual(try DMPHostImages.load("icons/nested/灯 on.webp").data, Data([9]))
+        for key in ["icons/../outside.png", "icons//x.png", "icons/./x.png", "icons/%2e%2e/x.png", "icons/a\\b.png", "icons/", "icons/a?b.png", "icons/missing.png"] {
+            XCTAssertThrowsError(try DMPHostImages.load(key), key)
+        }
+        let secret = root.appendingPathComponent("secret.json")
+        try bytes.write(to: secret)
+        XCTAssertThrowsError(try DMPHostImages.load("icons/secret.json"))
+        let outside = temporary.appendingPathComponent("outside.png")
+        try bytes.write(to: outside)
+        try FileManager.default.createSymbolicLink(at: root.appendingPathComponent("escape.png"), withDestinationURL: outside)
+        XCTAssertThrowsError(try DMPHostImages.load("icons/escape.png"))
+    }
+
+    func testHostImagesDecodeInWebKitAndMissingImagesFail() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            DMPHostImages.unregister("formats")
+            DMPHostImages.unregister("asset-catalog")
+            try? FileManager.default.removeItem(at: root)
+        }
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 2, height: 3), format: format).image { context in
+            UIColor.red.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 2, height: 3))
+        }
+        try XCTUnwrap(image.pngData()).write(to: root.appendingPathComponent("image.png"))
+        try XCTUnwrap(image.jpegData(compressionQuality: 1)).write(to: root.appendingPathComponent("image.jpg"))
+        try XCTUnwrap(Data(base64Encoded: "UklGRhwAAABXRUJQVlA4TA8AAAAvAYAAAAcQ/Y/+ByKi/wEA"))
+            .write(to: root.appendingPathComponent("image.webp"))
+        try Data("<svg xmlns='http://www.w3.org/2000/svg' width='2' height='3'><path fill='red' d='M0 0h2v3H0z'/></svg>".utf8)
+            .write(to: root.appendingPathComponent("image.svg"))
+        try DMPHostImages.registerDirectory("formats", directoryURL: root)
+        try DMPHostImages.registerImage("asset-catalog", image: image)
+        let config = WKWebViewConfiguration()
+        config.setURLSchemeHandler(DiminaURLSchemeHandler(appId: "image-test"), forURLScheme: "dimina")
+        let web = WKWebView(frame: CGRect(x: 0, y: 0, width: 320, height: 200), configuration: config)
+        let navigation = HostFontNavigation(expectation: expectation(description: "image test page"))
+        web.navigationDelegate = navigation
+        web.loadHTMLString("<body></body>", baseURL: URL(string: "dimina:///pageFrame.html"))
+        await fulfillment(of: [navigation.expectation], timeout: 15)
+        if let error = navigation.error { throw error }
+        let result = try await web.callAsyncJavaScript("""
+            const paths = ['formats/image.png', 'formats/image.jpg', 'formats/image.webp', 'formats/image.svg', 'asset-catalog'];
+            return await Promise.all(paths.map(path => new Promise(resolve => {
+                const image = new Image();
+                image.onload = () => resolve([image.naturalWidth, image.naturalHeight]);
+                image.onerror = () => resolve([-1, -1]);
+                image.src = 'dimina:///__dimina_host_images/' + path;
+                document.body.appendChild(image);
+            })));
+            """, arguments: [:], in: nil, contentWorld: .page) as? [[Int]]
+        XCTAssertEqual(result, Array(repeating: [2, 3], count: 5))
+        DMPHostImages.unregister("formats")
+        let failed = try await web.callAsyncJavaScript("""
+            return await new Promise(resolve => {
+                const image = new Image();
+                image.onload = () => resolve(false);
+                image.onerror = () => resolve(true);
+                image.src = 'dimina:///__dimina_host_images/formats/image.png?after-unregister';
+            });
+            """, arguments: [:], in: nil, contentWorld: .page) as? Bool
+        XCTAssertEqual(failed, true)
+    }
+
     func testHEIFFamilyOnlyNeedsFallbackBeforeWebKitSupport() {
         XCTAssertTrue(DMPWebResourceLoader.requiresHEIFTranscode(
             pathExtension: "HEIC",

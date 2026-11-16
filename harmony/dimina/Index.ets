@@ -14,3 +14,4 @@ export { DMPMapProviders, DMPNativeMapProvider, DMPNativeMapHandle, DMPNativeMap
 
 export { DMPMiniProgramVersionInfo } from './src/main/ets/Bundle/DMPRemoteUpdateManager';
 export { DMPHostFonts } from './src/main/ets/Render/DMPHostFonts';
+export { DMPHostImages } from './src/main/ets/Render/DMPHostImages';
