@@ -1,0 +1,61 @@
+android/dimina/src/androidTest/res/raw/host_image.svg
+  38eb54c9b4b86d1f 1
+docs/Host-Images.md
+  38eb54c9b4b86d1f 1-85
+harmony/dimina/src/main/ets/Render/DMPHostImages.ets
+  38eb54c9b4b86d1f 1-172
+harmony/dimina/Index.ets
+  38eb54c9b4b86d1f 17
+android/dimina/src/androidTest/assets/host-images/nested/light.svg
+  38eb54c9b4b86d1f 1
+iOS/dimina/DiminaKit/Render/DMPHostImages.swift
+  38eb54c9b4b86d1f 1-102
+fe/packages/components/__tests__/host-images.spec.js
+  38eb54c9b4b86d1f 1-123
+fe/packages/components/src/component/image/Image.vue
+  38eb54c9b4b86d1f 5,107,154
+iOS/dimina/DiminaKit/Render/DiminaURLSchemeHandler.swift
+  38eb54c9b4b86d1f 79-82,120-130
+harmony/scripts/host-images.test.mjs
+  38eb54c9b4b86d1f 1-116
+iOS/diminaTests/DMPWebResourceLoaderTests.swift
+  38eb54c9b4b86d1f 93-182
+fe/packages/components/src/common/hostImages.js
+  38eb54c9b4b86d1f 1-23
+fe/packages/compiler/__tests__/host-image-assets.spec.js
+  38eb54c9b4b86d1f 1-19
+android/dimina/src/androidTest/java/com/didi/dimina/HostImagesWebViewTest.kt
+  38eb54c9b4b86d1f 1-94
+android/dimina/src/main/kotlin/com/didi/dimina/ui/view/WebViewCacheManager.kt
+  38eb54c9b4b86d1f 610-612
+docs/API-Reference.md
+  38eb54c9b4b86d1f 17
+fe/packages/compiler/src/common/utils.js
+  38eb54c9b4b86d1f 68-69
+android/dimina/src/main/kotlin/com/didi/dimina/HostImages.kt
+  38eb54c9b4b86d1f 1-109
+android/dimina/src/test/java/com/didi/dimina/HostImagesTest.kt
+  38eb54c9b4b86d1f 1-58
+harmony/dimina/src/main/ets/Render/UrlIntercepter/UrlInterceptor.ets
+  38eb54c9b4b86d1f 10,27-28
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "58f92882bd32aae78fbb329aa33d69cd1c4637ef",
+  "prompts": {
+    "38eb54c9b4b86d1f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1e397-c6f4-7392-9f7d-e3dfaf58a20c",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 7953,
+      "total_deletions": 12,
+      "accepted_lines": 7925,
+      "overriden_lines": 1
+    }
+  }
+}
