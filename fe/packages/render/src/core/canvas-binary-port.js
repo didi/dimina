@@ -115,7 +115,7 @@ export class CanvasBinaryPort {
 			id = this.requestId(command.requestId)
 			if (command.type !== 'legacy') body = this.restore(command.body, packet.buffers)
 			if (command.type === 'canvas' || (command.type === 'publish' && command.ack === true)) {
-				if (!Number.isSafeInteger(command.deadline)) throw new Error('invalid canvas deadline')
+				if (!Number.isSafeInteger(command.deadline)) throw new TypeError('invalid canvas deadline')
 				if (Date.now() >= command.deadline) { this.reply(id, '', 'canvas query timed out'); return }
 			}
 		}
@@ -127,7 +127,7 @@ export class CanvasBinaryPort {
 				return
 			}
 			const result = command.type === 'legacy' ? this.target.eval(command.script) : JSON.stringify(this.flush(body))
-			if (typeof result !== 'string') throw new Error('invalid canvas feedback')
+			if (typeof result !== 'string') throw new TypeError('invalid canvas feedback')
 			this.reply(id, result)
 		}
 		catch (error) {

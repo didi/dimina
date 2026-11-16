@@ -276,6 +276,6 @@ export async function readWebCompressedFile(options: ReadWebFileOptions & { comp
 		return resource.data
 	}
 	const decoded = decompress(new Uint8Array(resource.data), {})
-	if (!(decoded instanceof Uint8Array)) throw new Error('invalid Brotli file')
+	if (!(decoded instanceof Uint8Array)) throw new TypeError('invalid Brotli file')
 	return new Uint8Array(decoded).buffer
 }

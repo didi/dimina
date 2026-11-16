@@ -11,7 +11,7 @@ import tarfile
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
-PLATFORMS = tuple(f"{system}/{arch}" for system in ("darwin", "windows", "linux") for arch in ("amd64", "arm64"))
+PLATFORMS = ("darwin/arm64", "windows/amd64", "windows/arm64", "linux/amd64", "linux/arm64")
 NUMBER = r"(?:0|[1-9][0-9]*)"
 IDENTIFIER = rf"(?:{NUMBER}|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)"
 TAG = re.compile(rf"v({NUMBER}\.{NUMBER}\.{NUMBER}(?:-{IDENTIFIER}(?:\.{IDENTIFIER})*)?)")

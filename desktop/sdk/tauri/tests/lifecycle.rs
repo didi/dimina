@@ -13,6 +13,18 @@ fn native_runtime(directory: &Path, mode: &str) -> PathBuf {
         "runtime"
     });
     if let Some(source) = std::env::var_os("DIMINA_TEST_RUNTIME") {
+        // A concurrent fork can inherit fs::copy's writable descriptor and make
+        // exec fail with ETXTBSY even after this thread closes it. Copy in a child
+        // on Unix so no test process can inherit a writable runtime descriptor.
+        #[cfg(unix)]
+        assert!(Command::new("cp")
+            .arg("--")
+            .arg(source)
+            .arg(&runtime)
+            .status()
+            .unwrap()
+            .success());
+        #[cfg(not(unix))]
         fs::copy(source, &runtime).unwrap();
     } else {
         // Also works from the published crate: the fixture sources are included.
@@ -83,11 +95,8 @@ async fn rejects_incompatible_runtime_and_reaps_the_child() {
 #[tokio::test]
 async fn startup_timeout_reaps_the_child() {
     let (_dir, options) = fixture(None);
-    assert!(Dimina::start(&options)
-        .await
-        .err()
-        .unwrap()
-        .contains("startup timed out"));
+    let error = Dimina::start(&options).await.err().unwrap();
+    assert!(error.contains("startup timed out"), "{error}");
     assert_reaped(&options).await;
 }
 

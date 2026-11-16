@@ -15,7 +15,6 @@
 <p align="center">
   <a href="https://didi.github.io/dimina/"><strong>在线体验</strong></a> ·
   <a href="#最快上手">最快上手</a> ·
-  <a href="#桌面端接入">桌面端接入</a> ·
   <a href="./docs/API-Reference.md">能力参考</a> ·
   <a href="./CHANGELOG.md">更新日志</a> ·
   <a href="./docs/README.md">架构文档</a> ·
@@ -24,9 +23,11 @@
 
 Dimina（星河小程序）是滴滴开源的跨端小程序框架。它将 WXML、WXSS 与 JavaScript / TypeScript 源码编译为统一资源包，再交由 Android、iOS、Harmony、Web 和桌面容器加载。已有小程序可以接入移动 App，也可以在桌面客户端中以独立窗口打开，继续使用熟悉的小程序语法。
 
-## 一份小程序，三端真实运行
+## 一份小程序，运行在移动端、Web 与桌面
 
-下图是仓库内同一套“官方组件展示”示例在 Android、iOS 和 Harmony 上的实际运行效果。想直接上手，也可以打开 Web 端的[在线演示](https://didi.github.io/dimina/)。
+同一套小程序源码，可以接入 Android、iOS 和 Harmony 应用，在浏览器中运行，也可以由 macOS、Windows 和 Linux 桌面客户端打开独立窗口。根据宿主与平台能力，小程序通过统一的 API 入口调用存储、网络、文件和设备等功能。
+
+下图展示仓库内“官方组件展示”示例在三个移动平台上的运行效果。Web 端可直接打开[在线演示](https://didi.github.io/dimina/)，桌面端可运行[桌面示例](./desktop/README.md)，或通过[桌面 SDK](./desktop/sdk/README.md)接入已有客户端。
 
 <table width="100%">
   <thead>
@@ -91,24 +92,8 @@ pnpm dev
 - [Android 接入说明](./android/README.md)
 - [iOS 接入说明](./iOS/README.md)
 - [Harmony 接入说明](./harmony/dimina/README.md)
-- [Flutter 宿主接入说明](./docs/Flutter-Integration.md)
 - [桌面客户端接入说明](./docs/Desktop-Integration.md)
-
-## 桌面端接入
-
-桌面端面向 macOS、Windows 和 Linux，复用同一份 Dimina 编译产物。可以单独运行[桌面示例](./desktop/README.md)，也可以通过[独立窗口 SDK](./desktop/sdk/README.md)接入已有 Electron、Tauri、Qt、.NET 客户端。
-
-先按 SDK 文档构建运行时与调用库，再由宿主管理窗口。下面以 Electron 主进程 / Node.js 为例，三个路径参数均使用绝对路径：
-
-```js
-import { Dimina } from '@dimina/desktop-sdk'
-
-const dimina = await Dimina.start({ runtimePath, packagesDir, dataDir })
-await dimina.openApp({ appId: 'your-app-id' })
-// 客户端退出时调用 await dimina.dispose() 回收运行时
-```
-
-桌面端内置 HTTP 请求与上传下载、TCP/UDP、存储、文件选择、剪贴板、扫码和 BLE，沿用移动 SDK 的 `wx` API 入口。系统依赖与具体能力范围见[桌面原生 API 说明](./desktop/sdk/Native-APIs.md)。当前提供独立窗口模式，暂不支持嵌入宿主窗口或面板。
+- [Flutter 宿主接入说明](./docs/Flutter-Integration.md)
 
 ## 能力边界与延伸阅读
 

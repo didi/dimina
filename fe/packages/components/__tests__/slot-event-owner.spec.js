@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createApp, defineComponent, h, nextTick, provide, ref, renderSlot, withCtx } from 'vue'
 import CoverView from '../src/component/cover-view/CoverView.vue'
 import View from '../src/component/view/View.vue'
+import * as events from '../src/common/events.js'
 
 let app
 beforeEach(() => {
@@ -83,16 +84,27 @@ function mountPopup(wrap) {
 }
 
 describe('event ownership through slots', () => {
-	it('mounts forwarding components without Object.hasOwn on WebView 83', () => {
+	it('resolves forwarding event owners without Object.hasOwn on WebView 83', async () => {
 		const descriptor = Object.getOwnPropertyDescriptor(Object, 'hasOwn')
-		try {
-			Object.defineProperty(Object, 'hasOwn', { value: undefined, configurable: true })
-			const { host } = mountPopup(content => h(ThemedForwarder, null, { default: content }))
-			expect(host.querySelector('#icon')?.textContent).toBe('×')
-		}
-		finally {
-			Object.defineProperty(Object, 'hasOwn', descriptor)
-		}
+		const originalUseInfo = events.useInfo
+		// jsdom 31 本身依赖 Object.hasOwn；仅在框架解析事件归属时模拟旧 WebView，
+		// 避免破坏 DOM 测试环境，同时保留真实组件挂载和事件派发。
+		const useInfo = vi.spyOn(events, 'useInfo').mockImplementation((...args) => {
+			try {
+				Object.defineProperty(Object, 'hasOwn', { value: undefined, configurable: true })
+				return originalUseInfo(...args)
+			}
+			finally {
+				Object.defineProperty(Object, 'hasOwn', descriptor)
+			}
+		})
+		const { host } = mountPopup(content => h(ThemedForwarder, null, { default: content }))
+		expect(useInfo).toHaveBeenCalled()
+		expect(host.querySelector('#icon')?.textContent).toBe('×')
+		await tap(host.querySelector('#icon'))
+		expect(window.__message.send).toHaveBeenCalledWith(expect.objectContaining({
+			body: expect.objectContaining({ moduleId: 'popup-instance', methodName: 'closePopup' }),
+		}))
 	})
 
 	it.each([

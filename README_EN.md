@@ -15,7 +15,6 @@
 <p align="center">
   <a href="https://didi.github.io/dimina/"><strong>Live Demo</strong></a> ·
   <a href="#quick-start">Quick Start</a> ·
-  <a href="#desktop-integration">Desktop Integration</a> ·
   <a href="./docs/API-Reference.md">Capability Reference</a> ·
   <a href="./CHANGELOG.md">Changelog</a> ·
   <a href="./docs/README.md">Architecture</a> ·
@@ -24,9 +23,11 @@
 
 Dimina is Didi's open-source framework for running mini programs across platforms. It compiles WXML, WXSS, and JavaScript / TypeScript source into a unified bundle, then loads it through Android, iOS, Harmony, Web, and desktop containers. You can integrate an existing mini program into a mobile app or open it in a standalone desktop window, keeping familiar mini program syntax.
 
-## One mini program, running on three native platforms
+## One mini program across mobile, Web, and desktop
 
-The screenshots below show the same “Official Components Showcase” example running on Android, iOS, and Harmony. To try it yourself, open the [live demo](https://didi.github.io/dimina/) in your browser.
+The same mini program source can run inside Android, iOS, and Harmony apps, in a browser, or in standalone windows opened by macOS, Windows, and Linux desktop clients. A shared API entry point connects mini programs to storage, networking, files, and devices according to host and platform capabilities.
+
+The screenshots below show the repository's “Official Components Showcase” example on the three mobile platforms. For Web, open the [live demo](https://didi.github.io/dimina/). For desktop, run the [desktop example](./desktop/README.md) or integrate the [desktop SDK](./desktop/sdk/README.md) into an existing client.
 
 <table width="100%">
   <thead>
@@ -91,24 +92,8 @@ When you are ready to integrate a bundle into a native app, start with the guide
 - [Android integration guide](./android/README.md)
 - [iOS integration guide](./iOS/README.md)
 - [Harmony integration guide](./harmony/dimina/README.md)
-- [Flutter host integration guide](./docs/Flutter-Integration.md)
 - [Desktop client integration guide](./docs/Desktop-Integration.md)
-
-## Desktop integration
-
-The desktop runtime targets macOS, Windows, and Linux and loads the same Dimina compilation output. Run the [desktop example](./desktop/README.md), or use the [standalone window SDK](./desktop/sdk/README.md) from an existing Electron, Tauri, Qt, or .NET client.
-
-Build the runtime and language binding following the SDK guide. For Electron's main process / Node.js, use absolute paths for all three directory and executable options:
-
-```js
-import { Dimina } from '@dimina/desktop-sdk'
-
-const dimina = await Dimina.start({ runtimePath, packagesDir, dataDir })
-await dimina.openApp({ appId: 'your-app-id' })
-// When the host exits, call await dimina.dispose() to release the runtime.
-```
-
-Built-in capabilities include HTTP requests and file transfers, TCP/UDP, storage, file selection, clipboard, scanning, and BLE, using the mobile SDK's `wx` API names. See [desktop native APIs](./desktop/sdk/Native-APIs.md) for system requirements and supported behavior. Only standalone windows are currently provided; embedding in a host window or panel is not available.
+- [Flutter host integration guide](./docs/Flutter-Integration.md)
 
 ## Capability boundaries and further reading
 

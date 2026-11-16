@@ -52,6 +52,11 @@ describe('rpx conversion', () => {
 		expect(transformRpx('width:750rpx;margin-left:-7.5rpx;font-size:1rem'))
 			.toBe('width:100vw;margin-left:-1vw;font-size:1rem')
 	})
+
+	it('converts rpx values without a leading zero', () => {
+		expect(transformRpx('border-width:.5rpx;margin:-.5rpx +.5rpx'))
+			.toBe('border-width:0.066667vw;margin:-0.066667vw 0.066667vw')
+	})
 })
 
 describe('parsePath', () => {

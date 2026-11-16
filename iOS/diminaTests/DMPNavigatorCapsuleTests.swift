@@ -721,6 +721,7 @@ final class DMPNavigatorCapsuleTests: XCTestCase {
         }
         XCTAssertTrue(launched)
         let root = try XCTUnwrap(fixture.navigationController.topViewController)
+        let rootRecord = try XCTUnwrap(fixture.navigator.getTopPageRecord())
         await showPage { await fixture.navigator.navigateTo(to: "pages/detail/index", animated: false) }
         await showPage { await fixture.navigator.navigateTo(to: "pages/detail/index", animated: false) }
         let returned = expectation(description: "native root didShow")
@@ -730,9 +731,12 @@ final class DMPNavigatorCapsuleTests: XCTestCase {
             returned.fulfill()
         }
         XCTAssertTrue(fixture.navigator.navigateBackPage(delta: Int.max))
-        await fulfillment(of: [returned], timeout: 1)
+        // This pop is animated. A loaded simulator can take more than one second to
+        // deliver didShow; wait for that event before checking the completed route.
+        await fulfillment(of: [returned], timeout: 10)
         XCTAssertTrue(fixture.navigationController.topViewController === root)
-        XCTAssertNotNil(fixture.navigator.getTopPageRecord())
+        XCTAssertTrue(fixture.navigator.getTopPageRecord() === rootRecord)
+        XCTAssertEqual(fixture.app.getCurrentWebViewId(), rootRecord.webViewId)
         XCTAssertFalse(fixture.navigator.navigateBackPage())
         XCTAssertTrue(fixture.navigationController.topViewController === root)
     }

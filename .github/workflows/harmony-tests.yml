@@ -102,7 +102,21 @@ jobs:
         with:
           ref: ${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.ref }}
 
-      - name: Validate Harmony release version and credentials
+      # Use this run's automation while building the exact release tag, including
+      # old tags that do not yet contain the prerelease preparation helper.
+      - name: Checkout Harmony release automation
+        if: inputs.release_tag != ''
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: .release-automation
+          sparse-checkout: |
+            harmony/scripts/prepare-release.mjs
+            harmony/scripts/publish-ci.sh
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Prepare Harmony release version and validate credentials
         if: inputs.release_tag != ''
         env:
           RELEASE_TAG: ${{ inputs.release_tag }}
@@ -114,20 +128,7 @@ jobs:
           test -n "$HARMONY_OHPM_PRIVATE_KEY" || { echo 'Missing HARMONY_OHPM_PRIVATE_KEY secret' >&2; exit 1; }
           test -n "$HARMONY_OHPM_KEY_PASSPHRASE" || { echo 'Missing HARMONY_OHPM_KEY_PASSPHRASE secret' >&2; exit 1; }
           test -n "$HARMONY_OHPM_PUBLISH_ID" || { echo 'Missing HARMONY_OHPM_PUBLISH_ID secret' >&2; exit 1; }
-          python3 - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          tag = os.environ['RELEASE_TAG']
-          core = json.loads(Path('harmony/dimina/oh-package.json5').read_text())
-          adapter = json.loads(Path('harmony/map_amap/oh-package.json5').read_text())
-          if tag != 'v' + core['version'] or adapter['version'] != core['version']:
-              raise SystemExit('Release tag, core version and AMap adapter version must match')
-          if adapter['dependencies'][core['name']] != core['version']:
-              raise SystemExit('AMap adapter must depend on the released core version')
-          print(f'Validated Harmony release {tag}')
-          PY
+          node .release-automation/harmony/scripts/prepare-release.mjs --tag "$RELEASE_TAG"
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -257,18 +258,6 @@ jobs:
           --analyze=normal
           --parallel
           --no-daemon
-
-      # Older release tags do not contain the CI authentication helper. Always
-      # use automation from this run's commit while building the exact tag above.
-      - name: Checkout Harmony release automation
-        if: inputs.release_tag != ''
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.sha }}
-          path: .release-automation
-          sparse-checkout: harmony/scripts/publish-ci.sh
-          sparse-checkout-cone-mode: false
-          persist-credentials: false
 
       - name: ${{ inputs.dry_run && 'Validate OHPM publishing credentials (dry run)' || 'Publish Harmony SDK packages to OHPM' }}
         if: inputs.release_tag != ''

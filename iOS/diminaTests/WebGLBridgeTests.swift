@@ -59,14 +59,26 @@ extension DMPUIIntegrationTests {
             ]))
             let engine = service.getEngine()
             let label = "\(contextType)-\(preserveDrawingBuffer ? "preserved" : "default")"
+            let initialPublished = XCTestExpectation(description: "initial WebGL frame published")
+            engine.registerMethod(name: "__initialFramePublished") { _ in
+                initialPublished.fulfill()
+                return nil
+            }
             let first = try await evaluate(service, """
                 globalThis.frameCanvas = wx.createCanvas(); frameCanvas.width = 256; frameCanvas.height = 256;
                 globalThis.frameGL = frameCanvas.getContext('\(contextType)'\(preserveDrawingBuffer ? ", {preserveDrawingBuffer: true}" : ""));
                 if (!frameGL) throw new Error('WebGL context unavailable');
                 \(contextType == "webgl2" ? "frameGL.clearBufferfv(frameGL.COLOR, 0, new Float32Array([1, 0, 1, 1]));" : "frameGL.clearColor(1, 0, 1, 1); frameGL.clear(frameGL.COLOR_BUFFER_BIT);")
-                return {preserveDrawingBuffer: frameGL.getContextAttributes().preserveDrawingBuffer};
+                const attributes = frameGL.getContextAttributes();
+                frameCanvas.flushOperations(() => __initialFramePublished());
+                return {preserveDrawingBuffer: attributes.preserveDrawingBuffer};
                 """)
             #expect(first["preserveDrawingBuffer"] as? Bool == preserveDrawingBuffer)
+            // WebKit RAFs can run before the Service's queued Canvas publication.
+            // The flush callback acknowledges Render's present(), then RAFs wait
+            // for compositing. A synchronous context query alone is not a present.
+            let initialResult = await XCTWaiter.fulfillment(of: [initialPublished], timeout: Self.presentationTimeout)
+            try #require(initialResult == .completed)
             try await waitForPresentation(webView, label: "\(label)-initial")
             let initial = try await snapshotCenter(webView, label: "\(label)-initial")
             print("WEBGL_FRAME_INITIAL=\(label):\(initial)")
