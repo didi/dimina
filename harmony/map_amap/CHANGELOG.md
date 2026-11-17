@@ -1,5 +1,9 @@
 # 更新日志
 
+## [v1.9.0-beta.2] 2026-11-17
+
+- 与核心 SDK 同步升级到 `1.9.0-beta.2`，并精确依赖 `@didi-dimina/dimina` `1.9.0-beta.2`。
+
 ## [v1.9.0-beta.1] 2026-11-15
 
 - 与核心 SDK 同步升级到 `1.9.0-beta.1`，并精确依赖 `@didi-dimina/dimina` `1.9.0-beta.1`。

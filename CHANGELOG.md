@@ -1,5 +1,13 @@
 # Changelog
 
+## [v1.9.0-beta.2] 2026-11-17
+
+- Android、iOS 和 HarmonyOS 支持通过 `dimina-image://` 协议复用宿主图片资源（#394）。
+- 修复 HarmonyOS HAR 发布时缺少精确预发布版本更新日志的问题（#390）。
+- Desktop SDK 的 macOS 发布调整为仅提供 ARM64（#391）。
+- Android、iOS、HarmonyOS 核心 SDK 与高德地图适配器同步升级到 `1.9.0-beta.2`；Desktop SDK 在发布时从标签注入版本。
+- 编译器和 JSSDK 继续采用独立版本；宿主图片能力需同步更新原生 SDK 和渲染资源。
+
 ## [v1.9.0] 2026-11-13
 
 ### 新增

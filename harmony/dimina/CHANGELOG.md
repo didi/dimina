@@ -1,5 +1,11 @@
 # Changelog
 
+## [v1.9.0-beta.2] 2026-11-17
+
+- 与 Android、iOS 和 Desktop SDK 统一预发布版本号为 `1.9.0-beta.2`，核心 SDK 与高德地图扩展模块同步升级。
+- 支持通过 `dimina-image://` 协议复用宿主图片资源，使用时需同步更新渲染资源（#394）。
+- 补齐 HAR 的精确预发布版本更新日志，满足 OHPM 发布校验（#390）。
+
 ## [v1.9.0-beta.1] 2026-11-15
 
 - 与 Android、iOS 和 Desktop SDK 统一预发布版本号为 `1.9.0-beta.1`。
