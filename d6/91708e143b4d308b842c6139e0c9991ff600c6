@@ -1,0 +1,14 @@
+fe/packages/compiler/package.json
+  h_26bc2624df64e5 6
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "d691708e143b4d308b842c6139e0c9991ff600c6",
+  "prompts": {},
+  "humans": {
+    "h_26bc2624df64e5": {
+      "author": "doslin"
+    }
+  }
+}
