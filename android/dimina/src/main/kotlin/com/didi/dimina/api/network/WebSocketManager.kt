@@ -17,6 +17,7 @@ import java.net.InetSocketAddress
 import java.net.Proxy
 import java.net.Socket
 import java.util.Base64
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import javax.net.SocketFactory
@@ -322,9 +323,8 @@ class WebSocketManager internal constructor(
     /**
      * Synchronous, silent teardown of one owner's entire socket state.
      *
-     * Blocks the caller until the teardown has actually run on [executor]: callers (MiniApp.clear())
-     * destroy the JsCore immediately afterward, so a merely-enqueued-but-not-yet-run cleanup could
-     * race a dying JsCore (sockets/timers left alive, or a stray event delivered post-destroy).
+     * Blocks the caller until teardown has run on [executor]. Activity lifecycle code must use
+     * [disposeOwnerAsync] and wait off the main thread instead.
      */
     fun disposeOwner(appId: String) {
         awaitOnExecutor {
@@ -333,13 +333,42 @@ class WebSocketManager internal constructor(
         }
     }
 
-    /** Disposes every owner (used by MiniApp.clearAll()); see [disposeOwner] for the blocking contract. */
+    /** Synchronous teardown of every owner; Activity lifecycle code uses [disposeAllAsync]. */
     fun disposeAll() {
         awaitOnExecutor {
             val allOwners = owners.values.toList()
             owners.clear()
             allOwners.forEach { silentlyTearDown(it) }
         }
+    }
+
+    /**
+     * Queue teardown without blocking Activity focus/draw dispatch. The completion is a barrier
+     * for native runtime destruction, not a timer: it settles only after sockets are cancelled.
+     * Submission stays on the caller's thread so a rapid reopen queues its new owner after this
+     * teardown, even while the executor is busy.
+     */
+    internal fun disposeOwnerAsync(appId: String): CompletableFuture<Unit> = disposeAsync {
+        owners.remove(appId)?.let(::silentlyTearDown)
+    }
+
+    internal fun disposeAllAsync(): CompletableFuture<Unit> = disposeAsync {
+        val allOwners = owners.values.toList()
+        owners.clear()
+        allOwners.forEach(::silentlyTearDown)
+    }
+
+    private fun disposeAsync(task: () -> Unit): CompletableFuture<Unit> {
+        val completion = CompletableFuture<Unit>()
+        executor.execute {
+            try {
+                task()
+                completion.complete(Unit)
+            } catch (error: Exception) {
+                completion.completeExceptionally(error)
+            }
+        }
+        return completion
     }
 
     /** Runs [task] on [executor] and blocks the calling thread until it has actually completed. */

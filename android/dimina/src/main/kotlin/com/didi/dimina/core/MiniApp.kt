@@ -530,9 +530,15 @@ class MiniApp private constructor() {
         synchronized(this) {
             pendingAppShowOptions.remove(appId)
         }
-        // Silently tear down this owner's WebSocket connections/timers/listeners first,
-        // ahead of JsCore.destroy(), so no transport event can race into a dying JsCore.
-        com.didi.dimina.api.network.WebSocketManager.shared.disposeOwner(appId)
+        // Submit socket teardown before a rapid reopen can register the next owner. Never wait
+        // here: clear() runs during Activity destruction, when Android still needs to draw and
+        // transfer focus. Detach this runtime and reject late callbacks immediately; only its
+        // message thread waits for socket cleanup before destroying the native engine.
+        val socketDisposal = com.didi.dimina.api.network.WebSocketManager.shared.disposeOwnerAsync(appId)
+        jsCoreMap.remove(appId)?.let { jsCore ->
+            LogUtils.d(tag, "Scheduling JsCore destruction for appId: $appId")
+            jsCore.destroyAfterMessages { socketDisposal.join() }
+        }
 
         // 清理第三方扩展的持续订阅
         apiRegistry.clearExtSubscriptions(appId)
@@ -544,13 +550,6 @@ class MiniApp private constructor() {
         // 正在后台写盘的 canvas 导出属于这一代 runtime；换代之后它的回调没有接收方，
         // 已经发布的文件也不会有人来取。
         com.didi.dimina.api.media.CanvasExportGeneration.invalidate(appId)
-
-        // Detach this generation immediately so a rapid reopen creates a fresh runtime, but place
-        // native engine destruction behind lifecycle messages already queued by Bridge.destroy().
-        jsCoreMap.remove(appId)?.let { jsCore ->
-            LogUtils.d(tag, "Scheduling JsCore destruction for appId: $appId")
-            jsCore.destroyAfterMessages()
-        }
 
         // Clear Bridge list for this appId
         bridgeListMap.remove(appId)?.let { bridges ->
@@ -574,8 +573,8 @@ class MiniApp private constructor() {
         (jsCoreMap.keys + bridgeListMap.keys).toSet().forEach { clear(it) }
         retentionPressure = false
         retentionHandler.removeCallbacks(retentionTask)
-        // Silently tear down every owner's WebSocket state before destroying JsCore instances.
-        com.didi.dimina.api.network.WebSocketManager.shared.disposeAll()
+        // Also discard owner state with no live runtime; clear() installed each runtime's barrier.
+        com.didi.dimina.api.network.WebSocketManager.shared.disposeAllAsync()
         deviceNetworkApi.clearAll()
         fileApi.clearAll()
 

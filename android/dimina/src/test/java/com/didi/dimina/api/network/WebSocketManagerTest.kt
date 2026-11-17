@@ -1936,7 +1936,76 @@ class WebSocketManagerTest {
         assertEquals("offSocketMessage:ok", errMsgOf(responses, "wrap-success"))
     }
 
-    // ---- disposeOwner/disposeAll must actually block for the teardown ----
+    // ---- Activity teardown must never wait for a busy socket executor ----
+
+    @Test
+    fun asyncOwnerDisposalReturnsWhileTheExecutorIsBusy() = verifyAsyncDisposal(false)
+
+    @Test
+    fun asyncGlobalDisposalReturnsWhileTheExecutorIsBusy() = verifyAsyncDisposal(true)
+
+    private fun verifyAsyncDisposal(all: Boolean) {
+        val pending = java.util.concurrent.LinkedBlockingQueue<() -> Unit>()
+        val queuedManager = WebSocketManager(transport, scheduler, clock, object : SerialExecutor {
+            override fun execute(task: () -> Unit) { pending.add(task) }
+        })
+        val returned = java.util.concurrent.CountDownLatch(1)
+        val result = java.util.concurrent.atomic.AtomicReference<java.util.concurrent.CompletableFuture<Unit>>()
+        val caller = Thread {
+            result.set(if (all) queuedManager.disposeAllAsync() else queuedManager.disposeOwnerAsync("app1"))
+            returned.countDown()
+        }
+        caller.start()
+        try {
+            assertTrue("Activity caller must return before the socket executor can run cleanup",
+                returned.await(500, java.util.concurrent.TimeUnit.MILLISECONDS))
+            assertFalse("Cleanup barrier must not finish before teardown actually runs", result.get().isDone)
+        } finally {
+            pending.poll(2, java.util.concurrent.TimeUnit.SECONDS)?.invoke()
+            caller.join(2_000)
+        }
+        assertTrue(result.get().isDone)
+        result.get().join()
+    }
+
+    @Test
+    fun queuedDisposalPreservesOtherOwnersAndARapidReopen() {
+        val executor = DeferringSerialExecutor()
+        manager = WebSocketManager(transport, scheduler, clock, executor)
+        manager.updateEmitter("app1", events::add)
+        manager.updateEmitter("app2", events::add)
+        manager.connectSocket("app1", "0", connectParams("old"), responses::add)
+        manager.connectSocket("app2", "0", connectParams("other"), responses::add)
+        scheduler.runDue()
+        val old = transport.connections[0]
+        val other = transport.connections[1]
+        old.callbacks.onOpen(emptyMap(), TransportProfileHints())
+        other.callbacks.onOpen(emptyMap(), TransportProfileHints())
+        executor.deferring = true
+
+        val disposal = manager.disposeOwnerAsync("app1")
+        manager.updateEmitter("app1", events::add)
+        manager.connectSocket("app1", "0", connectParams("fresh"), responses::add)
+        assertFalse(disposal.isDone)
+        assertFalse(old.cancelCalled)
+        executor.drain()
+        executor.deferring = false
+        scheduler.runDue()
+
+        disposal.join()
+        assertTrue(old.cancelCalled)
+        assertFalse("Another mini program's connection must survive", other.cancelCalled)
+        val fresh = transport.connections.last()
+        assertTrue(old !== fresh)
+        assertFalse("Old cleanup must not cancel the reopened owner", fresh.cancelCalled)
+        fresh.callbacks.onOpen(emptyMap(), TransportProfileHints())
+        onEvent("message", "app1", true, listenParams("fresh", "fresh-message"))
+        old.callbacks.onMessageText("stale")
+        fresh.callbacks.onMessageText("current")
+        assertEquals(listOf("current"), argsFor(events, "fresh-message").map { it.getString("data") })
+    }
+
+    // Synchronous entry points retain their contract for callers that explicitly need it.
 
     @Test
     fun disposeOwnerBlocksTheCallerUntilTeardownActuallyRunsOnTheExecutor() {

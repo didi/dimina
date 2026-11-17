@@ -276,9 +276,19 @@ class JsCore {
      * queued for this runtime, so App.onHide and every terminal API callback still reach the page
      * before the engine goes away.
      */
-    fun destroyAfterMessages() {
+    fun destroyAfterMessages() = destroyAfterMessages {}
+
+    internal fun destroyAfterMessages(beforeDestroy: () -> Unit) {
         runtimeMessageQueue.closeAfterPending {
-            destroyEngine()
+            // Resource barriers may wait for another executor. This action runs on messageThread,
+            // while closing the queue above immediately rejects late transport/API callbacks.
+            try {
+                beforeDestroy()
+            } catch (error: Exception) {
+                LogUtils.e(tag, "Error waiting for runtime resource cleanup: ${error.message}")
+            } finally {
+                destroyEngine()
+            }
         }
     }
 

@@ -83,7 +83,7 @@ class MiniProgramRestartTaskTest {
                   if(options.relaunch === "1") wx.reLaunch({url:"/pages/index/index"});
                 }})});
             """.trimIndent(),
-            "main/pages_index_index.js" to """modDefine("pages/index/index",function(){Module({path:"pages/index/index",id:"restart-test",render:()=>_createBlock(_resolveComponent("dd-view"),{},{default:_withCtx(()=>[_createTextVNode("$title")]),_:1})})});""",
+            "main/pages_index_index.js" to """modDefine("pages/index/index",function(){Module({path:"pages/index/index",id:"restart-test",usingComponents:{},render:()=>_createBlock(_resolveComponent("dd-view"),{},{default:_withCtx(()=>[_createTextVNode("$title")]),_:1})})});""",
             "main/app.css" to "", "main/pages_index_index.css" to "",
         )
         ZipOutputStream(zip.outputStream()).use { out -> files.forEach { (name, content) ->
