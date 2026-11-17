@@ -117,8 +117,9 @@ Dimina's architecture is informed by the [Mini App Standard White Paper](https:/
 
 <details open>
   <summary>Come say hello in our WeChat group</summary>
-  <br>
-  <img src="./static/wechat.png" alt="QR code for the Dimina WeChat community" width="240">
+  <p align="center">
+    <a href="./static/wechat.jpg"><img src="./static/wechat.jpg" alt="QR code for the Dimina WeChat community" width="240"></a>
+  </p>
 </details>
 
 ## Support the project
@@ -126,7 +127,7 @@ Dimina's architecture is informed by the [Mini App Standard White Paper](https:/
 If Dimina has been helpful to you, you can scan the QR code below with WeChat to support its ongoing maintenance. Thank you for your support!
 
 <p align="center">
-  <a href="./static/donate.png"><img src="./static/donate.png" alt="dos1in's WeChat donation QR code to support Dimina's maintenance" width="360"></a>
+  <a href="./static/donate.png"><img src="./static/donate.png" alt="dos1in's WeChat donation QR code to support Dimina's maintenance" width="300"></a>
 </p>
 
 ## License
