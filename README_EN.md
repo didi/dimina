@@ -121,6 +121,14 @@ Dimina's architecture is informed by the [Mini App Standard White Paper](https:/
   <img src="./static/wechat.png" alt="QR code for the Dimina WeChat community" width="240">
 </details>
 
+## Support the project
+
+If Dimina has been helpful to you, you can scan the QR code below with WeChat to support its ongoing maintenance. Thank you for your support!
+
+<p align="center">
+  <a href="./static/donate.png"><img src="./static/donate.png" alt="dos1in's WeChat donation QR code to support Dimina's maintenance" width="360"></a>
+</p>
+
 ## License
 
 Dimina is open source under the [Apache License 2.0](./LICENSE).

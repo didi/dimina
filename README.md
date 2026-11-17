@@ -121,6 +121,14 @@ Dimina 的架构参考了[小程序标准化白皮书](https://www.w3.org/TR/min
   <img src="./static/wechat.png" alt="Dimina 微信交流群二维码" width="240">
 </details>
 
+## 赞赏支持
+
+如果 Dimina 对你有所帮助，欢迎通过微信扫码赞赏，支持星河的持续维护。感谢你的支持！
+
+<p align="center">
+  <a href="./static/donate.png"><img src="./static/donate.png" alt="dos1in 的微信赞赏码，支持星河持续维护" width="360"></a>
+</p>
+
 ## 开源协议
 
 Dimina 使用 [Apache License 2.0](./LICENSE) 开源。
