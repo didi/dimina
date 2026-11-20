@@ -144,7 +144,7 @@ try await DMPAppManager.sharedInstance().uninstallMiniProgram(
 
 #### 调试模式与 vConsole
 
-iOS Debug 构建会自动尝试启用 vConsole；也可以通过 `appConfig.isDebugMode = true` 在指定小程序上启用。启用后，SDK 会在加载 pageFrame 时追加 `?vconsole=1`。
+在启动前设置 `appConfig.isDebugMode = true`，可为指定小程序启用 vConsole。启用后，SDK 会在加载 pageFrame 时追加 `?vconsole=1`。SDK 的 Debug 构建还会在 iOS 16.4 及以上将 WKWebView 标为可检查，供 Safari Web Inspector 调试渲染层。
 
 JSSDK 直接依赖 vConsole，并随 pageFrame 静态同步打包；只有检测到该启用标记时，pageFrame 才会在 render 初始化前同步初始化 vConsole。
 
