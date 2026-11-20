@@ -1,0 +1,47 @@
+harmony/scripts/entry-options.test.mjs
+  dbe6135c9f30a062 26
+desktop/sdk_control.go
+  dbe6135c9f30a062 37-40,44-48,62-65,78-87,165,170-180,268-274,291,297,308,311,315,320
+harmony/scripts/runtime-diagnostics.test.mjs
+  dbe6135c9f30a062 1-49
+desktop/diagnostics.go
+  dbe6135c9f30a062 1-202
+desktop/sdk/tauri/src/lib.rs
+  dbe6135c9f30a062 4-5,121-136,160-169
+harmony/scripts/package-launch.test.mjs
+  dbe6135c9f30a062 236
+desktop/diagnostics_test.go
+  dbe6135c9f30a062 1-68
+harmony/scripts/file-binary.test.mjs
+  dbe6135c9f30a062 20,36-40,42,60-61,63,66-82
+harmony/scripts/video-decoder.test.mjs
+  dbe6135c9f30a062 100
+harmony/scripts/canvas-sync.test.mjs
+  dbe6135c9f30a062 37,113
+harmony/scripts/retained-pages.test.mjs
+  dbe6135c9f30a062 130
+desktop/main.go
+  dbe6135c9f30a062 39-46,66,133-136,256-262,265,277,281-283,332,344-345,347,362,393,395-396,408-428,442,453-455,472,493,498-505
+desktop/sdk/tauri/src/runtime.rs
+  dbe6135c9f30a062 23-30,343,383-395
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "6e0f182b5ecf8ea7d2c2829f65fd23d042eb28eb",
+  "prompts": {
+    "dbe6135c9f30a062": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1ce92-30b8-71e3-99e5-0124349f9231",
+        "model": "gpt-6.2-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 3487,
+      "total_deletions": 31,
+      "accepted_lines": 10532,
+      "overriden_lines": 26
+    }
+  }
+}
