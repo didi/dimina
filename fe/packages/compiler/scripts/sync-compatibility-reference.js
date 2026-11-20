@@ -14,26 +14,30 @@ const content = fs.readFileSync(docPath, 'utf-8')
 
 const reference = {
 	supportedBuiltinComponents: parseSingleColumnTable(content, '组件列表'),
-	supportedWxApis: parseApiTable(content),
+	apiPlatforms: parseApiTable(content),
 }
+const supportedWxApis = Object.keys(reference.apiPlatforms)
 
 const output = `// Generated from docs/API-Reference.md.
 // Keep this file in sync by running: pnpm --filter @dimina/compiler sync:compat
 
 const supportedBuiltinComponents = ${formatArray(reference.supportedBuiltinComponents)}
 
-const supportedWxApis = ${formatArray(reference.supportedWxApis)}
+const supportedWxApis = ${formatArray(supportedWxApis)}
+
+const wxApiPlatforms = ${formatApiPlatforms(reference.apiPlatforms)}
 
 export {
 \tsupportedBuiltinComponents,
 \tsupportedWxApis,
+\twxApiPlatforms,
 }
 `
 
 const currentOutput = fs.existsSync(outputPath)
 	? fs.readFileSync(outputPath, 'utf-8')
 	: ''
-const summary = `${reference.supportedBuiltinComponents.length} components, ${reference.supportedWxApis.length} APIs`
+const summary = `${reference.supportedBuiltinComponents.length} components, ${supportedWxApis.length} APIs`
 
 if (checkOnly) {
 	if (currentOutput !== output) {
@@ -69,26 +73,36 @@ function parseSingleColumnTable(markdown, heading) {
 
 function parseApiTable(markdown) {
 	const section = getSectionContent(markdown, 'API 列表')
-	const apis = []
-	let apiColumnIndex = -1
+	const apis = Object.create(null)
+	const platforms = ['Android', 'iOS', 'Harmony', 'Web']
+	let header
 
 	for (const row of getMarkdownRows(section)) {
 		if (row.includes('API 名称')) {
-			apiColumnIndex = row.indexOf('API 名称')
+			header = row
 			continue
 		}
 
-		if (apiColumnIndex === -1 || row.some(isDividerCell)) {
+		if (!header || row.some(isDividerCell)) {
 			continue
 		}
 
-		const apiName = stripMarkdownCode(row[apiColumnIndex])
+		const apiName = stripMarkdownCode(row[header.indexOf('API 名称')])
 		if (apiName) {
-			apis.push(apiName)
+			apis[apiName] = Object.fromEntries(platforms.map(platform => {
+				const value = row[header.indexOf(platform)]
+				return [platform, value === '✓' ? 'supported' : value === '✗' ? 'unavailable' : 'unverified']
+			}))
 		}
 	}
 
 	return apis
+}
+
+function formatApiPlatforms(apis) {
+	const lines = Object.entries(apis).sort(([a], [b]) => a.localeCompare(b, 'en'))
+		.map(([name, platforms]) => '\t' + JSON.stringify(name) + ': ' + JSON.stringify(platforms) + ',')
+	return '{\n' + lines.join('\n') + '\n}'
 }
 
 function getSectionContent(markdown, heading) {

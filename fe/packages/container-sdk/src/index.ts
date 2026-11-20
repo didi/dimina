@@ -8,6 +8,7 @@ import { QueryRouter } from './utils/queryRouter.js'
 // 而 dist 分发下深路径 import 不可达。
 export { QueryRouter }
 export type { RetentionPolicy } from './core/retention.js'
+export type { LaunchDiagnosticEvent, LaunchDiagnosticsOptions, LaunchDiagnosticsSnapshot } from './core/launchDiagnostics.js'
 
 export { createDefaultShell } from './defaultShell.js'
 export type { DefaultShell, DefaultShellOptions } from './defaultShell.js'
@@ -34,12 +35,13 @@ export function createContainer(options: CreateContainerOptions | Record<string,
 		appManager.registerExtModule(name, handler)
 	}
 
-	const application = new Application({ shell, resourceBaseUrl, pageFrameUrl, virtualFilePrefix, apiNamespaces, urlSync, instanceKey, storageSync, runtimeAssets, getAppInfo, onAppLaunchError, appManager, allowedOrigins, synchronousApiUrl, hostSystemInfo, onAppWillDismiss, onAppDismiss, appTransitions })
+	const application = new Application({ shell, resourceBaseUrl, pageFrameUrl, virtualFilePrefix, apiNamespaces, urlSync, instanceKey, storageSync, runtimeAssets, getAppInfo, onAppLaunchError, appManager, allowedOrigins, synchronousApiUrl, hostSystemInfo, onAppWillDismiss, onAppDismiss, appTransitions, launchDiagnostics: options.launchDiagnostics })
 	appManager.configureRetention(retentionPolicy, application)
 	mount.appendChild(application.el)
 
 	return {
 		application,
+		getLaunchDiagnostics: () => application.launchDiagnostics?.snapshot(),
 		configureRetention: policy => appManager.configureRetention(policy, application),
 		notifyMemoryPressure: () => appManager.retention.memoryPressure(),
 

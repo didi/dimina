@@ -27,6 +27,7 @@ if (!selectedCases.length) {
 }
 
 const browser = await chromium.launch({
+	executablePath: process.env.DIMINA_BENCH_CHROMIUM,
 	headless: process.env.HEADLESS !== '0',
 	args: [
 		'--disable-background-timer-throttling',
@@ -60,6 +61,7 @@ const result = {
 		warmup: config.warmup,
 		iterations: config.iterations,
 		url: config.url,
+		appTransitions: process.env.DIMINA_BENCH_APP_TRANSITIONS !== '0',
 	},
 	environment: {
 		node: process.version,
@@ -155,6 +157,7 @@ function createCaseUrl(name, extra = {}) {
 	const url = new URL(config.url)
 	url.searchParams.set('case', name)
 	url.searchParams.set('mode', selectedMode)
+	if (process.env.DIMINA_BENCH_APP_TRANSITIONS === '0') url.searchParams.set('appTransitions', '0')
 	url.searchParams.set('warmup', String(extra.warmup ?? config.warmup))
 	url.searchParams.set('iterations', String(extra.iterations ?? config.iterations))
 	url.searchParams.set('_run', String(extra.run ?? Date.now()))

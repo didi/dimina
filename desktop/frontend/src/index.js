@@ -71,6 +71,7 @@ async function openMiniProgram(bootstrap) {
 	document.title = bootstrap.app.name
 	const container = createContainer({
 		mount: root,
+		launchDiagnostics: bootstrap.launchDiagnostics ? { versions: { host: desktopConfig.version } } : undefined,
 		appTransitions: false,
 		urlSync: false,
 		resourceBaseUrl: bootstrap.resourceBaseUrl,
@@ -83,6 +84,9 @@ async function openMiniProgram(bootstrap) {
 		onAppDismiss: () => { if (!container.application.views.length) window.mygo.window.close() },
 		onAppLaunchError: error => showError(error || new Error('小程序启动失败')),
 	})
+	if (bootstrap.launchDiagnostics) {
+		window.diminaGetLaunchDiagnostics = () => container.getLaunchDiagnostics()
+	}
 	registerDesktopApis(container, bootstrap.runtimeApis)
 	if (Array.isArray(bootstrap.nativeApis)) registerHostApis(container, bootstrap.nativeApis)
 	window.mygo.on('desktop:native-apis', names => registerHostApis(container, names))

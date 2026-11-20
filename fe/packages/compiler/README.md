@@ -72,6 +72,7 @@ Usage: dmcc build [选项]
   -s, --target-path <path>   编译产物存放路径（默认为当前目录）
   -w, --watch                启用改动监听（实时编译）
   --sourcemap                生成 logic.js.map，用于原生逻辑层断点调试
+  --compatibility-report    生成静态兼容报告，仅支持完整构建
   --no-app-id-dir            产物根目录不包含appId，默认为 false
   -h, --help                 显示帮助信息
 ```
@@ -100,6 +101,21 @@ dmcc build -c ./miniapp -s ./dist --sourcemap
 
 Harmony 端的虚拟脚本路径、VS Code attach 与 HDC 端口转发配置见
 [JavaScript 断点调试](../../../docs/JavaScript-Debugging.md)。
+
+### 兼容报告
+
+```sh
+dmcc build -c ./miniapp -s ./dist --compatibility-report
+```
+
+构建成功后，在产物根目录（默认 `./dist/<appId>/`）生成 `dimina-compatibility-report.json`。
+报告列出直接引用的 `wx` API、模板中识别到的基础组件、源码位置和本次构建的 `[compat]` 告警。
+`apis[].platforms` 对应[能力参考](../../../docs/API-Reference.md)的 Android、iOS、Harmony 和 Web 列，取值为 `supported`（有实现）、`unavailable`（未提供）或 `unverified`（未确认）。
+`platforms: null` 表示清单中没有该 API，应核对宿主是否有注册。
+`components[].listed` 表示组件是否列入支持清单，每个仍需在目标平台验证。
+
+静态扫描覆盖 `wx.foo` 和 `wx['foo']` 等直接引用。动态属性名、API 参数、运行时行为和桌面能力需另行核对。
+同次构建可加 `--sourcemap`，监听模式 `--watch` 只输出沿用的控制台告警。
 
 ### 编译流程说明
 

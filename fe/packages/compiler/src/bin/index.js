@@ -16,15 +16,20 @@ program
 	.option('-w, --watch', '启用监听文件改动')
 	.option('--no-app-id-dir', '产物根目录不包含appId')
 	.option('--sourcemap', '生成 sourcemap 文件用于调试')
+	.option('--compatibility-report', '在产物目录写入静态兼容报告（完整构建）')
 	.action(async (options) => {
 		const workPath = options.workPath ? path.resolve(options.workPath) : process.cwd()
 		const targetPath = options.targetPath ? path.resolve(options.targetPath) : process.cwd()
 		const useAppIdDir = options.appIdDir !== false
 		const sourcemap = !!options.sourcemap
+		const compatibilityReport = !!options.compatibilityReport
+		if (compatibilityReport && options.watch) {
+			throw new Error('--compatibility-report requires a full build and cannot be combined with --watch')
+		}
 
 		let buildResult
 		try {
-			buildResult = await build(targetPath, workPath, useAppIdDir, { sourcemap })
+			buildResult = await build(targetPath, workPath, useAppIdDir, { sourcemap, compatibilityReport })
 		}
 		catch (error) {
 			throw new Error(`${workPath} 编译出错: ${error.message}`, { cause: error })

@@ -1,0 +1,8 @@
+{
+  "pages": ["pages/index/index", "pages/detail/index"],
+  "window": {
+    "navigationBarBackgroundColor": "#ffffff",
+    "navigationBarTextStyle": "black",
+    "backgroundColor": "#f5f6f8"
+  }
+}

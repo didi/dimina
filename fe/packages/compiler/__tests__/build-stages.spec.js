@@ -50,6 +50,33 @@ describe('dependency-directed compiler stages', () => {
 			.rejects.toThrow('Invalid compiler stages')
 	})
 
+	it('writes a platform compatibility report from both workers only when requested', async () => {
+		const reportName = 'dimina-compatibility-report.json'
+		writeFile(`${pagePath}.js`, 'Page({ onLoad() { wx.openBluetoothAdapter(); wx["hostExample"]() } })\n')
+		writeFile(`${pagePath}.wxml`, '<view><live-player /></view>\n')
+
+		await build(outputDir, tempDir, false, { compatibilityReport: true })
+		expect(JSON.parse(readOutput(reportName))).toMatchObject({
+			schemaVersion: 1,
+			appId: 'build-stages-app',
+			apis: [
+				{ name: 'hostExample', platforms: null, references: [{ file: `/${pagePath}.js`, line: 1 }] },
+				{ name: 'openBluetoothAdapter', platforms: { Android: 'supported', Web: 'unavailable' } },
+			],
+			components: [
+				{ name: 'live-player', listed: false, references: [{ file: `/${pagePath}.wxml`, line: 1 }] },
+				{ name: 'view', listed: true },
+			],
+			warnings: expect.arrayContaining([
+				expect.stringContaining('wx.hostExample'),
+				expect.stringContaining('<live-player>'),
+			]),
+		})
+
+		await build(outputDir, tempDir, false)
+		expect(fs.existsSync(path.join(outputDir, reportName))).toBe(false)
+	})
+
 	it('runs only the requested view, logic, and style stages while retaining seeded outputs', async () => {
 		let result = await build(outputDir, tempDir, false)
 		let viewOutput = readOutput('main/pages_index_index.js')

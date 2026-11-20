@@ -8,7 +8,7 @@ import { compileTemplate } from '@vue/compiler-sfc'
 import * as cheerio from 'cheerio'
 import { transform } from 'esbuild'
 import * as htmlparser2 from 'htmlparser2'
-import { checkTemplateCompatibility, getTemplateDirectiveName, takeCompatibilityWarnings } from '../common/compatibility.js'
+import { checkTemplateCompatibility, collectCompatibilityReferences, getTemplateDirectiveName, takeCompatibilityReferences, takeCompatibilityWarnings } from '../common/compatibility.js'
 import { toMiniProgramModuleId } from '../common/path-utils.js'
 import { collectAssets, getAbsolutePath, isCollectableImageAsset, resolveAssetSourcePath, tagWhiteList, transformRpx, uuid } from '../common/utils.js'
 import { getAppConfigInfo, getAppId, getComponent, getContentByPath, getDependencyGraph, getPageConfigInfo, getTargetPath, getTemplateExts, getViewScriptExts, getViewScriptTags, getWorkPath, resetStoreInfo } from '../env.js'
@@ -200,8 +200,9 @@ const wxsFilePathMap = new Map()
 let enableSourcemap = false
 
 if (!isMainThread) {
-	parentPort.on('message', async ({ pages, storeInfo, sourcemap }) => {
+	parentPort.on('message', async ({ pages, storeInfo, sourcemap, compatibilityReport }) => {
 		try {
+			if (compatibilityReport) collectCompatibilityReferences()
 			resetStoreInfo(storeInfo)
 			enableSourcemap = !!sourcemap
 
@@ -233,6 +234,7 @@ if (!isMainThread) {
 			parentPort.postMessage({
 				success: true,
 				compatibilityWarnings: takeCompatibilityWarnings(),
+				compatibilityReferences: takeCompatibilityReferences(),
 				dependencyGraph: getDependencyGraph().toJSON(),
 			})
 		}

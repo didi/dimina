@@ -1,4 +1,5 @@
 import type { Application } from '../application/application.js'
+import type { LaunchFailure, LaunchPhase } from '../../core/launchDiagnostics.js'
 import type { BridgeOptions, MiniProgramReferrerInfo, PageStackEntry, StorageAdapter } from '../../types.js'
 import type { ApiParams, SocketEventName } from '../../core/webSocketManager.js'
 import type { ReadWebFileOptions } from '../../core/webFileSystem.js'
@@ -855,14 +856,31 @@ export class MiniApp {
 		// 静默恢复阶段还有 createBridge() 挂在半空中时，并发的导航调用必须被这道锁
 		// 挡住，不能在 restore 还没收尾的 navigator 上直接继续操作。
 		this.webviewAnimaEnd = false
+		const diagnostics = this.parent?.launchDiagnostics
+		let entryPageBridge: Bridge | undefined
+		let entryPagePath = this.appInfo.pagePath
+		let failure: LaunchFailure = 'worker-start'
+		const record = (phase: LaunchPhase, reason?: LaunchFailure, bridge = entryPageBridge) => {
+			diagnostics?.record({
+				appId: this.appId,
+				pagePath: bridge?.opts.pagePath || entryPagePath || undefined,
+				bridgeId: bridge?.id,
+				resourceLoadId: bridge?.resourceLoadId ?? undefined,
+				phase,
+				failure: reason,
+			})
+		}
+		record('launch-start')
 		try {
 			// 1. 等待逻辑线程初始化
 			await this.jscore.init()
+			record('worker-created')
 			this._bindThemeChange()
 
 			// 2. Embedded presentation keeps its loading screen through the entrance
 			// animation. Native window hosts have no such animation to wait for.
 			const root = 'main'
+			failure = 'app-config'
 			const configPath = `${this.appInfo.appId}/${root}/app-config.json`
 			const [configContent] = await Promise.all([
 				this.appInfo.resourceContents?.[`${root}/app-config.json`] ?? readFile(this.appInfo.resourceUrls?.[`${root}/app-config.json`] ?? `${this.getResourceBaseUrl()}${configPath}`),
@@ -887,7 +905,7 @@ export class MiniApp {
 			// 缓存 tabBar 配置（list、color 等），并渲染 tabBar 容器；后续仅做选中态/可见性切换
 			this._initTabBar()
 
-			const entryPagePath = this.runtimeType === 'game'
+			entryPagePath = this.runtimeType === 'game'
 				? (this.appConfig!.app.entryPagePath || 'game')
 				: (this.appInfo.pagePath || this.appConfig!.app.entryPagePath)
 			// navigateToMiniProgram 允许省略 path。配置加载后把真实入口回填到实例元数据，
@@ -901,6 +919,7 @@ export class MiniApp {
 			) {
 				throw new Error(`[container] page is not declared in app config: ${entryPagePath}`)
 			}
+			record('config-loaded')
 
 			// 4. 读取页面配置
 			const pageConfig = this.appConfig!.modules[entryPagePath]
@@ -910,7 +929,8 @@ export class MiniApp {
 			this.updateTargetPageColorStyle(mergeConfig)
 
 			// 6. 创建通信 bridge
-			const entryPageBridge = await this.createBridge({
+			failure = 'page-frame'
+			entryPageBridge = await this.createBridge({
 				pagePath: entryPagePath,
 				query: this.appInfo.query,
 				scene: this.appInfo.scene,
@@ -926,6 +946,7 @@ export class MiniApp {
 			if (this._destroyed) {
 				return
 			}
+			record('page-frame-ready')
 
 			this.navigator.pushPage(entryPageBridge)
 
@@ -939,6 +960,7 @@ export class MiniApp {
 			}
 
 			const isRestoringPageStack = (this.appInfo.restoreStack?.length ?? 0) > 1
+			failure = 'page-startup'
 			const startOptions = { visible: !isRestoringPageStack && this.isPresentedTop() }
 			if (isRestoringPageStack) {
 				// 恢复栈时根页会被后续页面覆盖；替换 runtime 仍需先确认根页完整就绪，
@@ -951,6 +973,7 @@ export class MiniApp {
 				}
 
 				// 7. 若携带额外的恢复栈（刷新后恢复场景），静默重建后续页面
+				failure = 'restore-page-stack'
 				await this.restorePageStack(this.appInfo.restoreStack!.slice(1))
 				if (this._destroyed) {
 					return
@@ -965,8 +988,13 @@ export class MiniApp {
 
 			// 8. 隐藏 loading
 			this.hideLaunchScreen()
+			record('launch-ready', undefined, this.navigator.top ?? entryPageBridge)
 		}
 		catch (error) {
+			if (!this._destroyed && !(error instanceof Error && error.name === 'AbortError')) {
+				const failedBridge = this.navigator.top ?? entryPageBridge
+				record('launch-failed', failedBridge?.launchFailure ?? failure, failedBridge)
+			}
 			// 启动（含静默恢复）中途失败：已创建成功的 bridge 必须先销毁，不能只清
 			// 记账留下 DOM/jscore 泄漏；这个实例从未真正呈现成功，不能继续留在
 			// AppManager 登记表或 Application.views 里假装自己是个有效实例，

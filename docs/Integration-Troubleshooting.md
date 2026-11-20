@@ -9,10 +9,10 @@
 在开发环境编译并保留 source map：
 
 ```sh
-dmcc build -c ./miniapp -s ./dist --sourcemap
+dmcc build -c ./miniapp -s ./dist --sourcemap --compatibility-report
 ```
 
-先看构建输出中的 `[compat]` 提示。DMCC 会提示清单外的直接 `wx` API 引用、未支持或未声明的组件，以及无效的模板属性前缀。宿主自行注入的 API 也可能触发提示，需要核对目标宿主是否注册了该能力。即使没有提示，也要按[能力参考](./API-Reference.md)核对目标平台和参数限制，并实际运行相关路径。桌面端额外核对[桌面原生能力与限制](../desktop/sdk/Native-APIs.md)。
+先打开产物下的 `dimina-compatibility-report.json`，按目标平台查实际引用的 API 和告警来源。宿主自行注入的 API 也可能触发 `[compat]` 提示，需要核对目标宿主是否注册。所有场景都应按[能力参考](./API-Reference.md)核对参数，并实际运行相关路径。桌面端额外核对[桌面原生能力与限制](../desktop/sdk/Native-APIs.md)。
 
 对于可选能力，在支持 `wx.canIUse()` 的目标环境中用它判断入口，然后仍处理调用失败，例如权限拒绝、设备不可用。必须具备的能力应在试接入时验证成功、失败和退出清理三个路径。
 
@@ -34,6 +34,8 @@ vConsole 的 Network 面板覆盖 `wx.request`，上传、下载和 WebSocket �
 2. 启动异常时，按资源加载、逻辑报错、首轮渲染、页面就绪的顺序检查。需要跨层对日志时附上 `bridgeId`、页面路径和事件类型，有条件时附上 `resourceLoadId`。
 3. 如果逻辑数据更新了但读到旧布局，把测量放到 `setData(data, callback)` 或首次 `onReady` 后。返回、快速重复打开、关闭后重开分别复现一次，记录在哪条路径出现差异。
 
+Web 宿主可以开启[启动诊断](../fe/packages/container-sdk/README.md#导出启动诊断)，从 `launch-failed.failure` 区分配置异常、Worker 出错、渲染资源失败和就绪超时。桌面运行时可在[调试模式](./Desktop-Integration.md#导出启动诊断)下从 Web Inspector 提取相同格式。
+
 ### 慢在首屏还是交互
 
 先说明用户看到的现象，例如点击入口后长时间空白，或者列表更新后迟迟没有反应。把首次安装或解包、已装包的冷启动、后台实例恢复分开记录。用同一设备、同一包和相同网络条件比较，记录是否开启了调试模式。
@@ -43,6 +45,14 @@ vConsole 的 Network 面板覆盖 `wx.request`，上传、下载和 WebSocket �
 ## 让页面与宿主 App 的导航保持一致
 
 先选一个入口页，在页面 JSON 使用 `"navigationStyle": "custom"`，由页面绘制与宿主一致的标题栏。保留胶囊时，可用 `wx.getMenuButtonBoundingClientRect()` 为它留出空间。根据实际 safe area 布局，不写死状态栏高度。
+
+仓库的[宿主风格示例](../examples/miniprogram/host-appearance/)用自定义导航实现服务中心入口，二级页沿用标准导航。首页按 `wx.getWindowInfo()` 取得安全区域，保留胶囊位置，并提供退出按钮。在仓库根目录编译后，用 appId `dimina-host-appearance` 和入口 `pages/index/index` 试跑：
+
+```sh
+dmcc build -c examples/miniprogram/host-appearance -s ./dist --compatibility-report
+```
+
+Web 将 `dist` 挂载为小程序资源目录，桌面 SDK 可直接导入 `dist/dimina-host-appearance`，移动 SDK 使用同一编译产物制作小程序包。
 
 | 场景 | 当前可用的配置 |
 | --- | --- |

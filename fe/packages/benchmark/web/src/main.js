@@ -74,6 +74,7 @@ function publishResult(report) {
 
 const container = createContainer({
 	mount,
+	appTransitions: query.get('appTransitions') !== '0',
 	resourceBaseUrl: `${location.origin}/miniapp/`,
 	pageFrameUrl: `${location.origin}/pageFrame.html`,
 	urlSync: false,

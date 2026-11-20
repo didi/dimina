@@ -3,6 +3,7 @@ import type { ContainerView, CreateContainerOptions, GetAppInfo, OnAppLaunchErro
 import { WAIT_TRANSITION_TIMEOUT_MS } from '../../constants/animation.js'
 import { resolveApiNamespaces, resolveGetAppInfo, resolvePageFrameUrl, resolveResourceBaseUrl, resolveShell, resolveStorageAdapter, resolveUrlSync, resolveVirtualFilePrefix } from '../../config.js'
 import { AppManager } from '../../core/appManager.js'
+import { LaunchDiagnostics } from '../../core/launchDiagnostics.js'
 import './application.scss'
 
 // 等待下一帧，确保 class 变化触发浏览器重新计算样式后再启动 transition
@@ -23,6 +24,7 @@ const waitTransitionEnd = (el: HTMLElement, property: string, timeout = WAIT_TRA
 	})
 
 export interface ApplicationOptions {
+	launchDiagnostics?: CreateContainerOptions['launchDiagnostics']
 	onAppWillDismiss?: CreateContainerOptions['onAppWillDismiss']
 	onAppDismiss?: (appId: string) => void
 	appTransitions?: boolean
@@ -61,6 +63,7 @@ export interface DismissViewOptions {
 }
 
 export class Application {
+	readonly launchDiagnostics?: LaunchDiagnostics
 	onAppWillDismiss?: CreateContainerOptions['onAppWillDismiss']
 	onAppDismiss?: (appId: string) => void
 	appTransitions: boolean
@@ -92,6 +95,7 @@ export class Application {
 	appManager: AppManager
 
 	constructor(opts: ApplicationOptions = {}) {
+		if (opts.launchDiagnostics) this.launchDiagnostics = new LaunchDiagnostics(opts.launchDiagnostics)
 		this.onAppWillDismiss = opts.onAppWillDismiss
 		this.onAppDismiss = opts.onAppDismiss
 		this.appTransitions = opts.appTransitions !== false

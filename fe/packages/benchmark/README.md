@@ -40,6 +40,9 @@ No benchmark-only change to Dimina runtime is required.
 `container.openApp()` and stops it when the benchmark page reaches `onReady` and
 reports readiness.
 
+This measures a new Web mini-program instance with an already available package.
+Use device tooling to measure package installation, first paint, first input, and resume separately.
+
 ## Install
 
 From the existing `fe/` workspace:
@@ -91,6 +94,16 @@ Override if necessary:
 DIMINA_BENCH_URL=http://127.0.0.1:5174 \
 pnpm --filter @dimina/benchmark bench
 ```
+
+Set `DIMINA_BENCH_CHROMIUM` to the executable path of a local Chromium-based browser if needed.
+To isolate the Web host's app-level transition and its minimum loading-screen hold, run the same build twice:
+
+```sh
+DIMINA_BENCH_OUTPUT=./results/with-app-transitions pnpm --filter @dimina/benchmark bench
+DIMINA_BENCH_APP_TRANSITIONS=0 DIMINA_BENCH_OUTPUT=./results/no-app-transitions pnpm --filter @dimina/benchmark bench
+```
+
+The output records the `appTransitions` setting. Page navigation within an app is unchanged.
 
 Run one case:
 

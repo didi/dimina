@@ -26,4 +26,14 @@ const window = await desktop.openApp({ appId: 'your-app-id', name: '我的小程
 
 小程序需要先经过 Dimina 编译，`packagesDir` 下每个 appId 目录包含 `main/app-config.json`、`main/logic.js` 和完整分包。它不是微信原始 wxapkg，也不是小程序源码目录。
 
+## 导出启动诊断
+
+以 `DIMINA_DESKTOP_DEBUG=1` 启动运行时。复现后在对应窗口的 Web Inspector 控制台执行：
+
+```js
+JSON.stringify(window.diminaGetLaunchDiagnostics(), null, 2)
+```
+
+窗口仍可检查时，保存 JSON 及同一时间段的 `desktop.log`。窗口创建失败或已经关闭时，保留宿主 SDK 抛出的错误及 `desktop.log`。报告中的阶段含义见 [Web 容器启动诊断](../fe/packages/container-sdk/README.md#导出启动诊断)。
+
 若要直接使用独立的桌面应用，见 [桌面宿主说明](../desktop/README.md)；若要自行实现 WebView 宿主或扩展其他承载方式，见 [Web 容器 SDK](../fe/packages/container-sdk/README.md)。

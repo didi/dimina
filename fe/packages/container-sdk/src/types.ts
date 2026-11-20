@@ -122,6 +122,8 @@ export type ExtModuleHandler = (payload: {
 }) => (() => void) | void
 
 export interface CreateContainerOptions {
+	/** Enable the bounded, local startup diagnostic summary. */
+	launchDiagnostics?: import('./core/launchDiagnostics.js').LaunchDiagnosticsOptions
 	/** Awaited before dismissal changes the view, allowing native hosts to hide their window first. */
 	onAppWillDismiss?: (appId: string) => void | Promise<void>
 	/** Called after a mini program has finished leaving the container's view stack. */
@@ -203,6 +205,7 @@ export type OnAppLaunchError = (error: unknown, context: { appId: string }) => v
 export type MiniAppApiHandler = (this: MiniApp, params?: unknown) => void
 
 export interface ContainerInstance {
+	getLaunchDiagnostics: () => import('./core/launchDiagnostics.js').LaunchDiagnosticsSnapshot | undefined
 	configureRetention: (policy: import('./core/retention.js').RetentionPolicy) => void
 	notifyMemoryPressure: () => void
 	application: Application

@@ -1,0 +1,12 @@
+<view class="host-nav" style="padding-top: {{top}}px; padding-right: {{rightInset}}px;">
+  <view class="host-nav__row" style="min-height: {{barHeight}}px;">
+    <button class="host-nav__close" bindtap="close">返回</button>
+    <text class="host-nav__title">服务中心</text>
+  </view>
+</view>
+<view class="content">
+  <navigator class="card service-item" url="/pages/detail/index">
+    <text>业务详情</text>
+    <text class="service-item__arrow">›</text>
+  </navigator>
+</view>

@@ -1954,7 +1954,12 @@ class DiminaActivity : ComponentActivity() {
         // Queue options before another task can receive onStart.
         queueOpenerReturn(null)
         moveTaskToBack(true)
-        val returnTask = returnTasks[miniProgram.appId]
+        bringReturnTaskToFront()
+    }
+
+    private fun bringReturnTaskToFront() {
+        val returnTask = returnTasks[miniProgram.appId] ?: return
+        if (returnTask == taskId) return
         getSystemService(ActivityManager::class.java).appTasks
             .firstOrNull { it.taskInfo.taskId == returnTask }?.moveToFront()
     }
@@ -1990,6 +1995,7 @@ class DiminaActivity : ComponentActivity() {
     }
 
     fun exitMiniProgram() {
+        val restoreReturnTask = Dimina.getInstance().isMultiTaskEnabled() && isMiniProgramForeground() && !isFinishing
         // exit has no return extraData, but revealing a live opener is still scene 1038
         // ("returned from another mini program"). Queue it before closing this Activity;
         // MiniApp consumes the payload exactly once when the opener resumes.
@@ -1997,6 +2003,8 @@ class DiminaActivity : ComponentActivity() {
             suspendForMiniProgramNavigation()
         }
         closeMiniProgram()
+        // Android may reveal the launcher after finishing an independent mini-program task.
+        if (restoreReturnTask) bringReturnTaskToFront()
     }
 
     private fun suspendForMiniProgramNavigation() {

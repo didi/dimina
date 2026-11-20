@@ -96,6 +96,7 @@ resourceBaseUrl/
 | `onAppLaunchError(error, {appId})` | 小程序启动失败（配置不可达/为空/非法等）通知。`openApp` 不因此 reject（与 Native 端「打开成功但内容加载失败走回调」对称）；容器销毁打断不触发 |
 | `apis` | 启动阶段注册的容器级 API（`{name: handler}`），等价于拿到容器实例后立刻逐个调用 `registerApi`，但保证严格早于任何 `openApp()`（见下方「registerApi 边界」） |
 | `extModules` | 启动阶段注册的第三方扩展模块（`{name: handler}`），等价于立刻逐个调用 `registerExtModule` |
+| `launchDiagnostics` | 可选，传 `{}` 启用本地启动事件，或传 `{ versions: { host?, sdk?, jssdk?, compiler? } }` 同时记录实际产物版本 |
 
 ### 加载页过渡
 
@@ -144,11 +145,33 @@ const container = createContainer({
 | `registerExtModule(name, handler)` | 注册第三方扩展 bridge 模块 |
 | `registerApi(name, handler)` | 容器级注册/覆盖 API（小程序侧经 `wx.xxx` / 命名空间调用），对已打开和之后打开的小程序都生效；`this` 为触发调用的 miniApp 实例 |
 | `setRootView(view)` | 可选注入根视图（宿主自定义首页，如应用列表页） |
+| `getLaunchDiagnostics()` | 返回当前启动诊断快照，未开启时返回 `undefined` |
 
 补充语义：
 
 - 同一容器内连续 `openApp()` 串行排队：前一次完整呈现（含入场动画）后才处理下一次，即使不 `await` 也不会互相打断。
 - miniApp 实例另支持实例级 `registerApi(name, handler)`（后写覆盖容器级同名注册）与 `getApiNamespaces()`。
+
+### 导出启动诊断
+
+```js
+const container = createContainer({
+	mount,
+	launchDiagnostics: { versions: { host: hostVersion, sdk: sdkVersion } },
+})
+const miniApp = await container.openApp({ appId })
+try {
+	await miniApp.whenReady()
+}
+finally {
+	const report = container.getLaunchDiagnostics()
+	if (report) console.log(JSON.stringify(report, null, 2))
+}
+```
+
+每个容器在内存中保留最近 200 条事件。通过 `bridgeId` 和 `resourceLoadId` 关联同一次页面资源加载、逻辑层和渲染层就绪、首轮渲染消息及 DOM 就绪。`elapsedMs` 是距创建容器诊断实例的毫秒数，`launch-ready` 表示容器启动成功，实际可见或可点击的时点需要单独测量。复用已就绪的小程序时没有新的启动序列。
+
+快照去除页面参数，只保留事件分类及关联字段。导出前检查 appId、页面路径和版本号是否可分享。
 
 ### registerApi 边界
 

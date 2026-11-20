@@ -5,7 +5,7 @@ import { parseSync } from 'oxc-parser'
 import { walk } from 'oxc-walker'
 import MagicString from 'magic-string'
 import { transform } from 'esbuild'
-import { getWxMemberName, takeCompatibilityWarnings, warnUnsupportedWxApi } from '../common/compatibility.js'
+import { collectCompatibilityReferences, getWxMemberName, takeCompatibilityReferences, takeCompatibilityWarnings, warnUnsupportedWxApi } from '../common/compatibility.js'
 import { collectAssets, hasCompileInfo, isCollectableImageAsset, resolveAssetSourcePath } from '../common/utils.js'
 import { getAppConfigInfo, getAppId, getComponent, getContentByPath, getDependencyGraph, getNpmResolver, getTargetPath, getWorkPath, isMiniGame, resetStoreInfo, resolveAppAlias } from '../env.js'
 import { mergeSourcemap, remapSourcemap } from './sourcemap.js'
@@ -18,8 +18,9 @@ let enableSourcemap = false
 let sourcemapTargetPath = null
 
 if (!isMainThread) {
-	parentPort.on('message', async ({ pages, storeInfo, sourcemap, sourcemapTargetPath: targetPath }) => {
+	parentPort.on('message', async ({ pages, storeInfo, sourcemap, sourcemapTargetPath: targetPath, compatibilityReport }) => {
 		try {
+			if (compatibilityReport) collectCompatibilityReferences()
 			resetStoreInfo(storeInfo)
 			enableSourcemap = !!sourcemap
 			sourcemapTargetPath = targetPath || getTargetPath()
@@ -59,6 +60,7 @@ if (!isMainThread) {
 			parentPort.postMessage({
 				success: true,
 				compatibilityWarnings: takeCompatibilityWarnings(),
+				compatibilityReferences: takeCompatibilityReferences(),
 				dependencyGraph: getDependencyGraph().toJSON(),
 			})
 		}

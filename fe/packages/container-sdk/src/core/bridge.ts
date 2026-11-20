@@ -1,4 +1,5 @@
 import type { JSCore } from './jscore.js'
+import type { LaunchFailure, LaunchPhase } from './launchDiagnostics.js'
 import type { MiniApp } from '../pages/miniApp/miniApp.js'
 import type { BridgeMessage, BridgeOptions } from '../types.js'
 import { WebView } from '../pages/webview/webview.js'
@@ -40,6 +41,17 @@ export class Bridge {
 	} | null
 	private unsubscribeServiceInvoke: (() => void) | null
 	private unsubscribeServicePublish: (() => void) | null
+	launchFailure?: LaunchFailure
+
+	private recordLaunch(phase: LaunchPhase): void {
+		this.parent?.parent?.launchDiagnostics?.record({
+			appId: this.opts.appId,
+			pagePath: this.opts.pagePath,
+			bridgeId: this.id,
+			resourceLoadId: this.resourceLoadId ?? undefined,
+			phase,
+		})
+	}
 
 	constructor(opts: BridgeOptions & { jscore: JSCore }) {
 		this.id = `bridge_${uuid()}`
@@ -87,6 +99,10 @@ export class Bridge {
 			return
 		}
 
+		if (target === 'render' && msg.type === 'firstRender' && typeof body.resourceLoadId === 'string'
+			&& body.resourceLoadId === this.resourceLoadId) {
+			this.recordLaunch('first-render-sent')
+		}
 		if (target === 'service') {
 			this.jscore.postMessage(msg)
 		}
@@ -147,6 +163,7 @@ export class Bridge {
 
 		if (target === 'service') {
 			if (type === 'serviceResourceLoaded') {
+				if (!this.serviceResource) this.recordLaunch('service-resources-ready')
 				this.serviceResource = true
 				// service 侧 runtime 处理完第一次 loadResource 即完成 App 实例
 				// 构造，此后 app 级 appShow/appHide 才真正有意义——通知 jscore
@@ -161,6 +178,7 @@ export class Bridge {
 				}
 			}
 			else if (type === 'renderResourceLoaded') {
+				if (!this.renderResource) this.recordLaunch('render-resources-ready')
 				this.renderResource = true
 				if (this.isResourceLoaded() && !this.resourceLoadedForwarded) {
 					this.resourceLoadedForwarded = true
@@ -171,6 +189,7 @@ export class Bridge {
 				}
 			}
 			else if (type === 'renderResourceLoadFailed') {
+				this.launchFailure = 'render-resources'
 				this.renderResource = false
 				this.resourceLoadedForwarded = false
 				transMsg.type = 'resourceLoadFailed'
@@ -193,6 +212,7 @@ export class Bridge {
 				this.parent!.invokeApi(name, params, this)
 			}
 			else if (type === 'domReady') {
+				if (this.domReadyResourceLoadId !== this.resourceLoadId) this.recordLaunch('dom-ready')
 				this.domReadyResourceLoadId = body.resourceLoadId as string
 				this.#resolveStartupReady()
 			}
@@ -208,6 +228,8 @@ export class Bridge {
 		this.renderResource = false
 		this.resourceLoadedForwarded = false
 		this.resourceLoadId = uuid()
+		this.launchFailure = undefined
+		this.recordLaunch('resource-load-start')
 		this.domReadyResourceLoadId = null
 		this.sentPageVisible = null
 		if (Object.prototype.hasOwnProperty.call(options, 'visible')) {
@@ -280,10 +302,14 @@ export class Bridge {
 		}
 		return new Promise((resolve, reject) => {
 			const unsubscribeWorkerFailure = this.jscore.onWorkerFailure((reason) => {
+				this.launchFailure = 'worker-error'
 				const detail = reason instanceof Error ? reason.message : 'worker failed while loading resources'
 				this.#rejectStartupReady(new Error(detail))
 			})
 			const timer = setTimeout(() => {
+				this.launchFailure = !this.serviceResource
+					? 'service-resources-timeout'
+					: !this.renderResource ? 'render-resources-timeout' : 'first-render-timeout'
 				this.#rejectStartupReady(new Error(`startup ready timed out: ${this.opts.pagePath}`))
 			}, RESOURCE_READY_TIMEOUT_MS)
 			this.startupReadyWaiter = {

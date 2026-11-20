@@ -1,0 +1,15 @@
+page {
+  background: #f5f6f8;
+  color: #1d2433;
+  font-size: 16px;
+}
+
+.content {
+  padding: 20px 16px;
+}
+
+.card {
+  background: #fff;
+  padding: 16px;
+  border-radius: 12px;
+}

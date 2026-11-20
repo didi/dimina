@@ -369,6 +369,7 @@ func (d *Desktop) Bootstrap(ctx context.Context) (map[string]any, error) {
 	platform := map[string]string{"darwin": "mac", "windows": "windows", "linux": "linux"}[runtime.GOOS]
 	result := map[string]any{"baseUrl": d.resources.base, "platform": platform, "system": runtime.GOOS, "arch": runtime.GOARCH}
 	if state != nil {
+		result["launchDiagnostics"] = os.Getenv("DIMINA_DESKTOP_DEBUG") == "1"
 		result["runtimeApis"] = runtimeAPIs
 		result["app"] = state.app
 		result["resourceBaseUrl"] = d.resources.base + "packages/"

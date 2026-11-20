@@ -1,9 +1,11 @@
+import fs from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { Worker } from 'node:worker_threads'
 import { Listr, PRESET_TIMER } from 'listr2'
 import { formatCompileProgress } from './common/compile-progress.js'
+import { createCompatibilityReport } from './common/compatibility.js'
 import { DependencyGraph } from './common/dependency-graph.js'
 import { createDist, publishToDist } from './common/publish.js'
 import { artCode, resetAssetCache } from './common/utils.js'
@@ -24,6 +26,7 @@ const MAX_WARNING_PROJECTS = 32
  * @param {boolean} useAppIdDir 产物根目录是否包含 appId
  * @param {object} [options] 构建选项
  * @param {boolean} [options.sourcemap] 是否生成 sourcemap
+ * @param {boolean} [options.compatibilityReport] 是否在产物根目录写入完整的静态兼容报告
  * @param {{ template?: string[], style?: string[], viewScript?: string[] }} [options.fileTypes]
  *   自定义文件类型，在内置 wx/dd 类型基础上追加；template 为模板扩展名，style 为样式扩展名，
  *   viewScript 为视图脚本扩展名和内联标签名
@@ -41,6 +44,7 @@ export default function build(targetPath, workPath, useAppIdDir = true, options 
 async function runBuild(targetPath, workPath, useAppIdDir = true, options = {}) {
 	const {
 		sourcemap = false,
+		compatibilityReport = false,
 		fileTypes,
 		affectedEntries,
 		seedPath,
@@ -49,6 +53,9 @@ async function runBuild(targetPath, workPath, useAppIdDir = true, options = {}) 
 		prepareConfig = true,
 		prepareNpm = true,
 	} = options
+	if (compatibilityReport && (affectedEntries !== undefined || seedPath !== undefined || stages !== undefined)) {
+		throw new Error('Compatibility reports require a full build')
+	}
 	if (stages !== undefined
 		&& (!Array.isArray(stages) || stages.some(stage => !COMPILE_STAGE_ORDER.includes(stage)))) {
 		throw new TypeError(`Invalid compiler stages: ${JSON.stringify(stages)}`)
@@ -124,7 +131,7 @@ async function runBuild(targetPath, workPath, useAppIdDir = true, options = {}) 
 							rendererOptions: { outputBar: true, persistentOutput: false },
 							task: async (ctx, task) => {
 								// ddml, wxml
-								return runCompileInWorker('view', ctx, task, { sourcemap })
+								return runCompileInWorker('view', ctx, task, { sourcemap, compatibilityReport })
 							},
 						})
 					}
@@ -142,6 +149,7 @@ async function runBuild(targetPath, workPath, useAppIdDir = true, options = {}) 
 									sourcemap,
 									pages: ctx.allPages,
 									sourcemapTargetPath,
+									compatibilityReport,
 								})
 							},
 						})
@@ -172,7 +180,11 @@ async function runBuild(targetPath, workPath, useAppIdDir = true, options = {}) 
 			},
 			{
 				title: '写入编译产物',
-				task: () => {
+				task: (ctx) => {
+					if (compatibilityReport) {
+						const report = createCompatibilityReport(ctx.compatibilityWarnings, ctx.compatibilityReferences ?? [])
+						fs.writeFileSync(path.join(getTargetPath(), 'dimina-compatibility-report.json'), JSON.stringify({ ...report, appId: getAppId() }, null, 2) + '\n')
+					}
 					publishToDist(targetPath, useAppIdDir)
 				},
 			},
@@ -250,6 +262,7 @@ function runCompileInWorker(script, ctx, task, options = {}) {
 				storeInfo: ctx.storeInfo,
 				sourcemap: !!options.sourcemap,
 				sourcemapTargetPath: options.sourcemapTargetPath,
+				compatibilityReport: options.compatibilityReport,
 			})
 		// 接收 Worker 完成后的消息
 		worker.on('message', async (message) => {
@@ -264,6 +277,9 @@ function runCompileInWorker(script, ctx, task, options = {}) {
 
 				if (message.success) {
 					if (isResolved) return
+					if (message.compatibilityReferences) {
+						ctx.compatibilityReferences = (ctx.compatibilityReferences ?? []).concat(message.compatibilityReferences)
+					}
 					if (process.stdout.isTTY && totalTasks > 0) {
 						task.output = formatCompileProgress(totalTasks, totalTasks)
 					}

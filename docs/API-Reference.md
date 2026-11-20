@@ -267,7 +267,7 @@ DMPApp.init(context, { virtualFilePrefix: 'host-file://' })
 |               | canIUse                          | ✓       | ✓   | ✓       | ✗   |
 | 基础 - 更新   | getUpdateManager                 | ✓       | ✓   | ✓       | ✓   |
 | 基础 - 系统   | openSystemBluetoothSetting       | ✓       | ✗   | ✗       | ✗   |
-|               | getWindowInfo                    | ✓       | ✓   | ✓       | ✗   |
+|               | getWindowInfo                    | ✓       | ✓   | ✓       | ✓   |
 |               | getSystemSetting                 | ✓       | ✓   | ✓       | ✗   |
 |               | getSystemInfoSync                | ✓       | ✓   | ✓       | ✗   |
 |               | getSystemInfoAsync               | ✓       | ✓   | ✓       | ✓   |

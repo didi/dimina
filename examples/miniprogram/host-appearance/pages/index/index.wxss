@@ -1,0 +1,45 @@
+.host-nav {
+  position: sticky;
+  top: 0;
+  background: #fff;
+}
+
+.host-nav__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+}
+
+.host-nav__close {
+  box-sizing: border-box;
+  margin: 0;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 4px;
+  background: transparent;
+  border: 0;
+  color: #1455a8;
+  font-size: 15px;
+  line-height: 44px;
+}
+
+.host-nav__close::after {
+  border: 0;
+}
+
+.host-nav__title {
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.service-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.service-item__arrow {
+  color: #536176;
+  font-size: 20px;
+}

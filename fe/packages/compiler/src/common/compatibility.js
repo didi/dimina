@@ -2,10 +2,11 @@ import { Parser } from 'htmlparser2'
 import { isHTMLTag } from '@vue/shared'
 import { isMainThread } from 'node:worker_threads'
 import { getTemplateDirectivePrefixes, getViewScriptTags } from '../env.js'
-import { supportedBuiltinComponents, supportedWxApis } from './compatibility-reference.js'
+import { supportedBuiltinComponents, supportedWxApis, wxApiPlatforms } from './compatibility-reference.js'
 import { miniProgramBuiltinTags, tagWhiteList } from './utils.js'
 
 let cachedReference = null
+let references
 const warnedItems = new Set()
 const pendingWarnings = []
 const TEMPLATE_DIRECTIVE_NAMES = new Set([
@@ -177,6 +178,7 @@ function getWxMemberName(node) {
 }
 
 function warnUnsupportedWxApi(apiName, filePath, line) {
+	addReference('api', apiName, filePath, line)
 	const { supportedWxApis } = loadReference()
 	if (!apiName || supportedWxApis.has(apiName)) {
 		return
@@ -233,6 +235,9 @@ function checkTemplateCompatibility(content, filePath, components = {}) {
 					return
 				}
 
+				if (loadReference().supportedBuiltinComponents.has(tagName) || miniProgramBuiltinTags.has(tagName)) {
+					addReference('component', tagName, filePath, line)
+				}
 				warnUnsupportedComponent(tagName, filePath, line)
 			},
 			onerror(error) {
@@ -316,12 +321,54 @@ function takeCompatibilityWarnings() {
 	return pendingWarnings.splice(0)
 }
 
+function addReference(kind, name, file, line) {
+	if (references && name) {
+		references.set(JSON.stringify([kind, name, file, line]), { kind, name, file, line })
+	}
+}
+
+function collectCompatibilityReferences() {
+	references = new Map()
+}
+
+function takeCompatibilityReferences() {
+	const result = references ? [...references.values()] : undefined
+	references = undefined
+	return result
+}
+
+function createCompatibilityReport(warnings, entries) {
+	const apis = new Map()
+	const components = new Map()
+	const supportedComponents = loadReference().supportedBuiltinComponents
+	for (const { kind, name, file, line } of entries) {
+		const list = kind === 'api' ? apis : components
+		if (!list.has(name)) {
+			const coverage = kind === 'api'
+				? { platforms: Object.hasOwn(wxApiPlatforms, name) ? wxApiPlatforms[name] : null }
+				: { listed: supportedComponents.has(name) }
+			list.set(name, { name, ...coverage, references: [] })
+		}
+		list.get(name).references.push({ file, line })
+	}
+	const sorted = list => [...list.values()].sort((a, b) => a.name.localeCompare(b.name, 'en'))
+	return {
+		schemaVersion: 1,
+		apis: sorted(apis),
+		components: sorted(components),
+		warnings: [...warnings].sort(),
+	}
+}
+
 export {
 	checkTemplateCompatibility,
+	collectCompatibilityReferences,
+	createCompatibilityReport,
 	getTemplateDirectiveName,
 	getWxMemberName,
 	loadReference,
 	parseApiReference,
 	takeCompatibilityWarnings,
+	takeCompatibilityReferences,
 	warnUnsupportedWxApi,
 }
