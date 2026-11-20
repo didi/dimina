@@ -1,0 +1,37 @@
+desktop/main.go
+  dbe6135c9f30a062 372
+fe/packages/compiler/src/index.js
+  dbe6135c9f30a062 1,8,29,47,56-58,134,152,183-187,265,280-282
+fe/packages/benchmark/runner/run.js
+  dbe6135c9f30a062 30,64,160
+desktop/frontend/src/index.js
+  dbe6135c9f30a062 74,87-89
+fe/packages/compiler/src/common/compatibility.js
+  dbe6135c9f30a062 5,9,181,238-240,324-362,365-366,372
+fe/packages/compiler/src/common/compatibility-reference.js
+  dbe6135c9f30a062 259-471,475
+fe/packages/compiler/src/core/view-compiler.js
+  dbe6135c9f30a062 11,203,205,237
+fe/packages/compiler/src/core/logic-compiler.js
+  dbe6135c9f30a062 8,21,23,63
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "298775b0ef9ecb1b0cd5b30abca6c3b3687ddcc6",
+  "prompts": {
+    "dbe6135c9f30a062": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1ce92-30b8-71e3-99e5-0124349f9231",
+        "model": "gpt-6.2-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 17896,
+      "total_deletions": 48,
+      "accepted_lines": 7371,
+      "overriden_lines": 0
+    }
+  }
+}
