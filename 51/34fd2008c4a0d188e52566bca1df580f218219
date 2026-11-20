@@ -1,0 +1,21 @@
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "5134fd2008c4a0d188e52566bca1df580f218219",
+  "prompts": {
+    "2f21c3ee58a4f799": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1f6e8-d0a6-7540-bf6e-ef08fdbf545c",
+        "model": "unknown"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 1,
+      "accepted_lines": 0,
+      "overriden_lines": 0
+    }
+  }
+}
