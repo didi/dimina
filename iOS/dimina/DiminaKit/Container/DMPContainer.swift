@@ -122,6 +122,8 @@ public class DMPContainer {
 
     func loadResourceService(webViewId: Int, pagePath: String) async {
         guard let app = app else { return }
+        DMPRuntimeDiagnostics.shared.launch("resource-load-start", appId: app.getAppId(),
+                                            pagePath: pagePath, bridgeId: String(webViewId))
         let message = createResourceMessage(webViewId: webViewId, pagePath: pagePath)
         await app.service?.fromContainerMessage(data: message)
     }
@@ -145,7 +147,18 @@ public class DMPContainer {
     ) -> DMPAPIResult {
         let moduleName = "DMPContainerBridgesModule"
         DMPLogger.debug("Bridge call: module=\(moduleName), method=\(methodName)")
-        let callback = makeBridgeCallback(param: param)
+        let diagnostics = DMPRuntimeDiagnostics.shared
+        let call = diagnostics.beginCall(methodName, appId: app.getAppId(),
+            pagePath: app.render?.getWebView(byId: webViewId)?.getPagePath(), bridgeId: String(webViewId))
+        let callback = makeBridgeCallback(param: param) { type in
+            let outcome: String
+            switch type {
+            case .success: outcome = "success"
+            case .fail: outcome = "fail"
+            case .complete: outcome = "complete"
+            }
+            diagnostics.recordCall(call, phase: "api-callback", outcome: outcome)
+        }
 
         let env = DMPBridgeEnv(
             appIndex: self.app?.getAppIndex() ?? 0,
@@ -155,7 +168,15 @@ public class DMPContainer {
 
         // 1. 精确命中已注册的标准 API
         if let handler = DMPContainerApi.getHandler(for: methodName) {
-            return handler(param, env, callback)
+            let result = handler(param, env, callback)
+            if result is DMPErrorResult {
+                diagnostics.recordCall(call, phase: "api-failed", outcome: "native-error")
+            } else if result is DMPSyncResult {
+                diagnostics.recordCall(call, phase: "api-returned", outcome: "sync")
+            } else if !param.isAsync {
+                diagnostics.recordCall(call, phase: "api-returned", outcome: "no-callback")
+            }
+            return result
         }
 
         // 2. extBridge：param 携带 "module" 字段
@@ -168,6 +189,9 @@ public class DMPContainer {
                 callback: callback,
                 extModules: extModules
             )
+            if !param.isAsync {
+                diagnostics.recordCall(call, phase: "api-returned", outcome: "no-callback")
+            }
             return DMPNoneResult()
         }
 
@@ -185,14 +209,18 @@ public class DMPContainer {
             } else {
                 handleExtOffBridge(eventKey: methodName)
             }
+            diagnostics.recordCall(call, phase: "api-returned", outcome: "subscription")
             return DMPNoneResult()
         }
 
         DMPLogger.debug("Bridge invoke error: 未找到方法: \(methodName)")
+        diagnostics.recordCall(call, phase: "api-failed", outcome: "unregistered")
         return DMPSyncResult(["error": "未找到方法: \(methodName)"])
     }
 
-    func makeBridgeCallback(param: DMPBridgeParam) -> DMPBridgeCallback {
+    func makeBridgeCallback(
+        param: DMPBridgeParam, onEnqueue: ((DMPBridgeCallbackType) -> Void)? = nil
+    ) -> DMPBridgeCallback {
         guard param.isAsync else { return { _, _ in } }
 
         let map = param.getMap()
@@ -219,7 +247,9 @@ public class DMPContainer {
                     "args": args.toDictionary(),
                 ],
             ])
-            DMPChannelProxy.containerToService(msg: message, app: self.getApp())
+            let app = self.getApp()
+            DMPChannelProxy.containerToService(msg: message, app: app)
+            if app?.service != nil { onEnqueue?(callbackType) }
         }
     }
 

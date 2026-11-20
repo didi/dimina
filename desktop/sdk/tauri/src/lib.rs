@@ -1,8 +1,8 @@
 mod runtime;
 use runtime::Result;
 pub use runtime::{
-    Dimina, ImportedApp, NativeApiContext, NativeApiHandler, NativeApiOptions, OpenAppOptions,
-    Options, WindowInfo,
+    DiagnosticsVersions, Dimina, ImportedApp, NativeApiContext, NativeApiHandler, NativeApiOptions,
+    OpenAppOptions, Options, WindowInfo,
 };
 use std::{
     path::PathBuf,
@@ -118,6 +118,22 @@ async fn windows(state: State<'_, PluginState>) -> Result<Vec<WindowInfo>> {
     state.client().await?.windows().await
 }
 #[tauri::command]
+async fn set_diagnostics_enabled(
+    state: State<'_, PluginState>,
+    enabled: bool,
+    versions: Option<DiagnosticsVersions>,
+) -> Result<()> {
+    state
+        .client()
+        .await?
+        .set_diagnostics_enabled(enabled, versions)
+        .await
+}
+#[tauri::command]
+async fn get_diagnostics_json(state: State<'_, PluginState>) -> Result<Option<String>> {
+    state.client().await?.get_diagnostics_json().await
+}
+#[tauri::command]
 async fn focus(state: State<'_, PluginState>, id: String) -> Result<()> {
     state.client().await?.focus(&id).await
 }
@@ -141,7 +157,16 @@ async fn dispose(state: State<'_, PluginState>) -> Result<()> {
 pub fn init<R: Runtime>(options: PluginOptions) -> TauriPlugin<R> {
     Builder::new("dimina")
         .invoke_handler(tauri::generate_handler![
-            start, open, windows, focus, close, close_all, import, dispose
+            start,
+            open,
+            windows,
+            set_diagnostics_enabled,
+            get_diagnostics_json,
+            focus,
+            close,
+            close_all,
+            import,
+            dispose
         ])
         .setup(move |app, _| {
             let resolve = |path: PathBuf| -> tauri::Result<PathBuf> {

@@ -12,6 +12,7 @@ import com.didi.dimina.common.PathUtils
 import com.didi.dimina.common.StoreUtils
 import com.didi.dimina.core.MiniApp
 import com.didi.dimina.core.RemoteUpdateManager
+import com.didi.dimina.core.RuntimeDiagnostics
 import com.didi.dimina.ui.container.DiminaActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -198,6 +199,18 @@ class Dimina private constructor(context: Context) {
         val miniApp = MiniApp.getInstance()
         miniApp.openApp(context, miniProgram)
     }
+
+    /** Starts a local diagnostics capture or clears the current capture when disabled. */
+    @JvmOverloads
+    fun setDiagnosticsEnabled(
+        enabled: Boolean,
+        host: String? = null,
+        sdk: String? = null,
+        jssdk: String? = null,
+        compiler: String? = null,
+    ) = RuntimeDiagnostics.configure(enabled, host, sdk, jssdk, compiler)
+
+    fun getDiagnosticsJSON(): String? = RuntimeDiagnostics.json()
 
     /** Hide an app while retaining its page stack and runtime for the next startMiniProgram. */
     @MainThread

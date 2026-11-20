@@ -137,6 +137,8 @@ export class Dimina {
   closeApp(id) { return this.#call('close', { id }) }
   closeAll() { return this.#call('closeAll') }
   async windows() { return (await this.#call('windows', undefined, 'GET')).map(info => new DiminaWindow(this, info)) }
+  async setDiagnosticsEnabled(enabled, versions) { await this.#call('diagnostics', { enabled, versions }) }
+  getDiagnosticsJSON() { return this.#call('diagnostics', undefined, 'GET') }
   importApp(path) { return this.#call('import', { path }) }
 
   dispose() {

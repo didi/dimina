@@ -26,14 +26,33 @@ const window = await desktop.openApp({ appId: 'your-app-id', name: '我的小程
 
 小程序需要先经过 Dimina 编译，`packagesDir` 下每个 appId 目录包含 `main/app-config.json`、`main/logic.js` 和完整分包。它不是微信原始 wxapkg，也不是小程序源码目录。
 
-## 导出启动诊断
+## 导出启动与 Bridge 诊断
 
-以 `DIMINA_DESKTOP_DEBUG=1` 启动运行时。复现后在对应窗口的 Web Inspector 控制台执行：
+宿主可以在打开小程序前开启采集，复现后导出 JSON。报告留在桌面运行时，打开失败或窗口关闭后仍能取到，宿主退出前保存即可。
 
 ```js
-JSON.stringify(window.diminaGetLaunchDiagnostics(), null, 2)
+// Node.js / Electron 和 Tauri 的 JavaScript SDK
+await desktop.setDiagnosticsEnabled(true, { host: hostVersion })
+try {
+  const window = await desktop.openApp({ appId: 'your-app-id' })
+  // 在窗口中复现后，也可以先关闭窗口。
+  await window.close()
+} finally {
+  const report = await desktop.getDiagnosticsJSON()
+  if (report) console.log(report)
+  await desktop.setDiagnosticsEnabled(false)
+}
 ```
 
-窗口仍可检查时，保存 JSON 及同一时间段的 `desktop.log`。窗口创建失败或已经关闭时，保留宿主 SDK 抛出的错误及 `desktop.log`。报告中的阶段含义见 [Web 容器启动诊断](../fe/packages/container-sdk/README.md#导出启动诊断)。
+| 宿主 SDK | 开启采集 | 获取 JSON |
+| --- | --- | --- |
+| Node.js / Electron、Tauri JS | `setDiagnosticsEnabled(true, versions?)` | `getDiagnosticsJSON()` |
+| Tauri Rust | `set_diagnostics_enabled(true, versions)` | `get_diagnostics_json()` |
+| Qt | `setDiagnosticsEnabled(true, versions)`，等待 `diagnosticsConfigured` | `getDiagnosticsJSON()`，结果通过 `diagnosticsReceived` 返回 |
+| .NET | `SetDiagnosticsEnabledAsync(true, versions)` | `GetDiagnosticsJsonAsync()` |
+
+报告按 `appId` 查找打开请求，窗口创建后按 `windowId` 查看 WebView 启动和原生 API 记录。用 `callId` 关联 API 接收与原生返回或失败。原生返回事件记录桌面运行时处理结果，JS 回调是否执行可在逻辑层核对。每轮分别保留最近 200 条启动与 Bridge 事件。开启新一轮采集或关闭采集会清空记录，页面查询参数、API 参数和返回正文不进入报告。
+
+独立启动器可设置 `DIMINA_DESKTOP_DEBUG=1` 开启采集。在启动器的 Web Inspector 执行 `await window.diminaGetDiagnosticsJSON()` 可获得本次运行的报告，小程序窗口内只返回该窗口的记录。现有 `window.diminaGetLaunchDiagnostics()` 提供窗口内的 Web 启动快照。 [Web 容器启动诊断](../fe/packages/container-sdk/README.md#导出启动诊断)
 
 若要直接使用独立的桌面应用，见 [桌面宿主说明](../desktop/README.md)；若要自行实现 WebView 宿主或扩展其他承载方式，见 [Web 容器 SDK](../fe/packages/container-sdk/README.md)。

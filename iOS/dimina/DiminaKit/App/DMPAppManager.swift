@@ -85,6 +85,18 @@ public struct DMPRetentionPolicy {
 }
 
 public class DMPAppManager {
+    /// Starts a local diagnostics capture or clears the current capture when disabled.
+    public func setDiagnosticsEnabled(
+        _ enabled: Bool, host: String? = nil, sdk: String? = nil,
+        jssdk: String? = nil, compiler: String? = nil
+    ) {
+        DMPRuntimeDiagnostics.shared.configure(enabled: enabled, host: host, sdk: sdk, jssdk: jssdk, compiler: compiler)
+    }
+
+    public func getDiagnosticsJSON() -> String? {
+        DMPRuntimeDiagnostics.shared.json()
+    }
+
     private static let instance = DMPAppManager()
 
     private let stateLock = NSLock()

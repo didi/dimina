@@ -29,6 +29,20 @@ namespace Dimina.Desktop
         [DataMember(Name = "name", EmitDefaultValue = false)] public string? Name { get; set; }
     }
     [DataContract]
+    public sealed class DiagnosticsVersions
+    {
+        [DataMember(Name = "host", EmitDefaultValue = false)] public string? Host { get; set; }
+        [DataMember(Name = "sdk", EmitDefaultValue = false)] public string? Sdk { get; set; }
+        [DataMember(Name = "jssdk", EmitDefaultValue = false)] public string? Jssdk { get; set; }
+        [DataMember(Name = "compiler", EmitDefaultValue = false)] public string? Compiler { get; set; }
+    }
+    [DataContract]
+    internal sealed class DiagnosticsOptions
+    {
+        [DataMember(Name = "enabled")] public bool Enabled { get; set; }
+        [DataMember(Name = "versions", EmitDefaultValue = false)] public DiagnosticsVersions? Versions { get; set; }
+    }
+    [DataContract]
     public sealed class WindowInfo
     {
         [DataMember(Name = "id")] public string Id { get; set; } = "";
@@ -195,6 +209,10 @@ namespace Dimina.Desktop
         { await CallAsync<object>("closeAll", new EmptyRequest(), false, cancellationToken).ConfigureAwait(false); }
         public Task<List<WindowInfo>> WindowsAsync(CancellationToken cancellationToken = default)
             => CallAsync<List<WindowInfo>>("windows", null, true, cancellationToken);
+        public async Task SetDiagnosticsEnabledAsync(bool enabled, DiagnosticsVersions? versions = null, CancellationToken cancellationToken = default)
+        { await CallAsync<object>("diagnostics", new DiagnosticsOptions { Enabled = enabled, Versions = versions }, false, cancellationToken).ConfigureAwait(false); }
+        public Task<string?> GetDiagnosticsJsonAsync(CancellationToken cancellationToken = default)
+            => CallAsync<string?>("diagnostics", null, true, cancellationToken);
         public Task<ImportedApp> ImportAppAsync(string absolutePath, CancellationToken cancellationToken = default)
             => CallAsync<ImportedApp>("import", new PathRequest { Path = absolutePath }, false, cancellationToken);
 

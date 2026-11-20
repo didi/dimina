@@ -1,4 +1,5 @@
 import { ErrorEvent, MessageEvents, ThreadWorkerGlobalScope, worker } from '@kit.ArkTS';
+import { systemDateTime } from '@kit.BasicServicesKit';
 import { DMPBridgeCallback, DMPBridgeCallbackType, DMPTSUtil } from '../Bridges/DMPTSUtil';
 import { DMPWorkerModuleManager } from '../Bridges/DMPWorkerModuleManager';
 import { DMPLogger } from '../EventTrack/DMPLogger';
@@ -9,6 +10,8 @@ import {
   AbPayload,
   canvasError,
   CallerReturnType,
+  DiagnosticCaptureRequest,
+  DiagnosticWorkerEvent,
   EvalPayload,
   initPayload,
   WorkerAppData,
@@ -30,6 +33,9 @@ type DMPBridgeParams = DMPMap | number | string | boolean | object;
 
 let appIndex = -1;
 let runtimeSourceURL = '/__dimina__/unknown/runtime/eval.js';
+let diagnosticsGeneration: number | undefined;
+let diagnosticsWorkerId = 0;
+let diagnosticCallNumber = 0;
 let jsEngine: DMPJSEngine = new DMPJSEngine()
 let workerModuleManager: DMPWorkerModuleManager;
 let canvasRequestId = 0;
@@ -85,6 +91,19 @@ const serviceToContainer = (t: number, wid: number, msg: string | object, ab: Ar
         if (rawParams !== undefined && rawParams !== null) {
           params = typeof rawParams === 'object' ? DMPMap.createFromObject(rawParams as Object) : rawParams;
         }
+        const generation = diagnosticsGeneration;
+        const callId = generation !== undefined ? `worker-${diagnosticsWorkerId}-${++diagnosticCallNumber}` : '';
+        const bridgeId = generation !== undefined && body['bridgeId'] !== undefined ? String(body['bridgeId']) : undefined;
+        const trace = (phase: string, outcome?: string): void => {
+          if (generation === undefined || generation !== diagnosticsGeneration) return;
+          try {
+            workerPort.postMessage(new DiagnosticWorkerEvent(generation, callId, methodName, bridgeId, phase,
+              systemDateTime.getUptime(systemDateTime.TimeType.STARTUP, false), outcome));
+          } catch (_) {
+            // The diagnostics channel may already be closed during teardown.
+          }
+        };
+        trace('api-received');
         const callback: DMPBridgeCallback = (args: DMPMap, cbType: DMPBridgeCallbackType,
           persistentCallbackId?: string) => {
           if (params instanceof DMPMap) {
@@ -119,11 +138,25 @@ const serviceToContainer = (t: number, wid: number, msg: string | object, ab: Ar
             // DMPLogger.d(Tags.JS_ENGINE, `worker before evalJS: ${methodName} ${msg.toStr()}`)
             if (methodName.startsWith('FileSystemManager.')) jsEngine.postMessage(msg.toObject<object>());
             else jsEngine.evalJS(`DiminaServiceBridge.onMessage(${msg.toStr()})`, runtimeSourceURL)
+            if (generation !== undefined && !persistentCallbackId) {
+              trace('api-callback', cbType === DMPBridgeCallbackType.Success ? 'success' :
+                cbType === DMPBridgeCallbackType.Fail ? 'fail' : 'complete');
+            }
           }
         }
 
         // DMPLogger.d(Tags.JS_ENGINE, `worker before invokeNativeMethod: ${methodName}`)
-        return DMPTSUtil.invokeNativeMethod(obj, methodName, params, 0, callback)
+        try {
+          const value = DMPTSUtil.invokeNativeMethod(obj, methodName, params, 0, callback);
+          if (generation !== undefined && !(params instanceof DMPMap &&
+            (params.hasKey('success') || params.hasKey('fail') || params.hasKey('complete')))) {
+            trace('api-returned', 'no-callback');
+          }
+          return value;
+        } catch (error) {
+          trace('api-failed', 'native-error');
+          throw error as Error;
+        }
       }
     }
 
@@ -156,6 +189,9 @@ workerPort.onmessage = async (e: MessageEvents) => {
   // DMPLogger.e(Tags.JS_ENGINE, `worker onmessage ${request.command}`);
   try {
     switch (request.command) {
+      case 'diagnosticsCapture':
+        diagnosticsGeneration = (e.data as DiagnosticCaptureRequest).generation;
+        break;
       case 'canvasSyncResult': {
         const reply = e.data as WorkerCanvasResult;
         canvasReplies.get(reply.requestId)?.(reply.result);
@@ -167,6 +203,8 @@ workerPort.onmessage = async (e: MessageEvents) => {
         // 记录当前是哪个 app 下
         let request: initPayload = e.data as initPayload;
         appIndex = request.appIndex;
+        diagnosticsGeneration = request.diagnosticsGeneration;
+        diagnosticsWorkerId = request.diagnosticsWorkerId;
         runtimeSourceURL = request.runtimeSourceURL;
         const isDebugMode: boolean = request.isDebugMode
         DMPVirtualFileConfig.configure(request.virtualFilePrefix);

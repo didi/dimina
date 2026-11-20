@@ -1,4 +1,5 @@
 import { DMPBridgeCallback, DMPBridgeCallbackType, DMPTSUtil } from './DMPTSUtil';
+import { DiagnosticCall, DMPRuntimeDiagnostics } from '../EventTrack/DMPRuntimeDiagnostics';
 
 import { DMPMap } from '../Utils/DMPMap';
 import { DMPChannelProxyNext } from '../Service/DMPChannelProxyNext';
@@ -55,7 +56,7 @@ export class DMPBridges {
 
   static callMethodsNext(methodName: string, webViewId: number,
     params: DMPMap | number | string | boolean | object, appIndex: number,
-    moduleManager: DMPModuleManager): number | string | boolean | object {
+    moduleManager: DMPModuleManager, call?: DiagnosticCall): number | string | boolean | object {
     const callback: DMPBridgeCallback = (args: DMPMap, cbType: DMPBridgeCallbackType,
       persistentCallbackId?: string) => {
       if (params instanceof DMPMap) {
@@ -87,10 +88,14 @@ export class DMPBridges {
           }
         })
         DMPChannelProxyNext.ContainerToService(msg, appIndex)
+        if (call && !persistentCallbackId) {
+          const outcome = cbType === DMPBridgeCallbackType.Success ? 'success' :
+            cbType === DMPBridgeCallbackType.Fail ? 'fail' : 'complete';
+          DMPRuntimeDiagnostics.recordCall(call, 'api-callback', outcome);
+        }
       }
     }
-    const result = DMPBridges.invokeContainerMethodInfo(methodName, webViewId, params, callback, moduleManager)
-    return result;
+    return DMPBridges.invokeContainerMethodInfo(methodName, webViewId, params, callback, moduleManager, call);
   }
 
   /*
@@ -102,7 +107,9 @@ export class DMPBridges {
   * */
   private static invokeContainerMethodInfo(methodName: string, webViewId: number,
     params: DMPMap | number | string | boolean | object, callback: DMPBridgeCallback,
-    moduleManager: DMPModuleManager): number | string | boolean | object {
+    moduleManager: DMPModuleManager, call?: DiagnosticCall): number | string | boolean | object {
+    const expectsCallback = call !== undefined && params instanceof DMPMap &&
+      (params.hasKey('success') || params.hasKey('fail') || params.hasKey('complete'));
     let moduleName = 'DMPContainerBridgesModule';
     let invokeParams = params;
     if (params instanceof DMPMap && params.get('module')) {
@@ -121,6 +128,7 @@ export class DMPBridges {
         DMPLogger.d(Tags.BRIDGE, `extBridge: moduleName=${moduleName} event=${methodName}`);
         extMod.handleExtBridge(methodName, invokeParams instanceof DMPMap ? invokeParams : new DMPMap(),
           callback, moduleName);
+        if (call && !expectsCallback) DMPRuntimeDiagnostics.recordCall(call, 'api-returned', 'no-callback');
         return new Object();
       }
     }
@@ -144,6 +152,7 @@ export class DMPBridges {
               params instanceof DMPMap ? params : new DMPMap(),
               callback, mod, evt);
           }
+          DMPRuntimeDiagnostics.recordCall(call, 'api-returned', 'subscription');
           return new Object();
         }
       }
@@ -154,11 +163,15 @@ export class DMPBridges {
     let obj = moduleManager?.getModuleObjectByMethodNameAndModuleName(methodName, moduleName)
     if (obj) {
       try {
-        return DMPTSUtil.invokeNativeMethod(obj, methodName, invokeParams, webViewId, callback)
+        const value = DMPTSUtil.invokeNativeMethod(obj, methodName, invokeParams, webViewId, callback);
+        if (call && !expectsCallback) DMPRuntimeDiagnostics.recordCall(call, 'api-returned', 'no-callback');
+        return value;
       } catch (err) {
+        DMPRuntimeDiagnostics.recordCall(call, 'api-failed', 'native-error');
         DMPLogger.e(Tags.BRIDGE, `Bridge invoke error  ${methodName}, ${moduleName}, ${err.toString()}`);
       }
     } else {
+      DMPRuntimeDiagnostics.recordCall(call, 'api-failed', 'unregistered');
       DMPLogger.e(Tags.BRIDGE, `Bridge not implemented  ${methodName}, ${moduleName}`);
     }
     return result;

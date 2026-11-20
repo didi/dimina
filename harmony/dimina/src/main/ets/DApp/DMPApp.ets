@@ -10,6 +10,7 @@ import { DMPContextUtils } from '../Utils/DMPContextUtils'
 import { DMPBundleLoadInfo } from '../Bundle/Model/DMPBundleLoadInfo'
 import { DMPContainer } from '../Container/DMPContainer'
 import { DMPLogger } from '../EventTrack/DMPLogger'
+import { DMPRuntimeDiagnostics } from '../EventTrack/DMPRuntimeDiagnostics'
 import { Tags } from '../EventTrack/Tags'
 import window from '@ohos.window'
 import { ImageKnife } from '@ohos/imageknifepro'
@@ -347,6 +348,7 @@ export class DMPApp {
 
 
   async startDimina(context: common.UIAbilityContext, launchConfig: DMPLaunchConfig) {
+    DMPRuntimeDiagnostics.launch('launch-start', this.appConfig.appId, launchConfig.appEntryPath)
     DMPContextUtils.init(context)
     if (DMPAppManager.sharedInstance().isDestroyingAllMiniPrograms()) {
       throw new Error('destroyAllMiniPrograms in progress')
@@ -399,17 +401,20 @@ export class DMPApp {
           new DMPBundleInstallConfig(DMPContextUtils.getUIAbilityContext(), this.appConfig.appId, this.appIndex);
         installConfig.launchAppType = this.appConfig.launchAppType;
 
-        const failLaunch = (code: number, errMsg: string): void => {
+        const failLaunch = (code: number, errMsg: string, phase: string): void => {
           if (generation !== this._runtimeGeneration) {
             return
           }
           DMPLogger.e(Tags.LAUNCH, `startPackageLoader failed code=${code} errMsg=${errMsg}`)
+          DMPRuntimeDiagnostics.launch('launch-failed', this.appConfig.appId, launchConfig?.appEntryPath,
+            undefined, undefined, phase)
           this._lastLaunchFailed = true
           this._engineStatus.setStatus(EngineStatus.STOP)
           this.settleLaunchCompletion(launchConfig, false)
         }
 
         let waitLaunchBundleReady = async (config: DMPBundleLoadInfo) => {
+          let phase = 'app-config'
           try {
             if (generation !== this._runtimeGeneration) {
               return
@@ -420,6 +425,8 @@ export class DMPApp {
             if (generation !== this._runtimeGeneration) {
               return
             }
+            DMPRuntimeDiagnostics.launch('config-loaded', this.appConfig.appId, launchConfig?.appEntryPath)
+            phase = 'service-runtime'
             this._service.updateWorkerAppData();
             await this.startEngineService()
             if (generation !== this._runtimeGeneration) {
@@ -433,19 +440,21 @@ export class DMPApp {
 
             this._engineStatus.setStatus(EngineStatus.RUN)
           } catch (error) {
-            failLaunch(-1, (error as Error).message)
+            failLaunch(-1, (error as Error).message, phase)
           }
         };
 
         const loadComplete = (config: DMPBundleLoadInfo) => {
 
         }
-        const loadError = (code: number, errMsg: string) => failLaunch(code, errMsg)
+        const loadError = (code: number, errMsg: string) => failLaunch(code, errMsg, 'app-package')
         //安装小程序包
         await this._bundleManager.install(installConfig, waitLaunchBundleReady, loadComplete, loadError)
       }
     } catch (error) {
       if (requestGeneration !== this._runtimeGeneration) return
+      DMPRuntimeDiagnostics.launch('launch-failed', this.appConfig.appId, launchConfig?.appEntryPath,
+        undefined, undefined, 'app-package')
       this._lastLaunchFailed = true
       this._engineStatus.setStatus(EngineStatus.STOP)
       this.settleLaunchCompletion(launchConfig, false)

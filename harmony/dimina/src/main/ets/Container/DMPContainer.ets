@@ -1,4 +1,5 @@
 import { DMPBridges } from '../Bridges/DMPBridges';
+import { DMPRuntimeDiagnostics } from '../EventTrack/DMPRuntimeDiagnostics';
 import { DMPApp } from '../DApp/DMPApp';
 import { DMPChannelProxyNext } from '../Service/DMPChannelProxyNext';
 import { DMPMap } from '../Utils/DMPMap';
@@ -99,7 +100,9 @@ export class DMPContainer {
 
   public callBridgeMethods(methodName: string, webViewId: number,
     params: DMPMap | number | string | boolean | object, app: DMPApp): number | string | boolean | object {
-    return DMPBridges.callMethodsNext(methodName, webViewId, params, app.appIndex, app.appModuleManager)
+    const call = DMPRuntimeDiagnostics.beginCall(methodName, app.appConfig.appId,
+      app.navigatorManager?.getPageRecordById(webViewId)?.pagePath, String(webViewId))
+    return DMPBridges.callMethodsNext(methodName, webViewId, params, app.appIndex, app.appModuleManager, call)
   }
 
   public callWebviewBridgeMethods(methodName: string, webViewId: number,

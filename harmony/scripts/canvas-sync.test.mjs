@@ -34,6 +34,7 @@ function worker() {
   let timerId = 0
   const port = { postMessage: value => posted.push(structuredClone(value)), callGlobalCallObjectMethod: () => 0 }
   load('Service/DMPWorker.ets', {
+    '@kit.BasicServicesKit': {},
     '@kit.ArkTS': { worker: { workerPort: port } }, '../Bridges/DMPTSUtil': {}, '../Bridges/DMPWorkerModuleManager': {},
     '../EventTrack/DMPLogger': { DMPLogger: noLog }, '../EventTrack/Tags': { Tags: {} },
     './DMPJSEngine': { DMPJSEngine: class { initWithWorker(owner, callback) { invoke = callback } destroy() {} } },
@@ -109,6 +110,7 @@ function wrapperFixture() {
   }
   const barrier = load('Service/DMPWorkerFlushBarrier.ets', {})
   const { DMPWorkerWrapper } = load('Service/DMPWorkerWrapper.ets', {
+    '../EventTrack/DMPRuntimeDiagnostics': { DMPRuntimeDiagnostics: {} },
     '@kit.ArkTS': { worker: { ThreadWorker: Worker }, util: { TextDecoder: { create: () => ({ decodeToString: bytes => new TextDecoder().decode(bytes) }) } } },
     '../DApp/DMPAppManager': { DMPAppManager: { sharedInstance: () => ({ getApp: () => ({ render: { canvasNodeSync: async (body, deadline) => { calls.push(body.toJSON()); deadlines.push(deadline); return '{"queries":{"location":2}}' } } }) }) } },
     '../Utils/DMPMap': { DMPMap }, '../DApp/DMPApp': {}, '../EventTrack/DMPLogger': { DMPLogger: noLog },

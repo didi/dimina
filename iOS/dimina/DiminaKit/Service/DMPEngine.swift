@@ -115,8 +115,11 @@ public class DMPEngine: NSObject {
     private func setupJSEnvironment() {
         guard let context = jsContext else { return }
         
-        context.exceptionHandler = { context, exception in
+        context.exceptionHandler = { [weak self] context, exception in
             guard let exception = exception else { return }
+            if let app = self?.appResolver() {
+                DMPRuntimeDiagnostics.shared.launch("service-error", appId: app.getAppId(), failure: "service-runtime")
+            }
             DMPLogger.debug("JS Error: \(exception.toString() ?? "Unknown error")")
         }
         

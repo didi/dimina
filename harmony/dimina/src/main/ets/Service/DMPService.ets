@@ -39,6 +39,10 @@ export class DMPService {
     this.ww.initEngine(this.appIndex)
   }
 
+  public updateDiagnosticsCapture(generation?: number): void {
+    this.ww.updateDiagnosticsCapture(generation)
+  }
+
   public async initBridges() {
   }
 

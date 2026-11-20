@@ -15,6 +15,8 @@ test('Tauri uses plugin commands for the full window lifecycle and propagates er
         if (payload.options.appId === 'broken') throw new Error('startup failed')
         return info = { id: 'one', appId: payload.options.appId, name: 'Demo', ready: true }
       case 'plugin:dimina|windows': return info ? [info] : []
+      case 'plugin:dimina|set_diagnostics_enabled': return null
+      case 'plugin:dimina|get_diagnostics_json': return '{"schemaVersion":1,"platform":"Desktop","events":[]}'
       case 'plugin:dimina|close': info = undefined; return null
       case 'plugin:dimina|focus': return null
       case 'plugin:dimina|close_all': info = undefined; return null
@@ -34,6 +36,9 @@ test('Tauri uses plugin commands for the full window lifecycle and propagates er
     assert.deepEqual(calls.at(-1), ['plugin:dimina|focus', { id: 'one' }])
     await listed.close()
     assert.equal((await sdk.windows()).length, 0)
+    await sdk.setDiagnosticsEnabled(true, { host: 'probe' })
+    assert.deepEqual(calls.at(-1), ['plugin:dimina|set_diagnostics_enabled', { enabled: true, versions: { host: 'probe' } }])
+    assert.equal(JSON.parse(await sdk.getDiagnosticsJSON()).platform, 'Desktop')
     assert.equal((await sdk.importApp('/absolute/package')).imported, true)
     await assert.rejects(sdk.openApp({ appId: 'broken' }), /startup failed/)
     await sdk.closeAll()

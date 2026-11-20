@@ -62,6 +62,10 @@ class Bridge(
     private var destroyed: Boolean = false
     @Volatile
     private var resourceLoadId: String? = null
+
+    private fun recordStartup(phase: String, loadId: String? = resourceLoadId, failure: String? = null) {
+        RuntimeDiagnostics.launch(phase, options.appId, options.pathInfo.pagePath, id, loadId, failure)
+    }
     private var renderBridgeCleanup: (() -> Unit)? = null
     private val canvasChannel = CanvasBinaryChannel(options.webview) { ready -> options.jscore.setCanvasBinaryReady(id, ready) }
     private val pageVisibilityLedger = PageVisibilityLedger { delivery ->
@@ -129,6 +133,7 @@ class Bridge(
             pageVisibilityLedger.onStart(visible)
             resourceLoadId!!
         }
+        recordStartup("resource-load-start", currentResourceLoadId)
 
         // 通知渲染线程加载资源
         options.webview.postMessage(
@@ -154,7 +159,10 @@ class Bridge(
                 ).absolutePath
 
                 // evaluateFromFile 会自动处理重复加载的问题
-                options.jscore.evaluateFromFile(jsFilePath)
+                val evaluation = options.jscore.evaluateFromFile(jsFilePath)
+                if (evaluation.type == JSValue.Type.ERROR && !destroyed && currentResourceLoadId == resourceLoadId) {
+                    recordStartup("launch-failed", currentResourceLoadId, "service-resources")
+                }
 
                 // 发送 loadResource 消息
                 options.jscore.postMessage(
@@ -177,6 +185,9 @@ class Bridge(
 
                 LogUtils.d(tag, "Bridge started and resources loaded in background thread")
             } catch (e: Exception) {
+                if (!destroyed && currentResourceLoadId == resourceLoadId && e !is kotlinx.coroutines.CancellationException) {
+                    recordStartup("launch-failed", currentResourceLoadId, "service-resources")
+                }
                 LogUtils.e(tag, "Error starting bridge: ${e.message}")
             }
         }
@@ -283,6 +294,7 @@ class Bridge(
             "service" -> {
                 when (type) {
                     "serviceResourceLoaded" -> {
+                        recordStartup("service-resources-ready")
                         val resourceLoaded = markResourceLoaded(service = true)
                         options.jscore.notifyServiceReady()
                         if (resourceLoaded) {
@@ -293,6 +305,7 @@ class Bridge(
                     }
 
                     "renderResourceLoaded" -> {
+                        recordStartup("render-resources-ready")
                         if (markResourceLoaded(service = false)) {
                             transMsg.put("type", "resourceLoaded")
                         } else {
@@ -301,6 +314,7 @@ class Bridge(
                     }
 
                     "renderResourceLoadFailed" -> {
+                        recordStartup("launch-failed", failure = "render-resources")
                         synchronized(this) {
                             renderResource = false
                             resourceLoadedForwarded = false
@@ -315,6 +329,7 @@ class Bridge(
                     // 调用容器侧 API
                     return handleApiInvocation(body)
                 } else if (type == "domReady") {
+                    recordStartup("dom-ready")
                     // 隐藏 Loading
                     parent.onDomReady()
                 }
@@ -360,6 +375,11 @@ class Bridge(
             //  转发到逻辑线程
             options.jscore.postMessage(msg.toString())
         } else if (target == "render") {
+            if (RuntimeDiagnostics.enabled && msg.optString("type") == "firstRender" &&
+                body.optString("resourceLoadId") == resourceLoadId
+            ) {
+                recordStartup("first-render-sent")
+            }
             @Suppress("UNCHECKED_CAST")
             val buffers = body.remove("__diminaCanvasBuffers") as? Array<ByteArray> ?: emptyArray()
             if (deadline <= System.currentTimeMillis()) { admitted?.invoke("Canvas publication timed out"); return }
@@ -453,6 +473,7 @@ class Bridge(
      * Handles API invocation from JavaScript
      */
     private fun handleApiInvocation(body: JSONObject): JSValue? {
+        var call: RuntimeDiagnostics.Call? = null
         try {
             val apiName = body.getString("name")
 
@@ -476,6 +497,16 @@ class Bridge(
             }
 
             LogUtils.d(tag, "API invocation: $apiName")
+            call = RuntimeDiagnostics.beginCall(apiName, options.appId, options.pathInfo.pagePath, id)
+            var unhandled = false
+            val callbackKinds = if (call == null) null else listOf("success", "fail", "complete")
+                .mapNotNull { kind -> params.optString(kind).takeIf { it.isNotEmpty() }?.let { it to kind } }
+                .toMap()
+            fun noteCallback(response: JSONObject?) {
+                if (response?.optString("type") != "triggerCallback") return
+                val callbackId = response.optJSONObject("body")?.optString("id") ?: return
+                callbackKinds?.get(callbackId)?.let { RuntimeDiagnostics.recordCall(call, "api-callback", it) }
+            }
 
             // Use MiniApp to handle API invocation
             return parent.runWithBridgeContext(this) {
@@ -484,13 +515,32 @@ class Bridge(
                     context = parent,
                     apiName = apiName,
                     params = params,
-                    structuredResponseCallback = { response -> options.jscore.postMessage(response) }
+                    onUnhandled = if (call == null) null else {
+                        {
+                            unhandled = true
+                            RuntimeDiagnostics.recordCall(call, "api-failed", "unregistered")
+                        }
+                    },
+                    structuredResponseCallback = { response ->
+                        options.jscore.postMessage(response)
+                        if (callbackKinds != null) noteCallback(response)
+                    }
                 ) { response ->
                     // Send response back to JavaScript
                     options.jscore.postMessage(response)
+                    if (!callbackKinds.isNullOrEmpty()) noteCallback(runCatching { JSONObject(response) }.getOrNull())
+                }
+            }.also { result ->
+                if (call != null && !unhandled) {
+                    when {
+                        result?.type == JSValue.Type.ERROR -> RuntimeDiagnostics.recordCall(call, "api-failed", "native-error")
+                        result != null -> RuntimeDiagnostics.recordCall(call, "api-returned", "sync")
+                        callbackKinds.isNullOrEmpty() -> RuntimeDiagnostics.recordCall(call, "api-returned", "no-callback")
+                    }
                 }
             }
         } catch (e: Exception) {
+            RuntimeDiagnostics.recordCall(call, "api-failed", "native-error")
             e.printStackTrace()
             LogUtils.e(tag, "Error invoking API: ${e.message}")
             return null

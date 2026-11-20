@@ -35,6 +35,8 @@ export interface LaunchDiagnosticEvent {
 export interface LaunchDiagnosticsOptions {
 	/** Versions of the artifacts that the host actually uses. */
 	versions?: { host?: string, sdk?: string, jssdk?: string, compiler?: string }
+	/** Observes sanitized launch events as they happen. */
+	onEvent?: (event: LaunchDiagnosticsSnapshot['events'][number]) => void
 }
 
 export interface LaunchDiagnosticsSnapshot {
@@ -50,16 +52,18 @@ export class LaunchDiagnostics {
 	private readonly startTime = performance.now()
 	private readonly events: LaunchDiagnosticsSnapshot['events'] = []
 	private readonly versions: LaunchDiagnosticsSnapshot['versions']
+	private readonly onEvent: LaunchDiagnosticsOptions['onEvent']
 
 	constructor(options: LaunchDiagnosticsOptions) {
 		const { host, sdk, jssdk, compiler } = options.versions ?? {}
 		this.versions = { host, sdk, jssdk, compiler }
+		this.onEvent = options.onEvent
 	}
 
 	record(event: LaunchDiagnosticEvent): void {
 		if (this.events.length === MAX_EVENTS) this.events.shift()
 		const { appId, pagePath, bridgeId, resourceLoadId, phase, failure } = event
-		this.events.push({
+		const recorded = {
 			appId,
 			pagePath: typeof pagePath === 'string' ? pagePath.split(/[?#]/, 1)[0] : undefined,
 			bridgeId,
@@ -67,7 +71,14 @@ export class LaunchDiagnostics {
 			phase,
 			failure,
 			elapsedMs: Math.round(performance.now() - this.startTime),
-		})
+		}
+		this.events.push(recorded)
+		try {
+			this.onEvent?.({ ...recorded })
+		}
+		catch {
+			// Hosting diagnostics must not affect page startup.
+		}
 	}
 
 	snapshot(): LaunchDiagnosticsSnapshot {

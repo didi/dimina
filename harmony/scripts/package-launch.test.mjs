@@ -233,6 +233,7 @@ test('failed manifest installation can retry on the same loader without deleting
 function appFixture() {
   const manager = { async collectRetainedApps() {}, isDestroyingAllMiniPrograms: () => false, observeMemoryPressure() {} }
   const { DMPApp } = load('DApp/DMPApp.ets', {
+    '../EventTrack/DMPRuntimeDiagnostics': { DMPRuntimeDiagnostics: { launch() {} } },
     './utils/DMPStatusMonitor': { EngineStatus, StatusMonitor },
     './DMPAppManager': { DMPAppManager: { sharedInstance: () => manager } },
     '../Utils/DMPContextUtils': { DMPContextUtils: context },

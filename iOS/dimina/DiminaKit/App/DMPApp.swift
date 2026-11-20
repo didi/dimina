@@ -95,16 +95,19 @@ public class DMPApp {
             appVisibleDesired = true
         }
         if navigator?.isRetainedInBackground == true {
+            DMPRuntimeDiagnostics.shared.launch("launch-resumed", appId: appId, pagePath: launchConfig.appEntryPath)
             prepareHostEntry(launchConfig)
             return navigator?.resumeRetainedMiniProgram() == true
         }
         if service != nil, navigator?.getTopPageRecord() != nil {
+            DMPRuntimeDiagnostics.shared.launch("launch-resumed", appId: appId, pagePath: launchConfig.appEntryPath)
             prepareHostEntry(launchConfig)
             if appVisibleDesired { flushAppVisibility() }
             return true
         }
 
         isLaunching = true
+        DMPRuntimeDiagnostics.shared.launch("launch-start", appId: appId, pagePath: launchConfig.appEntryPath)
         defer {
             isLaunching = false
         }
@@ -116,11 +119,16 @@ public class DMPApp {
         let entryPath = resolvedEntryPath(for: launchConfig)
         guard bundleAppConfig?.runtimeType == "game"
                 || bundleAppConfig?.isContainsPage(pagePath: entryPath) == true else {
+            DMPRuntimeDiagnostics.shared.launch("launch-failed", appId: appId, pagePath: entryPath, failure: "entry-page")
             DMPLogger.debug("launch rejected: page is not declared: \(entryPath)")
             return false
         }
 
-        return await openPage(launchConfig: launchConfig)
+        let opened = await openPage(launchConfig: launchConfig)
+        if !opened {
+            DMPRuntimeDiagnostics.shared.launch("launch-failed", appId: appId, pagePath: entryPath, failure: "page-frame")
+        }
+        return opened
     }
 
     @MainActor
@@ -135,6 +143,7 @@ public class DMPApp {
                     manifestUrl: appConfig?.updateManifestUrl
                 )
         } catch {
+            DMPRuntimeDiagnostics.shared.launch("launch-failed", appId: appId, failure: "app-package")
             DMPLogger.debug("Initial package install failed: \(error)")
             return false
         }
@@ -145,6 +154,11 @@ public class DMPApp {
 
         await initService()
         await loadBundle()
+        if bundleAppConfig != nil {
+            DMPRuntimeDiagnostics.shared.launch("config-loaded", appId: appId)
+        } else {
+            DMPRuntimeDiagnostics.shared.launch("launch-failed", appId: appId, failure: "app-config")
+        }
 
         if installedInitialPackage {
             await notifyUpdateStatus(event: "noupdate")

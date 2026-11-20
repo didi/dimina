@@ -1,4 +1,4 @@
-import type { OpenAppOptions, ImportedApp, DiminaWindow } from './types.js'
+import type { OpenAppOptions, ImportedApp, DiminaWindow, DiagnosticsVersions } from './types.js'
 export * from './types.js'
 /** One runtime is shared by the trusted frontend windows of a Tauri app. */
 export declare class Dimina {
@@ -9,6 +9,8 @@ export declare class Dimina {
   closeApp(id: string): Promise<void>
   closeAll(): Promise<void>
   windows(): Promise<DiminaWindow[]>
+  setDiagnosticsEnabled(enabled: boolean, versions?: DiagnosticsVersions): Promise<void>
+  getDiagnosticsJSON(): Promise<string | null>
   importApp(path: string): Promise<ImportedApp>
   dispose(): Promise<void>
 }

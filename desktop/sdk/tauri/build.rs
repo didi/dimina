@@ -6,6 +6,8 @@ fn main() {
         "close",
         "close_all",
         "windows",
+        "set_diagnostics_enabled",
+        "get_diagnostics_json",
         "import",
         "dispose",
     ])

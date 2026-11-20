@@ -191,6 +191,12 @@ public class DMPRender: DMPWebViewDelegate {
 
     // DMPWebViewDelegate protocol implementation - Handle WebView load failure event
     public func webViewDidFailLoad(webViewId: Int, error: Error) {
+        let failure = error as NSError
+        let cancelled = failure.domain == NSURLErrorDomain && failure.code == NSURLErrorCancelled
+        if let app, !cancelled {
+            DMPRuntimeDiagnostics.shared.launch("launch-failed", appId: app.getAppId(),
+                pagePath: webviewsMap[webViewId]?.getPagePath(), bridgeId: String(webViewId), failure: "page-frame")
+        }
         DMPLogger.debug("🔴 DMPRender: WebView load failed: \(error.localizedDescription)")
     }
 

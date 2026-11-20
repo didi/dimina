@@ -1,4 +1,5 @@
 export interface OpenAppOptions { appId: string; path?: string; name?: string }
+export interface DiagnosticsVersions { host?: string; sdk?: string; jssdk?: string; compiler?: string }
 export interface ImportedApp { appId: string; name: string; path: string; imported: boolean }
 export interface NativeApiOptions { appIds?: string[]; timeoutMs?: number }
 export interface NativeApiContext { appId: string; windowId: string; signal: AbortSignal }

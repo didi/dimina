@@ -37,6 +37,8 @@ public:
   void closeAll();
   void importApp(const QString &absolutePath);
   void windows();
+  void setDiagnosticsEnabled(bool enabled, const QJsonObject &versions = {});
+  void getDiagnosticsJSON();
   void stop();
   void registerApi(const QString &name, NativeHandler handler,
                    const QStringList &appIds = {}, int timeoutMs = 30000);
@@ -47,6 +49,8 @@ signals:
   void appOpenFailed(const QString &appId, const QString &message);
   void appImported(const QJsonObject &app);
   void windowsReceived(const QJsonArray &windows);
+  void diagnosticsConfigured(bool enabled);
+  void diagnosticsReceived(const QString &json);
   void operationFailed(const QString &operation, const QString &message);
   void nativeApiRegistered(const QString &name);
   void nativeCallCancelled(const QString &requestId);

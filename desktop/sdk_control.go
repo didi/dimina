@@ -34,13 +34,18 @@ type sdkWindowHost interface {
 	sdkImport(string) (miniProgram, error)
 }
 type sdkControl struct {
-	host   sdkWindowHost
-	token  string
-	native *nativeBridge
+	host        sdkWindowHost
+	token       string
+	native      *nativeBridge
+	diagnostics *desktopDiagnostics
 }
 
 func newSDKControl(host sdkWindowHost) *sdkControl {
-	return &sdkControl{host: host, token: secret(), native: newNativeBridge(os.Stdout)}
+	diagnostics := &desktopDiagnostics{}
+	if desktop, ok := host.(*Desktop); ok {
+		diagnostics = &desktop.diagnostics
+	}
+	return &sdkControl{host: host, token: secret(), native: newNativeBridge(os.Stdout), diagnostics: diagnostics}
 }
 
 func (s *sdkControl) serve(w http.ResponseWriter, r *http.Request, method string) {
@@ -52,6 +57,10 @@ func (s *sdkControl) serve(w http.ResponseWriter, r *http.Request, method string
 	}
 	if method == "windows" && r.Method == http.MethodGet {
 		writeResult(w, s.host.sdkWindows(), nil)
+		return
+	}
+	if method == "diagnostics" && r.Method == http.MethodGet {
+		writeResult(w, s.diagnostics.json(), nil)
 		return
 	}
 	if r.Method != http.MethodPost {
@@ -66,6 +75,16 @@ func (s *sdkControl) serve(w http.ResponseWriter, r *http.Request, method string
 	var value any
 	var err error
 	switch method {
+	case "diagnostics":
+		var options diagnosticsOptions
+		if err = decode(&options); err == nil {
+			v := options.Versions
+			if max(len(v.Host), len(v.SDK), len(v.JSSDK), len(v.Compiler)) > 128 {
+				err = errors.New("diagnostic version values must be at most 128 bytes")
+			} else {
+				s.diagnostics.configure(options)
+			}
+		}
 	case "registerApi":
 		var options nativeRegistration
 		if err = decode(&options); err == nil {
@@ -143,10 +162,21 @@ func (d *Desktop) publishNativeAPIs() {
 	})
 }
 
-func (d *Desktop) InvokeHostApi(ctx context.Context, name string, params json.RawMessage) (json.RawMessage, error) {
+func (d *Desktop) InvokeHostApi(ctx context.Context, name string, params json.RawMessage) (result json.RawMessage, callErr error) {
 	state, ok := d.caller(ctx)
 	if !ok || state == nil || d.resources.sdk == nil {
 		return nil, errors.New("native SDK host is unavailable")
+	}
+	event := windowDiagnostic(state, "")
+	event.API = name
+	if finish := d.diagnostics.beginAPI(event); finish != nil {
+		defer func() {
+			var reply struct {
+				ErrMsg string `json:"errMsg"`
+			}
+			_ = json.Unmarshal(result, &reply)
+			finish(callErr, reply.ErrMsg != "" && !strings.HasSuffix(reply.ErrMsg, ":ok"))
+		}()
 	}
 	if len(params) == 0 {
 		params = json.RawMessage(`{}`)
@@ -235,6 +265,13 @@ func (d *Desktop) sdkOpen(ctx context.Context, options sdkOpenOptions) (sdkWindo
 	if !appIDPattern.MatchString(options.AppID) {
 		return empty, errors.New("invalid appId")
 	}
+	capture := d.diagnostics.generation.Load()
+	event := diagnosticEvent{Phase: "open-requested", AppID: options.AppID, PagePath: options.Path}
+	d.diagnostics.record(capture, event)
+	fail := func(reason string) {
+		event.Phase, event.Failure = "launch-failed", reason
+		d.diagnostics.record(capture, event)
+	}
 	// Imported packages override configured packages, which override bundled demos.
 	var source fs.FS
 	for _, root := range []string{filepath.Join(d.resources.dataDir, "packages"), d.resources.packageRoot} {
@@ -251,11 +288,13 @@ func (d *Desktop) sdkOpen(ctx context.Context, options sdkOpenOptions) (sdkWindo
 		var err error
 		source, err = fs.Sub(d.resources.assets, options.AppID)
 		if err != nil {
+			fail("app-package")
 			return empty, err
 		}
 	}
 	entry, err := validatePackage(source)
 	if err != nil {
+		fail("app-package")
 		return empty, err
 	}
 	if options.Path == "" {
@@ -266,15 +305,19 @@ func (d *Desktop) sdkOpen(ctx context.Context, options sdkOpenOptions) (sdkWindo
 	}
 	state, err := d.openProgram(ctx, miniProgram{AppID: options.AppID, Path: options.Path, Name: options.Name})
 	if err != nil {
+		fail("window-create")
 		return empty, err
 	}
+	event.WindowID, event.PagePath = state.id, state.app.Path
 	select {
 	case <-state.ready:
 		if state.readyErr != nil {
+			fail("runtime-startup")
 			return describeSDKWindow(state), state.readyErr
 		}
 		return describeSDKWindow(state), nil
 	case <-ctx.Done():
+		fail("window-wait")
 		return describeSDKWindow(state), ctx.Err()
 	}
 }

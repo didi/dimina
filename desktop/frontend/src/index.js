@@ -69,9 +69,18 @@ async function openMiniProgram(bootstrap) {
 	root.replaceChildren()
 	root.classList.add('runtime')
 	document.title = bootstrap.app.name
+	const generation = bootstrap.diagnosticsGeneration
+	const pendingReports = new Set()
+	const reportEvent = generation ? ({ phase, pagePath, bridgeId, resourceLoadId, failure }) => {
+		if (pendingReports.size >= 200) return
+		const report = desktop.recordLaunchDiagnostic(generation, { phase, pagePath, bridgeId, resourceLoadId, failure })
+			.catch(() => {})
+		pendingReports.add(report)
+		void report.then(() => pendingReports.delete(report))
+	} : undefined
 	const container = createContainer({
 		mount: root,
-		launchDiagnostics: bootstrap.launchDiagnostics ? { versions: { host: desktopConfig.version } } : undefined,
+		launchDiagnostics: bootstrap.launchDiagnostics ? { versions: { host: desktopConfig.version }, onEvent: reportEvent } : undefined,
 		appTransitions: false,
 		urlSync: false,
 		resourceBaseUrl: bootstrap.resourceBaseUrl,
@@ -104,12 +113,18 @@ async function openMiniProgram(bootstrap) {
 	let currentApp
 	const pendingEvents = []
 	window.mygo.on('desktop:event', event => currentApp ? dispatchRuntimeEvent(currentApp, event) : pendingEvents.push(event))
-	const app = await container.openApp({ appId: bootstrap.app.appId, path: bootstrap.app.path })
-	currentApp = app
-	for (const event of pendingEvents) dispatchRuntimeEvent(app, event)
-	pendingEvents.length = 0
-	await presentWindow()
-	await app.whenReady()
+	let app
+	try {
+		app = await container.openApp({ appId: bootstrap.app.appId, path: bootstrap.app.path })
+		currentApp = app
+		for (const event of pendingEvents) dispatchRuntimeEvent(app, event)
+		pendingEvents.length = 0
+		await presentWindow()
+		await app.whenReady()
+	}
+	finally {
+		if (pendingReports.size) await Promise.all(pendingReports)
+	}
 	const observer = new ResizeObserver(() => app.notifyViewportChange())
 	observer.observe(root)
 	window.addEventListener('pagehide', () => observer.disconnect(), { once: true })
@@ -119,6 +134,7 @@ async function openMiniProgram(bootstrap) {
 let bootstrap
 try {
 	bootstrap = await desktop.bootstrap()
+	if (bootstrap.localDiagnostics) window.diminaGetDiagnosticsJSON = () => desktop.localDiagnosticsJSON()
 	if (bootstrap.app) await openMiniProgram(bootstrap)
 	else await launcher()
 }

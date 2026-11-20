@@ -55,6 +55,15 @@ class ApiRegistry {
         apiName: String,
         params: JSONObject,
         responseCallback: (String) -> Unit,
+    ): APIResult = invoke(activity, appId, apiName, params, responseCallback, null)
+
+    internal fun invoke(
+        activity: DiminaActivity,
+        appId: String,
+        apiName: String,
+        params: JSONObject,
+        responseCallback: (String) -> Unit,
+        onUnhandled: (() -> Unit)?,
     ): APIResult {
         // 1. 优先命中已注册的标准 API
         apiHandlers[apiName]?.let { handler ->
@@ -88,6 +97,7 @@ class ApiRegistry {
         }
 
         LogUtils.e(tag, "API not found: $apiName")
+        onUnhandled?.invoke()
         return NoneResult()
     }
 

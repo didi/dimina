@@ -2,6 +2,7 @@ import { DMPAppManager } from '../DApp/DMPAppManager';
 import { DMPApp } from '../DApp/DMPApp';
 import { DMPScene } from '../DApp/config/DMPLaunchConfig';
 import { DMPLogger } from '../EventTrack/DMPLogger';
+import { DMPRuntimeDiagnostics } from '../EventTrack/DMPRuntimeDiagnostics';
 import { DMPMap } from '../Utils/DMPMap';
 import { DMPPageRecord } from '../Navigator/DMPPageRecord';
 import { ResourceLoadType } from '../Container/DMPContainer';
@@ -26,6 +27,7 @@ export class DMPChannelProxyNext {
 
     if (target === 'service') {
       if (type === 'serviceResourceLoaded') {
+        DMPRuntimeDiagnostics.launch('service-resources-ready', app.appConfig.appId, pageRecord?.pagePath, String(webViewId))
         // service 侧 App 实例此刻必定已存在，补发启动窗口期欠下的 appHide。渲染层可能还没就绪
         // （isResourceLoaded 为 false），所以放在分支之外，不跟着 resourceLoaded 一起等。
         app.notifyServiceReady();
@@ -50,6 +52,7 @@ export class DMPChannelProxyNext {
           return new DMPMap();
         }
       } else if (type == 'renderResourceLoaded') {
+        DMPRuntimeDiagnostics.launch('render-resources-ready', app.appConfig.appId, pageRecord?.pagePath, String(webViewId))
         app.container.hasLoadResource(webViewId, ResourceLoadType.RenderLoaded);
         if (app.container.isResourceLoaded(webViewId)) {
           transMsg.set('type', 'resourceLoaded');
@@ -71,6 +74,10 @@ export class DMPChannelProxyNext {
           return new DMPMap();
         }
       }
+      if (type === 'renderResourceLoadFailed') {
+        DMPRuntimeDiagnostics.launch('launch-failed', app.appConfig.appId, pageRecord?.pagePath, String(webViewId),
+          undefined, 'render-resources')
+      }
       app.service.postMessage(transMsg);
     } else if (target === 'container') {
       if (type === 'invokeAPI') {
@@ -84,6 +91,7 @@ export class DMPChannelProxyNext {
             DMPMap.createFromObject(body.get('params')), app)
         }
       } else if (type === 'domReady') {
+        DMPRuntimeDiagnostics.launch('dom-ready', app.appConfig.appId, pageRecord?.pagePath, String(webViewId))
         app.container.isNavigating = false
         app.notifyDomReady(webViewId)
         DMPLogger.i(Tags.LAUNCH, "domReady")

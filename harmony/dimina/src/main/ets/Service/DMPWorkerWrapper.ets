@@ -3,12 +3,15 @@ import { DMPAppManager } from '../DApp/DMPAppManager';
 import { DMPMap } from '../Utils/DMPMap';
 import { DMPApp } from '../DApp/DMPApp';
 import { DMPLogger } from '../EventTrack/DMPLogger';
+import { DMPRuntimeDiagnostics } from '../EventTrack/DMPRuntimeDiagnostics';
 import { Tags } from '../EventTrack/Tags';
 import { DMPChannelProxyNext } from './DMPChannelProxyNext';
 import {
   AbPayload,
   canvasError,
   CallerReturnType,
+  DiagnosticCaptureRequest,
+  DiagnosticWorkerEvent,
   EvalPayload,
   initPayload,
   Payload,
@@ -29,6 +32,7 @@ import { DMPVirtualFileConfig } from '../Bundle/Util/DMPFileUrlConvertor';
 
 
 export class DMPWorkerWrapper {
+  private static nextDiagnosticsWorkerId = 0;
   w: worker.ThreadWorker;
   appIndex: number;
   debuggerAddress: string;
@@ -61,6 +65,15 @@ export class DMPWorkerWrapper {
         return;
       }
       if (this.destroyed) return;
+      if (responseType === 'diagnostic') {
+        const event = e.data as DiagnosticWorkerEvent;
+        const app = DMPAppManager.sharedInstance().getApp(this.appIndex);
+        if (app) {
+          const page = app.navigatorManager?.getPageRecordById(Number(event.bridgeId));
+          DMPRuntimeDiagnostics.recordWorkerEvent(event, app.appConfig.appId, page?.pagePath);
+        }
+        return;
+      }
       const canvasRequest = e.data as WorkerCanvasRequest;
       if (canvasRequest.type === 'canvasSync') {
         if (Date.now() >= canvasRequest.deadline) {
@@ -90,6 +103,12 @@ export class DMPWorkerWrapper {
     }
 
     this.w.onerror = (err: ErrorEvent) => {
+      if (!this.destroyed && DMPRuntimeDiagnostics.captureGeneration !== undefined) {
+        const app = DMPAppManager.sharedInstance().getApp(this.appIndex);
+        if (app) {
+          DMPRuntimeDiagnostics.launch('service-error', app.appConfig.appId, undefined, undefined, undefined, 'service-runtime');
+        }
+      }
       DMPLogger.e(Tags.JS_ENGINE, `ww onerror ${err.message}`);
       this.flushBarrier.markUnavailable();
     }
@@ -153,9 +172,20 @@ export class DMPWorkerWrapper {
       isDebugMode,
       this.debuggerAddress,
       this.runtimeSourceURL,
-      DMPVirtualFileConfig.getPrefix()
+      DMPVirtualFileConfig.getPrefix(),
+      ++DMPWorkerWrapper.nextDiagnosticsWorkerId,
+      DMPRuntimeDiagnostics.captureGeneration
     );
     this.w.postMessage(payload);
+  }
+
+  updateDiagnosticsCapture(generation?: number): void {
+    if (this.destroyed) return;
+    try {
+      this.w.postMessage(new DiagnosticCaptureRequest(generation));
+    } catch (_) {
+      // A closed Worker has no more calls to capture.
+    }
   }
 
   private terminateWorker(): void {

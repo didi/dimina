@@ -50,6 +50,18 @@ func TestSDKControlAuthenticationAndTypedOperations(t *testing.T) {
 		t.Fatal("unauthenticated request reached host")
 	}
 	auth := "Bearer " + sdk.token
+	if res := request("GET", "diagnostics", "", ""); res.Code != 401 {
+		t.Fatal("diagnostics export must require the SDK token")
+	}
+	if res := request("GET", "diagnostics", "", auth); res.Code != 200 || !strings.Contains(res.Body.String(), `"value":null`) {
+		t.Fatalf("unexpected disabled report: %s", res.Body.String())
+	}
+	if res := request("POST", "diagnostics", `{"enabled":true,"versions":{"host":"probe"}}`, auth); res.Code != 200 {
+		t.Fatalf("cannot configure diagnostics: %s", res.Body.String())
+	}
+	if res := request("GET", "diagnostics", "", auth); res.Code != 200 || !strings.Contains(res.Body.String(), "probe") {
+		t.Fatalf("cannot export diagnostics: %s", res.Body.String())
+	}
 	for _, body := range []string{`{"appId":"../other"}`, `{"appId":"demo","unknown":true}`} {
 		if res := request("POST", "open", body, auth); res.Code != 400 {
 			t.Fatalf("invalid request accepted: %s", body)

@@ -120,6 +120,7 @@ import com.didi.dimina.core.Bridge
 import com.didi.dimina.core.MiniApp
 import com.didi.dimina.core.PageStateTeardown
 import com.didi.dimina.core.RemoteUpdateManager
+import com.didi.dimina.core.RuntimeDiagnostics
 import com.didi.dimina.ui.theme.DiminaAndroidTheme
 import com.didi.dimina.ui.view.ActionSheet
 import com.didi.dimina.ui.view.ContactPicker
@@ -681,6 +682,9 @@ class DiminaActivity : ComponentActivity() {
                     LogUtils.d(tag, "Installed initial mini program package from manifest")
                 }
             } catch (e: Exception) {
+                if (e !is kotlinx.coroutines.CancellationException) {
+                    RuntimeDiagnostics.launch("launch-failed", appId, miniProgram.path, failure = "app-package")
+                }
                 LogUtils.e(tag, "Error preparing mini program resources: ${e.message}")
                 withContext(Dispatchers.Main) { finish() }
                 return@withContext
@@ -690,6 +694,7 @@ class DiminaActivity : ComponentActivity() {
             try {
                 val config = readAppConfig("jsapp/$appId")
                 if (config == null) {
+                    RuntimeDiagnostics.launch("launch-failed", appId, miniProgram.path, failure = "app-config")
                     LogUtils.e(tag, "Failed to read app config for appId: $appId")
                     withContext(Dispatchers.Main) { finish() }
                     return@withContext
@@ -703,7 +708,9 @@ class DiminaActivity : ComponentActivity() {
                     config.app.networkTimeout?.connectSocket,
                 )
                 LogUtils.d(tag, "Successfully loaded app config")
+                RuntimeDiagnostics.launch("config-loaded", appId, miniProgram.path)
             } catch (e: Exception) {
+                RuntimeDiagnostics.launch("launch-failed", appId, miniProgram.path, failure = "app-config")
                 LogUtils.e(tag, "Error reading app config: ${e.message}")
                 withContext(Dispatchers.Main) { finish() }
                 return@withContext
@@ -713,6 +720,7 @@ class DiminaActivity : ComponentActivity() {
             val entryPagePath =
                 (if (appConfig.app.runtimeType == "game") null else miniProgram.path)
                     ?: getDefaultEntryPagePath() ?: run {
+                    RuntimeDiagnostics.launch("launch-failed", appId, failure = "entry-page")
                     withContext(Dispatchers.Main) { finish() }
                     return@withContext
                 }
@@ -2658,6 +2666,7 @@ class DiminaActivity : ComponentActivity() {
                 program.appId, MiniProgramEntryOptions.from(program, existing?.getLaunchReferrerInfo()),
             )
             if (resumeRetainedMiniProgram(context, program.appId)) {
+                RuntimeDiagnostics.launch("launch-resumed", program.appId, program.path)
                 // A new entry while already visible has no onStart transition to deliver it.
                 if (visibilityTracker.isForeground(program.appId)) existing?.dispatchMiniProgramShow()
                 return

@@ -17,6 +17,7 @@ import {
 import { DMPRemoteUpdateManager, DMPMiniProgramVersionInfo } from '../Bundle/DMPRemoteUpdateManager'
 import { DMPMMKVManager } from '../Bundle/Util/DMPMMKVManager'
 import { DMPPreference } from '../Utils/DMPPreference'
+import { DMPRuntimeDiagnostics } from '../EventTrack/DMPRuntimeDiagnostics'
 
 export type DMPMiniProgramBeforeDestructiveAction = () => Promise<void>
 
@@ -45,6 +46,16 @@ export class DMPRetentionPolicy {
 }
 
 export class DMPAppManager {
+  public setDiagnosticsEnabled(enabled: boolean, host?: string, sdk?: string, jssdk?: string, compiler?: string): void {
+    DMPRuntimeDiagnostics.configure(enabled, host, sdk, jssdk, compiler)
+    const generation = DMPRuntimeDiagnostics.captureGeneration
+    this.appPools.forEach((app: DMPApp): void => app.service.updateDiagnosticsCapture(generation))
+  }
+
+  public getDiagnosticsJSON(): string | undefined {
+    return DMPRuntimeDiagnostics.json()
+  }
+
   private static instance: DMPAppManager
   appPools = new Map<number, DMPApp>();
   private appIndex = 0;

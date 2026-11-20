@@ -39,6 +39,7 @@ type desktopRuntime struct {
 	earlyAborts          map[string]time.Time
 	resources            *resourceServer
 	owner, appID, tmpdir string
+	windowID             string
 	emit                 func(runtimeEvent)
 }
 

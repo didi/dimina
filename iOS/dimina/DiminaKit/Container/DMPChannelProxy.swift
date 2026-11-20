@@ -28,6 +28,10 @@ class DMPChannelProxy {
             ])
 
             if type == "serviceResourceLoaded" || type == "renderResourceLoaded" {
+                DMPRuntimeDiagnostics.shared.launch(
+                    type == "serviceResourceLoaded" ? "service-resources-ready" : "render-resources-ready",
+                    appId: app.getAppId(), pagePath: webview?.getPagePath(), bridgeId: String(webViewId)
+                )
                 if type == "serviceResourceLoaded" {
                     // service 端发出这条消息时 loader 已经跑完 modRequire('app')，App 实例必定存在。
                     // 渲染层是否就绪与此无关，所以放在 isResourceLoaded 分支之外。
@@ -63,6 +67,10 @@ class DMPChannelProxy {
                     return DMPMap()
                 }
             } else {
+                if type == "renderResourceLoadFailed" {
+                    DMPRuntimeDiagnostics.shared.launch("launch-failed", appId: app.getAppId(),
+                        pagePath: webview?.getPagePath(), bridgeId: String(webViewId), failure: "render-resources")
+                }
                 DMPLogger.debug("🔴🔴🔴 DMPChannelProxy.postMessage")
                 Task { @MainActor in
                     await app.service?.postMessage(data: transMsg)
@@ -87,6 +95,8 @@ class DMPChannelProxy {
                     app: app
                 )
             } else if type == "domReady" {
+                DMPRuntimeDiagnostics.shared.launch("dom-ready", appId: app.getAppId(),
+                    pagePath: webview?.getPagePath(), bridgeId: String(webViewId))
                 app.container?.isNavigating = false
                 if let webview = webview {
                     webview.hideLoading()

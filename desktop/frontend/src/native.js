@@ -12,6 +12,8 @@ export const desktop = {
 	prepareToClose: () => call('PrepareToClose'),
 	runtimeReady: () => call('RuntimeReady'),
 	runtimeFailed: message => call('RuntimeFailed', message),
+	recordLaunchDiagnostic: (generation, event) => call('RecordLaunchDiagnostic', generation, event),
+	localDiagnosticsJSON: () => call('LocalDiagnosticsJSON'),
 	invoke: (method, params) => call('Invoke', method, params),
 	invokeHostApi: (method, params) => call('InvokeHostApi', method, params),
 }

@@ -138,19 +138,24 @@ class MiniApp private constructor() {
      * @param miniProgram The MiniProgram to open
      */
     fun openApp(context: Activity, miniProgram: MiniProgram) {
-        check(!RemoteUpdateManager.isPackageOperationInProgress(miniProgram.appId)) { "package operation in progress" }
-        collectRetainedApps()
-        // Initialize or get JsCore for this MiniProgram
-        val alreadyRunning = isRunning(miniProgram.appId)
-        getOrCreateJsCore(miniProgram.appId, context)
-
+        val appId = miniProgram.appId
+        if (miniProgram.root) RuntimeDiagnostics.launch("launch-start", appId, miniProgram.path)
+        var createdRuntimeForLaunch = false
         try {
+            check(!RemoteUpdateManager.isPackageOperationInProgress(appId)) { "package operation in progress" }
+            collectRetainedApps()
+            val alreadyRunning = isRunning(appId)
+            getOrCreateJsCore(appId, context)
+            createdRuntimeForLaunch = !alreadyRunning
             DiminaActivity.openMiniProgram(context, miniProgram)
         } catch (error: Exception) {
+            if (miniProgram.root) {
+                RuntimeDiagnostics.launch("launch-failed", appId, miniProgram.path, failure = "host-launch")
+            }
             // The runtime is registered before the Activity exists. A start that never happened
             // would otherwise leave [isRunning] true with no Activity to ever clear it, and every
             // retry would be rejected by navigateToMiniProgram's "already running" guard.
-            if (!alreadyRunning) {
+            if (createdRuntimeForLaunch) {
                 LogUtils.e(tag, "Rolling back runtime for ${miniProgram.appId}: ${error.message}")
                 clear(miniProgram.appId)
             }
@@ -288,10 +293,12 @@ class MiniApp private constructor() {
                                 )
                                 LogUtils.d(tag, "JsCore initialized for appId: $appId")
                             } catch (e: Exception) {
+                                RuntimeDiagnostics.launch("launch-failed", appId, failure = "service-runtime")
                                 LogUtils.e(tag, "Error extracting js sdk: ${e.message}")
                             }
                         }
                     } else {
+                        RuntimeDiagnostics.launch("launch-failed", appId, failure = "service-runtime")
                         LogUtils.e(tag, "Failed to initialize JsCore for appId: $appId")
                     }
                 }
@@ -388,6 +395,16 @@ class MiniApp private constructor() {
         params: JSONObject,
         structuredResponseCallback: ((JSONObject) -> Unit)? = null,
         responseCallback: (String) -> Unit,
+    ): JSValue? = invokeAPI(appId, context, apiName, params, structuredResponseCallback, null, responseCallback)
+
+    internal fun invokeAPI(
+        appId: String,
+        context: DiminaActivity,
+        apiName: String,
+        params: JSONObject,
+        structuredResponseCallback: ((JSONObject) -> Unit)?,
+        onUnhandled: (() -> Unit)?,
+        responseCallback: (String) -> Unit,
     ): JSValue? {
 
         var isAsyncMethod = false
@@ -403,7 +420,7 @@ class MiniApp private constructor() {
             LogUtils.d(tag, "Invoking API: $apiName")
 
             // Invoke the API
-            val result = apiRegistry.invoke(context, appId, apiName, params, responseCallback)
+            val result = apiRegistry.invoke(context, appId, apiName, params, responseCallback, onUnhandled)
             if (result is AsyncResult) {
                 isAsyncMethod = true
                 afterComplete = result.afterComplete

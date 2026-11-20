@@ -36,13 +36,14 @@ import (
 var frontend embed.FS
 
 type appWindow struct {
-	id         string
-	app        miniProgram
-	window     *mygo.Window
-	storage    *appStorage
-	storageKey string
-	runtime    *desktopRuntime
-	openedAt   time.Time
+	id            string
+	app           miniProgram
+	window        *mygo.Window
+	storage       *appStorage
+	storageKey    string
+	runtime       *desktopRuntime
+	openedAt      time.Time
+	launchCapture uint64
 	// Window presentation state is read and changed only on the UI thread.
 	presented bool
 	closing   bool
@@ -62,6 +63,7 @@ type Desktop struct {
 	apps             map[string]*appWindow
 	scanners         map[*mygo.Window]*scanSession
 	scanOwners       map[string]bool
+	diagnostics      desktopDiagnostics
 }
 
 var visibility = mygo.NewEvent[bool]("desktop:visible")
@@ -128,6 +130,10 @@ func main() {
 	defer devices.close()
 	resources.packageRoot = sdkPackages
 	host := &Desktop{resources: resources, windows: map[*mygo.Window]*appWindow{}, apps: map[string]*appWindow{}}
+	resources.diagnostics = &host.diagnostics
+	if os.Getenv("DIMINA_DESKTOP_DEBUG") == "1" {
+		host.diagnostics.configure(diagnosticsOptions{Enabled: true})
+	}
 	if sdkMode {
 		sum := sha256.Sum256([]byte(dataDir))
 		host.sessionNamespace = hex.EncodeToString(sum[:8]) + "-"
@@ -247,8 +253,16 @@ func (d *Desktop) OpenApp(ctx context.Context, appID string) error {
 	if _, ok := d.caller(ctx); !ok {
 		return errors.New("unknown window")
 	}
+	capture := d.diagnostics.generation.Load()
+	record := func(phase string, failure string) {
+		if capture != 0 && appIDPattern.MatchString(appID) {
+			d.diagnostics.record(capture, diagnosticEvent{Phase: phase, AppID: appID, Failure: failure})
+		}
+	}
+	record("open-requested", "")
 	apps, err := loadCatalog(d.resources.assets, d.resources.dataDir)
 	if err != nil {
+		record("launch-failed", "app-package")
 		return err
 	}
 	var target *miniProgram
@@ -260,9 +274,13 @@ func (d *Desktop) OpenApp(ctx context.Context, appID string) error {
 		}
 	}
 	if target == nil {
+		record("launch-failed", "app-package")
 		return errors.New("小程序不存在")
 	}
 	_, err = d.openProgram(ctx, *target)
+	if err != nil {
+		record("launch-failed", "window-create")
+	}
 	return err
 }
 
@@ -311,6 +329,7 @@ func (d *Desktop) openProgram(ctx context.Context, target miniProgram) (*appWind
 // The caller holds openMu until the new window has been published in both maps.
 func (d *Desktop) createProgramWindow(target miniProgram, openedAt time.Time) (*appWindow, error) {
 	appID := target.AppID
+	capture := d.diagnostics.generation.Load()
 	key, storage, err := d.resources.addStorage(appID)
 	if err != nil {
 		return nil, err
@@ -322,8 +341,10 @@ func (d *Desktop) createProgramWindow(target miniProgram, openedAt time.Time) (*
 		Hidden: true, BackgroundColor: "#fff",
 		Page: d.pageOptions(mygo.NewSession("miniapp-" + d.sessionNamespace + appID)),
 	})
-	state := &appWindow{id: secret(), app: target, window: win, storage: storage, storageKey: key, openedAt: openedAt, ready: make(chan struct{}), closed: make(chan struct{})}
+	state := &appWindow{id: secret(), app: target, window: win, storage: storage, storageKey: key, openedAt: openedAt, launchCapture: capture, ready: make(chan struct{}), closed: make(chan struct{})}
+	d.diagnostics.record(capture, windowDiagnostic(state, "window-created"))
 	state.runtime = newDesktopRuntime(d.resources, key, appID, func(event runtimeEvent) { _ = nativeRuntimeEvent.Emit(win, event) })
+	state.runtime.windowID = state.id
 	d.resources.mu.Lock()
 	d.resources.runtimes[key] = state.runtime
 	d.resources.mu.Unlock()
@@ -338,6 +359,7 @@ func (d *Desktop) createProgramWindow(target miniProgram, openedAt time.Time) (*
 	win.OnShow(func() { _ = visibility.Emit(win, true) })
 	win.OnClosed(func() {
 		state.beginClosing()
+		d.diagnostics.record(state.launchCapture, windowDiagnostic(state, "window-closed"))
 		d.mu.Lock()
 		delete(d.windows, win)
 		if d.apps[appID] == state {
@@ -368,8 +390,10 @@ func (d *Desktop) Bootstrap(ctx context.Context) (map[string]any, error) {
 	}
 	platform := map[string]string{"darwin": "mac", "windows": "windows", "linux": "linux"}[runtime.GOOS]
 	result := map[string]any{"baseUrl": d.resources.base, "platform": platform, "system": runtime.GOOS, "arch": runtime.GOARCH}
+	result["localDiagnostics"] = d.resources.sdk == nil && d.diagnostics.generation.Load() != 0
 	if state != nil {
-		result["launchDiagnostics"] = os.Getenv("DIMINA_DESKTOP_DEBUG") == "1"
+		result["launchDiagnostics"] = state.launchCapture != 0 || os.Getenv("DIMINA_DESKTOP_DEBUG") == "1"
+		result["diagnosticsGeneration"] = state.launchCapture
 		result["runtimeApis"] = runtimeAPIs
 		result["app"] = state.app
 		result["resourceBaseUrl"] = d.resources.base + "packages/"
@@ -379,6 +403,27 @@ func (d *Desktop) Bootstrap(ctx context.Context) (map[string]any, error) {
 		}
 	}
 	return result, nil
+}
+
+func (d *Desktop) LocalDiagnosticsJSON(ctx context.Context) *string {
+	state, ok := d.caller(ctx)
+	if !ok || d.resources.sdk != nil {
+		return nil
+	}
+	if state != nil {
+		return d.diagnostics.jsonForWindow(state.id)
+	}
+	return d.diagnostics.json()
+}
+
+func (d *Desktop) RecordLaunchDiagnostic(ctx context.Context, generation uint64, entry rendererLaunchEvent) {
+	state, ok := d.caller(ctx)
+	if !ok || state == nil || generation != state.launchCapture || generation == 0 {
+		return
+	}
+	if event, valid := rendererDiagnostic(state, entry); valid {
+		d.diagnostics.record(generation, event)
+	}
 }
 
 func (d *Desktop) RuntimeReady(ctx context.Context) error {
@@ -394,6 +439,7 @@ func (d *Desktop) RuntimeReady(ctx context.Context) error {
 			return
 		}
 		log.Printf("[desktop] startup appId=%s stage=ready elapsed_ms=%d", state.app.AppID, time.Since(state.openedAt).Milliseconds())
+		d.diagnostics.record(state.launchCapture, windowDiagnostic(state, "runtime-ready"))
 		state.finishReady(nil)
 	})
 	return err
@@ -404,6 +450,9 @@ func (d *Desktop) RuntimeFailed(ctx context.Context, message string) error {
 	if !ok || state == nil {
 		return errors.New("unknown app window")
 	}
+	event := windowDiagnostic(state, "runtime-failed")
+	event.Failure = "runtime-startup"
+	d.diagnostics.record(state.launchCapture, event)
 	state.finishReady(errors.New(message))
 	return nil
 }
@@ -420,6 +469,7 @@ func (d *Desktop) PresentWindow(ctx context.Context) error {
 			state.presented = true
 			state.window.Show()
 			state.window.Focus()
+			d.diagnostics.record(state.launchCapture, windowDiagnostic(state, "window-presented"))
 			log.Printf("[desktop] startup appId=%s stage=present elapsed_ms=%d", state.app.AppID, time.Since(state.openedAt).Milliseconds())
 		}
 	})
@@ -440,10 +490,19 @@ func (d *Desktop) PrepareToClose(ctx context.Context) error {
 	return nil
 }
 
-func (d *Desktop) Invoke(ctx context.Context, method string, params json.RawMessage) (any, error) {
+func (d *Desktop) Invoke(ctx context.Context, method string, params json.RawMessage) (result any, callErr error) {
 	state, ok := d.caller(ctx)
 	if !ok || state == nil {
 		return nil, errors.New("unknown app window")
+	}
+	event := windowDiagnostic(state, "")
+	event.API = method
+	if finish := d.diagnostics.beginAPI(event); finish != nil {
+		defer func() {
+			reply, _ := result.(map[string]any)
+			message, _ := reply["errMsg"].(string)
+			finish(callErr, message != "" && !strings.HasSuffix(message, ":ok"))
+		}()
 	}
 	if strings.Contains(method, "Storage") || method == "clearStorage" {
 		return state.storage.call(method, params)

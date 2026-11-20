@@ -60,6 +60,37 @@ export class EvalPayload {
   }
 }
 
+export class DiagnosticWorkerEvent {
+  type: string = 'diagnostic';
+  generation: number;
+  id: string;
+  api: string;
+  bridgeId?: string;
+  phase: string;
+  timestamp: number;
+  outcome?: string;
+
+  constructor(generation: number, id: string, api: string, bridgeId: string | undefined,
+    phase: string, timestamp: number, outcome?: string) {
+    this.generation = generation;
+    this.id = id;
+    this.api = api;
+    this.bridgeId = bridgeId;
+    this.phase = phase;
+    this.timestamp = timestamp;
+    this.outcome = outcome;
+  }
+}
+
+export class DiagnosticCaptureRequest {
+  command: string = 'diagnosticsCapture';
+  generation?: number;
+
+  constructor(generation?: number) {
+    this.generation = generation;
+  }
+}
+
 // 初始化引擎用的数据结构
 export class initPayload {
   command: string;
@@ -69,9 +100,12 @@ export class initPayload {
   debuggerAddress: string;
   runtimeSourceURL: string;
   virtualFilePrefix: string;
+  diagnosticsGeneration?: number;
+  diagnosticsWorkerId: number;
 
   constructor(command: string, appIndex: number, context: common.UIAbilityContext, isDebugMode: boolean,
-    debuggerAddress: string, runtimeSourceURL: string, virtualFilePrefix: string) {
+    debuggerAddress: string, runtimeSourceURL: string, virtualFilePrefix: string,
+    diagnosticsWorkerId: number = 0, diagnosticsGeneration?: number) {
     this.command = command;
     this.appIndex = appIndex;
     this.context = context;
@@ -79,6 +113,8 @@ export class initPayload {
     this.debuggerAddress = debuggerAddress;
     this.runtimeSourceURL = runtimeSourceURL;
     this.virtualFilePrefix = virtualFilePrefix;
+    this.diagnosticsWorkerId = diagnosticsWorkerId;
+    this.diagnosticsGeneration = diagnosticsGeneration;
   }
 }
 

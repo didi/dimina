@@ -5,7 +5,7 @@ export interface DesktopOptions {
   startupTimeoutMs?: number
   onLog?: (message: string) => void
 }
-import type { OpenAppOptions, ImportedApp, DiminaWindow, NativeApiHandler, NativeApiOptions } from './types.js'
+import type { OpenAppOptions, ImportedApp, DiminaWindow, NativeApiHandler, NativeApiOptions, DiagnosticsVersions } from './types.js'
 export * from './types.js'
 export declare class Dimina {
   private constructor()
@@ -16,6 +16,8 @@ export declare class Dimina {
   closeApp(id: string): Promise<void>
   closeAll(): Promise<void>
   windows(): Promise<DiminaWindow[]>
+  setDiagnosticsEnabled(enabled: boolean, versions?: DiagnosticsVersions): Promise<void>
+  getDiagnosticsJSON(): Promise<string | null>
   importApp(path: string): Promise<ImportedApp>
   dispose(): Promise<void>
 }

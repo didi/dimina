@@ -34,6 +34,7 @@ type resourceServer struct {
 	files                map[string]selectedFile
 	packageRoot          string
 	sdk                  *sdkControl
+	diagnostics          *desktopDiagnostics
 }
 
 type selectedFile struct{ path, owner string }
@@ -125,6 +126,16 @@ func (s *resourceServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			writeResult(w, nil, err)
 			return
 		}
+		var finish func(error, bool)
+		if runtime != nil && s.diagnostics != nil {
+			finish = s.diagnostics.beginAPI(diagnosticEvent{AppID: runtime.appID, WindowID: runtime.windowID, API: req.Name})
+		}
+		respond := func(value any, err error) {
+			if finish != nil {
+				finish(err, false)
+			}
+			writeResult(w, value, err)
+		}
 		if runtime != nil && (strings.HasPrefix(req.Name, "UDPSocket.") || strings.HasPrefix(req.Name, "TCPSocket.") || ((strings.HasPrefix(req.Name, "onBluetooth") || strings.HasPrefix(req.Name, "offBluetooth") || strings.HasPrefix(req.Name, "onBLE") || strings.HasPrefix(req.Name, "offBLE")) && runtime.supports(req.Name)) || req.Name == "canIUse") {
 			if req.Name == "canIUse" {
 				var schema string
@@ -138,19 +149,19 @@ func (s *resourceServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 						}
 					}
 				}
-				writeResult(w, supported, err)
+				respond(supported, err)
 			} else {
 				value, err := runtime.invoke(r.Context(), req.Name, req.Params)
-				writeResult(w, value, err)
+				respond(value, err)
 			}
 			return
 		}
 		if !strings.HasSuffix(req.Name, "Sync") {
-			writeResult(w, nil, errors.New("synchronous API required"))
+			respond(nil, errors.New("synchronous API required"))
 			return
 		}
 		value, err := store.call(req.Name, req.Params)
-		writeResult(w, value, err)
+		respond(value, err)
 		return
 	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {

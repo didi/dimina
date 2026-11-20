@@ -20,6 +20,14 @@ use tokio::{
 };
 
 pub type Result<T> = std::result::Result<T, String>;
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct DiagnosticsVersions {
+    pub host: Option<String>,
+    pub sdk: Option<String>,
+    pub jssdk: Option<String>,
+    pub compiler: Option<String>,
+}
 pub type NativeApiHandler = Arc<
     dyn Fn(Value, NativeApiContext) -> Pin<Box<dyn Future<Output = Result<Value>> + Send>>
         + Send
@@ -332,7 +340,7 @@ impl Dimina {
 
     async fn request<T: DeserializeOwned>(&self, method: &str, body: Option<Value>) -> Result<T> {
         let url = self.base.join(method).map_err(|e| e.to_string())?;
-        let request = if method == "windows" {
+        let request = if method == "windows" || (method == "diagnostics" && body.is_none()) {
             self.http.get(url)
         } else {
             self.http.post(url).json(&body.unwrap_or(json!({})))
@@ -371,6 +379,20 @@ impl Dimina {
     }
     pub async fn windows(&self) -> Result<Vec<WindowInfo>> {
         self.call("windows", None).await
+    }
+    pub async fn set_diagnostics_enabled(
+        &self,
+        enabled: bool,
+        versions: Option<DiagnosticsVersions>,
+    ) -> Result<()> {
+        self.call(
+            "diagnostics",
+            Some(json!({"enabled":enabled,"versions":versions})),
+        )
+        .await
+    }
+    pub async fn get_diagnostics_json(&self) -> Result<Option<String>> {
+        self.call("diagnostics", None).await
     }
     pub async fn focus(&self, id: &str) -> Result<()> {
         self.call("focus", Some(json!({"id":id}))).await

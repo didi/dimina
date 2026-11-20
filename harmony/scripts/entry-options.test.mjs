@@ -23,6 +23,7 @@ function fixture(ready = true) {
   const messages = [], pages = []
   const manager = { retentionVisibility() {} }
   const { DMPApp } = load('DApp/DMPApp.ets', {
+    '../EventTrack/DMPRuntimeDiagnostics': { DMPRuntimeDiagnostics: { launch() {} } },
     '../Utils/DMPMap': { DMPMap }, './DMPMiniProgramPresentationStack': navigation,
     './config/DMPLaunchConfig': config,
     './DMPAppManager': { DMPAppManager: { sharedInstance: () => manager } },

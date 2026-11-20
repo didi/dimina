@@ -4,6 +4,7 @@ import { DMPMap } from '../Utils/DMPMap';
 import { DMPApp } from '../DApp/DMPApp';
 import { WebViewLifeCycleListener } from './DMPWebViewLifeCycle';
 import { DMPLogger } from '../EventTrack/DMPLogger';
+import { DMPRuntimeDiagnostics } from '../EventTrack/DMPRuntimeDiagnostics';
 import { Tags } from '../EventTrack/Tags';
 
 
@@ -87,6 +88,7 @@ export class DMPWebViewNodeController extends NodeController {
       return;
     }
     this.isLoadResource = true;
+    DMPRuntimeDiagnostics.launch('resource-load-start', this.app.appConfig.appId, pagePath, String(this.webViewId));
     this.app.container.loadResourceService(this.webViewId, pagePath);
     this.app.container.loadResourceRender(this.webViewId, pagePath);
     DMPLogger.i(Tags.LAUNCH, "loadResource end")

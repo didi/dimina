@@ -185,6 +185,15 @@ void Desktop::windows() {
       [this](QJsonValue value) { emit windowsReceived(value.toArray()); }, {},
       true);
 }
+void Desktop::setDiagnosticsEnabled(bool enabled, const QJsonObject &versions) {
+  call("diagnostics", {{"enabled", enabled}, {"versions", versions}},
+       [this, enabled](QJsonValue) { emit diagnosticsConfigured(enabled); });
+}
+void Desktop::getDiagnosticsJSON() {
+  call("diagnostics", {},
+       [this](QJsonValue value) { emit diagnosticsReceived(value.toString()); },
+       {}, true);
+}
 void Desktop::cancelNativeCalls() {
   const auto calls = nativeCalls;
   nativeCalls.clear();

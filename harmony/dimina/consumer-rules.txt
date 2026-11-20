@@ -235,6 +235,30 @@ virtualFilePrefix
 width
 writeBLECharacteristicValue
 
+# Native runtime diagnostics export and Worker messages use stable property names.
+setDiagnosticsEnabled
+getDiagnosticsJSON
+diagnosticsGeneration
+diagnosticsWorkerId
+schemaVersion
+platform
+versions
+host
+sdk
+jssdk
+compiler
+events
+sequence
+elapsedMs
+phase
+resourceLoadId
+failure
+callId
+api
+outcome
+generation
+timestamp
+
 -keep-global-name
 canvasUiConnectNative
 canvasUiNativeReady

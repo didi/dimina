@@ -17,7 +17,7 @@ function load(path, dependencies) {
     } })
   return module.exports
 }
-test('file Worker invokes and completes with binary objects without JSON or script evaluation', async () => {
+test('file Worker preserves binary callbacks and exports metadata only when diagnostics is enabled', async () => {
   const { DMPMap } = load('Utils/DMPMap.ts', { '@kit.ArkTS': {} })
   const util = load('Bridges/DMPTSUtil.ts', { '../Utils/DMPMap': { DMPMap }, '@kit.ArkTS': {} })
   const messages = load('Service/DMPSendableObjects.ets', { '@kit.ArkTS': {}, '@ohos.app.ability.common': {}, '../Utils/DMPMap': { DMPMap } })
@@ -33,8 +33,13 @@ test('file Worker invokes and completes with binary objects without JSON or scri
       return undefined
     },
   }
-  const port = { postMessage() {}, callGlobalCallObjectMethod() { throw new Error('file API must stay in Worker') } }
+  const diagnostics = []
+  const port = {
+    postMessage(event) { diagnostics.push(event) },
+    callGlobalCallObjectMethod() { throw new Error('file API must stay in Worker') },
+  }
   load('Service/DMPWorker.ets', {
+    '@kit.BasicServicesKit': { systemDateTime: { getUptime: () => 123, TimeType: { STARTUP: 0 } } },
     '@kit.ArkTS': { worker: { workerPort: port } }, '../Bridges/DMPTSUtil': util,
     '../Bridges/DMPWorkerModuleManager': { DMPWorkerModuleManager: class {
       getModuleObjectByMethodNameAndModuleName() { return fileModule }
@@ -52,9 +57,27 @@ test('file Worker invokes and completes with binary objects without JSON or scri
   })
   await port.onmessage({ data: { command: 'init', appIndex: 7 } })
   await port.onmessage({ data: { command: 'updateWorkerAppData', payload: { appData: { appIndex: 7 } } } })
-  invoke(4, 0, { type: 'invokeAPI', target: 'container', body: {
-    name: 'FileSystemManager.writeFile', params: { data: bytes, success: 'success', complete: 'complete' },
+  const writeFile = () => invoke(4, 0, { type: 'invokeAPI', target: 'container', body: {
+    bridgeId: 9, name: 'FileSystemManager.writeFile', params: { data: bytes, success: 'success', complete: 'complete' },
   } })
+  writeFile()
   assert.deepEqual(received.map(message => message.body.id), ['success', 'complete'])
   for (const message of received) assert.equal(message.body.args.data, bytes)
+  assert.equal(diagnostics.length, 0)
+
+  await port.onmessage({ data: new messages.DiagnosticCaptureRequest(8) })
+  writeFile()
+  assert.deepEqual(diagnostics.map(event => [event.phase, event.outcome]), [
+    ['api-received', undefined], ['api-callback', 'success'], ['api-callback', 'complete'],
+  ])
+  assert.equal(new Set(diagnostics.map(event => event.id)).size, 1)
+  for (const event of diagnostics) {
+    assert.equal(event.generation, 8)
+    assert.equal(event.bridgeId, '9')
+    assert.equal(event.api, 'FileSystemManager.writeFile')
+    assert.ok(!('args' in event) && !('data' in event) && !('params' in event))
+  }
+  await port.onmessage({ data: new messages.DiagnosticCaptureRequest() })
+  writeFile()
+  assert.equal(diagnostics.length, 3)
 })

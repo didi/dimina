@@ -97,6 +97,7 @@ test('worker dispatch uses its own registry for capability checks', async () => 
   const port = { callGlobalCallObjectMethod: () => false }
   const noLog = { d() {}, e() {} }
   load('Service/DMPWorker.ets', {
+    '@kit.BasicServicesKit': {},
     '@kit.ArkTS': { worker: { workerPort: port } },
     '../Bridges/DMPTSUtil': {},
     '../Bridges/DMPWorkerModuleManager': { DMPWorkerModuleManager: class {

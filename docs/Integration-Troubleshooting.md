@@ -34,7 +34,37 @@ vConsole 的 Network 面板覆盖 `wx.request`，上传、下载和 WebSocket �
 2. 启动异常时，按资源加载、逻辑报错、首轮渲染、页面就绪的顺序检查。需要跨层对日志时附上 `bridgeId`、页面路径和事件类型，有条件时附上 `resourceLoadId`。
 3. 如果逻辑数据更新了但读到旧布局，把测量放到 `setData(data, callback)` 或首次 `onReady` 后。返回、快速重复打开、关闭后重开分别复现一次，记录在哪条路径出现差异。
 
-Web 宿主可以开启[启动诊断](../fe/packages/container-sdk/README.md#导出启动诊断)，从 `launch-failed.failure` 区分配置异常、Worker 出错、渲染资源失败和就绪超时。桌面运行时可在[调试模式](./Desktop-Integration.md#导出启动诊断)下从 Web Inspector 提取相同格式。
+Web 宿主可以开启[启动诊断](../fe/packages/container-sdk/README.md#导出启动诊断)，从 `launch-failed.failure` 区分配置异常、Worker 出错、渲染资源失败和就绪超时。桌面宿主可通过 SDK 或启动器的 Web Inspector [导出启动与 Bridge 诊断](./Desktop-Integration.md#导出启动与-bridge-诊断)。
+
+### 导出移动端诊断
+
+Android、iOS 和 HarmonyOS 的宿主 SDK 都提供 `setDiagnosticsEnabled` 和 `getDiagnosticsJSON`。从宿主调试入口开启采集，完成复现后调用导出接口。按钮放在宿主侧，页面白屏、关闭或未创建时也可以导出。
+
+```kotlin
+// Android，Dimina.init 后
+val sdk = Dimina.getInstance()
+sdk.setDiagnosticsEnabled(true)
+val report = sdk.getDiagnosticsJSON() // 在复现后调用
+```
+
+```swift
+// iOS
+let sdk = DMPAppManager.sharedInstance()
+sdk.setDiagnosticsEnabled(true)
+let report = sdk.getDiagnosticsJSON() // 在复现后调用
+```
+
+```typescript
+// HarmonyOS
+const sdk = DMPAppManager.sharedInstance()
+sdk.setDiagnosticsEnabled(true)
+const report = sdk.getDiagnosticsJSON() // 在复现后调用
+```
+
+开启时可传入宿主、原生 SDK、JSSDK 和 DMCC 的实际版本。宿主可以复制 JSON 或保存为文件。关闭采集会清空记录，需先导出再关闭。每轮在内存中分别保留最近 200 条启动和 Bridge 事件，页面参数和请求正文不进入报告。
+
+- 启动按 `appId` 和 `bridgeId` 查看配置、资源加载、Service/Render 就绪和 `dom-ready`。出现 `launch-failed` 时查看 `failure`。如果某阶段缺失，结合当时是否退出页面判断该阶段仍在等待还是已经中断。
+- Bridge 按 `callId` 查看 `api-received`、同步返回或 `api-callback`。回调事件表示原生已发出回调，JS 回调函数是否执行可结合逻辑层日志核对。仅在 JS 内完成的 API 调用不经过 native Bridge。
 
 ### 慢在首屏还是交互
 
