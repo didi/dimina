@@ -1,0 +1,33 @@
+fe/packages/compiler/__tests__/compatibility.spec.js
+  0dbb2020a565080c 70-71
+shared/jssdk/config.json
+  0dbb2020a565080c 2-3
+desktop/mobile_api_names.json
+  0dbb2020a565080c 134,157
+fe/packages/compiler/src/common/compatibility-reference.js
+  0dbb2020a565080c 246-247,348,371
+fe/packages/container-sdk/__tests__/keyboard-viewport.spec.ts
+  0dbb2020a565080c 1-60
+fe/packages/service/__tests__/keyboard-api.spec.js
+  0dbb2020a565080c 1-36
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "84b8adf809dab734a53ff36dcce5fae170a7987a",
+  "prompts": {
+    "0dbb2020a565080c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a20645-cf99-7951-8229-a8a6cf138ec2",
+        "model": "gpt-6.2-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 817,
+      "total_deletions": 2,
+      "accepted_lines": 817,
+      "overriden_lines": 0
+    }
+  }
+}
