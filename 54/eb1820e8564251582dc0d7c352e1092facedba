@@ -1,0 +1,35 @@
+android/gradle.properties
+  0dbb2020a565080c 25
+iOS/dimina/DiminaKit/Common/DiminaVersion.swift
+  0dbb2020a565080c 12
+CHANGELOG.md
+  0dbb2020a565080c 3,10-12,18,23-33
+harmony/dimina/oh-package.json5
+  0dbb2020a565080c 3
+harmony/dimina/CHANGELOG.md
+  0dbb2020a565080c 3-11,21
+harmony/map_amap/oh-package.json5
+  0dbb2020a565080c 3,12
+harmony/map_amap/CHANGELOG.md
+  0dbb2020a565080c 3-6
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "54eb1820e8564251582dc0d7c352e1092facedba",
+  "prompts": {
+    "0dbb2020a565080c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a20645-cf99-7951-8229-a8a6cf138ec2",
+        "model": "gpt-6.2-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 35,
+      "total_deletions": 27,
+      "accepted_lines": 35,
+      "overriden_lines": 0
+    }
+  }
+}
