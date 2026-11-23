@@ -1,5 +1,29 @@
 # Changelog
 
+## [v1.9.0] 2026-11-23
+
+### 新增
+
+- 新增 macOS、Windows、Linux 桌面小程序运行时，提供独立窗口 SDK，支持 Electron、Tauri、Qt 和 .NET 客户端接入。
+- 桌面端支持网络请求、上传下载、TCP/UDP、存储、文件选择、剪贴板、扫码和 BLE，并沿用移动端的标准 `wx` API。
+- 增加桌面 SDK 的跨平台测试与自动发布流程，统一调用库和运行时版本，提供平台 SDK 包及校验和。
+- Android、iOS 和 HarmonyOS 支持通过 `dimina-image://` 复用宿主注册的图片资源（#394）。
+- Android、iOS、HarmonyOS 和 Web 支持全局键盘高度监听 `wx.onKeyboardHeightChange` 和 `wx.offKeyboardHeightChange`（#400）。
+- Web 支持导出启动诊断，移动和桌面宿主支持导出启动及桥接诊断，便于排查加载失败和运行时问题。
+
+### 优化与修复
+
+- Web 与桌面端共用应用列表、搜索、状态提示和 Logo 处理，完善桌面窗口的打开、关闭和加载表现。
+- 完善原生图片预览与资源路径解析，统一跨端模态弹窗的分割线和布局。
+- 将 Android 容器销毁时的 WebSocket 清理改为异步，避免阻塞主线程（#395）。
+- 修复 Windows 换行转换导致 API 清单检查误报过期的问题。
+
+### 兼容性
+
+- Android、iOS、HarmonyOS、Web 容器和 Desktop SDK 统一升级到 `1.9.0`。高德地图可选适配器与核心 SDK 使用相同版本。
+- 桌面 SDK 的 macOS 制品仅提供 ARM64（#391）。
+- 编译器为 `1.3.2`，内置 JSSDK 为 `1.0.79`。宿主图片和键盘高度监听需要同步更新原生 SDK 和内置运行时资源。
+
 ## [v1.9.0-beta.2] 2026-11-17
 
 - Android、iOS 和 HarmonyOS 支持通过 `dimina-image://` 协议复用宿主图片资源（#394）。
@@ -7,25 +31,6 @@
 - Desktop SDK 的 macOS 发布调整为仅提供 ARM64（#391）。
 - Android、iOS、HarmonyOS 核心 SDK 与高德地图适配器同步升级到 `1.9.0-beta.2`；Desktop SDK 在发布时从标签注入版本。
 - 编译器和 JSSDK 继续采用独立版本；宿主图片能力需同步更新原生 SDK 和渲染资源。
-
-## [v1.9.0] 2026-11-13
-
-### 新增
-
-- 新增 macOS、Windows、Linux 桌面小程序运行时，提供独立窗口 SDK，支持 Electron、Tauri、Qt 和 .NET 客户端接入。
-- 桌面端支持网络请求、上传下载、TCP/UDP、存储、文件选择、剪贴板、扫码和 BLE，并沿用移动端的标准 `wx` API。
-- 增加桌面 SDK 的跨平台测试与自动发布流程，统一调用库和运行时版本，提供平台 SDK 包及校验和。
-
-### 优化与修复
-
-- Web 与桌面端共用应用列表、搜索、状态提示和 Logo 处理，完善桌面窗口的打开、关闭和加载表现。
-- 完善原生图片预览与资源路径解析，统一跨端模态弹窗的分割线和布局。
-- 修复 Windows 换行转换导致 API 清单检查误报过期的问题。
-
-### 兼容性
-
-- Android、iOS、HarmonyOS、Web 容器和 Desktop SDK 统一升级到 1.9.0；高德地图可选适配器与核心 SDK 使用相同版本。
-- 编译器和 JSSDK 继续采用独立版本。
 
 ## [v1.8.2] 2026-11-11
 
