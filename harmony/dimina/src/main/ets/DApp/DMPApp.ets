@@ -64,6 +64,7 @@ export class DMPApp {
   private _runtimeGeneration: number = 0
   private _runtimeLifecycle: DMPAppRuntimeLifecycle = new DMPAppRuntimeLifecycle()
   private _visibilityLedger: DMPAppVisibilityLedger = new DMPAppVisibilityLedger()
+  private _keyboardHeight: number = 0
   // 宿主后台期间攒下的那一次恢复要带的 enter options，见 [stashMiniProgramShow]。
   private _pendingShowScene: DMPScene | undefined = undefined
   private _pendingShowReferrer: DMPMap | undefined = undefined
@@ -166,6 +167,21 @@ export class DMPApp {
     // 走 getActivePageRecord：tab 模式下返回真实选中 tab，
     // 否则返回栈顶（含 navigateTo 推入的页面 / 非 tab 场景）
     return this.navigatorManager!.getActivePageRecord()?.webViewId ?? -1
+  }
+
+  public notifyKeyboardHeight(webViewId: number, height: number): void {
+    if (this._visibilityLedger.isVisible && webViewId === this.currentWebViewId) {
+      this.publishKeyboardHeight(Math.max(0, Math.round(height)))
+    }
+  }
+
+  private publishKeyboardHeight(height: number): void {
+    if (height === this._keyboardHeight) return
+    this._keyboardHeight = height
+    DMPChannelProxyNext.ContainerToService(new DMPMap({
+      type: 'keyboardHeightChange',
+      body: { height }
+    }), this.appIndex)
   }
 
   public static getWindowStage(): window.WindowStage {
@@ -584,6 +600,7 @@ export class DMPApp {
   }
 
   private dispatchAppHide() {
+    this.publishKeyboardHeight(0)
     const bridgeId = this.currentWebViewId
     if (bridgeId > 0) {
       this.navigatorManager.dispatchPageHide(bridgeId)

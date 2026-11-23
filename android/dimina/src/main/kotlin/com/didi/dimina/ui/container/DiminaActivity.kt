@@ -141,6 +141,7 @@ import org.json.JSONObject
 import java.io.File
 import java.io.IOException
 import kotlin.math.cos
+import kotlin.math.roundToInt
 import kotlin.math.sin
 
 /**
@@ -288,6 +289,8 @@ class DiminaActivity : ComponentActivity() {
     }
     
     private var adjustBottom = 0.0
+    private var keyboardHeight = 0
+    private var receivesKeyboardInsets = false
     private var preserveMiniAppOnDestroy = false
     private var pageResourcesReleased = false
 
@@ -499,6 +502,13 @@ class DiminaActivity : ComponentActivity() {
         }
     }
 
+    private fun publishKeyboardHeight(height: Int) {
+        if (height == keyboardHeight || !isMiniProgramInitialized) return
+        val jsCore = miniApp.peekJsCore(miniProgram.appId) ?: return
+        keyboardHeight = height
+        jsCore.postMessage("keyboardHeightChange", JSONObject().put("height", height))
+    }
+
     private var initializationJob: kotlinx.coroutines.Job? = null
     private var destroyedByHost = false
 
@@ -517,6 +527,9 @@ class DiminaActivity : ComponentActivity() {
 
         // 设置键盘监听
         getSoftKeyboardHeight(window.decorView.rootView) { keyBoardHeight ->
+            if (receivesKeyboardInsets && isMiniProgramForeground()) {
+                publishKeyboardHeight((keyBoardHeight / resources.displayMetrics.density).roundToInt())
+            }
             withWebView { webView ->
                 if (adjustBottom > 0 && adjustBottom < keyBoardHeight) {
                     val translationY = adjustBottom - keyBoardHeight
@@ -1658,12 +1671,15 @@ class DiminaActivity : ComponentActivity() {
             }
             suspendedForMiniProgramNavigation = false
         }
+        receivesKeyboardInsets = true
         getActiveBridge()?.let {
             it.pageShow()
         }
     }
 
     override fun onPause() {
+        receivesKeyboardInsets = false
+        publishKeyboardHeight(0)
         getActiveBridge()?.let {
             it.pageHide()
         }

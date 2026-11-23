@@ -333,6 +333,8 @@ export class MiniApp {
 	_themeMediaQuery: MediaQueryList | null = null
 	_themeChangeHandler: ((event: MediaQueryListEvent) => void) | null = null
 	_tabBarResizeObserver: ResizeObserver | null = null
+	private keyboardViewport: VisualViewport | null = null
+	private keyboardHeight = 0
 
 	constructor(opts: MiniAppOptions) {
 		this.appInfo = {
@@ -1161,11 +1163,14 @@ export class MiniApp {
 		// 当前栈顶这一个 Bridge 上——见 JSCore.appShow() 上的说明。
 		this.jscore.appShow()
 		currentBridge?.pageShow()
+		this.bindKeyboardViewport()
 	}
 
 	onPresentOut(): void {
 		const currentBridge = this.navigator.top
 
+		this.unbindKeyboardViewport()
+		if (this.keyboardHeight > 0) this.publishKeyboardHeight(0)
 		currentBridge?.pageHide()
 		this.webSocketManager.onAppHide()
 		this.jscore.appHide()
@@ -2459,6 +2464,7 @@ export class MiniApp {
 
 	destroy(): void {
 		this._destroyed = true
+		this.unbindKeyboardViewport()
 		this.cancelLaunchScreenTransition()
 		// Destructive APIs call this before their flush barrier. Keep this idempotent fallback for
 		// non-API cleanup paths so Bridge-owned resources are never silently skipped.
@@ -2775,6 +2781,46 @@ export class MiniApp {
 		else {
 			mediaQuery.addListener?.(this._themeChangeHandler as unknown as (this: MediaQueryList, ev: MediaQueryListEvent) => void)
 		}
+	}
+
+	private updateKeyboardHeight = (): void => {
+		const viewport = this.keyboardViewport
+		if (!viewport || !this.isPresentedTop()) return
+
+		// The top-level visual viewport reflects keyboard occlusion. Page iframes
+		// have their own layout viewport, which can stay unchanged when the IME opens.
+		const iframe = this.navigator.top?.webview?.iframe
+		const frameRoot = iframe?.getRootNode() as Document | ShadowRoot | undefined
+		const layoutHeight = Math.max(window.innerHeight, document.documentElement.clientHeight)
+		const height = viewport.scale === 1 ? Math.max(0, Math.round(layoutHeight - viewport.height - viewport.offsetTop)) : 0
+		const focused = iframe && frameRoot?.activeElement === iframe
+		if (height > 0 && focused) {
+			// The iframe can remain focused after blur, or while a button has focus.
+			// Require an editor to start tracking a keyboard, then wait for the viewport
+			// to recover when the editor blurs.
+			const field = iframe.contentDocument?.activeElement
+			if (this.keyboardHeight === 0 && !field?.matches('input, textarea, [contenteditable]:not([contenteditable="false"])')) return
+		}
+		this.publishKeyboardHeight(focused ? height : 0)
+	}
+
+	private bindKeyboardViewport(): void {
+		if (this.keyboardViewport || this._destroyed || !window.visualViewport) return
+		this.keyboardViewport = window.visualViewport
+		this.keyboardViewport.addEventListener('resize', this.updateKeyboardHeight)
+		this.keyboardViewport.addEventListener('scroll', this.updateKeyboardHeight)
+	}
+
+	private unbindKeyboardViewport(): void {
+		this.keyboardViewport?.removeEventListener('resize', this.updateKeyboardHeight)
+		this.keyboardViewport?.removeEventListener('scroll', this.updateKeyboardHeight)
+		this.keyboardViewport = null
+	}
+
+	private publishKeyboardHeight(height: number): void {
+		if (height === this.keyboardHeight) return
+		this.keyboardHeight = height
+		this.jscore.postMessage({ type: 'keyboardHeightChange', body: { height } })
 	}
 
 	getSystemInfoSync() {

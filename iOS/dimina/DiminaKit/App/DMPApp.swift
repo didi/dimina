@@ -44,6 +44,8 @@ public class DMPApp {
     // 起点是「已显示」：小程序启动本身就是一次 onShow，由 JS 侧自己派发。
     private var appVisibleDesired = true
     private var appVisibleSent = true
+    private var keyboardHeight = 0
+    private var keyboardOwner: Int?
     // service.js / logic.js 求值之前 DiminaServiceBridge 还不存在，此刻投递的消息
     // 会在引擎队列里整条丢掉，所以就绪之前只记账不派发。
     private var appRuntimeReady = false
@@ -494,8 +496,35 @@ public class DMPApp {
     }
 
     func notifyAppHide() {
+        publishKeyboardHeight(0)
         DMPChannelProxy.containerToService(
             msg: DMPMap(["type": "appHide", "body": [String: Any]()]),
+            app: self
+        )
+    }
+
+    @MainActor
+    func notifyKeyboardHeight(_ height: Int, webViewId: Int) {
+        guard appVisibleDesired, appRuntimeReady, webViewId == getCurrentWebViewId() else { return }
+        keyboardOwner = height > 0 ? webViewId : nil
+        publishKeyboardHeight(height)
+    }
+
+    @MainActor
+    func clearKeyboardHeight(webViewId: Int) {
+        if keyboardOwner == webViewId {
+            publishKeyboardHeight(0)
+        }
+    }
+
+    private func publishKeyboardHeight(_ height: Int) {
+        if height == 0 {
+            keyboardOwner = nil
+        }
+        guard height != keyboardHeight else { return }
+        keyboardHeight = height
+        DMPChannelProxy.containerToService(
+            msg: DMPMap(["type": "keyboardHeightChange", "body": ["height": height]]),
             app: self
         )
     }

@@ -46,6 +46,9 @@ export struct DMPPageContainer {
   private keyboardWindow?: window.Window
   private readonly keyboardHeightListener = (height: number): void => {
     this.keyboardHeight = px2vp(height)
+    if (this.pageContainerVisible) {
+      this.app.notifyKeyboardHeight(this.webViewId, this.keyboardHeight)
+    }
   }
   private readonly safetyDisplayListener = (data: Map<string, number>): void => {
     const webViewId: number = data['webViewId'] ?? this.app.currentWebViewId

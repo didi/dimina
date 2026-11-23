@@ -235,6 +235,8 @@ DMPApp.init(context, { virtualFilePrefix: 'host-file://' })
 
 状态说明：`✓` 表示该平台已有对应实现；`✗` 表示当前未提供。能力入口存在但目标平台未实现时，仍按不支持处理。本表是已经完成源码链路核对的兼容性基线；API 尚未列入表格只表示“未完成兼容性确认”，不能据此判断它未实现。
 
+`wx.onKeyboardHeightChange` 在软键盘高度变化时回调 `{ height }`，收起时高度为 `0`。`wx.offKeyboardHeightChange` 接收原监听函数，省略参数时移除全部监听。Web 端根据浏览器可视视口估算高度，需要浏览器在键盘弹出和收起时更新可视视口。
+
 地图 `createMapContext` 通过共享 Render 路由到宿主选择的 provider。移动端需接入可选原生 provider 模块，Web 需配置 JS provider；未配置时调用会失败。支持的方法、服务商差异和平台接入限制见[地图接入](./Map-Integration.md)。
 
 蓝牙能力还要求宿主声明系统权限。仓库示例已经补齐 Android 蓝牙/定位权限、iOS 蓝牙用途说明和 HarmonyOS `ohos.permission.ACCESS_BLUETOOTH`；集成 SDK 的宿主应用需要提供等价配置。
@@ -448,6 +450,8 @@ DMPApp.init(context, { virtualFilePrefix: 'host-file://' })
 | 设备 - 震动   | vibrateShort                     | ✓       | ✓   | ✓       | ✗   |
 |               | vibrateLong                      | ✓       | ✓   | ✓       | ✗   |
 | 设备 - 键盘   | hideKeyboard                     | ✓       | ✓   | ✓       | ✗   |
+| 设备 - 键盘   | onKeyboardHeightChange           | ✓       | ✓   | ✓       | ✓   |
+| 设备 - 键盘   | offKeyboardHeightChange          | ✓       | ✓   | ✓       | ✓   |
 | 设备 - 网络   | getNetworkType                   | ✓       | ✓   | ✓       | ✓   |
 |               | onNetworkStatusChange            | ✓       | ✓   | ✓       | ✓   |
 |               | offNetworkStatusChange           | ✓       | ✓   | ✓       | ✓   |

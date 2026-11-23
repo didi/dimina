@@ -147,6 +147,14 @@ public class DMPPageController: UIViewController {
     // View will appear
     public override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(keyboardFrameChanged(_:)),
+            name: UIResponder.keyboardWillChangeFrameNotification, object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(keyboardFrameChanged(_:)),
+            name: UIResponder.keyboardWillHideNotification, object: nil
+        )
         navigationController?.setNavigationBarHidden(true, animated: false)
         navigator?.setCapsuleVisible(true)
         if loadingView == nil {
@@ -154,6 +162,31 @@ public class DMPPageController: UIViewController {
         }
         setupNavigationBar()
         showPageLoadingIfNeeded()
+    }
+
+    @objc private func keyboardFrameChanged(_ notification: Notification) {
+        guard let window = viewIfLoaded?.window, window.isKeyWindow,
+              navigationController?.topViewController === self,
+              notification.userInfo?[UIResponder.keyboardIsLocalUserInfoKey] as? Bool != false
+        else { return }
+        let screen = window.screen
+        if let keyboardScreen = notification.object as? UIScreen, keyboardScreen !== screen { return }
+
+        let webViewId = webview.getWebViewId()
+        if notification.name == UIResponder.keyboardWillHideNotification {
+            app?.notifyKeyboardHeight(0, webViewId: webViewId)
+            return
+        }
+        guard let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
+        let overlap = view.bounds.intersection(view.convert(frame, from: screen.coordinateSpace))
+        let height = overlap.isNull ? 0 : Int(overlap.height.rounded())
+        if height == 0 || containsFirstResponder(webview.getWebView()) {
+            app?.notifyKeyboardHeight(height, webViewId: webViewId)
+        }
+    }
+
+    private func containsFirstResponder(_ view: UIView) -> Bool {
+        view.isFirstResponder || view.subviews.contains(where: containsFirstResponder)
     }
 
     public override func viewDidLayoutSubviews() {
@@ -967,6 +1000,13 @@ public class DMPPageController: UIViewController {
     }
     
     // MARK: - Lifecycle Methods
+
+    public override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        NotificationCenter.default.removeObserver(self, name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
+        NotificationCenter.default.removeObserver(self, name: UIResponder.keyboardWillHideNotification, object: nil)
+        app?.clearKeyboardHeight(webViewId: webview.getWebViewId())
+    }
     
     public override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)

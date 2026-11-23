@@ -24,6 +24,8 @@ const builtInAPIs = new Set([
 	'onAppHide',
 	'offAppShow',
 	'offAppHide',
+	'onKeyboardHeightChange',
+	'offKeyboardHeightChange',
 	'onShow',
 	'offShow',
 	'onHide',
