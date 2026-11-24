@@ -1,0 +1,42 @@
+fe/packages/compiler/__tests__/view-compiler-perf-cache.spec.js
+  86ca227489056e0b 47,117-123,162-168
+fe/packages/render/__tests__/template-lexical-scope.spec.js
+  da1c128e8a7b8460 91
+  86ca227489056e0b 62,87-90,92-104,106-122,124-130,132
+fe/packages/compiler/src/core/view-compiler.js
+  86ca227489056e0b 186,419-427,429,431,433-464,483-484,596-597,604,610,883,1373,2103
+  da1c128e8a7b8460 185,187,194,281,428,430,432,467-468,471-473,482,485,499,509-510,528,541-544,548,552,554-585,599,616-619,622-623,792,794,870-872,880-882,884-886,897-898,953,1370-1372,1797-1817,1846,2098-2100,2158-2165
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "5c19a460650564f72859737bf8e74be558191561",
+  "prompts": {
+    "86ca227489056e0b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a20b6a-6e1a-79e3-8f18-e40659e04d1f",
+        "model": "gpt-6.2-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 1910,
+      "overriden_lines": 0
+    },
+    "da1c128e8a7b8460": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a20bc4-7d78-76e0-918a-283569ba6cfa",
+        "model": "gpt-6.2-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 128,
+      "overriden_lines": 0
+    }
+  }
+}
