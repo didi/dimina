@@ -41,6 +41,7 @@ class DifileURLSchemeHandler: NSObject, WKURLSchemeHandler {
         }
         
         do {
+            if try DMPWebResourceLoader.sendVideoRange(urlSchemeTask, url: url, path: path) { return }
             let payload = try DMPWebResourceLoader.load(path: path)
             let response = URLResponse(
                 url: url,

@@ -135,39 +135,20 @@ class DMPNetwork {
      * @param url The URL of the file to download
      * @param header Custom HTTP headers
      * @param timeout Download timeout interval
-     * @param filePath Optional custom file path for saving the downloaded file
-     * @param success Callback with downloaded file path and status code
+     * @param filePath Resolved destination in the mini program's writable storage
+     * @param success Callback with the HTTP status code after saving the file
      * @param fail Callback for download failure
-     * @param complete Callback for download completion
      */
     func downloadFile(
         url: String,
         header: [String: String]?,
         timeout: TimeInterval,
-        filePath: String?,
-        success: @escaping (String, Int) -> Void,
+        filePath: String,
+        success: @escaping (Int) -> Void,
         fail: @escaping (String) -> Void
     ) {
-        // 设置下载路径（用户指定或临时目录）
-        let destination: DownloadRequest.Destination
-        let finalFilePath: String
-        
-        if let customPath = filePath {
-            finalFilePath = customPath
-            destination = { _, _ in
-                let fileURL = URL(fileURLWithPath: customPath)
-                return (fileURL, [.createIntermediateDirectories, .removePreviousFile])
-            }
-        } else {
-            // 使用临时目录生成临时文件路径
-            let tempDirectoryURL = URL(fileURLWithPath: NSTemporaryDirectory())
-            let fileName = UUID().uuidString
-            let fileURL = tempDirectoryURL.appendingPathComponent(fileName)
-            finalFilePath = fileURL.path
-            
-            destination = { _, _ in
-                return (fileURL, [.createIntermediateDirectories])
-            }
+        let destination: DownloadRequest.Destination = { _, _ in
+            (URL(fileURLWithPath: filePath), [.createIntermediateDirectories, .removePreviousFile])
         }
         
         // 创建请求头
@@ -182,7 +163,7 @@ class DMPNetwork {
             case .success(_):
                 // 成功下载文件
                 let statusCode = response.response?.statusCode ?? 200
-                success(finalFilePath, statusCode)
+                success(statusCode)
                 
             case .failure(let error):
                 // 下载失败

@@ -159,6 +159,9 @@ class DiminaRenderBridge(
     private val publishHandler: (JSONObject) -> Unit
 ) {
     @JavascriptInterface
+    fun localMediaUrl(): String = LOCAL_MEDIA_URL
+
+    @JavascriptInterface
     fun supportsEmbeddedWebView(): Boolean = false
     /**
      * Method that can be called from JavaScript to invoke a function in Kotlin

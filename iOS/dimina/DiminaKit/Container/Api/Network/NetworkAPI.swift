@@ -151,11 +151,25 @@ public class NetworkAPI: DMPContainerApi {
         let url = param.getString(key: "url") ?? ""
         let headerDict = param.getDictionary(key: "header")
         let timeout = param.getDouble(key: "timeout") ?? 60000
-        let filePath = param.getString(key: "filePath")
+        let filePath = param.getString(key: "filePath").flatMap { $0.isEmpty ? nil : $0 }
         
         // 验证URL
         guard let _ = URL(string: url) else {
             DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "downloadFile:fail invalid url")
+            return DMPAsyncResult()
+        }
+
+        let resultPath = filePath ?? DMPFileUtil.virtualFilePrefix + UUID().uuidString
+        let writableRoots = [
+            DMPSandboxManager.appTmpResourceDirectoryPath(appId: env.appId),
+            DMPSandboxManager.appStoreResourceDirectoryPath(appId: env.appId),
+        ].filter { !$0.isEmpty }.map { URL(fileURLWithPath: $0).standardizedFileURL.resolvingSymlinksInPath().path }
+        let resolvedPath = DMPFileUtil.sandboxPathFromVPath(from: resultPath, appId: env.appId) ?? resultPath
+        var isDirectory: ObjCBool = false
+        guard let destinationPath = DMPFileUtil.confinedAbsolutePath(resolvedPath, allowedRoots: writableRoots),
+              !writableRoots.contains(destinationPath),
+              !FileManager.default.fileExists(atPath: destinationPath, isDirectory: &isDirectory) || !isDirectory.boolValue else {
+            DMPContainerApi.invokeFailure(callback: callback, param: nil, errMsg: "downloadFile:fail invalid filePath")
             return DMPAsyncResult()
         }
         
@@ -175,15 +189,15 @@ public class NetworkAPI: DMPContainerApi {
             url: url,
             header: header,
             timeout: timeout / 1000, // 转换为秒
-            filePath: filePath,
-            success: { (savedPath, statusCode) in
+            filePath: destinationPath,
+            success: { statusCode in
                 let resultMap = DMPMap()
                 
                 // 如果指定了文件路径，则返回filePath，否则返回tempFilePath
                 if filePath != nil {
-                    resultMap.set("filePath", savedPath)
+                    resultMap.set("filePath", resultPath)
                 } else {
-                    resultMap.set("tempFilePath", savedPath)
+                    resultMap.set("tempFilePath", resultPath)
                 }
                 
                 // 设置响应状态码

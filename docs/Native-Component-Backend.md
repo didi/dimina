@@ -1,6 +1,6 @@
 # Android 原生组件承载后端
 
-`NativeComponentBackend` 将原生 View 的承载方式从组件实现中抽出。地图、视频、cover-view、cover-image 和内嵌 web-view 共用同一个页面后端。地图服务商通过 `MapProvider` 扩展，承载方式通过 `NativeComponentBackendFactory` 扩展，两者独立。
+`NativeComponentBackend` 将原生 View 的承载方式从组件实现中抽出。地图、cover-view、cover-image 和原生 web-view 共用同一个页面后端。旧版 Render 发送的原生视频消息也通过这个后端处理。地图服务商通过 `MapProvider` 扩展，承载方式通过 `NativeComponentBackendFactory` 扩展。
 
 ## 职责与调用链
 

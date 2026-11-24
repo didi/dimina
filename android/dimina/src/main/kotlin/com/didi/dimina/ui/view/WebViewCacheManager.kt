@@ -702,6 +702,11 @@ internal fun createWebViewClientWithInterceptor(
             view: WebView,
             request: WebResourceRequest
         ): WebResourceResponse? {
+            if (request.url.scheme == "https" && request.url.host == PathUtils.WEBVIEW_ASSET_DOMAIN &&
+                request.url.path == LOCAL_MEDIA_PATH
+            ) {
+                return loadLocalMedia(context, appId, request)
+            }
             if (request.url.scheme == PathUtils.VIRTUAL_SCHEME) {
                 return handleVirtualFileRequest(context, request.url, appId)
             }
@@ -783,6 +788,7 @@ internal fun createWebView(context: Context, onPageLoadFinished: () -> Unit, app
             domStorageEnabled = true
             allowFileAccess = false
             allowContentAccess = false
+            mediaPlaybackRequiresUserGesture = false
             javaScriptCanOpenWindowsAutomatically = false
             loadWithOverviewMode = true
             useWideViewPort = true

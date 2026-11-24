@@ -6,6 +6,7 @@ import { DMPAppManager } from '../DApp/DMPAppManager'
 import { DMPNodeController } from '../Render/SameLayer/DMPNodeController'
 import { NodeRenderType, Size } from '@kit.ArkUI'
 import { RequestCallback } from '../Render/UrlIntercepter/UrlInterceptor'
+import { LOCAL_MEDIA_URL } from '../Render/UrlIntercepter/LocalMediaResponse'
 import { DMPRender } from '../Render/DMPRender'
 import { DMPCommonDialog, ModalOption } from '../Bridges/Widget/DMPCommonDialog'
 import { DMPLogger } from '../EventTrack/DMPLogger'
@@ -92,12 +93,17 @@ export struct DMPWebComponent {
           return false
         })
         .cacheMode(CacheMode.Online)
+        .mediaPlayGestureAccess(false)
         .fileAccess(DMPContextUtils.debugMode)
         .zoomAccess(false)
         .verticalScrollBarAccess(false)
         .domStorageAccess(true)
         .geolocationAccess(true)
-        .javaScriptOnDocumentStart([{ script: DMP_KEYBOARD_FOCUS_SCRIPT, scriptRules: ['*'] }])
+        .javaScriptOnDocumentStart([
+          { script: DMP_KEYBOARD_FOCUS_SCRIPT, scriptRules: ['*'] },
+          { script: `if (window === window.top) window.__diminaLocalMediaUrl = '${LOCAL_MEDIA_URL}';`,
+            scriptRules: ['*'] }
+        ])
         .onFocus(() => {
           this.hasWebFocus = true
           this.controller.flushFocusedKeyboard()

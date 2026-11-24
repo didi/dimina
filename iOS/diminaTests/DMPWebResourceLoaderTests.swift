@@ -90,6 +90,56 @@ final class DMPWebResourceLoaderTests: XCTestCase {
         XCTAssertEqual(DMPWebResourceLoader.mimeType(forExtension: "heif"), "image/heif")
     }
 
+    func testPackagedVideoServesOnlyTheRequestedBytes() throws {
+        let appId = UUID().uuidString
+        let root = URL(fileURLWithPath: DMPSandboxManager.appBundlePath(appId))
+        let video = root.appendingPathComponent("main/assets/clip + intro.mp4")
+        let fileManager = FileManager.default
+        defer { try? fileManager.removeItem(at: root) }
+        try fileManager.createDirectory(at: video.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data([0, 1, 2, 3, 4]).write(to: video)
+        let webView = WKWebView()
+        let handler = DiminaURLSchemeHandler(appId: appId)
+
+        let url = try XCTUnwrap(URL(string: "dimina:///__dimina_media?source=assets%2Fclip%20%2B%20intro.mp4"))
+        var request = URLRequest(url: url)
+        request.setValue("bytes=1-2", forHTTPHeaderField: "Range")
+        let task = VideoSchemeTask(request: request)
+        handler.webView(webView, start: task)
+
+        XCTAssertNil(task.error)
+        XCTAssertTrue(task.finished)
+        XCTAssertEqual(task.response?.statusCode, 206)
+        XCTAssertEqual(task.response?.mimeType, "video/mp4")
+        XCTAssertEqual(task.response?.value(forHTTPHeaderField: "Content-Range"), "bytes 1-2/5")
+        XCTAssertEqual(task.data, Data([1, 2]))
+    }
+
+    func testTemporaryVideoWithOpaqueExtensionServesOnlyTheRequestedBytes() throws {
+        let appId = UUID().uuidString
+        let root = URL(fileURLWithPath: DMPSandboxManager.appBundlePath(appId))
+        defer { try? FileManager.default.removeItem(at: root) }
+        let temporaryDirectory = URL(fileURLWithPath: DMPSandboxManager.appTmpResourceDirectoryPath(appId: appId))
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        let video = temporaryDirectory.appendingPathComponent("download.tmp")
+        try Data([0, 1, 2, 3, 4]).write(to: video)
+
+        let source = DMPFileUtil.vPathFromSandboxPath(sandboxPath: video.path, appId: appId)
+        var url = try XCTUnwrap(URLComponents(string: "dimina:///__dimina_media"))
+        url.queryItems = [URLQueryItem(name: "source", value: source)]
+        var request = URLRequest(url: try XCTUnwrap(url.url))
+        request.setValue("bytes=1-2", forHTTPHeaderField: "Range")
+        let task = VideoSchemeTask(request: request)
+        let handler = DiminaURLSchemeHandler(appId: appId)
+        handler.webView(WKWebView(), start: task)
+
+        XCTAssertNil(task.error)
+        XCTAssertTrue(task.finished)
+        XCTAssertEqual(task.response?.statusCode, 206)
+        XCTAssertEqual(task.response?.value(forHTTPHeaderField: "Content-Range"), "bytes 1-2/5")
+        XCTAssertEqual(task.data, Data([1, 2]))
+    }
+
     func testHostImagesReadFilesAndConfineDirectoryMappings() throws {
         let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let root = temporary.appendingPathComponent("images")
@@ -234,6 +284,23 @@ final class DMPWebResourceLoaderTests: XCTestCase {
         XCTAssertEqual(payload.mimeType, "image/heic")
         XCTAssertEqual(payload.data, sourceData)
     }
+}
+
+private final class VideoSchemeTask: NSObject, WKURLSchemeTask {
+    let request: URLRequest
+    var response: HTTPURLResponse?
+    var data = Data()
+    var finished = false
+    var error: Error?
+
+    init(request: URLRequest) {
+        self.request = request
+    }
+
+    func didReceive(_ response: URLResponse) { self.response = response as? HTTPURLResponse }
+    func didReceive(_ data: Data) { self.data.append(data) }
+    func didFinish() { finished = true }
+    func didFailWithError(_ error: Error) { self.error = error }
 }
 
 @MainActor

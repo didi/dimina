@@ -1,9 +1,7 @@
 <script setup>
 // 视频
 // https://developers.weixin.qq.com/miniprogram/dev/component/video.html
-import { isAndroid, isDesktop, isHarmonyOS, isIOS } from '@dimina/common'
-import { invokeAPI, onEvent, triggerEvent, useInfo } from '@/common/events'
-import { ensureNativeLayerTouchBridge } from '@/common/nativeLayerTouchBridge'
+import { onEvent, triggerEvent, useInfo } from '@/common/events'
 
 const props = defineProps({
 	/**
@@ -237,360 +235,280 @@ const props = defineProps({
 	},
 })
 
-const rootRef = ref()
+const root = ref()
+const video = ref()
 const info = useInfo()
-const type = 'native/video'
-const isNativeVideo = computed(() => isAndroid || isIOS || isHarmonyOS)
-let syncFrameId = 0
-let lastRectKey = ''
-const nativeEventOffs = []
-let resizeObserver
-let nativeMounted = false
+const controlsVisible = ref(true)
+const playing = ref(false)
+const position = ref(0)
+const mediaDuration = ref(0)
+const muted = ref(props.muted)
+const duration = computed(() => mediaDuration.value || props.duration)
+let pendingSeek
+let offVideoContext
 
-function getRect() {
-	const element = rootRef.value
-	if (!element) {
-		return {}
-	}
-	const rect = element.getBoundingClientRect()
-	return {
-		left: rect.left,
-		top: rect.top,
-		width: rect.width,
-		height: rect.height,
-		pageLeft: rect.left + window.scrollX,
-		pageTop: rect.top + window.scrollY,
-		scrollX: window.scrollX,
-		scrollY: window.scrollY,
-		viewportWidth: window.innerWidth,
-		viewportHeight: window.innerHeight,
-	}
+function resolveMediaSource(source) {
+	if (!source) return undefined
+	if (/^(?:https?:|blob:|data:|resource:|\/\/)/i.test(source)) return source
+	const bridge = window.DiminaRenderBridge
+	const resourcePath = window.__diminaLocalMediaUrl || bridge?.localMediaUrl
+	const prefix = typeof resourcePath === 'function' ? bridge.localMediaUrl() : resourcePath
+	if (!prefix) return source
+
+	// Let each native host resolve its own package and virtual file paths.
+	return `${prefix}?source=${encodeURIComponent(source)}`
 }
 
-function getNativeParams() {
-	return {
-		type,
-		id: props.id,
-		src: props.src,
-		duration: props.duration,
-		controls: props.controls,
-		autoplay: props.autoplay,
-		loop: props.loop,
-		muted: props.muted,
-		initialTime: props.initialTime,
-		objectFit: props.objectFit,
-		poster: props.poster,
-		pageGesture: props.pageGesture,
-		direction: props.direction,
-		showProgress: props.showProgress,
-		showFullscreenBtn: props.showFullscreenBtn,
-		showPlayBtn: props.showPlayBtn,
-		showCenterPlayBtn: props.showCenterPlayBtn,
-		enableProgressGesture: props.enableProgressGesture,
-		showMuteBtn: props.showMuteBtn,
-		title: props.title,
-		playBtnPosition: props.playBtnPosition,
-		enablePlayGesture: props.enablePlayGesture,
-		autoPauseIfNavigate: props.autoPauseIfNavigate,
-		autoPauseIfOpenNative: props.autoPauseIfOpenNative,
-		vslideGesture: props.vslideGesture,
-		vslideGestureInFullscreen: props.vslideGestureInFullscreen,
-		adUnitId: props.adUnitId,
-		unitId: props.unitId,
-		adPlayTime: props.adPlayTime,
-		danmuBtn: props.danmuBtn,
-		enableDanmu: props.enableDanmu,
-		danmuList: props.danmuList,
-		live: props.live,
-		customCache: props.customCache,
-		blockSize: props.blockSize,
-		posterForCrawler: props.posterForCrawler,
-		showLiveBtn: props.showLiveBtn,
-		showBottomProgress: props.showBottomProgress,
-		showCenterProgressDuration: props.showCenterProgressDuration,
-		showVolumeBtn: props.showVolumeBtn,
-		showCastingButton: props.showCastingButton,
-		seekType: props.seekType,
-		pictureInPictureMode: props.pictureInPictureMode,
-		pictureInPictureShowProgress: props.pictureInPictureShowProgress,
-		enableAutoRotation: props.enableAutoRotation,
-		showScreenLockButton: props.showScreenLockButton,
-		showSnapshotButton: props.showSnapshotButton,
-		showBackgroundPlaybackButton: props.showBackgroundPlaybackButton,
-		backgroundPoster: props.backgroundPoster,
-		referrerPolicy: props.referrerPolicy,
-		isDrm: props.isDrm,
-		provisionUrl: props.provisionUrl,
-		certificateUrl: props.certificateUrl,
-		licenseUrl: props.licenseUrl,
-		preferredPeakBitRate: props.preferredPeakBitRate,
-		hidden: rootRef.value?.hasAttribute('hidden') || false,
-		rect: getRect(),
-	}
-}
+const source = computed(() => resolveMediaSource(props.src))
+const poster = computed(() => resolveMediaSource(props.poster || props.posterForCrawler))
 
-function invokeNative(apiName) {
-	if (!isNativeVideo.value) {
-		return
-	}
-	if (apiName === 'propsUpdate' && !nativeMounted) return
-	invokeAPI(apiName, {
-		bridgeId: info.bridgeId,
-		params: getNativeParams(),
+function emitVideoEvent(type, event, detail = {}) {
+	triggerEvent(type, {
+		event,
+		info,
+		currentTarget: root.value,
+		detail: type === 'timeupdate' ? detail : { id: props.id, src: props.src, ...detail },
 	})
 }
 
-function syncRect(force = false) {
-	const rectKey = JSON.stringify({
-		...getRect(),
-		hidden: rootRef.value?.hasAttribute('hidden') || false,
-	})
-	if (force || rectKey !== lastRectKey) {
-		lastRectKey = rectKey
-		invokeNative('propsUpdate')
-	}
-}
-
-function scheduleSyncRect() {
-	if (syncFrameId) {
-		return
-	}
-	syncFrameId = requestAnimationFrame(() => {
-		syncFrameId = 0
-		syncRect()
-	})
-}
-
-function bindNativeEvent(nativeEvent, eventType, detailFactory = msg => msg) {
-	const off = onEvent(nativeEvent, (msg) => {
-		if (msg.id !== props.id || (msg.moduleId && msg.moduleId !== info.moduleId)) {
-			return
+function play() {
+	const element = video.value
+	const playbackSource = source.value
+	element?.play()?.catch((error) => {
+		if (error?.name !== 'AbortError' && video.value === element && source.value === playbackSource) {
+			emitVideoEvent('error', undefined, { errMsg: error?.message || 'video play failed' })
 		}
-		triggerEvent(eventType, {
-			type: eventType,
-			info,
-			detail: detailFactory(msg),
-		})
 	})
-	nativeEventOffs.push(off)
 }
 
-function executeWebVideoCommand(msg) {
-	const video = rootRef.value
-	if (!video || msg.id !== props.id) {
+function togglePlayback() {
+	if (video.value.paused) play()
+	else video.value.pause()
+}
+
+function seek(time) {
+	const target = Math.max(0, Number(time) || 0)
+	if (video.value.readyState === 0) {
+		pendingSeek = target
 		return
 	}
+	video.value.currentTime = target
+}
 
+function requestFullscreen(direction = props.direction) {
+	const element = root.value
+	if (document.fullscreenEnabled && element.requestFullscreen) {
+		element.requestFullscreen().then(() => {
+			const orientation = { 0: 'portrait', 90: 'landscape-primary', '-90': 'landscape-secondary' }[Number(direction)]
+			if (orientation) return screen.orientation?.lock?.(orientation)
+		}, () => video.value?.webkitEnterFullscreen?.()).catch(() => {})
+	} else {
+		video.value.webkitEnterFullscreen?.()
+	}
+}
+
+function exitFullscreen() {
+	if (document.fullscreenElement === root.value) document.exitFullscreen?.()
+	else if (video.value.webkitDisplayingFullscreen) video.value.webkitExitFullscreen?.()
+}
+
+function handleFullscreenChange(event) {
+	emitVideoEvent('fullscreenchange', event, {
+		fullScreen: event.type === 'webkitbeginfullscreen' || document.fullscreenElement === root.value,
+		direction: props.direction,
+	})
+}
+
+function handleVideoContext(msg) {
+	const element = video.value
+	if (!element || msg.id !== props.id || (msg.moduleId && msg.moduleId !== info.moduleId)) return
 	switch (msg.command) {
 		case 'play':
-			video.play()?.catch((error) => {
-				triggerEvent('error', {
-					info,
-					detail: {
-						errMsg: error?.message || 'video play failed',
-					},
-				})
-			})
+			play()
 			break
 		case 'pause':
-			video.pause()
+			element.pause()
 			break
 		case 'stop':
-			video.pause()
-			video.currentTime = 0
+			element.pause()
+			seek(0)
 			break
 		case 'seek':
-			video.currentTime = Number(msg.position) || 0
+			seek(msg.position)
 			break
 		case 'playbackRate':
-			video.playbackRate = Number(msg.rate) || 1
+			element.playbackRate = Number(msg.rate) || 1
 			break
 		case 'requestFullScreen':
-			video.requestFullscreen?.() || video.webkitRequestFullscreen?.()
+			requestFullscreen(msg.direction)
 			break
 		case 'exitFullScreen':
-			document.exitFullscreen?.() || document.webkitExitFullscreen?.()
+			exitFullscreen()
 			break
 		case 'exitPictureInPicture':
-			document.pictureInPictureElement && document.exitPictureInPicture?.()
+			if (document.pictureInPictureElement === element) document.exitPictureInPicture?.()
 			break
 		default:
 			break
 	}
 }
 
-function bindVideoContextEvent() {
-	const off = onEvent('videoContext', (msg) => {
-		if (msg.id !== props.id) {
-			return
-		}
-		if (isNativeVideo.value) {
-			invokeAPI('videoContext', {
-				bridgeId: info.bridgeId,
-				params: msg,
-			})
-			return
-		}
-		executeWebVideoCommand(msg)
-	})
-	nativeEventOffs.push(off)
-}
-
-function triggerVideoEvent(type, event, detail = {}) {
-	triggerEvent(type, {
-		event,
-		info,
-		detail,
-	})
-}
-
 function handleLoadedMetadata(event) {
-	const video = event.target
-	if (props.initialTime > 0 && Number.isFinite(video.duration)) {
-		video.currentTime = Math.min(props.initialTime, video.duration)
-	}
-	triggerVideoEvent('loadedmetadata', event, { duration: video.duration || 0 })
+	const element = event.target
+	mediaDuration.value = Number.isFinite(element.duration) ? element.duration : 0
+	const start = pendingSeek ?? props.initialTime
+	pendingSeek = undefined
+	if (start > 0) seek(mediaDuration.value ? Math.min(start, mediaDuration.value) : start)
+	emitVideoEvent('loadedmetadata', event, {
+		width: element.videoWidth,
+		height: element.videoHeight,
+		duration: mediaDuration.value,
+	})
+}
+
+function handleTimeUpdate(event) {
+	position.value = event.target.currentTime
+	emitVideoEvent('timeupdate', event, {
+		currentTime: position.value,
+		duration: duration.value,
+	})
 }
 
 function handleProgress(event) {
-	const video = event.target
-	const buffered = video.buffered
-	triggerVideoEvent('progress', event, {
-		buffered: buffered?.length ? buffered.end(buffered.length - 1) : 0,
-		duration: video.duration || 0,
+	const buffered = event.target.buffered
+	emitVideoEvent('progress', event, {
+		buffered: buffered.length ? buffered.end(buffered.length - 1) : 0,
+		duration: duration.value,
 	})
 }
 
-onMounted(() => {
-	bindVideoContextEvent()
+function handlePlaybackChange(event) {
+	playing.value = event.type === 'play'
+	emitVideoEvent(event.type, event)
+}
 
-	if (!isNativeVideo.value) {
-		return
-	}
-	if (isAndroid) {
-		ensureNativeLayerTouchBridge()
-	}
+function handleVideoClick() {
+	if (props.controls) controlsVisible.value = !controlsVisible.value
+}
 
-	bindNativeEvent('bindplay', 'play')
-	bindNativeEvent('bindpause', 'pause')
-	bindNativeEvent('bindended', 'ended')
-	bindNativeEvent('bindwaiting', 'waiting')
-	bindNativeEvent('binderror', 'error')
-	bindNativeEvent('bindloadeddata', 'loadeddata')
-	bindNativeEvent('bindloadstart', 'loadstart')
-	bindNativeEvent('bindloadedmetadata', 'loadedmetadata')
-	bindNativeEvent('bindfullscreenchange', 'fullscreenchange')
-	bindNativeEvent('bindprogress', 'progress')
-	bindNativeEvent('bindseeking', 'seeking')
-	bindNativeEvent('bindseeked', 'seeked')
-	bindNativeEvent('bindcontrolstoggle', 'controlstoggle')
-	bindNativeEvent('bindenterpictureinpicture', 'enterpictureinpicture')
-	bindNativeEvent('bindleavepictureinpicture', 'leavepictureinpicture')
-	bindNativeEvent('bindpreloadedmetadata', 'preloadedmetadata')
-	bindNativeEvent('bindrendererror', 'rendererror')
-	bindNativeEvent('bindseekcomplete', 'seekcomplete')
-	bindNativeEvent('bindinsertweblayerfailed', 'insertweblayerfailed')
-	bindNativeEvent('bindinsertweblayersuccess', 'insertweblayersuccess')
-	bindNativeEvent('bindtimeupdate', 'timeupdate', msg => ({
-		currentTime: msg.currentTime,
-		duration: msg.duration,
-	}))
+function formatTime(seconds) {
+	const elapsed = Math.floor(seconds)
+	const minutes = Math.floor(elapsed / 60).toString().padStart(2, '0')
+	const remainder = (elapsed % 60).toString().padStart(2, '0')
+	return `${minutes}:${remainder}`
+}
 
-	nextTick(() => {
-		nativeMounted = true
-		invokeNative('componentMount')
-		lastRectKey = JSON.stringify({ ...getRect(), hidden: rootRef.value?.hasAttribute('hidden') || false })
-		window.addEventListener('resize', scheduleSyncRect)
-		window.addEventListener('scroll', scheduleSyncRect, true)
-		if (window.ResizeObserver && rootRef.value) {
-			resizeObserver = new ResizeObserver(scheduleSyncRect)
-			resizeObserver.observe(rootRef.value)
-		}
-	})
+watch(() => props.controls, (visible) => {
+	if (visible) controlsVisible.value = true
 })
+watch(() => props.muted, (value) => { muted.value = value })
+watch(source, () => {
+	pendingSeek = undefined
+	position.value = 0
+	mediaDuration.value = 0
+	playing.value = false
+}, { flush: 'sync' })
 
-watch(
-	() => getNativeParams(),
-	() => invokeNative('propsUpdate'),
-	{ deep: true },
-)
-
+onMounted(() => { offVideoContext = onEvent('videoContext', handleVideoContext) })
 onBeforeUnmount(() => {
-	if (syncFrameId) {
-		cancelAnimationFrame(syncFrameId)
-	}
-	resizeObserver?.disconnect()
-	window.removeEventListener('resize', scheduleSyncRect)
-	window.removeEventListener('scroll', scheduleSyncRect, true)
-	invokeNative('componentUnmount')
-	nativeMounted = false
-	nativeEventOffs.splice(0).forEach(off => off())
+	offVideoContext?.()
+	if (video.value && !video.value.paused) video.value.pause()
 })
 </script>
 
 <template>
-	<embed
-		v-if="isAndroid"
+	<div
 		:id="id"
-		ref="rootRef"
-		width="300"
-		height="225"
+		ref="root"
 		v-bind="$attrs"
 		class="dd-video"
-		data-dimina-native-type="native/video"
-		:data-dimina-native-id="id"
-		type="application/view"
-		:comp_type="type"
-	/>
-	<div v-else-if="isIOS" :id="id" ref="rootRef" v-bind="$attrs" class="dd-video">
-		<div class="dd-video-container">
-			<div style="width: 101%; height: 101%" />
-		</div>
-	</div>
-	<embed
-		v-else-if="isHarmonyOS"
-		:id="id"
-		ref="rootRef"
-		v-bind="$attrs"
-		class="dd-video"
-		:type="type"
-	/>
-	<video
-		v-else-if="isDesktop"
-		:id="id"
-		ref="rootRef"
-		width="300"
-		height="225"
-		v-bind="$attrs"
-		class="dd-video"
-		:src="src"
-		:controls="controls"
-		:autoplay="autoplay"
-		:loop="loop"
-		:muted="muted"
-		:poster="poster || posterForCrawler"
-		:referrerpolicy="referrerPolicy"
-		:playsinline="true"
-		:webkit-playsinline="true"
-		:style="{ objectFit }"
-		@play="triggerVideoEvent('play', $event)"
-		@pause="triggerVideoEvent('pause', $event)"
-		@ended="triggerVideoEvent('ended', $event)"
-		@waiting="triggerVideoEvent('waiting', $event)"
-		@error="triggerVideoEvent('error', $event, { errMsg: $event.target?.error?.message || 'video error' })"
-		@loadstart="triggerVideoEvent('loadstart', $event)"
-		@loadeddata="triggerVideoEvent('loadeddata', $event)"
-		@loadedmetadata="handleLoadedMetadata"
-		@progress="handleProgress"
-		@seeking="triggerVideoEvent('seeking', $event, { currentTime: $event.target?.currentTime || 0 })"
-		@seeked="triggerVideoEvent('seeked', $event, { currentTime: $event.target?.currentTime || 0 })"
-		@fullscreenchange="triggerVideoEvent('fullscreenchange', $event, { fullScreen: Boolean(document.fullscreenElement), direction })"
-		@enterpictureinpicture="triggerVideoEvent('enterpictureinpicture', $event)"
-		@leavepictureinpicture="triggerVideoEvent('leavepictureinpicture', $event)"
-		@timeupdate="triggerVideoEvent('timeupdate', $event, { currentTime: $event.target?.currentTime || 0, duration: $event.target?.duration || 0 })"
-	/>
-	<div v-else v-bind="$attrs" class="dd-video dd-video-placeholder">
-		未实现组件
+		@fullscreenchange.self="handleFullscreenChange"
+	>
+		<video
+			ref="video"
+			class="dd-video-media"
+			:src="source"
+			:autoplay="autoplay"
+			:loop="loop"
+			:muted="muted"
+			:poster="poster"
+			:referrerpolicy="referrerPolicy"
+			playsinline
+			webkit-playsinline
+			:style="{ objectFit }"
+			@click="handleVideoClick"
+			@dblclick="enablePlayGesture && togglePlayback()"
+			@play="handlePlaybackChange"
+			@pause="handlePlaybackChange"
+			@ended="handlePlaybackChange"
+			@waiting="emitVideoEvent('waiting', $event)"
+			@error="emitVideoEvent('error', $event, { errMsg: $event.target.error?.message || 'video error' })"
+			@loadstart="emitVideoEvent('loadstart', $event)"
+			@loadeddata="emitVideoEvent('loadeddata', $event)"
+			@loadedmetadata="handleLoadedMetadata"
+			@progress="handleProgress"
+			@seeking="emitVideoEvent('seeking', $event, { currentTime: $event.target.currentTime })"
+			@seeked="emitVideoEvent('seeked', $event, { currentTime: $event.target.currentTime })"
+			@webkitbeginfullscreen="handleFullscreenChange"
+			@webkitendfullscreen="handleFullscreenChange"
+			@enterpictureinpicture="emitVideoEvent('enterpictureinpicture', $event)"
+			@leavepictureinpicture="emitVideoEvent('leavepictureinpicture', $event)"
+			@timeupdate="handleTimeUpdate"
+		/>
+		<template v-if="controls && controlsVisible">
+			<button
+				v-if="showCenterPlayBtn && !playing"
+				type="button"
+				class="dd-video-control dd-video-center"
+				aria-label="播放"
+				@click.stop="play"
+			>
+				<span class="dd-video-play-icon" aria-hidden="true" />
+			</button>
+			<div class="dd-video-controls" @click.stop>
+				<button
+					v-if="showPlayBtn"
+					type="button"
+					class="dd-video-control"
+					:aria-label="playing ? '暂停' : '播放'"
+					@click="togglePlayback"
+				>
+					<span :class="playing ? 'dd-video-pause-icon' : 'dd-video-play-icon'" aria-hidden="true" />
+				</button>
+				<template v-if="showProgress">
+					<input
+						class="dd-video-seek"
+						type="range"
+						min="0"
+						:max="duration || 1"
+						step="0.01"
+						:value="position"
+						:disabled="!duration"
+						aria-label="播放进度"
+						@input="seek($event.target.value)"
+					>
+					<span class="dd-video-time">{{ formatTime(position) }}/{{ formatTime(duration) }}</span>
+				</template>
+				<button
+					v-if="showMuteBtn"
+					type="button"
+					class="dd-video-control"
+					:aria-label="muted ? '取消静音' : '静音'"
+					@click="muted = !muted"
+				>
+					{{ muted ? '×' : '♪' }}
+				</button>
+				<button
+					v-if="showFullscreenBtn"
+					type="button"
+					class="dd-video-control"
+					aria-label="全屏"
+					@click="requestFullscreen()"
+				>
+					<span aria-hidden="true">⛶</span>
+				</button>
+			</div>
+		</template>
 	</div>
 </template>
 
@@ -603,29 +521,82 @@ onBeforeUnmount(() => {
 	width: 300px;
 	height: 225px;
 	line-height: 0;
+	background: #000;
 
 	&[hidden] {
 		display: none;
 	}
-
-	.dd-video-container {
-		overflow: scroll;
-		-webkit-overflow-scrolling: touch;
-		width: 100%;
-		height: 100%;
-	}
 }
 
-.dd-video[data-dimina-native-type='native/video'] {
-	background: transparent !important;
-	opacity: 0;
+.dd-video-media {
+	display: block;
+	width: 100%;
+	height: 100%;
 }
 
-.dd-video-placeholder {
-	color: white;
-	background-color: gray;
+.dd-video-controls {
+	position: absolute;
+	inset: auto 0 0;
 	display: flex;
 	align-items: center;
-	justify-content: center;
+	gap: 8px;
+	min-height: 44px;
+	padding: 0 8px;
+	color: #fff;
+	background: rgb(0 0 0 / 43%);
+}
+
+.dd-video-control {
+	display: grid;
+	place-items: center;
+	flex: 0 0 32px;
+	width: 32px;
+	height: 32px;
+	padding: 0;
+	border: 0;
+	color: inherit;
+	background: transparent;
+	font: inherit;
+	cursor: pointer;
+}
+
+.dd-video-center {
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	width: 56px;
+	height: 56px;
+	transform: translate(-50%, -50%);
+	border-radius: 50%;
+	color: #fff;
+	background: rgb(0 0 0 / 47%);
+}
+
+.dd-video-play-icon {
+	display: block;
+	width: 0;
+	height: 0;
+	border-block: 6px solid transparent;
+	border-left: 10px solid currentColor;
+}
+
+.dd-video-pause-icon {
+	display: block;
+	width: 10px;
+	height: 12px;
+	box-sizing: border-box;
+	border-inline: 3px solid currentColor;
+}
+
+.dd-video-seek {
+	flex: 1;
+	min-width: 0;
+	margin: 0;
+	accent-color: #fff;
+}
+
+.dd-video-time {
+	font: 12px/1 monospace;
+	white-space: nowrap;
 }
 </style>

@@ -178,6 +178,7 @@ public class DMPWebview: NSObject, WKNavigationDelegate, WKScriptMessageHandler,
         let bootstrapScript = WKUserScript(source: """
         (function() {
             var bridge = window.DiminaRenderBridge = window.DiminaRenderBridge || {};
+            bridge.localMediaUrl = 'dimina:///__dimina_media';
             if (bridge.__diminaOnMessageBuffered) {
                 return;
             }

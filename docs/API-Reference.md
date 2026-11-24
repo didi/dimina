@@ -126,15 +126,15 @@ Dimina 的 render runtime 使用 Vue，但模板编译器和组件 runtime 会�
 
 - 该列表包含运行时内置组件，以及编译期支持的 WXML 模板标签（如 `slot`、`template`、`wxs`、`include`、`import`）。
 - `map` 提供基于宿主 provider 的基础能力。Android / iOS / Harmony 可选接入高德原生 SDK，Web 使用高德 JS API；需要注册 provider、配置平台 Key 和隐私授权。详见[地图接入](./Map-Integration.md)。
-- 同层渲染组件 `video` 已支持 Android / iOS / Harmony。
+- `video` 在 Android / iOS / Harmony / Web 上都参与页面的 CSS 层叠。可以用 `z-index` 调整视频和其他页面元素的前后顺序。运行时切换 `controls` 只改变控件显示。
+- 播放本地视频时，将 `wx.chooseVideo` 返回的 `tempFilePath` 直接传给 `video.src`。原生端也支持使用 `wx.downloadFile` 返回的临时路径，Web 的 `chooseVideo` 返回会话期 `blob:` 路径。代码包视频是 Dimina 的兼容能力。[微信小程序 video 文档](https://developers.weixin.qq.com/miniprogram/dev/component/video.html)
 - `web-view` 的 `embedded` 是 **Dimina 扩展属性**，不属于微信小程序规范。设置 `embedded="{{true}}"` 可使用局部 iframe，支持 CSS 尺寸、圆角、滚动和视图遮挡；接入方式、H5 消息与部署限制见 [web-view 局部嵌入（Dimina 扩展）](./Web-View.md)。
 - tabBar 已支持 Android / iOS / Harmony。
 
-### Android 同层渲染限制
+### Android 原生组件承载限制
 
-Android 端当前不修改系统 WebView / Chromium 内核，因此同层渲染不是浏览器内核级的 DOM 合成能力，而是通过「原生组件在 WebView 背后 + WebView 按需透明 + Web 命中测试转发手势」实现。该方案能满足 HTML 元素覆盖在原生 `video` 上方的常见场景，但存在以下限制：
+Android 宿主可将原生视图放在 WebView 下方，通过透明占位和 Web 命中测试实现页面元素覆盖原生视图。使用该承载方式的组件有以下限制：
 
-- 仅支持已接入原生背板方案的组件；当前主要用于 `video`。
 - 原生组件不真正参与 DOM 渲染树、CSS `z-index` 层叠和浏览器 compositor 合成。
 - HTML 元素可以覆盖在原生组件上方；原生组件只能通过透明占位区域显示出来。
 - 暂不支持 CSS `clip-path`、复杂 `transform`、filter、mask、非矩形裁剪等效果与原生组件同步。

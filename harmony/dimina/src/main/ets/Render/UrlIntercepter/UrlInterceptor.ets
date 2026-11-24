@@ -8,6 +8,7 @@ import { DMPFilePathResolver } from '../../Bundle/Util/DMPFilePathResolver';
 import { DMPVirtualFileConfig } from '../../Bundle/Util/DMPFileUrlConvertor';
 import { DMPHostFonts } from '../DMPHostFonts';
 import { DMPHostImages } from '../DMPHostImages';
+import { LOCAL_MEDIA_URL, loadLocalMedia } from './LocalMediaResponse';
 
 interface InterceptRequestEvent {
   request: WebResourceRequest;
@@ -24,6 +25,14 @@ export class RequestCallback {
     const app = DMPAppManager.sharedInstance().getApp(this.appIndex)
     if (event && app) {
       const url = event.request.getRequestUrl();
+      if (url.startsWith(LOCAL_MEDIA_URL + '?')) {
+        return loadLocalMedia(
+          event.request,
+          app.appConfig.appId,
+          app.bundleManager.getCurrentJSAppDir(),
+          (extension: string): string => RequestCallback.mimeTypeForExtension(extension, 'application/octet-stream')
+        );
+      }
       const imageResponse = DMPHostImages.intercept(url);
       if (imageResponse) return imageResponse;
       const fontResponse = DMPHostFonts.intercept(url);
@@ -188,6 +197,15 @@ export class RequestCallback {
         return 'image/heic';
       case 'heif':
         return 'image/heif';
+      case 'mp4':
+      case 'm4v':
+        return 'video/mp4';
+      case 'mov':
+        return 'video/quicktime';
+      case 'webm':
+        return 'video/webm';
+      case 'm3u8':
+        return 'application/vnd.apple.mpegurl';
       default:
         return fallback;
     }

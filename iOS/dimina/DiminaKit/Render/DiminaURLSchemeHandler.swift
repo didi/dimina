@@ -16,13 +16,57 @@ struct DMPWebResourcePayload {
 
 enum DMPWebResourceLoader {
     static func load(path: String) throws -> DMPWebResourcePayload {
-        let data = try Data(contentsOf: URL(fileURLWithPath: path))
-        let pathExtension = URL(fileURLWithPath: path).pathExtension
+        let fileURL = URL(fileURLWithPath: path)
+        let pathExtension = fileURL.pathExtension
+        let isVideo = mimeType(forExtension: pathExtension).hasPrefix("video/")
+        let data = try Data(contentsOf: fileURL, options: isVideo ? .mappedIfSafe : [])
         return try makePayload(
             data: data,
             pathExtension: pathExtension,
             webKitSupportsHEIF: webKitSupportsHEIF
         )
+    }
+
+    static func sendVideoRange(_ task: WKURLSchemeTask, url: URL, path: String, allowsOctetStream: Bool = false) throws -> Bool {
+        let fileURL = URL(fileURLWithPath: path)
+        let mimeType = mimeType(forExtension: fileURL.pathExtension)
+        guard mimeType.hasPrefix("video/") || (allowsOctetStream && mimeType == "application/octet-stream"),
+              let header = task.request.value(forHTTPHeaderField: "Range"),
+              header.hasPrefix("bytes=") else { return false }
+
+        let file = try FileHandle(forReadingFrom: fileURL)
+        defer { try? file.close() }
+        let size = try file.seekToEnd()
+        guard let range = videoByteRange(header.dropFirst("bytes=".count), size: size),
+              let count = Int(exactly: range.upperBound - range.lowerBound),
+              let response = HTTPURLResponse(url: url, statusCode: 206, httpVersion: nil, headerFields: [
+                "Content-Type": mimeType,
+                "Accept-Ranges": "bytes",
+                "Content-Length": String(count),
+                "Content-Range": "bytes \(range.lowerBound)-\(range.upperBound - 1)/\(size)",
+              ]) else { return false }
+
+        try file.seek(toOffset: range.lowerBound)
+        guard let data = try file.read(upToCount: count), data.count == count else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        task.didReceive(response)
+        task.didReceive(data)
+        task.didFinish()
+        return true
+    }
+
+    private static func videoByteRange(_ value: Substring, size: UInt64) -> Range<UInt64>? {
+        let bounds = value.split(separator: "-", omittingEmptySubsequences: false)
+        guard size > 0, bounds.count == 2 else { return nil }
+        if bounds[0].isEmpty {
+            guard let length = UInt64(bounds[1]), length > 0 else { return nil }
+            return (size - min(length, size))..<size
+        }
+        guard let start = UInt64(bounds[0]), start < size else { return nil }
+        if bounds[1].isEmpty { return start..<size }
+        guard let end = UInt64(bounds[1]), end >= start else { return nil }
+        return start..<(min(end, size - 1) + 1)
     }
 
     static func makePayload(
@@ -84,6 +128,10 @@ enum DMPWebResourceLoader {
             return "image/heic"
         case "heif":
             return "image/heif"
+        case "mp4", "m4v":
+            return "video/mp4"
+        case "mov":
+            return "video/quicktime"
         case "json":
             return "application/json"
         case "ttf", "otf", "woff", "woff2":
@@ -103,6 +151,7 @@ enum DMPWebResourceLoader {
 
 @available(iOS 11.0, *)
 class DiminaURLSchemeHandler: NSObject, WKURLSchemeHandler {
+    private static let localMediaPath = "/__dimina_media"
     private let appId: String
     let canvasResources = DMPCanvasResources()
     
@@ -173,6 +222,9 @@ class DiminaURLSchemeHandler: NSObject, WKURLSchemeHandler {
         }
         
         do {
+            if try DMPWebResourceLoader.sendVideoRange(
+                urlSchemeTask, url: url, path: path, allowsOctetStream: url.path == Self.localMediaPath
+            ) { return }
             let payload = try DMPWebResourceLoader.load(path: path)
             let response = URLResponse(
                 url: url,
@@ -207,6 +259,12 @@ class DiminaURLSchemeHandler: NSObject, WKURLSchemeHandler {
         }
         let path = url.path
 
+        if path == Self.localMediaPath {
+            guard let source = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "source" })?.value else { return nil }
+            return DMPFileUtil.appAccessiblePath(from: source, appId: appId)
+        }
+
         if path == "/pageFrame.html" {
             return DMPFileUtil.confinedPath(
                 rootPath: DMPSandboxManager.sdkMainBundlePath(),
@@ -214,20 +272,30 @@ class DiminaURLSchemeHandler: NSObject, WKURLSchemeHandler {
             )
         }
 
+        let isVideo = DMPWebResourceLoader.mimeType(forExtension: url.pathExtension).hasPrefix("video/")
         if path.hasPrefix("/assets/") {
-            return DMPFileUtil.confinedPath(
+            let sdkPath = DMPFileUtil.confinedPath(
                 rootPath: DMPSandboxManager.sdkMainBundlePath(),
                 relativePath: path
             )
+            guard isVideo, let sdkPath, !FileManager.default.fileExists(atPath: sdkPath) else {
+                return sdkPath
+            }
         }
 
         let appPrefix = "/\(appId)/"
         let appRelativePath = path.hasPrefix(appPrefix)
             ? String(path.dropFirst(appPrefix.count))
             : path
+        let rootPath = DMPSandboxManager.appBundlePath(appId)
+        let bundlePath = DMPFileUtil.confinedPath(rootPath: rootPath, relativePath: appRelativePath)
+        guard isVideo, let bundlePath, !FileManager.default.fileExists(atPath: bundlePath) else {
+            return bundlePath
+        }
+        // Inline video also accepts package-relative paths such as assets/clip.mp4.
         return DMPFileUtil.confinedPath(
-            rootPath: DMPSandboxManager.appBundlePath(appId),
-            relativePath: appRelativePath
+            rootPath: rootPath,
+            relativePath: "main/\(appRelativePath.trimmingCharacters(in: CharacterSet(charactersIn: "/")))"
         )
     }
     

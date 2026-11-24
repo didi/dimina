@@ -54,7 +54,8 @@ internal fun installIsolatedRenderBridge(
             window.DiminaRenderBridge = {
                 invoke:function(message){send('invoke',message)},
                 publish:function(message){send('publish',message)},
-                supportsEmbeddedWebView:function(){return true}
+                supportsEmbeddedWebView:function(){return true},
+                localMediaUrl:'$LOCAL_MEDIA_URL'
             };
             window.DiminaNativeComponentBridge = {dispatchTouch:function(message){send('touch',message)}};
         })();
