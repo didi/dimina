@@ -133,4 +133,27 @@ describe('template lexical imports (bundled wcc contracts)', () => {
 		})
 		expect(render()).toBe('onetwo')
 	})
+	it('keeps dynamic template calls inside included markup bound to the included file scope', async () => {
+		const render = await compile({
+			'index.wxml': '<template name="card"><view>caller</view></template><include src="./part.wxml"/>',
+			'part.wxml': '<template name="card"><view>included</view></template><template is="{{chosen}}"/>',
+		})
+		expect(render({ chosen: 'card' })).toBe('included')
+		expect(render({ chosen: 'missing' })).toBe('')
+	})
+	it('shares dynamic template scope modules across large template libraries without quadratic backtracking', async () => {
+		const templates = Array.from({ length: 220 }, (_, index) =>
+			index === 219
+				? '<template name="tmpl_219"><view>{{label}}</view></template>'
+				: `<template name="tmpl_${index}"><template is="{{next}}" data="{{label:label,next:''}}"/></template>`,
+		).join('\n')
+		const render = await compile({
+			'index.wxml': '<import src="./base.wxml"/><template is="{{entry}}" data="{{label:label,next:next}}"/>',
+			'base.wxml': templates,
+		})
+		expect(render({ entry: 'tmpl_0', next: 'tmpl_219', label: 'ok' })).toBe('ok')
+		const bundle = fs.readFileSync(path.join(process.env.TARGET_PATH, 'main/index.js'), 'utf8')
+		// 动态作用域映射表通过独立模块共享，不应在 220 个模板调用点重复展开
+		expect(bundle.match(/tpl-tmpl_219-/g)?.length).toBeLessThanOrEqual(4)
+	})
 })
