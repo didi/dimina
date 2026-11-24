@@ -40,6 +40,9 @@ function fixture() {
     close: async file => { fs.closeSync(file.fd); closed++ },
   }
   const registry = load('Render/DMPHostImages.ets', { '@ohos.file.fs': adapter, '@ohos.resourceManager': {} })
+  const localMedia = load('Render/UrlIntercepter/LocalMediaResponse.ets', {
+    '@ohos.file.fs': adapter, '../../Bundle/Util/DMPFilePathResolver': {},
+  })
   const { RequestCallback } = load('Render/UrlIntercepter/UrlInterceptor.ets', {
     '@ohos.file.fs': adapter, '@ohos.multimedia.image': {},
     '../../DApp/DMPAppManager': { DMPAppManager: { sharedInstance: () => ({ getApp: () => ({}) }) } },
@@ -47,6 +50,7 @@ function fixture() {
     '../../Bundle/Util/DMPFilePathResolver': {},
     '../../Bundle/Util/DMPFileUrlConvertor': { DMPVirtualFileConfig: { getPrefix: () => 'difile://' } },
     '../DMPHostFonts': { DMPHostFonts: { intercept: () => null } }, '../DMPHostImages': registry,
+    './LocalMediaResponse': localMedia,
   })
   return {
     images: registry.DMPHostImages,
