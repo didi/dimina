@@ -5,25 +5,26 @@ on:
     branches:
       - main
     paths:
+      - '.github/workflows/fe-deploy-pages.yml'
       - 'fe/**'
       - 'examples/miniprogram/**'
   workflow_dispatch:
-
-permissions:
-  contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: "pages"
   cancel-in-progress: false
 
 jobs:
-  build-and-deploy:
+  build:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      contents: read
+      pages: read
+    env:
+      PAGES_ARTIFACT_NAME: github-pages-${{ github.run_attempt }}
+    outputs:
+      # Keep the build attempt's name when only deployment is rerun.
+      artifact_name: ${{ env.PAGES_ARTIFACT_NAME }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -67,7 +68,7 @@ jobs:
         run: |
           pnpm compile
           pnpm build
-        env: 
+        env:
           ASSETS_PATH_PREFIX: true
 
       - name: Setup Pages
@@ -76,8 +77,21 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v5
         with:
+          name: ${{ env.PAGES_ARTIFACT_NAME }}
           path: './fe/packages/container/dist'
 
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5
+        with:
+          artifact_name: ${{ needs.build.outputs.artifact_name }}
