@@ -1,0 +1,55 @@
+harmony/dimina/src/main/ets/Render/UrlIntercepter/UrlInterceptor.ets
+  86ca227489056e0b 11,28-35,200-208
+iOS/dimina/DiminaKit/Render/DMPWebview.swift
+  86ca227489056e0b 181
+iOS/dimina/DiminaKit/Render/DiminaURLSchemeHandler.swift
+  86ca227489056e0b 19-22,30-71,131-134,154,225-227,262-267,275,277,281-283,290-295,297-298
+android/dimina/src/main/kotlin/com/didi/dimina/ui/view/WebViewCacheManager.kt
+  86ca227489056e0b 705-709,791
+android/dimina/src/main/kotlin/com/didi/dimina/ui/view/LocalMediaResponse.kt
+  86ca227489056e0b 1-94
+docs/API-Reference.md
+  86ca227489056e0b 129-130,134,136
+iOS/dimina/DiminaKit/Container/Api/Network/DMPNetwork.swift
+  86ca227489056e0b 138-139,146-147,150-151,166
+iOS/dimina/DiminaKit/Container/Api/Network/NetworkAPI.swift
+  86ca227489056e0b 154,161-174,192-193,198,200
+android/dimina/src/main/kotlin/com/didi/dimina/ui/view/RenderFrameBridge.kt
+  86ca227489056e0b 57-58
+harmony/dimina/src/main/ets/HybridContainer/DMPWebComponent.ets
+  86ca227489056e0b 9,96,102-106
+harmony/dimina/src/main/ets/Render/UrlIntercepter/LocalMediaResponse.ets
+  86ca227489056e0b 1-92
+fe/packages/components/__tests__/video-inline.spec.js
+  86ca227489056e0b 1-142
+android/dimina/src/main/kotlin/com/didi/dimina/ui/view/DiminaWebView.kt
+  86ca227489056e0b 162-163
+docs/Native-Component-Backend.md
+  86ca227489056e0b 3
+iOS/diminaTests/DMPWebResourceLoaderTests.swift
+  86ca227489056e0b 93-142,289-303
+iOS/dimina/DiminaKit/Render/DifileURLSchemeHandler.swift
+  86ca227489056e0b 44
+fe/packages/components/src/component/video/Video.vue
+  86ca227489056e0b 4,238-239,241-248,250-259,262-270,274-280,284-292,295,298-307,310-320,322-324,327,330,333-334,337,340,343,346,349,356-365,369-373,378-381,385-388,390-392,394-399,401-410,412,414-415,420,422,425-511,524,531-534,537-539,542-600
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "29e1bb5b14666d763e35ab2d9982d84f037eace8",
+  "prompts": {
+    "86ca227489056e0b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a20b6a-6e1a-79e3-8f18-e40659e04d1f",
+        "model": "gpt-6.2-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 2753,
+      "total_deletions": 489,
+      "accepted_lines": 2618,
+      "overriden_lines": 0
+    }
+  }
+}
