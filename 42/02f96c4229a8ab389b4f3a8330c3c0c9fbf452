@@ -1,0 +1,36 @@
+harmony/scripts/host-images.test.mjs
+  da1c128e8a7b8460 43-45,53
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "4202f96c4229a8ab389b4f3a8330c3c0c9fbf452",
+  "prompts": {
+    "86ca227489056e0b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a20b6a-6e1a-79e3-8f18-e40659e04d1f",
+        "model": "gpt-6.2-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 118,
+      "total_deletions": 59,
+      "accepted_lines": 1910,
+      "overriden_lines": 0
+    },
+    "da1c128e8a7b8460": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a20bc4-7d78-76e0-918a-283569ba6cfa",
+        "model": "gpt-6.2-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 3211,
+      "total_deletions": 3335,
+      "accepted_lines": 120,
+      "overriden_lines": 0
+    }
+  }
+}
