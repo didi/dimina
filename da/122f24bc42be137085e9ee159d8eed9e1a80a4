@@ -1,0 +1,33 @@
+desktop/sdk/node/package.json
+  da1c128e8a7b8460 3
+harmony/map_amap/oh-package.json5
+  da1c128e8a7b8460 3,12
+fe/packages/container-sdk/package.json
+  da1c128e8a7b8460 3
+android/gradle.properties
+  da1c128e8a7b8460 25
+harmony/dimina/oh-package.json5
+  da1c128e8a7b8460 3
+desktop/mygo.json
+  da1c128e8a7b8460 5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "da122f24bc42be137085e9ee159d8eed9e1a80a4",
+  "prompts": {
+    "da1c128e8a7b8460": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a20bc4-7d78-76e0-918a-283569ba6cfa",
+        "model": "gpt-6.2-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 935,
+      "total_deletions": 7,
+      "accepted_lines": 935,
+      "overriden_lines": 0
+    }
+  }
+}
