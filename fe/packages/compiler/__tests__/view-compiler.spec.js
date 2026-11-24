@@ -115,6 +115,13 @@ describe('parseBraceExp - 解析双花括号表达式', () => {
 		)
 	})
 
+	it('preserves mixed text with nested ternaries and long non-ternary expressions', () => {
+		const value = 'x'.repeat(32_768)
+		expect(parseBraceExp(`prefix-{{'${value}'}}-suffix`)).toBe(`'prefix-'+'${value}'+'-suffix'`)
+		expect(parseBraceExp('prefix-{{a ? b ? c : d : e}}')).toBe("'prefix-'+(a ? b ? c : d : e)")
+		expect(parseBraceExp('{{item?.name ?? fallback}}')).toBe('item?.name ?? fallback')
+	})
+
 	it('逻辑运算符表达式 - 应该保持原样', () => {
 		expect(parseBraceExp('{{item.data.originFloor && item.data.originFloor.text || \'description\'}}')).toEqual(
 			'item.data.originFloor && item.data.originFloor.text || \'description\'',

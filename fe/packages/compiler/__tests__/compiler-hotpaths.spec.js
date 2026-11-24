@@ -93,6 +93,38 @@ describe('compiler CPU hot paths', () => {
 		expect(bundleSource).toContain("modDefine('/components/card'")
 	})
 
+	it('shares a large template scope and render bodies within each page bundle', async () => {
+		writeFile('app.json', JSON.stringify({ pages: ['one', 'two'] }))
+		writeFile('project.config.json', '{"appid":"large-template-scope"}')
+		const call = '<template is="{{chosen}}" />'
+		const widget = '<import src="/shared.wxml" />' + call
+		const shared = Array.from({ length: 120 }, (_, index) =>
+			`<template name="item-${index}"><view>body-${index}-marker</view>${call}</template>`,
+		).join('\n')
+		writeFile('shared.wxml', shared)
+		writeFile('widget.wxml', widget)
+		writeFile('widget.json', '{"component":true}')
+		for (const page of ['one', 'two']) {
+			writeFile(`${page}.json`, '{"usingComponents":{"widget":"/widget"}}')
+			writeFile(`${page}.wxml`, widget + '<widget />')
+		}
+
+		const { getDependencyGraph, getPages, storeInfo } = await import('../src/env.js')
+		storeInfo(tempDir)
+		const { compileML } = await import('../src/core/view-compiler.js')
+		await compileML(getPages().mainPages, null, { completedTasks: 0 })
+
+		for (const [bundle] of hotpathSpies.esbuildTransform.mock.calls) {
+			expect(bundle).toContain("modDefine('/widget'")
+			expect([...bundle.matchAll(/modDefine\('template-scope:/g)]).toHaveLength(1)
+			expect([...bundle.matchAll(/body-119-marker/g)]).toHaveLength(1)
+		}
+		expect(hotpathSpies.esbuildTransform).toHaveBeenCalledTimes(2)
+		expect(hotpathSpies.cheerioLoad.mock.calls.filter(([source]) => source === widget)).toHaveLength(1)
+		expect(getDependencyGraph().getAffectedEntries(path.join(tempDir, 'shared.wxml')))
+			.toEqual(expect.arrayContaining(['one', 'two']))
+	})
+
 	it('runs external-class and prefix processing in one PostCSS pass', async () => {
 		writeFile('app.json', JSON.stringify({ pages: ['pages/index'] }))
 		writeFile('project.config.json', JSON.stringify({ appid: 'hotpath-style' }))

@@ -59,6 +59,7 @@ function mount(component) {
 	app = Vue.createApp(component)
 	app.component('dd-template', Template)
 	app.component('dd-view', { setup: (_, { slots }) => () => Vue.h('div', slots.default?.()) })
+	app.component('dd-component-host', { setup: (_, { slots }) => () => Vue.h('div', slots.default?.()) })
 	root = document.createElement('div')
 	document.body.append(root)
 	app.mount(root)
@@ -83,15 +84,51 @@ describe('compiled lexical templates in the real render runtime', () => {
 		await Vue.nextTick()
 		expect(root.textContent).toBe('')
 	})
+	it('keeps a shared template scope visible when a v-for alias has the same name', async () => {
+		const modules = await compile({
+			'index.wxml': '<import src="./shared.wxml"/>'
+				+ '<template is="card" data="{{value: outer}}"/>'
+				+ '<template wx:for="{{rows}}" wx:for-item="__diminaTemplateScope0" wx:for-index="require" wx:key="id"'
+				+ ' is="{{__diminaTemplateScope0.name}}" data="{{value: __diminaTemplateScope0.value}}"/>',
+			'shared.wxml': '<template name="card"><view>{{value}}</view></template>',
+		})
+		const registry = runtime.createTemplateComponents('index', 'template-dom')
+		mount({
+			setup() {
+				Vue.provide('dimina-template-components', registry)
+				return { outer: 'outside', rows: [{ id: 1, name: 'card', value: 'inside' }] }
+			},
+			render: modules.get('index').moduleInfo.render,
+		})
+		expect(root.textContent).toBe('outsideinside')
+	})
 	it('keeps template custom-component registries local to their consuming module', async () => {
-		const shared = function () { return Vue.h(Vue.resolveComponent('dd-label')) }
-		vi.spyOn(loader, 'getModuleByPath').mockImplementation(() => ({ moduleInfo: { id: 'shared', tplComponents: { 'tpl-card': shared } } }))
+		const modules = await compile({
+			'index.json': '{"usingComponents":{"left":"/left","right":"/right"}}',
+			'index.wxml': '<view><left/><right/></view>',
+			'left.json': '{"component":true,"usingComponents":{"label":"/left-label"}}',
+			'right.json': '{"component":true,"usingComponents":{"label":"/right-label"}}',
+			'left-label.json': '{"component":true}',
+			'right-label.json': '{"component":true}',
+			'left-label.wxml': '<view>left</view>',
+			'right-label.wxml': '<view>right</view>',
+			'left.wxml': '<import src="./shared.wxml"/><template is="card"/>',
+			'right.wxml': '<import src="./shared.wxml"/><template is="card"/>',
+			'shared.wxml': '<template name="card"><label/></template>',
+		})
+		const leftModule = modules.get('/left').moduleInfo
+		const rightModule = modules.get('/right').moduleInfo
+		const [templateId] = Object.keys(leftModule.tplComponents)
+		expect(leftModule.tplComponents[templateId]).toBe(rightModule.tplComponents[templateId])
 		vi.spyOn(runtime, 'createComponent').mockImplementation(path => ({ 'dd-label': { render: () => Vue.h('span', path) } }))
-		const left = runtime.createTemplateComponents('left', 'template-context')
-		const right = runtime.createTemplateComponents('right', 'template-context')
-		const wrapper = registry => ({ setup() { Vue.provide('dimina-template-components', registry); return () => Vue.h(Template, { is: 'card' }) } })
-		mount({ render: () => Vue.h('div', [Vue.h(wrapper(left)), Vue.h(wrapper(right))]) })
+		const wrap = module => ({
+			setup() {
+				Vue.provide('dimina-template-components', runtime.createTemplateComponents(module.path, 'template-context'))
+			},
+			render: module.render,
+		})
+		mount({ render: () => Vue.h('div', [Vue.h(wrap(leftModule)), Vue.h(wrap(rightModule))]) })
 		await Vue.nextTick()
-		expect(root.textContent).toBe('leftright')
+		expect(root.textContent).toBe('/left/right')
 	})
 })

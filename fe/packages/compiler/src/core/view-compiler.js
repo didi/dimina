@@ -182,13 +182,16 @@ function transformTextInterpolation(text) {
 	})
 }
 
+const TEMPLATE_SCOPE_PROP = 'dimina-template-scope'
+const TEMPLATE_SCOPE_MODULE_PREFIX = 'template-scope:'
+
 // 页面文件编译内容缓存
 const compileResCache = new Map()
 
 // 共享模板模块（如被多个页面 import 的同一份模板文件）的 render 编译结果缓存。
 // codegen 固定为 mode:'function'（见 getTemplateCompilerOptions），@vue/compiler-core
 // 只在 module 模式下把 scopeId 写进产物，因此 id/scoped 与页面无关、不入缓存 key；
-// scriptModule 决定注入的 require 声明与 _ctx 成员重写，必须入 key。
+// 模板所属文件的 WXS 决定注入的 require 声明与 _ctx 成员重写，必须入 key。
 const templateRenderCache = new Map()
 
 // wxs 模块注册表，用于记录确定的 wxs 模块
@@ -275,7 +278,7 @@ async function compileML(pages, root, progress) {
 	for (const page of pages) {
 		const scriptRes = new Map()
 		const sourceMapRes = new Map()
-		buildCompileView(page, false, scriptRes, new Set(), new Set(), sourceMapRes)
+		buildCompileView(page, false, scriptRes, new Set(), sourceMapRes)
 		const filename = `${page.path.replace(/\//g, '_')}`
 		const outputDir = root
 			? `${getTargetPath()}/${root}`
@@ -413,14 +416,61 @@ function getTemplateCompilerOptions(scopeId) {
 	}
 }
 
+function compileRender(tpl, filename, moduleId, sourceInfo, localModules, templateScopes) {
+	const scopeBindings = new Map()
+	const scopeDeclarations = []
+	let nextScopeBinding = 0
+	const scopeId = `data-v-${moduleId}`
+	const compilerOptions = getTemplateCompilerOptions(scopeId)
+	if (templateScopes.size > 0) {
+		compilerOptions.nodeTransforms = [(node, context) => {
+			if (node.tag !== 'dd-template') return
+			const expression = node.props.find(prop =>
+				prop.name === 'bind' && prop.arg?.isStatic && prop.arg.content === TEMPLATE_SCOPE_PROP
+			)?.exp
+			const modulePath = expression?.content?.slice(1, -1)
+			if (!templateScopes.has(modulePath) || expression.content !== `'${modulePath}'`) return
+
+			if (!scopeBindings.has(modulePath)) scopeBindings.set(modulePath, [])
+			const aliases = scopeBindings.get(modulePath)
+			let alias = aliases.find(name => !context.identifiers[name])
+			if (!alias) {
+				do {
+					alias = `__diminaTemplateScope${nextScopeBinding++}`
+				} while (context.identifiers[alias])
+				aliases.push(alias)
+				scopeDeclarations.push(`const ${alias} = require(${JSON.stringify(modulePath)});\n`)
+			}
+			// Vue has processed the expression and entered the active v-for/v-slot scopes.
+			// Keep the prop constant and let Vue map this reference during code generation.
+			expression.content = alias
+		}]
+	}
+	const compiled = compileTemplate({
+		source: tpl,
+		filename,
+		id: scopeId,
+		scoped: true,
+		inMap: enableSourcemap && sourceInfo
+			? createLineSourcemap(tpl, sourceInfo.path, sourceInfo.content, sourceInfo.startLine)
+			: undefined,
+		compilerOptions,
+	})
+	return {
+		scopeDeclarations: scopeDeclarations.join(''),
+		render: transformRender(compiled.code, localModules, filename, compiled.map),
+	}
+}
+
 /**
  * 编译单个模板模块（<template name>）的 render 结果，并跨页面复用。
- * 被多个页面 import 的同一份模板文件在每个页面里会产出完全相同的
- * compileTemplate codegen 与 insertWxsToRenderResult 结果，只需计算一次。
+ * 转换后的模板及其 WXS 绑定一致时，可以复用渲染函数。
+ * 各页面和组件仍在自己的 tplComponents 中注册该函数。
  * moduleId 不入 key：function 模式下 scopeId 不进入产物（见 templateRenderCache 处说明）。
  */
-function compileTemplateModuleRender(tm, moduleId, scriptModule, scriptRes) {
-	const scriptSig = scriptModule.map(sm => `${sm.path}\u0000${sm.originalName ?? ''}`).join('\u0001')
+function compileTemplateModuleRender(tm, moduleId, scriptModule, templateScopes) {
+	const localModules = getLocalWxsModules(scriptModule, tm.templatePath)
+	const scriptSig = localModules.map(sm => `${sm.path}\u0000${sm.originalName ?? ''}`).join('\u0001')
 	// sourceInfo.content 是 sourceInfo.path 对应文件的原文，在同一个 worker 任务内该文件
 	// 不会被改写（与 compileResCache 直接按 module.path 做键的既有假设一致），path 已经
 	// 唯一决定 content，不必把可能上百 KB 的原文本身也塞进 key（那样会随具名模板数线性放大）。
@@ -429,29 +479,10 @@ function compileTemplateModuleRender(tm, moduleId, scriptModule, scriptRes) {
 		: ''
 	const cacheKey = `${tm.path}\u0002${sourceSig}\u0002${scriptSig}\u0002${tm.tpl}`
 	const cached = templateRenderCache.get(cacheKey)
-	if (cached) {
-		// 跳过 insertWxsToRenderResult 时，补上它对 scriptRes 的登记副作用
-		for (const sm of scriptModule) {
-			if (!scriptRes.has(sm.path)) {
-				scriptRes.set(sm.path, sm.code)
-			}
-		}
-		return cached
-	}
-	const compiledTemplate = compileTemplate({
-		source: tm.tpl,
-		filename: tm.path,
-		id: `data-v-${moduleId}`,
-		scoped: true,
-		inMap: enableSourcemap && tm.sourceInfo
-			? createLineSourcemap(tm.tpl, tm.sourceInfo.path, tm.sourceInfo.content, tm.sourceInfo.startLine)
-			: undefined,
-		compilerOptions: getTemplateCompilerOptions(`data-v-${moduleId}`),
-	})
-	const result = {
-		path: tm.path,
-		...insertWxsToRenderResult(compiledTemplate.code, scriptModule, scriptRes, tm.path, compiledTemplate.map, tm.templatePath),
-	}
+	if (cached) return cached
+	const { scopeDeclarations, render } = compileRender(tm.tpl, tm.path, moduleId, tm.sourceInfo, localModules, templateScopes)
+	const { code, sourcemap } = concatSourcemap([scopeDeclarations, 'module.exports = ', render, ';'], tm.path)
+	const result = { path: `template-render:${uuid(cacheKey)}`, code, map: sourcemap }
 	templateRenderCache.set(cacheKey, result)
 	return result
 }
@@ -465,7 +496,7 @@ function isRegisteredWxsModule(modulePath) {
 	return wxsModuleRegistry.has(modulePath)
 }
 
-function buildCompileView(module, isComponent = false, scriptRes, activePaths = new Set(), inheritedTemplatePaths = new Set(), sourceMapRes = new Map()) {
+function buildCompileView(module, isComponent, scriptRes, activePaths, sourceMapRes) {
 	const currentPath = module.path
 
 	// Recursive component declarations are valid. Stop only the duplicate edge
@@ -475,21 +506,8 @@ function buildCompileView(module, isComponent = false, scriptRes, activePaths = 
 	}
 	activePaths.add(currentPath)
 
-	// 收集所有 wxs 模块（包括组件的）
-	const allScriptModules = []
-
-	// 首先编译当前模块
-	const currentInstruction = compileModule(module, isComponent, scriptRes, {
-		skipTemplatePaths: isComponent ? inheritedTemplatePaths : new Set(),
-		sourceMapRes,
-	})
-	if (currentInstruction && currentInstruction.scriptModule) {
-		allScriptModules.push(...currentInstruction.scriptModule)
-	}
-	const childInheritedTemplatePaths = new Set(inheritedTemplatePaths)
-	for (const tm of currentInstruction?.templateModule || []) {
-		childInheritedTemplatePaths.add(tm.path)
-	}
+	const current = compileModule(module, isComponent, scriptRes, sourceMapRes)
+	const allScriptModules = [...(current?.scriptModule || [])]
 
 	if (module.usingComponents) {
 		const graphDependencies = getDependencyGraph().getDirectDependencies(module.path, 'component')
@@ -507,7 +525,7 @@ function buildCompileView(module, isComponent = false, scriptRes, activePaths = 
 				continue
 			}
 			// 递归编译组件，并收集其 wxs 模块
-			const componentInstruction = buildCompileView(componentModule, true, scriptRes, activePaths, childInheritedTemplatePaths, sourceMapRes)
+			const componentInstruction = buildCompileView(componentModule, true, scriptRes, activePaths, sourceMapRes)
 			if (componentInstruction && componentInstruction.scriptModule) {
 				// 将组件的 wxs 模块添加到当前模块的 wxs 模块列表中
 				for (const sm of componentInstruction.scriptModule) {
@@ -520,30 +538,51 @@ function buildCompileView(module, isComponent = false, scriptRes, activePaths = 
 		}
 	}
 
-	// 如果这是页面（不是组件），需要重新编译以包含所有 wxs 模块
-	if (!isComponent && allScriptModules.length > 0) {
-		// 在重新编译之前，确保所有依赖模块都已添加到 scriptRes 中
-		for (const sm of allScriptModules) {
-			if (!scriptRes.has(sm.path)) {
-				scriptRes.set(sm.path, sm.code)
-			}
-		}
-
-		// 重新编译页面，包含所有收集到的 wxs 模块
-		compileModuleWithAllWxs(module, scriptRes, allScriptModules, sourceMapRes)
+	// 子组件可能带来额外的 WXS 模块。复用已转换的 WXML 生成最终页面。
+	if (!isComponent && current && allScriptModules.length > current.scriptModule.length) {
+		const compiled = compileViewModule(module, false, current.template, allScriptModules)
+		writeViewModule(module.path, compiled, allScriptModules, scriptRes, sourceMapRes)
 	}
 
 	activePaths.delete(currentPath)
-	// 返回当前模块的指令信息（包含 wxs 模块）
-	return { scriptModule: allScriptModules, templateModule: currentInstruction?.templateModule || [] }
+	return { scriptModule: allScriptModules }
 }
 
 /**
- * 编译页面及自定义组件，自定义组件可认为是特殊的页面
- * https://developers.weixin.qq.com/miniprogram/dev/framework/custom-component/
- * @param {*} module
+ * 编译页面及自定义组件。缓存和依赖记录只在本次 compileML 中复用。
  */
-function compileModule(module, isComponent, scriptRes, options = {}) {
+function compileModule(module, isComponent, scriptRes, sourceMapRes) {
+	let cached = compileResCache.get(module.path)
+	if (!cached) {
+		const template = toCompileTemplate(isComponent, module.path, module.usingComponents, module.componentPlaceholder)
+		if (!template.tpl) return null
+		const compiled = compileViewModule(module, isComponent, template, template.scriptModule)
+		cached = { template, compiled }
+		compileResCache.set(module.path, cached)
+	}
+	const { template, compiled } = cached
+	writeViewModule(module.path, compiled, template.scriptModule, scriptRes, sourceMapRes)
+
+	const scriptModule = [...template.scriptModule]
+	for (const wxs of collectAllWxsModules(scriptRes, new Set(), scriptModule)) {
+		if (!scriptModule.some(existing => existing.path === wxs.path)) scriptModule.push(wxs)
+	}
+	return { template, scriptModule }
+}
+
+function writeViewModule(modulePath, compiled, scriptModule, scriptRes, sourceMapRes) {
+	for (const dependency of [...scriptModule, ...compiled.dependencies]) {
+		if (!scriptRes.has(dependency.path)) {
+			scriptRes.set(dependency.path, dependency.code)
+			if (enableSourcemap && dependency.map) sourceMapRes.set(dependency.path, dependency.map)
+		}
+	}
+	scriptRes.set(modulePath, compiled.code)
+	if (enableSourcemap) sourceMapRes.set(modulePath, compiled.map)
+}
+
+function compileViewModule(module, isComponent, template, scriptModule) {
+	const { tpl, sourceInfo, templateModule, templateScopes } = template
 	const pageConfig = {}
 	if (!isComponent) {
 		const globalWindow = getAppConfigInfo().window || {}
@@ -553,155 +592,35 @@ function compileModule(module, isComponent, scriptRes, options = {}) {
 			if (value !== undefined) pageConfig[key] = value
 		}
 	}
-	const sourceMapRes = options.sourceMapRes || new Map()
-	const { tpl, instruction, sourceInfo } = toCompileTemplate(isComponent, module.path, module.usingComponents, module.componentPlaceholder)
-	if (!tpl) {
-		return null
-	}
-	const templateModule = instruction.templateModule || []
-	const templateModuleForCompile = templateModule
-	const compileInstruction = {
-		...instruction,
-		templateModule: templateModuleForCompile,
-	}
-
-	// 检查是否有缓存的模板编译结果
-	let useCache = false
-	let cachedCode = null
-	const canUseCache = true
-
-	if (canUseCache && !scriptRes.has(module.path) && compileResCache.has(module.path)) {
-		const cacheData = compileResCache.get(module.path)
-		// 如果缓存数据包含完整的编译信息，则使用缓存
-		if (cacheData && typeof cacheData === 'object' && cacheData.code && cacheData.instruction) {
-			cachedCode = cacheData.code
-			useCache = true
-			// 将缓存的 wxs 模块添加到当前页面的 scriptRes 中
-			for (const sm of cacheData.instruction.scriptModule) {
-				if (!scriptRes.has(sm.path)) {
-					scriptRes.set(sm.path, sm.code)
-				}
-			}
-		} else if (typeof cacheData === 'string') {
-			// 兼容旧的缓存格式（只有代码字符串）
-			cachedCode = cacheData
-			useCache = true
-		}
-	}
-
-	if (useCache && cachedCode) {
-		scriptRes.set(module.path, cachedCode)
-		const cachedMap = compileResCache.get(module.path)?.map
-		if (enableSourcemap && cachedMap) {
-			sourceMapRes.set(module.path, cachedMap)
-		}
-
-		// 即使使用缓存，也需要确保返回的 instruction 包含最新的 wxs 模块信息
-		// 收集所有在 scriptRes 中的 wxs 模块（包括依赖模块）
-		const allWxsModules = collectAllWxsModules(scriptRes, new Set(), instruction.scriptModule || [])
-
-		// 将收集到的 wxs 模块添加到 instruction 中
-		if (allWxsModules.length > 0) {
-			// 合并现有的 scriptModule 和新收集的 wxs 模块
-			const existingModules = instruction.scriptModule || []
-			const mergedModules = [...existingModules]
-
-			for (const wxsModule of allWxsModules) {
-				// 避免重复添加相同的模块
-				if (!mergedModules.find(existing => existing.path === wxsModule.path)) {
-					mergedModules.push(wxsModule)
-				}
-			}
-
-			instruction.scriptModule = mergedModules
-		}
-
-		// 返回更新后的 instruction，包含所有 wxs 模块
-		return {
-			...instruction,
-			scriptModule: instruction.scriptModule
-		}
-	}
-
-	// 在编译前预处理模板，将 this. 替换为 _ctx.
 	const processedTpl = tpl.replace(/\bthis\./g, '_ctx.')
-	// https://play.vuejs.org/
-	const tplCode = compileTemplate({
-		source: processedTpl,
-		filename: module.path, // 用于错误提示
-		id: `data-v-${module.id}`,
-		scoped: true,
-		inMap: enableSourcemap
-			? createLineSourcemap(processedTpl, sourceInfo.path, sourceInfo.content)
-			: undefined,
-		compilerOptions: getTemplateCompilerOptions(`data-v-${module.id}`),
-	})
+	const { scopeDeclarations, render } = compileRender(processedTpl, module.path, module.id,
+		sourceInfo, getLocalWxsModules(scriptModule, module.path), templateScopes)
 
-	const templateResults = []
-	for (const tm of compileInstruction.templateModule) {
-		templateResults.push(compileTemplateModuleRender(tm, module.id, compileInstruction.scriptModule, scriptRes))
-	}
-
-	const renderResult = insertWxsToRenderResult(tplCode.code, compileInstruction.scriptModule, scriptRes, module.path, tplCode.map)
+	const dependencies = [...templateScopes.values()]
 
 	// 通过 component 字段标记该页面 以 Component 形式进行渲染或着以 Page 形式进行渲染
 	// https://developers.weixin.qq.com/miniprogram/dev/framework/app-service/page.html
 	// https://developers.weixin.qq.com/miniprogram/dev/framework/custom-component/component.html
-	const moduleChunks = [`Module({
+	const moduleChunks = [scopeDeclarations, `Module({
 		path: '${module.path}',
 		id: '${module.id}',
 		appStyleScopeId: ${JSON.stringify(module.appStyleScopeId || null)},
 		sharedStyleScopeIds: ${JSON.stringify(module.sharedStyleScopeIds || [])},
 		styleIsolation: ${JSON.stringify(module.styleIsolation || 'isolated')},
-		render: `, renderResult, `,
+		render: `, render, `,
 		usingComponents: ${JSON.stringify(module.usingComponents)},
 		componentPlaceholder: ${JSON.stringify(module.componentPlaceholder || {})},
 		customTabBar: ${JSON.stringify(module.customTabBar || null)},
 		pageConfig: ${JSON.stringify(pageConfig)},
 		tplComponents: {`]
-	for (const templateResult of templateResults) {
-		moduleChunks.push(`'${templateResult.path}':`, templateResult, ',')
+	for (const tm of templateModule) {
+		const namedRender = compileTemplateModuleRender(tm, module.id, scriptModule, templateScopes)
+		dependencies.push(namedRender)
+		moduleChunks.push(`${JSON.stringify(tm.path)}:require(${JSON.stringify(namedRender.path)}),`)
 	}
 	moduleChunks.push('},\n\t\t});')
-	const { code, sourcemap: moduleMap } = concatSourcemap(moduleChunks, module.path)
-
-	// 收集所有在 scriptRes 中的 wxs 模块（包括依赖模块）
-	const allWxsModules = collectAllWxsModules(scriptRes, new Set(), compileInstruction.scriptModule || [])
-
-	// 将收集到的 wxs 模块添加到 instruction 中
-	if (allWxsModules.length > 0) {
-		// 合并现有的 scriptModule 和新收集的 wxs 模块
-		const existingModules = compileInstruction.scriptModule || []
-		const mergedModules = [...existingModules]
-
-		for (const wxsModule of allWxsModules) {
-			// 避免重复添加相同的模块
-			if (!mergedModules.find(existing => existing.path === wxsModule.path)) {
-				mergedModules.push(wxsModule)
-			}
-		}
-
-		compileInstruction.scriptModule = mergedModules
-	}
-
-	// 缓存编译结果，包含代码和更新后的指令信息
-	const cacheData = {
-		code,
-		instruction: compileInstruction,
-		map: enableSourcemap ? moduleMap : null,
-	}
-	if (canUseCache) {
-		compileResCache.set(module.path, cacheData)
-	}
-	scriptRes.set(module.path, code)
-	if (enableSourcemap) {
-		sourceMapRes.set(module.path, moduleMap)
-	}
-
-	return {
-		...compileInstruction,
-		templateModule,
-	}
+	const { code, sourcemap } = concatSourcemap(moduleChunks, module.path)
+	return { code, map: sourcemap, dependencies }
 }
 
 /**
@@ -800,74 +719,6 @@ function processWxsDependency(wxsFilePath, moduleName, scriptModule, workPath, f
 }
 
 /**
- * 重新编译模块，包含所有收集到的 wxs 模块
- * @param {*} module
- * @param {*} scriptRes
- * @param {*} allScriptModules
- */
-function compileModuleWithAllWxs(module, scriptRes, allScriptModules, sourceMapRes = new Map()) {
-	const { tpl, instruction, sourceInfo } = toCompileTemplate(false, module.path, module.usingComponents, module.componentPlaceholder)
-	if (!tpl) {
-		return
-	}
-
-	// 合并所有 wxs 模块
-	const mergedInstruction = {
-		...instruction,
-		scriptModule: allScriptModules
-	}
-
-	// 在编译前预处理模板，将 this. 替换为 _ctx.
-	const processedTpl = tpl.replace(/\bthis\./g, '_ctx.')
-	const tplCode = compileTemplate({
-		source: processedTpl,
-		filename: module.path,
-		id: `data-v-${module.id}`,
-		scoped: true,
-		inMap: enableSourcemap
-			? createLineSourcemap(processedTpl, sourceInfo.path, sourceInfo.content)
-			: undefined,
-		compilerOptions: getTemplateCompilerOptions(`data-v-${module.id}`),
-	})
-
-	const templateResults = []
-	for (const tm of mergedInstruction.templateModule) {
-		templateResults.push(compileTemplateModuleRender(tm, module.id, allScriptModules, scriptRes))
-	}
-
-	const renderResult = insertWxsToRenderResult(tplCode.code, allScriptModules, scriptRes, module.path, tplCode.map)
-
-	const moduleChunks = [`Module({
-		path: '${module.path}',
-		id: '${module.id}',
-		appStyleScopeId: ${JSON.stringify(module.appStyleScopeId || null)},
-		sharedStyleScopeIds: ${JSON.stringify(module.sharedStyleScopeIds || [])},
-		styleIsolation: ${JSON.stringify(module.styleIsolation || 'isolated')},
-		render: `, renderResult, `,
-		usingComponents: ${JSON.stringify(module.usingComponents)},
-		componentPlaceholder: ${JSON.stringify(module.componentPlaceholder || {})},
-		customTabBar: ${JSON.stringify(module.customTabBar || null)},
-		tplComponents: {`]
-	for (const templateResult of templateResults) {
-		moduleChunks.push(`'${templateResult.path}':`, templateResult, ',')
-	}
-	moduleChunks.push('},\n\t\t});')
-	const { code, sourcemap: moduleMap } = concatSourcemap(moduleChunks, module.path)
-
-	// 更新缓存和结果
-	const cacheData = {
-		code,
-		instruction: mergedInstruction,
-		map: enableSourcemap ? moduleMap : null,
-	}
-	compileResCache.set(module.path, cacheData)
-	scriptRes.set(module.path, code)
-	if (enableSourcemap) {
-		sourceMapRes.set(module.path, moduleMap)
-	}
-}
-
-/**
  * 处理 include 节点的条件属性，并返回处理后的内容
  * @param {Object} $ - cheerio 实例
  * @param {Object} elem - include 元素
@@ -938,9 +789,9 @@ function processIncludedFileWxsDependencies(componentTags, includePath, scriptMo
 			// 直接获取组件的模板和 wxs 依赖，避免递归调用
 			const componentTemplate = toCompileTemplate(true, componentModule.path, componentModule.usingComponents, componentModule.componentPlaceholder, processedPaths)
 
-			if (componentTemplate && componentTemplate.instruction && componentTemplate.instruction.scriptModule) {
+			if (componentTemplate.scriptModule) {
 				// 将组件的 wxs 模块添加到当前的 scriptModule 中
-				for (const sm of componentTemplate.instruction.scriptModule) {
+				for (const sm of componentTemplate.scriptModule) {
 					// 避免重复添加相同的模块
 					if (!scriptModule.find(existing => existing.path === sm.path)) {
 						scriptModule.push(sm)
@@ -1016,7 +867,9 @@ function toCompileTemplate(isComponent, modulePath, components, componentPlaceho
 		active.delete(record.filePath)
 		return imports
 	}
-	for (const record of records.values()) {
+	const templateScopes = new Map()
+	const registerTemplateScope = (record) => {
+		if (record.scopeId) return record.scopeId
 		const bindings = new Map()
 		// Includes contribute their imports, but never re-export their named templates.
 		// An import exposes only declarations in its target file, not that file's imports.
@@ -1024,8 +877,13 @@ function toCompileTemplate(isComponent, modulePath, components, componentPlaceho
 			for (const [name, id] of imported.templates) bindings.set(name, id)
 		}
 		for (const [name, id] of record.templates) bindings.set(name, id)
-		record.bindingExpression = '{' + [...bindings].map(([name, id]) =>
-			`[${JSON.stringify(name)}]:${JSON.stringify(id)}`).join(',') + '}'
+		// Each page bundle carries one copy of a scope shared by its template calls.
+		const code = 'module.exports = {' + [...bindings].map(([name, id]) =>
+			`[${JSON.stringify(name)}]:${JSON.stringify(id)}`).join(',') + '};'
+		const id = `${TEMPLATE_SCOPE_MODULE_PREFIX}${uuid(code)}`
+		record.scopeId = id
+		templateScopes.set(id, { path: id, code })
+		return id
 	}
 
 	const materialize = (record, sourceRoot = record.dom.root(), activeIncludes = new Set()) => {
@@ -1036,7 +894,8 @@ function toCompileTemplate(isComponent, modulePath, components, componentPlaceho
 		root.find('import').remove()
 		// Template names are lexical to the declaring WXML file, including calls in
 		// included markup. WXS stays bound by the enclosing render function instead.
-		root.find('template[is]').attr('dimina-template-scope', `{{${record.bindingExpression}}}`)
+		const calls = root.find('template[is]')
+		if (calls.length) calls.attr(TEMPLATE_SCOPE_PROP, registerTemplateScope(record))
 		transAsses(dom, root.find('image'), record.sourcePath, modulePath)
 		root.find('include').each((_, node) => {
 			const src = dom(node).attr('src')
@@ -1091,7 +950,7 @@ function toCompileTemplate(isComponent, modulePath, components, componentPlaceho
 	transHtmlTag(root.html(), output, components, componentPlaceholder, modulePath)
 	return {
 		tpl: output.join(''), sourceInfo: { path: entry.diagnosticSource, content: entry.content },
-		instruction: { templateModule, scriptModule },
+		templateModule, scriptModule, templateScopes,
 	}
 }
 
@@ -1507,6 +1366,10 @@ function getProps(attrs, tag, components, scopes, scope) {
 				name: ':is',
 				value: '\'dd-\'+' + `${parseSafeBraceExp(value)}`,
 			})
+		}
+		else if (tag === 'template' && Object.hasOwn(attrs, 'is') && name === TEMPLATE_SCOPE_PROP
+			&& value.startsWith(TEMPLATE_SCOPE_MODULE_PREFIX)) {
+			attrsList.push({ name: `:${name}`, value: `'${value}'` })
 		}
 		else if (name === 'animation' && (tag !== 'movable-view' && tagWhiteList.includes(tag))) {
 			// movable-view 有自己的 animation 属性
@@ -1931,7 +1794,27 @@ function parseForExp(exp, attrs, captureIndex) {
 // 使用全局标志g，表示匹配所有符合条件的部分
 const braceRegex = /(\{\{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*\}\})|([^{}]+)/g
 const noBraceRegex = /\{\{((?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*)\}\}/
-const ternaryRegex = /[^?]+\?.+:.+/
+const lineTerminatorRegex = /[\r\n\u2028\u2029]/
+
+// Preserve the old ternary grouping heuristic without restarting a regex
+// search at every character of a long expression.
+function hasTernaryPattern(statement) {
+	let question = -1
+	for (let i = statement.indexOf('?'); i !== -1 && i < statement.length; i++) {
+		const char = statement[i]
+		if (char === '?' && question === -1 && i > 0 && statement[i - 1] !== '?') {
+			question = i
+		}
+		else if (char === ':' && question !== -1 && i > question + 1
+			&& i + 1 < statement.length && !lineTerminatorRegex.test(statement[i + 1])) {
+			return true
+		}
+		else if (lineTerminatorRegex.test(char)) {
+			question = -1
+		}
+	}
+	return false
+}
 const RESERVED_TEMPLATE_CONTEXT_ALIASES = new Map([
 	['class', '__dimina_reserved_class'],
 ])
@@ -1960,7 +1843,7 @@ function parseBraceExp(exp) {
 
 			if (matchResult) {
 				const statement = encodeReservedTemplateContextIdentifier(matchResult[1].trim())
-				if (ternaryRegex.test(statement)) {
+				if (hasTernaryPattern(statement)) {
 					// 三目表达式用 () 包裹，防止影响优先级
 					group.push(`(${statement})`)
 				}
@@ -2212,7 +2095,12 @@ function extractWxsDependencies(moduleCode) {
 	return dependencies
 }
 
-function insertWxsToRenderResult(code, scriptModule, scriptRes, filename = 'render.js', inputMap = null, templatePath = filename) {
+function getLocalWxsModules(scriptModule, templatePath) {
+	const ownerPath = templatePath.startsWith('/') ? templatePath : `/${templatePath}`
+	return scriptModule.filter(sm => sm.originalName && sm.templatePath === ownerPath)
+}
+
+function transformRender(code, localModules, filename, inputMap) {
 	const wxsBindings = []
 	const codeReplacements = []
 	const ast = parseJs(code, filename)
@@ -2221,13 +2109,6 @@ function insertWxsToRenderResult(code, scriptModule, scriptRes, filename = 'rend
 	const renderBody = renderExpression?.body
 	const declarations = []
 
-	for (const sm of scriptModule) {
-		if (!scriptRes.has(sm.path)) {
-			scriptRes.set(sm.path, sm.code)
-		}
-	}
-	const ownerPath = templatePath.startsWith('/') ? templatePath : `/${templatePath}`
-	const localModules = scriptModule.filter(sm => sm.originalName && sm.templatePath === ownerPath)
 	for (const [index, sm] of localModules.entries()) {
 
 		// 使用原始模块名作为模板中的属性名，唯一模块名作为 require 的参数
@@ -2241,15 +2122,6 @@ function insertWxsToRenderResult(code, scriptModule, scriptRes, filename = 'rend
 		})
 
 		declarations.push(`const ${localIdentifier} = require(${JSON.stringify(requireModuleName)});`)
-	}
-
-	if (wxsBindings.length > 0 && renderBody?.type === 'BlockStatement') {
-		codeReplacements.push({
-			type: 'insert',
-			start: renderBody.start + 1,
-			end: renderBody.start + 1,
-			value: `\n${declarations.join('\n')}`,
-		})
 	}
 
 	walk(ast, {
@@ -2283,6 +2155,14 @@ function insertWxsToRenderResult(code, scriptModule, scriptRes, filename = 'rend
 			}
 		},
 	})
+	if (declarations.length > 0 && renderBody?.type === 'BlockStatement') {
+		codeReplacements.push({
+			type: 'insert',
+			start: renderBody.start + 1,
+			end: renderBody.start + 1,
+			value: `\n${declarations.join('\n')}`,
+		})
+	}
 	if (codeReplacements.length === 0) {
 		return { code: getProgramCode(code, ast), map: inputMap }
 	}

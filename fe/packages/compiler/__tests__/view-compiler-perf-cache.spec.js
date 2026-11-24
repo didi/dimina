@@ -44,7 +44,7 @@ describe('templateRenderCache 命中路径 - 两页共享具名模板 + WXS 的�
 	const formatWxs = 'module.exports = { upper: function (value) { return value } }'
 	const pageWxml = [
 		'<import src="../../templates/card" />',
-		'<view><template is="card" /></view>',
+		'<view><template is="{{chosenCard}}" /></view>',
 		'<view>{{shared.expr.value}}</view>',
 		'',
 	].join('\n')
@@ -114,6 +114,13 @@ describe('templateRenderCache 命中路径 - 两页共享具名模板 + WXS 的�
 		)
 		expect(sharedExpressionParseCalls).toHaveLength(1)
 
+		// Vue codegen must emit the scope reference before the render is parsed for WXS.
+		for (const page of ['pages/one/index', 'pages/two/index']) {
+			const renderParses = perfCacheSpies.parseSyncCalls.filter(([filename]) => filename === page)
+			expect(renderParses).toHaveLength(1)
+			expect(renderParses[0][1]).toMatch(/"dimina-template-scope": __diminaTemplateScope\d+/)
+		}
+
 		// 依赖图对两页都记录了对共享模板文件的依赖，不因命中缓存而漏记
 		const graph = getDependencyGraph()
 		const affected = graph.getAffectedEntries(path.join(tempDir, 'templates/card.wxml'))
@@ -152,6 +159,13 @@ describe('templateRenderCache 命中路径 - 两页共享具名模板 + WXS 的�
 			// 仍必须回指共享模板自身的源文件与源码行，不能残留另一页的坐标
 			expect(position.source).toBe(cardSource)
 			expect(position.line).toBe(expectedSourceLine)
+
+			const templateCall = lines.findIndex(line => line.includes('_ctx.chosenCard'))
+			expect(templateCall).toBeGreaterThanOrEqual(0)
+			expect(consumer.originalPositionFor({
+				line: templateCall + 1,
+				column: lines[templateCall].indexOf('_ctx.chosenCard'),
+			})).toMatchObject({ source: `/pages/${pageName}/index.wxml`, line: 2 })
 		}
 	})
 })
