@@ -41,11 +41,13 @@ class PageStateTeardownReasonTest {
     }
 
     /** The brace-matched body of `fun [name]` in [source], or a failure if that declaration is gone. */
-    private fun bodyOf(source: String, name: String): String {
-        val signature = Regex("""\n\s*(?:private\s+)?(?:override\s+)?fun $name\(""").find(source)
-            ?: throw AssertionError("no `fun $name(` declaration left to check")
-        val open = source.indexOf('{', signature.range.last)
-        if (open < 0) throw AssertionError("no body found for `$name`")
+    private fun bodyOf(source: String, name: String): String =
+        blockAfter(source, Regex("""\n\s*(?:private\s+)?(?:override\s+)?fun $name\("""))
+
+    private fun blockAfter(source: String, header: Regex): String {
+        val match = header.find(source) ?: throw AssertionError("no block matching $header:\n$source")
+        val open = source.indexOf('{', match.range.last + 1)
+        if (open < 0) throw AssertionError("no body found for $header")
 
         var depth = 0
         for (i in open until source.length) {
@@ -54,7 +56,7 @@ class PageStateTeardownReasonTest {
                 '}' -> if (--depth == 0) return source.substring(open + 1, i)
             }
         }
-        throw AssertionError("unbalanced braces while reading the body of `$name`")
+        throw AssertionError("unbalanced braces while reading the body of $header")
     }
 
     @Test
@@ -110,10 +112,31 @@ class PageStateTeardownReasonTest {
     }
 
     @Test
+    fun `reLaunch releases the old stack in the same UI turn that requests the replacement`() {
+        val relaunch = bodyOf(activitySource, "relaunchStack")
+        val uiTurn = blockAfter(relaunch, Regex("""(?m)^\s*runOnUiThread[ \t]*(?=\{)"""))
+        val closeStack = Regex("""activityRegistry\.closeAll\(\s*miniProgram\.appId\s*\)\s*(?=\{)""")
+        val close = closeStack.find(uiTurn)
+        val launch = uiTurn.indexOf("DiminaActivity.launch(")
+        assertTrue(
+            "Request the replacement with the original task still alive and drain the old stack " +
+                "in that same UI turn, before the replacement Activity can be created:\n$uiTurn",
+            launch >= 0 && close != null && close.range.first > launch,
+        )
+
+        val closePage = blockAfter(uiTurn, closeStack)
+        val release = closePage.indexOf("activity.releasePageResources(PageStateTeardown.ROUTING)")
+        val finish = closePage.indexOf("activity.finish()")
+        assertTrue(
+            "Issue #404: enqueue each old page's onUnload before finish(), since Android may " +
+                "call onDestroy after the replacement page has loaded:\n$closePage",
+            release >= 0 && finish > release,
+        )
+    }
+
+    @Test
     fun `routing teardowns keep dispatching onUnload`() {
-        // The reverse mistake: stamping EXIT on a route would silently stop every navigateBack,
-        // reLaunch and switchTab from unloading its page. These three all reach onDestroy or
-        // Bridge.destroy through the routing default, so none of them may stamp EXIT.
+        // Stamping EXIT on a route would silently suppress onUnload for the departing pages.
         val relaunchStack = bodyOf(activitySource, "relaunchStack")
         assertFalse(
             "wx.reLaunch is a routing event - its pages must still receive onUnload. Found:\n$relaunchStack",

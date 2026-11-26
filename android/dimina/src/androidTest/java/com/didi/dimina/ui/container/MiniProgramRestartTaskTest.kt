@@ -12,7 +12,9 @@ import androidx.test.runner.lifecycle.Stage
 import com.didi.dimina.Dimina
 import com.didi.dimina.api.ui.LoadingTestActivity
 import com.didi.dimina.bean.MiniProgram
+import com.didi.dimina.core.JsCore
 import com.didi.dimina.core.MiniApp
+import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
@@ -53,6 +55,11 @@ class MiniProgramRestartTaskTest {
             ?.toString()?.toDoubleOrNull()?.toInt() ?: 0
     }.getOrDefault(0)
 
+    private fun pageEvents(core: JsCore): List<String> {
+        val events = JSONArray(core.evaluate("JSON.stringify(__restartProbe.pageEvents)").toString())
+        return List(events.length()) { events.getString(it) }
+    }
+
     @Test fun reLaunchKeepsIndependentTask() = verifyReplacement(true, false)
     @Test fun reenterKeepsIndependentTask() = verifyReplacement(true, true)
     @Test fun reLaunchKeepsHostTask() = verifyReplacement(false, false)
@@ -74,14 +81,33 @@ class MiniProgramRestartTaskTest {
             "main/app-config.json" to """{"app":{"pages":["pages/index/index"],"window":{"navigationBarTitleText":"$title"}},"modules":{"pages/index/index":{}}}""",
             "main/logic.js" to """
                 modDefine("app",function(){App({
-                  onLaunch(){globalThis.__restartProbe={launches:1,loads:0,hides:0,shows:[]}},
+                  onLaunch(){globalThis.__restartProbe={launches:1,loads:0,hides:0,shows:[],pageEvents:[],updates:0}},
                   onShow(o){__restartProbe.shows.push(JSON.parse(JSON.stringify(o)))},
                   onHide(){__restartProbe.hides++}
                 })});
-                modDefine("pages/index/index",function(){globalThis.__extraInfo={path:"pages/index/index",usingComponents:{}};Page({onLoad(options){
-                  __restartProbe.loads++;
-                  if(options.relaunch === "1") wx.reLaunch({url:"/pages/index/index"});
-                }})});
+                modDefine("pages/index/index",function(){
+                  globalThis.__extraInfo={path:"pages/index/index",usingComponents:{}};
+                  // Like Taro, instances of this route share a reference to the current page.
+                  let pageElement;
+                  Page({
+                    data:{count:0},
+                    onLoad(options){
+                      pageElement=this;
+                      this.probeId=options.probe||"initial";
+                      __restartProbe.pageEvents.push("load:"+this.probeId);
+                      __restartProbe.loads++;
+                      if(options.relaunch==="1") wx.reLaunch({url:"/pages/index/index?probe=first"});
+                    },
+                    onShow(){__restartProbe.pageEvents.push("show:"+this.probeId)},
+                    onUnload(){
+                      pageElement=null;
+                      __restartProbe.pageEvents.push("unload:"+this.probeId);
+                    },
+                    increment(){
+                      pageElement?.setData({count:pageElement.data.count+1},()=>{__restartProbe.updates++});
+                    }
+                  });
+                });
             """.trimIndent(),
             "main/pages_index_index.js" to """modDefine("pages/index/index",function(){Module({path:"pages/index/index",id:"restart-test",usingComponents:{},render:()=>_createBlock(_resolveComponent("dd-view"),{},{default:_withCtx(()=>[_createTextVNode("$title")]),_:1})})});""",
             "main/app.css" to "", "main/pages_index_index.css" to "",
@@ -112,6 +138,17 @@ class MiniProgramRestartTaskTest {
                 await("Initial page did not load") {
                     current() != null && loads() == if (initialReLaunch) 2 else 1
                 }
+                var rootProbe = if (initialReLaunch) "first" else "initial"
+                val initialCore = MiniApp.getInstance().peekJsCore(appId)!!
+                await("Initial root did not show") { "show:$rootProbe" in pageEvents(initialCore) }
+                if (initialReLaunch) {
+                    await("First page did not unload") { "unload:initial" in pageEvents(initialCore) }
+                    assertEquals(
+                        "reLaunch from onLoad must unload the original page before showing the replacement",
+                        listOf("load:initial", "unload:initial", "load:first", "show:first"),
+                        pageEvents(initialCore).filterNot { it == "show:initial" },
+                    )
+                }
                 if (multiTask) {
                     assertEquals("First-load reLaunch must keep the initial task", initialTaskId, current()!!.taskId)
                     assertEquals(tasksBeforeLaunch + initialTaskId!!,
@@ -122,15 +159,21 @@ class MiniProgramRestartTaskTest {
                 val taskIds = manager.appTasks.map { it.taskInfo.taskId }.toSet()
                 // First replace a root, then replace a deeper stack, then repeat a root replacement.
                 repeat(3) { cycle ->
+                    val oldRoot = current()!!
                     if (cycle == 1) {
-                        val root = current()!!
                         val beforeLoads = loads()
-                        MiniApp.getInstance().peekJsCore(appId)!!.evaluate("wx.navigateTo({url:'/pages/index/index?child=1'})")
-                        await("Child page did not load") { current()?.let { it !== root && !it.getMiniProgram().root } == true && loads() > beforeLoads }
+                        val core = MiniApp.getInstance().peekJsCore(appId)!!
+                        core.evaluate("wx.navigateTo({url:'/pages/index/index?probe=child'})")
+                        await("Child page did not show") {
+                            current()?.let { it !== oldRoot && !it.getMiniProgram().root } == true &&
+                                loads() > beforeLoads && "show:child" in pageEvents(core)
+                        }
                     }
                     val old = current()!!
                     val core = MiniApp.getInstance().peekJsCore(appId)!!
                     val beforeLoads = loads()
+                    val beforeEvents = pageEvents(core).size
+                    val newProbe = "replacement-$cycle"
                     var sourceWasFinishing: Boolean? = null
                     val monitor = object : Instrumentation.ActivityMonitor() {
                         override fun onStartActivity(intent: Intent): Instrumentation.ActivityResult? {
@@ -150,7 +193,7 @@ class MiniProgramRestartTaskTest {
                                 }.invoke(old)
                             }
                         } else {
-                            core.evaluate("wx.reLaunch({url:'/pages/index/index?cycle=$cycle'})")
+                            core.evaluate("wx.reLaunch({url:'/pages/index/index?probe=$newProbe'})")
                         }
                         await("Replacement page did not load") {
                             current()?.let { it !== old && it.getMiniProgram().root } == true &&
@@ -165,8 +208,27 @@ class MiniProgramRestartTaskTest {
                         manager.appTasks.map { it.taskInfo.taskId }.toSet())
                     assertEquals(1 + if (multiTask) 0 else 1,
                         manager.appTasks.single { it.taskInfo.taskId == taskId }.taskInfo.numActivities)
-                    if (cold) assertNotSame(core, MiniApp.getInstance().peekJsCore(appId))
-                    else assertSame(core, MiniApp.getInstance().peekJsCore(appId))
+                    if (cold) {
+                        assertNotSame(core, MiniApp.getInstance().peekJsCore(appId))
+                    } else {
+                        assertSame(core, MiniApp.getInstance().peekJsCore(appId))
+                        await("Old Activities did not finish or replacement did not show") {
+                            old.isDestroyed && oldRoot.isDestroyed && "show:$newProbe" in pageEvents(core)
+                        }
+                        val events = pageEvents(core).drop(beforeEvents)
+                        val expected = buildList {
+                            if (cycle == 1) add("unload:child")
+                            add("unload:$rootProbe")
+                            add("load:$newProbe")
+                            add("show:$newProbe")
+                        }
+                        assertEquals("Old pages must unload once, top to root, before replacement", expected, events)
+                        core.evaluate("getCurrentPages().at(-1).increment()")
+                        await("Replacement page setData did not complete") {
+                            core.evaluate("__restartProbe.updates === ${cycle + 1}").toString() == "true"
+                        }
+                        rootProbe = newProbe
+                    }
                     assertFalse("Shared host must survive replacement", host.isFinishing)
                 }
             } finally {

@@ -166,10 +166,10 @@ class RouteApi : BaseApiHandler() {
                     return ApiUtils.createErrorResponse(apiName, "URL cannot be empty")
                 }
 
-                activity.reLaunchTo(url)
-                AsyncResult(JSONObject().apply {
-                    put("errMsg", "$RE_LAUNCH:ok")
-                })
+                AsyncResult(
+                    value = JSONObject().put("errMsg", "$RE_LAUNCH:ok"),
+                    afterComplete = { activity.reLaunchTo(url) },
+                )
             }
 
             SWITCH_TAB -> {

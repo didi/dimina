@@ -1418,7 +1418,7 @@ class DiminaActivity : ComponentActivity() {
      * @param webView 初始化完成的WebView实例
      */
     private fun onWebViewReady(webView: WebView) {
-        if (destroyedByHost) {
+        if (destroyedByHost || pageResourcesReleased) {
             WebViewCacheManager.evictAndDestroy(listOf(webView))
             return
         }
@@ -1446,7 +1446,7 @@ class DiminaActivity : ComponentActivity() {
     }
 
     private fun onTabWebViewReady(index: Int, webView: WebView) {
-        if (destroyedByHost) {
+        if (destroyedByHost || pageResourcesReleased) {
             WebViewCacheManager.evictAndDestroy(listOf(webView))
             return
         }
@@ -1605,7 +1605,13 @@ class DiminaActivity : ComponentActivity() {
             miniApp.removeBridge(miniProgram.appId, cBridge)?.destroy(reason = reason)
         }
         bridge = null
-        tabPageStates.values.forEach { it.bridge = null }
+        pageReadyCallback = null
+        webViewReadyCallbacks.clear()
+        tabPageStates.values.forEach { state ->
+            state.bridge = null
+            state.pageReadyCallback = null
+            state.webViewReadyCallbacks.clear()
+        }
 
         clearAllNativeComponents()
         nativeComponentHost = null
@@ -2205,14 +2211,20 @@ class DiminaActivity : ComponentActivity() {
      * 共享同一 DiminaActivity 类的下层实例，所以改用 activityRegistry 精确关栈
      */
     private fun relaunchStack(url: String) {
-        if (isFinishing || isDestroyed) return
-        activityRegistry.snapshot(miniProgram.appId).forEach { activity ->
-            activity.preserveMiniAppOnDestroy = true
+        runOnUiThread {
+            if (isFinishing || isDestroyed) return@runOnUiThread
+            // Request the replacement while the source still belongs to a live task. Its
+            // onCreate runs after this UI turn, so old pageUnload messages reach the shared
+            // service queue before the replacement can enqueue its first page messages.
+            DiminaActivity.launch(this, miniProgram.copy(root = true, path = url))
+            activityRegistry.closeAll(miniProgram.appId) { activity ->
+                activity.preserveMiniAppOnDestroy = true
+                activity.initializationJob?.cancel()
+                activity.getActiveBridge()?.pageHide()
+                activity.releasePageResources(PageStateTeardown.ROUTING)
+                activity.finish()
+            }
         }
-        // Keep the source task alive until its replacement root has been launched.
-        // No NEW_TASK/CLEAR_TOP flags: shared host tasks and other apps must survive.
-        DiminaActivity.launch(this, miniProgram.copy(root = true, path = url))
-        activityRegistry.closeAll(miniProgram.appId) { it.finish() }
     }
 
     /**
