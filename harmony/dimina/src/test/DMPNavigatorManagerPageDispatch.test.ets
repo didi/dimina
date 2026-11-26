@@ -13,6 +13,8 @@ class FakePageLifecycle implements DMPPageLifecycleLike {
   onHide(webviewId: number): void {
     this.hiddenWebViewIds.push(webviewId)
   }
+
+  onUnload(_webviewId: number): void {}
 }
 
 export default function dmpNavigatorManagerPageDispatchTest() {

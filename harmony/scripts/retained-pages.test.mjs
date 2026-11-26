@@ -10,7 +10,7 @@ const require = createRequire(new URL('../../fe/packages/compiler/package.json',
 const { transformSync } = require('esbuild')
 const sourceRoot = new URL('../dimina/src/main/ets/', import.meta.url)
 
-function load(name, dependencies = {}, clock = {}) {
+function load(name, dependencies = {}, clock = {}, { mockUnusedImports = false } = {}) {
   const source = fs.readFileSync(new URL(name, sourceRoot), 'utf8')
   const { code } = transformSync(source, { loader: 'ts', format: 'cjs', target: 'es2022' })
   const module = { exports: {} }
@@ -21,12 +21,14 @@ function load(name, dependencies = {}, clock = {}) {
     ...clock,
     exports: module.exports,
     require: name => {
-      assert.ok(name in dependencies, `Unexpected runtime dependency: ${name}`)
-      return dependencies[name]
+      assert.ok(mockUnusedImports || name in dependencies, `Unexpected runtime dependency: ${name}`)
+      return dependencies[name] ?? {}
     },
   })
   return module.exports
 }
+
+const teardown = load('Navigator/DMPPageStateTeardown.ets')
 
 function fixture() {
   const popped = []
@@ -49,9 +51,12 @@ function fixture() {
     '../EventTrack/DMPLogger': { DMPLogger: { d() {}, i() {}, e() {} } },
     '../EventTrack/Tags': { Tags: {} },
     '../DPages/DMPPageLifecycle': { DMPPageLifecycle: class {} },
+    './DMPPageStateTeardown': teardown,
     './DRouter': { DRouter: { getInstance: () => router } },
   })
-  const manager = new DMPNavigatorManager(null, { onShow() {}, onHide() {} })
+  const manager = new DMPNavigatorManager(null, {
+    onShow() {}, onHide() {}, onUnload() { assert.fail('App exit must not dispatch pageUnload') },
+  })
   const records = [1, 2].map(webViewId => ({
     appIndex: 7, webViewId, ownsRouterEntry: true, retainsNativeView: false,
     webViewNodeController: { dispose() { disposed.push(webViewId) } },
@@ -88,11 +93,12 @@ test('hide/resume retains page identities and restores ordered route ownership',
 
 test('destroying a retained app releases its nodes without popping the foreground app', () => {
   const f = fixture()
+  f.manager.registerTabPageRecord({ webViewId: 3, webViewNodeController: { dispose: () => f.disposed.push(3) } })
   f.manager.hidePresentation()
   f.popped.length = 0
-  f.manager.closeAllNavigators('exit')
+  f.manager.closeAllNavigators(teardown.DMPPageStateTeardown.Exit)
   assert.deepEqual(f.popped, [])
-  assert.deepEqual(f.disposed, [2, 1])
+  assert.deepEqual(f.disposed, [2, 1, 3])
   assert.equal(f.manager.getPageRecordById(1), undefined)
   assert.equal(f.manager.isRetainedInBackground, false)
 })
@@ -122,6 +128,105 @@ test('rejects host-managed pages before notifying hide or detaching routes', () 
   assert.equal(f.manager.isRetainedInBackground, false)
   assert.deepEqual(f.popped, [])
 })
+
+function relaunchFixture() {
+  const unloads = []
+  const disposals = []
+  const nativePops = []
+  const pendingLaunches = []
+  const router = {
+    pop: () => nativePops.push(1),
+    popEntries: count => nativePops.push(count),
+  }
+  class RecordingPageLifecycle {
+    onShow() {}
+    onHide() {}
+    onUnload(id) { unloads.push(id) }
+  }
+  const launchConfig = load('DApp/config/DMPLaunchConfig.ets')
+  const deps = {
+    '../EventTrack/DMPLogger': { DMPLogger: { d() {}, i() {}, e() {} } },
+    '../EventTrack/Tags': { Tags: {} },
+    '../Utils/DMPStack': load('Utils/DMPStack.ets'),
+    '../DPages/DMPPageLifecycle': { DMPPageLifecycle: RecordingPageLifecycle },
+    './DRouter': { DRouter: { getInstance: () => router } },
+    './DMPPageStateTeardown': teardown,
+  }
+  const { DMPNavigator } = load('Navigator/DMPNavigator.ets', {
+    ...deps,
+    './DMPPageRecord': { DMPPageRecord: { shouldPopRouter: owns => owns !== false } },
+    '../DApp/config/DMPLaunchConfig': launchConfig,
+    '../DPages/DMPPageStyle': {},
+    '../Utils/DMPMap': {},
+    '../Bridges/DMPTSUtil': {},
+    '@kit.ArkUI': {},
+    '../DPages/DMPPage': {},
+  })
+  const { DMPNavigatorManager } = load('Navigator/DMPNavigatorManager.ets', deps)
+  // Skip unrelated DMPApp dependencies because the fixture does not construct the app.
+  const { DMPApp } = load('DApp/DMPApp.ets', {
+    ...deps,
+    './config/DMPLaunchConfig': launchConfig,
+    '../Navigator/DMPPageStateTeardown': teardown,
+  }, { setTimeout: run => pendingLaunches.push(run) }, { mockUnusedImports: true })
+  // Use the real route methods with no constructor-owned Worker or ArkUI view.
+  const app = Object.create(DMPApp.prototype)
+  app._container = { isNavigating: false }
+  const manager = new DMPNavigatorManager(null, new RecordingPageLifecycle())
+  app._navigatorManager = manager
+  app.startMainService = async () => {}
+  function record(webViewId, ownsRouterEntry = true) {
+    return { webViewId, ownsRouterEntry, webViewNodeController: { dispose: () => disposals.push(webViewId) } }
+  }
+  function mount(records, config = { appEntryPath: 'pages/tab-a/index' }) {
+    const navigator = new DMPNavigator(app)
+    manager.pushNavigator({
+      getNavigator: () => navigator,
+      getPageCount: () => navigator.pageCount(),
+      getLaunchConfig: () => config,
+      navigateBack: (...args) => navigator.navigateBack(...args),
+    })
+    records.forEach(record => {
+      navigator.stacks.push(record)
+      manager.pushGlobalPageRecord(record)
+    })
+  }
+  return { app, manager, record, mount, unloads, disposals, nativePops, pendingLaunches }
+}
+
+for (const route of ['single navigator', 'two navigators', 'host-mounted root']) {
+  test(`reLaunch clears all loaded tabs before replacing the ${route}`, async () => {
+    const f = relaunchFixture()
+    const hostMounted = route === 'host-mounted root'
+    const rootConfig = { appEntryPath: 'pages/tab-a/index', customLaunchPageCallBack: hostMounted ? () => {} : undefined }
+    const root = f.record(11, !hostMounted)
+    const detail = f.record(14)
+    f.mount(route === 'single navigator' ? [root, detail] : [root], rootConfig)
+    if (route === 'two navigators') f.mount([detail])
+    f.manager.registerTabPageRecord(f.record(12))
+    f.manager.registerTabPageRecord(f.record(13))
+    f.manager.setCurrentTabWebViewId(12)
+    f.manager.retainedTabState = { selectedIndex: 1 }
+
+    const expected = hostMounted ? [11, 12, 13] : [14, 11, 12, 13]
+    let replacementRequested = false
+    f.app.launch = ({ appEntryPath }) => {
+      replacementRequested = true
+      assert.equal(appEntryPath, 'pages/tab-a/index')
+      assert.deepEqual(f.unloads, expected)
+      assert.deepEqual(f.disposals, expected)
+      assert.ok(f.manager.isEmpty())
+      assert.equal(f.manager.getCurrentTabWebViewId(), -1)
+      assert.equal(f.manager.retainedTabState, undefined)
+      expected.forEach(id => assert.equal(f.manager.getPageRecordById(id), undefined))
+    }
+    f.app.reLaunch()
+    assert.equal(f.pendingLaunches.length, 1)
+    assert.deepEqual(f.nativePops, hostMounted ? [] : [1, 1])
+    await f.pendingLaunches[0]()
+    assert.ok(replacementRequested)
+  })
+}
 
 
 function appManagerFixture(clock = {}) {

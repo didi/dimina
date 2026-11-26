@@ -11,6 +11,8 @@ export interface DMPPageLifecycleLike {
   onShow(webviewId: number): void
 
   onHide(webviewId: number): void
+
+  onUnload(webviewId: number): void
 }
 
 export class DMPPageLifecycle implements DMPPageLifecycleLike {

@@ -258,10 +258,10 @@ export class DMPNavigator {
         delta = this._stacks.size();
       }
       for (let i = 0; i < delta; i++) {
-        this.pageLifecycle.onUnload(this.app.currentWebViewId)
-        // 弹路由前先看账本顶部记录是否真的占了 NavPathStack 槽位（见
-        // DMPPageRecord.shouldPopRouter）；popPageRecord() 会立刻把它从账本弹掉，须先取
-        if (DMPPageRecord.shouldPopRouter(this._stacks.peek()?.ownsRouterEntry)) {
+        // 当前显示的 Tab 可能不在栈里。用本次实际弹出的记录派发卸载。
+        const record = this._stacks.peek()!
+        this.pageLifecycle.onUnload(record.webViewId)
+        if (DMPPageRecord.shouldPopRouter(record.ownsRouterEntry)) {
           DRouter.getInstance().pop(animated)
         }
         this.popPageRecord()
@@ -273,12 +273,15 @@ export class DMPNavigator {
       // 该记录要么从未进入 NavPathStack（customLaunchPageCallBack），要么是靠 replace
       // 复用下层已有槽位（Insert），两种情况都不需要（也不能）在此额外弹一次路由帧
       if (isReLaunch && this._stacks.size() > 0) {
-        this.pageLifecycle.onUnload(this.app.currentWebViewId)
+        this.pageLifecycle.onUnload(this._stacks.peek()!.webViewId)
         this.popPageRecord()
       }
       //销毁这个navigator
       if (this._stacks.size() < 1) {
         this.app.navigatorManager.popNavigator()
+        if (isReLaunch && this.app.navigatorManager.isEmpty()) {
+          this.app.navigatorManager.clear(DMPPageStateTeardown.Routing)
+        }
       }
       this.app.navigatorManager.notifyPopListener()
       if (canDestroy && !this.app.appConfig.isKeepAlive) {
@@ -321,7 +324,7 @@ export class DMPNavigator {
     const unloadPages = dispatchesPageUnload(reason)
     for (let i = 0; i < pageCount; i++) {
       if (unloadPages) {
-        this.pageLifecycle.onUnload(this.app.currentWebViewId)
+        this.pageLifecycle.onUnload(this._stacks.peek()!.webViewId)
       }
       this.popPageRecord()
     }

@@ -7,7 +7,7 @@ import { DMPStack } from '../Utils/DMPStack';
 import { DMPNavigatorDelegate } from './DMPNavigatorDelegate';
 import { DMPPageRecord } from './DMPPageRecord';
 import { DMPPageLifecycle, DMPPageLifecycleLike } from '../DPages/DMPPageLifecycle';
-import { DMPPageStateTeardown } from './DMPPageStateTeardown';
+import { dispatchesPageUnload, DMPPageStateTeardown } from './DMPPageStateTeardown';
 import { DRouter } from './DRouter';
 
 export type PopListener = (destroyRecord?: DMPPageRecord, currentRecord?: DMPPageRecord) => void;
@@ -189,9 +189,11 @@ export class DMPNavigatorManager {
     return this._navigatorDelegateStack.isEmpty()
   }
 
-  //只有退出和重启会调用
-  clear() {
+  clear(reason: DMPPageStateTeardown = DMPPageStateTeardown.Exit) {
+    const unloadPages = dispatchesPageUnload(reason)
     this.webViewIdAndPageRecordMaps.forEach((record: DMPPageRecord) => {
+      // 已弹栈的页面已从映射中移除，此处处理剩余的懒加载 Tab。
+      if (unloadPages) this.pageLifecycle.onUnload(record.webViewId)
       record.retainsNativeView = false
       record.webViewNodeController.dispose()
     })
@@ -222,7 +224,7 @@ export class DMPNavigatorManager {
     while (!this._navigatorDelegateStack.isEmpty()) {
       this.popNavigator()
     }
-    this.clear()
+    this.clear(reason)
     this.notifyPopListener()
   }
 
