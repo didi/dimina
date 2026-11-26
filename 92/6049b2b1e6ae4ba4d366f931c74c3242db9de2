@@ -1,0 +1,29 @@
+android/gradle/wrapper/gradle-wrapper.properties
+  9b795954902f019b 3-8
+android/gradlew.bat
+  9b795954902f019b 16-17,19,22,26-27,30-31,46,48-52,54,62-66,68,75-78,80-82
+android/gradlew
+  9b795954902f019b 1,4,18-19,22-64,68,70-82,85-89,92,96,103,110-114,123,125,134-137,141,145-160,163-169,172-176,178-187,189-197,202-246
+harmony/scripts/retained-pages.test.mjs
+  9b795954902f019b 13,24-25,31-32,54,57-59,96,99,101,132-229
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "926049b2b1e6ae4ba4d366f931c74c3242db9de2",
+  "prompts": {
+    "9b795954902f019b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a2166b-0746-7ae2-a50e-116b26b50b79",
+        "model": "gpt-6.2-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 401,
+      "total_deletions": 154,
+      "accepted_lines": 373,
+      "overriden_lines": 0
+    }
+  }
+}
