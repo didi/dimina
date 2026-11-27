@@ -89,8 +89,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Install native SDK build dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libdbus-1-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev
+          # These packages come from the runner's Ubuntu archive.
+          apt_sources=(-o Dir::Etc::sourcelist=/etc/apt/sources.list.d/ubuntu.sources -o Dir::Etc::sourceparts=-)
+          sudo apt-get "${apt_sources[@]}" update
+          sudo apt-get "${apt_sources[@]}" install -y libdbus-1-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev
       - name: Prepare versions and test release tooling
         run: |
           python3 -m unittest discover -s desktop/scripts/tests -p 'test_*.py'
@@ -162,8 +164,10 @@ jobs:
       - name: Install Linux runtime build dependencies
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libdbus-1-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev
+          # These packages come from the runner's Ubuntu archive.
+          apt_sources=(-o Dir::Etc::sourcelist=/etc/apt/sources.list.d/ubuntu.sources -o Dir::Etc::sourceparts=-)
+          sudo apt-get "${apt_sources[@]}" update
+          sudo apt-get "${apt_sources[@]}" install -y libdbus-1-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev
       - name: Prepare release versions
         run: python3 desktop/scripts/release.py prepare --tag "$RELEASE_TAG"
       - name: Install frontend dependencies

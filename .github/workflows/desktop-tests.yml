@@ -86,8 +86,10 @@ jobs:
       - name: Install Linux system libraries and Qt
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libdbus-1-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev qt6-base-dev
+          # These packages come from the runner's Ubuntu archive.
+          apt_sources=(-o Dir::Etc::sourcelist=/etc/apt/sources.list.d/ubuntu.sources -o Dir::Etc::sourceparts=-)
+          sudo apt-get "${apt_sources[@]}" update
+          sudo apt-get "${apt_sources[@]}" install -y libdbus-1-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev qt6-base-dev
       - name: Install Qt on Windows and macOS
         if: runner.os != 'Linux'
         uses: jurplel/install-qt-action@v4
