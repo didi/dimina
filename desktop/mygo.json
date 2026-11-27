@@ -2,7 +2,7 @@
   "name": "Dimina Desktop",
   "slug": "dimina-desktop",
   "identifier": "com.didi.dimina.desktop",
-  "version": "1.9.1",
+  "version": "1.9.2",
   "out": "build",
   "macos": {
     "infoPlist": {

@@ -1,6 +1,6 @@
 [package]
 name = "tauri-plugin-dimina"
-version = "1.9.1"
+version = "1.9.2"
 edition = "2021"
 license = "Apache-2.0"
 description = "Standalone Dimina mini-program windows for Tauri 2 hosts"

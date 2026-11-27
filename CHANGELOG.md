@@ -1,5 +1,19 @@
 # Changelog
 
+## [v1.9.2] 2026-11-27
+
+### 修复
+
+- 修复 Android 上 `wx.reLaunch` 的回调和页面生命周期时序，确保先返回成功回调，再卸载旧页面并初始化目标页。重启过程中会释放旧页面资源，避免迟到的 WebView 回调重新绑定到已卸载页面（#404）。
+- 修复 HarmonyOS 上多页返回和 `wx.reLaunch` 的 `onUnload` 派发，按实际出栈页面触发，并在重启时卸载已加载的旧 Tab 页面（#404）。
+- 更新 Android Gradle Wrapper 的下载配置，使用官方 Gradle 9.6.1 分发包并校验 SHA-256。
+- Android、HarmonyOS 使用的 QuickJS 更新到上游提交 `25197744030a9659b5a6e6f861ae78981b5fce07`，纳入上游数组分配溢出检查等修复，并同步更新调试器和 HarmonyOS 桥接补丁。
+
+### 兼容性
+
+- Android、iOS、HarmonyOS、Web 容器与 Desktop SDK 统一升级到 `1.9.2`。高德地图可选适配器与核心 SDK 使用相同版本。
+- 编译器为 `1.3.3`，内置 JSSDK 为 `1.0.80`。
+
 ## [v1.9.1] 2026-11-24
 
 ### 优化与修复
