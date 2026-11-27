@@ -1,0 +1,25 @@
+.github/workflows/desktop-release.yml
+  d29709618b84b7fa 92-95,167-170
+.github/workflows/desktop-tests.yml
+  d29709618b84b7fa 89-92
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "d5e462e11c7d2e9a57d7fd7ef3ca345e0c2d1d06",
+  "prompts": {
+    "d29709618b84b7fa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a21b9f-bf74-7221-952b-1bba6d7c7358",
+        "model": "gpt-6.2-sol"
+      },
+      "human_author": "doslin",
+      "messages": [],
+      "total_additions": 12,
+      "total_deletions": 6,
+      "accepted_lines": 17,
+      "overriden_lines": 0
+    }
+  }
+}
